@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import json
-import ssl
 import os
 import re
 import socket
-from ipaddress import ip_address
+import ssl
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from ipaddress import ip_address
 from typing import Any, Iterable, Mapping
 
 
@@ -19,10 +22,44 @@ BRILLIANT_DIRECTORIES_PROVIDER_KEY = "brilliant_directories"
 BRILLIANT_DIRECTORIES_CONTRACT_NAME = "propertyquarry.brilliant_directories_projection.v1"
 BRILLIANT_DIRECTORIES_VERIFICATION_CONTRACT_NAME = "propertyquarry.brilliant_directories_provider_verification.v1"
 BRILLIANT_DIRECTORIES_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+BRILLIANT_DIRECTORIES_BILLING_SSO_BRIDGE_TOKEN_TTL_SECONDS = 300
 BRILLIANT_DIRECTORIES_WHITE_LABEL_BLOCKLIST = ("brilliantdirectories", "brilliant-directories")
 BRILLIANT_DIRECTORIES_DNS_OVER_HTTPS_ENDPOINTS = (
     "https://cloudflare-dns.com/dns-query",
     "https://dns.google/resolve",
+)
+BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_LENGTH = 32
+BRILLIANT_DIRECTORIES_MEMBER_LOGIN_ALLOWED_QUERY_KEYS = frozenset(
+    {
+        "property[]",
+        "property_value[]",
+        "limit",
+    }
+)
+BRILLIANT_DIRECTORIES_MEMBER_CREATE_ALLOWED_FIELDS = frozenset(
+    {
+        "email",
+        "password",
+        "token",
+        "first_name",
+        "last_name",
+        "active",
+    }
+)
+BRILLIANT_DIRECTORIES_MEMBER_UPDATE_ALLOWED_FIELDS = frozenset(
+    {
+        "user_id",
+        "token",
+        "first_name",
+        "last_name",
+        "active",
+    }
+)
+BRILLIANT_DIRECTORIES_PLACEHOLDER_PRICING_TOKENS = (
+    ("choose a plan, sign up, and you", "stock_plan_hero"),
+    ("membership plan benefit", "stock_membership_benefit"),
+    ("this is a frequently asked question", "stock_faq_copy"),
+    ("click to join", "stock_cta"),
 )
 
 
@@ -200,6 +237,25 @@ def _billing_handoff_probe_error(*, status_code: int, requires_login: bool, clou
         return f"billing_handoff_http_{status_code}"
     return "billing_handoff_probe_failed"
 
+
+def _billing_handoff_allowed_redirect_hosts() -> tuple[str, ...]:
+    return _split_csv(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS") or "")
+
+
+def _billing_handoff_follow_redirect_url(current_url: str, redirect_location: str) -> str:
+    next_url = urllib.parse.urljoin(str(current_url or "").strip(), str(redirect_location or "").strip())
+    parsed = urllib.parse.urlparse(next_url)
+    host = str(parsed.hostname or "").strip().lower()
+    if parsed.scheme != "https" or not host:
+        return ""
+    allowed_hosts = _billing_handoff_allowed_redirect_hosts()
+    current_host = str(urllib.parse.urlparse(str(current_url or "").strip()).hostname or "").strip().lower()
+    if host == current_host:
+        return next_url
+    if allowed_hosts and host in allowed_hosts:
+        return next_url
+    return ""
+
 BRILLIANT_DIRECTORIES_PUBLIC_PROFILE_FIELDS = frozenset(
     {
         "profile_id",
@@ -296,6 +352,22 @@ def _safe_white_label_handoff_url(raw_url: str, *, allowed_hosts: tuple[str, ...
     if any(marker in host for marker in BRILLIANT_DIRECTORIES_WHITE_LABEL_BLOCKLIST):
         return ""
     return normalized
+
+
+def _principal_email_hint(principal_id: str) -> str:
+    normalized = str(principal_id or "").strip()
+    if normalized.startswith("cf-email:"):
+        candidate = normalized.partition(":")[2].strip().lower()
+        if "@" in candidate:
+            return candidate
+    return ""
+
+
+def _display_name_from_email(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    local = normalized.split("@", 1)[0] if "@" in normalized else normalized
+    parts = [part for part in re.split(r"[._+-]+", local) if part]
+    return " ".join(part[:1].upper() + part[1:] for part in parts)
 
 
 def _sha256_short(value: str) -> str:
@@ -471,9 +543,15 @@ def brilliant_directories_billing_handoff_url(config: BrilliantDirectoriesConfig
 
 def brilliant_directories_billing_handoff_urls(config: BrilliantDirectoriesConfig | None = None) -> tuple[str, ...]:
     resolved_config = config
+    allowed_hosts: tuple[str, ...] = ()
     if resolved_config is None:
-        resolved_config = load_brilliant_directories_config()
-    allowed_hosts = tuple(resolved_config.allowed_hosts)
+        try:
+            resolved_config = load_brilliant_directories_config()
+        except BrilliantDirectoriesApiError:
+            resolved_config = None
+            allowed_hosts = _split_csv(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS") or "")
+    if resolved_config is not None:
+        allowed_hosts = tuple(resolved_config.allowed_hosts)
     if not allowed_hosts:
         return ()
 
@@ -494,6 +572,709 @@ def brilliant_directories_billing_handoff_urls(config: BrilliantDirectoriesConfi
     ):
         add_candidate(raw_url)
     return tuple(urls)
+
+
+def brilliant_directories_billing_sso_bridge_enabled() -> bool:
+    return _env_flag("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED")
+
+
+def brilliant_directories_member_login_token_enabled() -> bool:
+    return _env_flag("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED")
+
+
+def brilliant_directories_billing_sso_bridge_secret() -> str:
+    return str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET") or "").strip()
+
+
+def brilliant_directories_member_login_token_secret() -> str:
+    return str(
+        os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET")
+        or brilliant_directories_billing_sso_bridge_secret()
+        or ""
+    ).strip()
+
+
+def _billing_sso_bridge_allowed_hosts(
+    config: BrilliantDirectoriesConfig | None = None,
+) -> tuple[str, ...]:
+    explicit_hosts = _split_csv(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ALLOWED_HOSTS") or "")
+    if explicit_hosts:
+        return explicit_hosts
+    resolved_config = config
+    if resolved_config is None:
+        try:
+            resolved_config = load_brilliant_directories_config()
+        except BrilliantDirectoriesApiError:
+            resolved_config = None
+    if resolved_config is not None and resolved_config.allowed_hosts:
+        return tuple(resolved_config.allowed_hosts)
+    return _split_csv(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS") or "")
+
+
+def brilliant_directories_billing_sso_bridge_url(
+    config: BrilliantDirectoriesConfig | None = None,
+) -> str:
+    allowed_hosts = _billing_sso_bridge_allowed_hosts(config)
+    if not allowed_hosts:
+        return ""
+    raw_url = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL") or "").strip()
+    return _safe_public_url(raw_url, allowed_hosts=allowed_hosts)
+
+
+def _bridge_host_resolution_receipt(
+    bridge_url: str,
+    *,
+    resolver: object | None = None,
+) -> dict[str, object]:
+    parsed = urllib.parse.urlparse(bridge_url)
+    host = str(parsed.hostname or "").strip().lower()
+    if not bridge_url:
+        return {
+            "url": "",
+            "host": "",
+            "host_resolves": False,
+            "error": "billing_sso_bridge_url_missing",
+            "next_action": "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL to an HTTPS allowlisted bridge endpoint",
+        }
+    if not host:
+        return {
+            "url": bridge_url,
+            "host": "",
+            "host_resolves": False,
+            "error": "billing_sso_bridge_host_missing",
+            "next_action": "replace PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL with an HTTPS URL containing a host",
+        }
+    resolve = resolver or socket.getaddrinfo
+    try:
+        resolve(host, 443)
+        return {
+            "url": bridge_url,
+            "host": host,
+            "host_resolves": True,
+            "error": "",
+            "next_action": "keep the bridge endpoint on an allowlisted HTTPS host and verify that it exchanges the signed token for a billing session",
+            "resolution_source": "local_resolver",
+        }
+    except OSError as exc:
+        local_error = f"billing_sso_bridge_host_unresolved:{exc.__class__.__name__}"
+        public_dns = {} if resolver is not None else _public_dns_handoff_receipt(host=host, dns_target="")
+        host_resolves = bool(public_dns.get("host_resolves"))
+        return {
+            "url": bridge_url,
+            "host": host,
+            "host_resolves": host_resolves,
+            "error": "" if host_resolves else local_error,
+            "next_action": (
+                "keep the bridge endpoint on an allowlisted HTTPS host and verify that it exchanges the signed token for a billing session"
+                if host_resolves
+                else f"create DNS for {host} before enabling the Brilliant Directories billing bridge"
+            ),
+            "resolution_source": "public_dns_over_https" if host_resolves else "local_resolver",
+            "local_resolver_error": local_error,
+            "public_dns": public_dns,
+        }
+
+
+def build_brilliant_directories_billing_sso_bridge_receipt(
+    *,
+    resolver: object | None = None,
+    config: BrilliantDirectoriesConfig | None = None,
+) -> dict[str, object]:
+    enabled = brilliant_directories_billing_sso_bridge_enabled()
+    allowed_hosts = _billing_sso_bridge_allowed_hosts(config)
+    bridge_url = brilliant_directories_billing_sso_bridge_url(config)
+    secret = brilliant_directories_billing_sso_bridge_secret()
+    secret_configured = bool(secret)
+    if not enabled:
+        return {
+            "enabled": False,
+            "configured": False,
+            "ready": False,
+            "url": bridge_url,
+            "host": str(urllib.parse.urlparse(bridge_url).hostname or "").strip().lower(),
+            "host_resolves": False,
+            "allowed_hosts": list(allowed_hosts),
+            "secret_configured": secret_configured,
+            "secret_fingerprint": _sha256_short(secret),
+            "token_ttl_seconds": BRILLIANT_DIRECTORIES_BILLING_SSO_BRIDGE_TOKEN_TTL_SECONDS,
+            "error": "",
+            "next_action": "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED=1 and configure the bridge URL and secret before using a billing-session bridge",
+        }
+    if not allowed_hosts:
+        return {
+            "enabled": True,
+            "configured": False,
+            "ready": False,
+            "url": bridge_url,
+            "host": str(urllib.parse.urlparse(bridge_url).hostname or "").strip().lower(),
+            "host_resolves": False,
+            "allowed_hosts": [],
+            "secret_configured": secret_configured,
+            "secret_fingerprint": _sha256_short(secret),
+            "token_ttl_seconds": BRILLIANT_DIRECTORIES_BILLING_SSO_BRIDGE_TOKEN_TTL_SECONDS,
+            "error": "billing_sso_bridge_allowed_hosts_missing",
+            "next_action": "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ALLOWED_HOSTS or reuse PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS",
+        }
+    if not bridge_url:
+        raw_url = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL") or "").strip()
+        return {
+            "enabled": True,
+            "configured": False,
+            "ready": False,
+            "url": raw_url,
+            "host": str(urllib.parse.urlparse(raw_url).hostname or "").strip().lower(),
+            "host_resolves": False,
+            "allowed_hosts": list(allowed_hosts),
+            "secret_configured": secret_configured,
+            "secret_fingerprint": _sha256_short(secret),
+            "token_ttl_seconds": BRILLIANT_DIRECTORIES_BILLING_SSO_BRIDGE_TOKEN_TTL_SECONDS,
+            "error": "billing_sso_bridge_url_invalid",
+            "next_action": "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL to an HTTPS URL on an allowlisted host",
+        }
+    resolution = _bridge_host_resolution_receipt(bridge_url, resolver=resolver)
+    error = str(resolution.get("error") or "").strip()
+    if not secret_configured and not error:
+        error = "billing_sso_bridge_secret_missing"
+    ready = bool(secret_configured and resolution.get("host_resolves") and not error)
+    return {
+        "enabled": True,
+        "configured": True,
+        "ready": ready,
+        "url": bridge_url,
+        "host": str(resolution.get("host") or "").strip().lower(),
+        "host_resolves": bool(resolution.get("host_resolves")),
+        "allowed_hosts": list(allowed_hosts),
+        "secret_configured": secret_configured,
+        "secret_fingerprint": _sha256_short(secret),
+        "token_ttl_seconds": BRILLIANT_DIRECTORIES_BILLING_SSO_BRIDGE_TOKEN_TTL_SECONDS,
+        "error": error,
+        "next_action": (
+            "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET before enabling the billing-session bridge"
+            if error == "billing_sso_bridge_secret_missing"
+            else str(resolution.get("next_action") or "")
+        ),
+        "resolution_source": resolution.get("resolution_source"),
+        "local_resolver_error": resolution.get("local_resolver_error"),
+        "public_dns": resolution.get("public_dns"),
+    }
+
+
+def build_brilliant_directories_member_login_token_receipt(
+    *,
+    config: BrilliantDirectoriesConfig | None = None,
+) -> dict[str, object]:
+    enabled = brilliant_directories_member_login_token_enabled()
+    resolved_config = config
+    config_error = ""
+    if resolved_config is None:
+        try:
+            resolved_config = load_brilliant_directories_config()
+        except BrilliantDirectoriesApiError as exc:
+            config_error = str(exc)
+            resolved_config = BrilliantDirectoriesConfig(
+                enabled=False,
+                base_url="",
+                host="",
+                allowed_hosts=_split_csv(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS") or ""),
+                api_key_header=str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER") or "X-Api-Key").strip()
+                or "X-Api-Key",
+                api_key="",
+            )
+    handoff_url = brilliant_directories_billing_handoff_url(resolved_config)
+    secret = brilliant_directories_member_login_token_secret()
+    if not enabled:
+        return {
+            "enabled": False,
+            "configured": False,
+            "ready": False,
+            "url": handoff_url,
+            "host": str(urllib.parse.urlparse(handoff_url).hostname or "").strip().lower(),
+            "secret_configured": bool(secret),
+            "secret_fingerprint": _sha256_short(secret),
+            "error": "",
+            "next_action": "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED=1 before using a member-session handoff",
+        }
+    error = ""
+    if config_error:
+        error = config_error
+    elif not resolved_config.configured:
+        error = "brilliant_directories_not_configured"
+    elif not handoff_url:
+        error = "billing_handoff_url_missing"
+    elif not secret:
+        error = "billing_member_login_token_secret_missing"
+    return {
+        "enabled": True,
+        "configured": not bool(error),
+        "ready": not bool(error),
+        "url": handoff_url,
+        "host": str(urllib.parse.urlparse(handoff_url).hostname or "").strip().lower(),
+        "secret_configured": bool(secret),
+        "secret_fingerprint": _sha256_short(secret),
+        "error": error,
+        "next_action": (
+            "configure the Brilliant Directories API client and billing handoff URL before using a member-session handoff"
+            if error in {"brilliant_directories_not_configured", "brilliant_directories_base_url_missing", "brilliant_directories_api_key_missing", "brilliant_directories_allowed_hosts_missing", "billing_handoff_url_missing"}
+            else (
+                "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET or PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET before using a member-session handoff"
+                if error == "billing_member_login_token_secret_missing"
+                else ""
+            )
+        ),
+    }
+
+
+def _urlsafe_b64encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _urlsafe_b64decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(f"{value}{padding}".encode("ascii"))
+
+
+def _propertyquarry_public_base_url() -> str:
+    raw = (
+        os.getenv("PROPERTY_PUBLIC_BASE_URL")
+        or os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL")
+        or "https://propertyquarry.com"
+    )
+    parsed = urllib.parse.urlparse(str(raw or "").strip())
+    if parsed.scheme == "https" and parsed.netloc:
+        return urllib.parse.urlunparse(("https", parsed.netloc, "", "", "", "")).rstrip("/")
+    return "https://propertyquarry.com"
+
+
+def _safe_bridge_return_to(return_to: str, bridge_url: str = "", public_base_url: str = "") -> str:
+    default_value = "/app/account"
+    raw = str(return_to or "").strip()
+    if not raw:
+        return default_value
+    parsed = urllib.parse.urlparse(raw)
+    property_origin = _propertyquarry_public_base_url()
+    if public_base_url:
+        parsed_property_origin = urllib.parse.urlparse(str(public_base_url or "").strip())
+        if parsed_property_origin.scheme == "https" and parsed_property_origin.netloc:
+            property_origin = urllib.parse.urlunparse(
+                ("https", parsed_property_origin.netloc, "", "", "", "")
+            ).rstrip("/")
+    if parsed.scheme or parsed.netloc:
+        property_host = str(urllib.parse.urlparse(property_origin).hostname or "").strip().lower()
+        if parsed.scheme != "https" or str(parsed.hostname or "").strip().lower() != property_host:
+            return default_value
+        if not parsed.path.startswith("/"):
+            return default_value
+        return urllib.parse.urlunparse(("", "", parsed.path, "", parsed.query, ""))
+    path = parsed.path or default_value
+    if not path.startswith("/") or path.startswith("//"):
+        return default_value
+    return urllib.parse.urlunparse(("", "", path, "", parsed.query, ""))
+
+
+def _billing_sso_bridge_payload(
+    *,
+    principal_id: str,
+    access_email: str = "",
+    return_to: str = "",
+    issued_at: int | None = None,
+    bridge_url: str = "",
+    public_base_url: str = "",
+) -> dict[str, object]:
+    issued_epoch = int(issued_at if issued_at is not None else time.time())
+    normalized_public_base_url = _propertyquarry_public_base_url()
+    if public_base_url:
+        parsed = urllib.parse.urlparse(str(public_base_url or "").strip())
+        if parsed.scheme == "https" and parsed.netloc:
+            normalized_public_base_url = urllib.parse.urlunparse(("https", parsed.netloc, "", "", "", "")).rstrip("/")
+    return {
+        "aud": "propertyquarry.billing_sso_bridge",
+        "iss": "propertyquarry.com",
+        "principal_id": str(principal_id or "").strip(),
+        "access_email": str(access_email or "").strip().lower(),
+        "return_to_origin": normalized_public_base_url,
+        "return_to": _safe_bridge_return_to(return_to, bridge_url, normalized_public_base_url),
+        "issued_at": issued_epoch,
+        "expires_at": issued_epoch + BRILLIANT_DIRECTORIES_BILLING_SSO_BRIDGE_TOKEN_TTL_SECONDS,
+    }
+
+
+def sign_brilliant_directories_billing_sso_bridge_token(
+    *,
+    principal_id: str,
+    access_email: str = "",
+    return_to: str = "",
+    issued_at: int | None = None,
+    secret: str | None = None,
+    bridge_url: str | None = None,
+    public_base_url: str | None = None,
+) -> str:
+    signing_secret = str(secret if secret is not None else brilliant_directories_billing_sso_bridge_secret()).strip()
+    if not signing_secret:
+        raise RuntimeError("billing_sso_bridge_secret_missing")
+    resolved_bridge_url = str(bridge_url if bridge_url is not None else brilliant_directories_billing_sso_bridge_url()).strip()
+    payload = _billing_sso_bridge_payload(
+        principal_id=principal_id,
+        access_email=access_email,
+        return_to=return_to,
+        issued_at=issued_at,
+        bridge_url=resolved_bridge_url,
+        public_base_url=str(public_base_url or _propertyquarry_public_base_url()).strip(),
+    )
+    encoded = _urlsafe_b64encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    signature = _urlsafe_b64encode(
+        hmac.new(signing_secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+    )
+    return f"{encoded}.{signature}"
+
+
+def verify_brilliant_directories_billing_sso_bridge_token(
+    token: str,
+    *,
+    now: int | None = None,
+    secret: str | None = None,
+) -> dict[str, object]:
+    signing_secret = str(secret if secret is not None else brilliant_directories_billing_sso_bridge_secret()).strip()
+    if not signing_secret:
+        raise RuntimeError("billing_sso_bridge_secret_missing")
+    raw = str(token or "").strip()
+    if "." not in raw:
+        raise RuntimeError("billing_sso_bridge_token_invalid")
+    encoded, signature = raw.split(".", 1)
+    expected_signature = _urlsafe_b64encode(
+        hmac.new(signing_secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+    )
+    if not hmac.compare_digest(signature, expected_signature):
+        raise RuntimeError("billing_sso_bridge_token_signature_invalid")
+    try:
+        payload = json.loads(_urlsafe_b64decode(encoded).decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError("billing_sso_bridge_token_invalid") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("billing_sso_bridge_token_invalid")
+    if str(payload.get("aud") or "").strip() != "propertyquarry.billing_sso_bridge":
+        raise RuntimeError("billing_sso_bridge_token_audience_invalid")
+    expires_at = int(payload.get("expires_at") or 0)
+    current_time = int(now if now is not None else time.time())
+    if expires_at <= current_time:
+        raise RuntimeError("billing_sso_bridge_token_expired")
+    raw_return_to_origin = str(payload.get("return_to_origin") or "").strip()
+    payload["return_to_origin"] = _propertyquarry_public_base_url()
+    parsed_return_to_origin = urllib.parse.urlparse(raw_return_to_origin)
+    if parsed_return_to_origin.scheme == "https" and parsed_return_to_origin.netloc:
+        payload["return_to_origin"] = urllib.parse.urlunparse(
+            ("https", parsed_return_to_origin.netloc, "", "", "", "")
+        ).rstrip("/")
+    payload["return_to"] = _safe_bridge_return_to(
+        str(payload.get("return_to") or ""),
+        public_base_url=str(payload.get("return_to_origin") or ""),
+    )
+    return payload
+
+
+def build_brilliant_directories_billing_sso_bridge_launch_url(
+    *,
+    principal_id: str,
+    access_email: str = "",
+    return_to: str = "",
+    bridge_url: str | None = None,
+    issued_at: int | None = None,
+    public_base_url: str | None = None,
+) -> str:
+    resolved_bridge_url = str(bridge_url if bridge_url is not None else brilliant_directories_billing_sso_bridge_url()).strip()
+    if not resolved_bridge_url:
+        raise RuntimeError("billing_sso_bridge_url_missing")
+    token = sign_brilliant_directories_billing_sso_bridge_token(
+        principal_id=principal_id,
+        access_email=access_email,
+        return_to=return_to,
+        issued_at=issued_at,
+        bridge_url=resolved_bridge_url,
+        public_base_url=public_base_url,
+    )
+    parsed = urllib.parse.urlparse(resolved_bridge_url)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    query.append(("pq_bridge", token))
+    query.append(("source", "propertyquarry"))
+    return urllib.parse.urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path or "/",
+            parsed.params,
+            urllib.parse.urlencode(query),
+            parsed.fragment,
+        )
+    )
+
+
+def _build_brilliant_directories_member_private_api_request(
+    config: BrilliantDirectoriesConfig,
+    method: str,
+    suffix: str,
+    *,
+    payload: dict[str, object] | None = None,
+    allowed_payload_fields: frozenset[str] | None = None,
+    query: dict[str, object] | None = None,
+    allowed_query_fields: frozenset[str] | None = None,
+) -> BrilliantDirectoriesApiRequest:
+    if not config.configured:
+        raise BrilliantDirectoriesApiError(503, "brilliant_directories_not_configured")
+    url = f"{config.base_url}{_brilliant_directories_api_v2_path(config, suffix)}"
+    safe_query: dict[str, object] = {}
+    for key, value in dict(query or {}).items():
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            continue
+        if allowed_query_fields is not None and normalized_key not in allowed_query_fields:
+            raise BrilliantDirectoriesApiError(400, f"brilliant_directories_member_query_field_not_allowed:{normalized_key}")
+        if value is None or value == "":
+            continue
+        safe_query[normalized_key] = value
+    if safe_query:
+        url = f"{url}?{urllib.parse.urlencode(safe_query, doseq=True)}"
+    safe_payload: dict[str, object] = {}
+    for key, value in dict(payload or {}).items():
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            continue
+        if allowed_payload_fields is not None and normalized_key not in allowed_payload_fields:
+            raise BrilliantDirectoriesApiError(400, f"brilliant_directories_member_payload_field_not_allowed:{normalized_key}")
+        if value is None or value == "":
+            continue
+        if normalized_key == "email":
+            normalized_value = str(value or "").strip().lower()
+            if "@" not in normalized_value:
+                raise BrilliantDirectoriesApiError(400, "brilliant_directories_member_email_invalid")
+            safe_payload[normalized_key] = normalized_value
+        elif normalized_key == "token":
+            normalized_value = str(value or "").strip()
+            if not re.fullmatch(r"[A-Za-z0-9]{32,96}", normalized_value):
+                raise BrilliantDirectoriesApiError(400, "brilliant_directories_member_token_invalid")
+            safe_payload[normalized_key] = normalized_value
+        else:
+            safe_payload[normalized_key] = _string(value, max_length=500)
+    body = urllib.parse.urlencode(_flatten_form_payload(safe_payload), doseq=True).encode("utf-8") if safe_payload else None
+    headers = {
+        "Accept": "application/json",
+        config.api_key_header: config.api_key,
+        "User-Agent": "PropertyQuarry-BrilliantDirectoriesMemberHandoff/1.0",
+    }
+    if body is not None:
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+    return BrilliantDirectoriesApiRequest(
+        method=str(method or "GET").strip().upper() or "GET",
+        url=url,
+        headers=headers,
+        body=body,
+    )
+
+
+def build_brilliant_directories_member_lookup_request(
+    config: BrilliantDirectoriesConfig,
+    *,
+    email: str,
+) -> BrilliantDirectoriesApiRequest:
+    normalized_email = str(email or "").strip().lower()
+    if "@" not in normalized_email:
+        raise BrilliantDirectoriesApiError(400, "brilliant_directories_member_email_invalid")
+    return _build_brilliant_directories_member_private_api_request(
+        config,
+        "GET",
+        "user/get",
+        query={
+            "property[]": ["email"],
+            "property_value[]": [normalized_email],
+            "limit": 1,
+        },
+        allowed_query_fields=BRILLIANT_DIRECTORIES_MEMBER_LOGIN_ALLOWED_QUERY_KEYS,
+    )
+
+
+def build_brilliant_directories_member_create_request(
+    config: BrilliantDirectoriesConfig,
+    *,
+    email: str,
+    password: str,
+    token: str,
+    first_name: str = "",
+    last_name: str = "",
+    active: str = "",
+) -> BrilliantDirectoriesApiRequest:
+    return _build_brilliant_directories_member_private_api_request(
+        config,
+        "POST",
+        "user/create",
+        payload={
+            "email": str(email or "").strip().lower(),
+            "password": str(password or "").strip(),
+            "token": str(token or "").strip(),
+            "first_name": str(first_name or "").strip(),
+            "last_name": str(last_name or "").strip(),
+            "active": str(active or "").strip(),
+        },
+        allowed_payload_fields=BRILLIANT_DIRECTORIES_MEMBER_CREATE_ALLOWED_FIELDS,
+    )
+
+
+def build_brilliant_directories_member_update_request(
+    config: BrilliantDirectoriesConfig,
+    *,
+    user_id: str,
+    token: str,
+    first_name: str = "",
+    last_name: str = "",
+    active: str = "",
+) -> BrilliantDirectoriesApiRequest:
+    normalized_user_id = _string(user_id, max_length=96)
+    if not normalized_user_id:
+        raise BrilliantDirectoriesApiError(400, "brilliant_directories_member_user_id_missing")
+    return _build_brilliant_directories_member_private_api_request(
+        config,
+        "POST",
+        "user/update",
+        payload={
+            "user_id": normalized_user_id,
+            "token": str(token or "").strip(),
+            "first_name": str(first_name or "").strip(),
+            "last_name": str(last_name or "").strip(),
+            "active": str(active or "").strip(),
+        },
+        allowed_payload_fields=BRILLIANT_DIRECTORIES_MEMBER_UPDATE_ALLOWED_FIELDS,
+    )
+
+
+def _brilliant_directories_member_rows_from_payload(payload: dict[str, object]) -> list[dict[str, object]]:
+    rows = payload.get("message")
+    if rows is None:
+        rows = payload.get("data")
+    if isinstance(rows, dict):
+        rows = [rows]
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _brilliant_directories_member_login_token_for_email(email: str, *, secret: str) -> str:
+    normalized_email = str(email or "").strip().lower()
+    digest = hmac.new(
+        secret.encode("utf-8"),
+        normalized_email.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return digest[:BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_LENGTH]
+
+
+def _brilliant_directories_member_password_for_email(email: str, *, secret: str) -> str:
+    normalized_email = str(email or "").strip().lower()
+    digest = hmac.new(
+        secret.encode("utf-8"),
+        f"password:{normalized_email}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"Pq{digest[:28]}Aa9"
+
+
+def _brilliant_directories_member_name_parts(display_name: str, email: str) -> tuple[str, str]:
+    normalized_display_name = " ".join(str(display_name or "").strip().split())
+    if not normalized_display_name:
+        normalized_display_name = _display_name_from_email(email)
+    if not normalized_display_name:
+        return "", ""
+    parts = normalized_display_name.split()
+    if len(parts) == 1:
+        return parts[0][:70], ""
+    return parts[0][:70], " ".join(parts[1:])[:70]
+
+
+def build_brilliant_directories_member_login_token_url(
+    *,
+    token: str,
+    config: BrilliantDirectoriesConfig | None = None,
+    account_path: str = "/account",
+) -> str:
+    normalized_token = str(token or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9]{32,96}", normalized_token):
+        raise RuntimeError("billing_member_login_token_invalid")
+    resolved_config = config or load_brilliant_directories_config()
+    handoff_url = brilliant_directories_billing_handoff_url(resolved_config)
+    parsed = urllib.parse.urlparse(handoff_url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise RuntimeError("billing_handoff_url_missing")
+    normalized_account_path = "/" + str(account_path or "").strip().lstrip("/")
+    if normalized_account_path.startswith("//"):
+        normalized_account_path = "/account"
+    return urllib.parse.urlunparse(
+        (
+            "https",
+            parsed.netloc,
+            f"/login/token/{urllib.parse.quote(normalized_token, safe='')}{normalized_account_path}",
+            "",
+            "",
+            "",
+        )
+    )
+
+
+def build_brilliant_directories_member_login_token_handoff_url(
+    *,
+    principal_id: str,
+    access_email: str = "",
+    display_name: str = "",
+    config: BrilliantDirectoriesConfig | None = None,
+    timeout_seconds: float = 30.0,
+    opener: object | None = None,
+) -> str:
+    readiness = build_brilliant_directories_member_login_token_receipt(config=config)
+    if not readiness.get("ready"):
+        raise RuntimeError(str(readiness.get("error") or "billing_member_login_token_not_ready"))
+    resolved_config = config or load_brilliant_directories_config()
+    resolved_email = str(access_email or "").strip().lower() or _principal_email_hint(principal_id)
+    if "@" not in resolved_email:
+        raise RuntimeError("billing_member_login_email_missing")
+    secret = brilliant_directories_member_login_token_secret()
+    if not secret:
+        raise RuntimeError("billing_member_login_token_secret_missing")
+    token = _brilliant_directories_member_login_token_for_email(resolved_email, secret=secret)
+    password = _brilliant_directories_member_password_for_email(resolved_email, secret=secret)
+    first_name, last_name = _brilliant_directories_member_name_parts(display_name, resolved_email)
+    lookup_payload = execute_brilliant_directories_api_request(
+        build_brilliant_directories_member_lookup_request(resolved_config, email=resolved_email),
+        timeout_seconds=timeout_seconds,
+        opener=opener,
+    )
+    rows = _brilliant_directories_member_rows_from_payload(lookup_payload)
+    if rows:
+        user_id = _string(rows[0].get("user_id") or rows[0].get("id"), max_length=96)
+        if not user_id:
+            raise RuntimeError("billing_member_login_user_id_missing")
+        execute_brilliant_directories_api_request(
+            build_brilliant_directories_member_update_request(
+                resolved_config,
+                user_id=user_id,
+                token=token,
+                first_name=first_name,
+                last_name=last_name,
+            ),
+            timeout_seconds=timeout_seconds,
+            opener=opener,
+        )
+    else:
+        execute_brilliant_directories_api_request(
+            build_brilliant_directories_member_create_request(
+                resolved_config,
+                email=resolved_email,
+                password=password,
+                token=token,
+                first_name=first_name,
+                last_name=last_name,
+            ),
+            timeout_seconds=timeout_seconds,
+            opener=opener,
+        )
+    return build_brilliant_directories_member_login_token_url(
+        token=token,
+        config=resolved_config,
+    )
 
 
 def build_brilliant_directories_billing_handoff_receipt(
@@ -604,7 +1385,12 @@ def _billing_handoff_dns_receipt(
     }
 
 
-def _billing_handoff_account_probe(handoff_url: str, *, timeout_seconds: float = 5.0) -> dict[str, object]:
+def _billing_handoff_account_probe(
+    handoff_url: str,
+    *,
+    timeout_seconds: float = 5.0,
+    _visited_urls: tuple[str, ...] = (),
+) -> dict[str, object]:
     parsed = urllib.parse.urlparse(str(handoff_url or "").strip())
     if parsed.scheme != "https" or not parsed.hostname:
         return {
@@ -612,6 +1398,71 @@ def _billing_handoff_account_probe(handoff_url: str, *, timeout_seconds: float =
             "account_handoff_status_code": 0,
             "account_handoff_error": "billing_handoff_url_not_https",
         }
+
+    def _result(
+        *,
+        status_code: int,
+        redirect_location: str,
+        body: str,
+        cloudflare_error_code: str = "",
+    ) -> dict[str, object]:
+        login_target = redirect_location or urllib.parse.urlparse(handoff_url).path
+        requires_login = _is_login_probe(login_target, body)
+        usable = 200 <= status_code < 400 and not requires_login and not cloudflare_error_code
+        base = {
+            "account_handoff_usable": usable,
+            "account_handoff_status_code": status_code,
+            "account_handoff_redirect_location": redirect_location,
+            "account_handoff_error": "" if usable else _billing_handoff_probe_error(
+                status_code=status_code,
+                requires_login=requires_login,
+                cloudflare_error_code=cloudflare_error_code,
+            ),
+            "account_handoff_warning": "",
+        }
+        if not redirect_location:
+            return base
+        if not usable:
+            return {
+                **base,
+                "account_handoff_redirect_chain": [urllib.parse.urljoin(handoff_url, redirect_location)],
+            }
+        if len(_visited_urls) >= 2:
+            return {
+                **base,
+                "account_handoff_usable": False,
+                "account_handoff_error": "billing_handoff_too_many_redirects",
+            }
+        next_url = _billing_handoff_follow_redirect_url(handoff_url, redirect_location)
+        if not next_url:
+            return {**base, "account_handoff_redirect_chain": [urllib.parse.urljoin(handoff_url, redirect_location)]}
+        if next_url in _visited_urls:
+            return {
+                **base,
+                "account_handoff_usable": False,
+                "account_handoff_error": "billing_handoff_redirect_loop",
+                "account_handoff_redirect_chain": [next_url],
+            }
+        downstream = _billing_handoff_account_probe(
+            next_url,
+            timeout_seconds=timeout_seconds,
+            _visited_urls=(*_visited_urls, handoff_url),
+        )
+        redirect_chain = [next_url, *list(downstream.get("account_handoff_redirect_chain") or [])]
+        if downstream.get("account_handoff_usable") is False:
+            return {
+                "account_handoff_usable": False,
+                "account_handoff_status_code": int(downstream.get("account_handoff_status_code") or status_code),
+                "account_handoff_redirect_location": str(downstream.get("account_handoff_redirect_location") or redirect_location),
+                "account_handoff_error": str(downstream.get("account_handoff_error") or "billing_handoff_requires_separate_login"),
+                "account_handoff_warning": "",
+                "account_handoff_redirect_chain": redirect_chain,
+            }
+        return {
+            **downstream,
+            "account_handoff_redirect_chain": redirect_chain,
+        }
+
     request = urllib.request.Request(
         handoff_url,
         headers={
@@ -619,7 +1470,10 @@ def _billing_handoff_account_probe(handoff_url: str, *, timeout_seconds: float =
             "User-Agent": "PropertyQuarryBillingHandoffVerifier/1.0",
         },
     )
-    opener = urllib.request.build_opener(_BrilliantDirectoriesNoRedirectHandler())
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(),
+        _BrilliantDirectoriesNoRedirectHandler(),
+    )
     status_code = 0
     redirect_location = ""
     body = ""
@@ -635,25 +1489,17 @@ def _billing_handoff_account_probe(handoff_url: str, *, timeout_seconds: float =
             body = exc.read(16_384).decode("utf-8", errors="replace").lower()
         except Exception:
             body = ""
-        login_target = redirect_location or urllib.parse.urlparse(handoff_url).path
-        requires_login = _is_login_probe(login_target, body)
         cloudflare_error_code = (
             _cloudflare_error_code(body)
-            if status_code == 403 and "cloudflare" in server_header and not requires_login
+            if status_code == 403 and "cloudflare" in server_header and not _is_login_probe(redirect_location or urllib.parse.urlparse(handoff_url).path, body)
             else ""
         )
-        usable = 200 <= status_code < 400 and not requires_login and not cloudflare_error_code
-        return {
-            "account_handoff_usable": usable,
-            "account_handoff_status_code": status_code,
-            "account_handoff_redirect_location": redirect_location,
-            "account_handoff_error": "" if usable else _billing_handoff_probe_error(
-                status_code=status_code,
-                requires_login=requires_login,
-                cloudflare_error_code=cloudflare_error_code,
-            ),
-            "account_handoff_warning": "",
-        }
+        return _result(
+            status_code=status_code,
+            redirect_location=redirect_location,
+            body=body,
+            cloudflare_error_code=cloudflare_error_code,
+        )
     except Exception as exc:
         public_addresses = _resolve_host_with_public_dns(parsed.hostname or "")
         if public_addresses:
@@ -666,23 +1512,15 @@ def _billing_handoff_account_probe(handoff_url: str, *, timeout_seconds: float =
             redirect_location = str(public_probe.get("redirect_location") or "").strip()
             body = str(public_probe.get("body") or "").strip().lower()
             if status_code > 0:
-                login_target = redirect_location or urllib.parse.urlparse(handoff_url).path
-                requires_login = _is_login_probe(login_target, body)
                 cloudflare_error_code = str(public_probe.get("cloudflare_error_code") or "").strip()
                 if not cloudflare_error_code and bool(public_probe.get("cloudflare_transport_error")):
                     cloudflare_error_code = _cloudflare_error_code(body)
-                usable = 200 <= status_code < 400 and not requires_login and not cloudflare_error_code
-                return {
-                    "account_handoff_usable": usable,
-                    "account_handoff_status_code": status_code,
-                    "account_handoff_redirect_location": redirect_location,
-                    "account_handoff_error": "" if usable else _billing_handoff_probe_error(
-                        status_code=status_code,
-                        requires_login=requires_login,
-                        cloudflare_error_code=cloudflare_error_code,
-                    ),
-                    "account_handoff_warning": "",
-                }
+                return _result(
+                    status_code=status_code,
+                    redirect_location=redirect_location,
+                    body=body,
+                    cloudflare_error_code=cloudflare_error_code,
+                )
             return {
                 "account_handoff_usable": False,
                 "account_handoff_status_code": 0,
@@ -693,20 +1531,224 @@ def _billing_handoff_account_probe(handoff_url: str, *, timeout_seconds: float =
             "account_handoff_status_code": 0,
             "account_handoff_error": f"billing_handoff_probe_failed:{type(exc).__name__}",
         }
-    login_target = redirect_location or urllib.parse.urlparse(handoff_url).path
-    requires_login = _is_login_probe(login_target, body)
-    cloudflare_error_code = _cloudflare_error_code(body) if status_code == 403 and not requires_login else ""
-    usable = 200 <= status_code < 400 and not requires_login and not cloudflare_error_code
+    cloudflare_error_code = _cloudflare_error_code(body) if status_code == 403 and not _is_login_probe(redirect_location or urllib.parse.urlparse(handoff_url).path, body) else ""
+    return _result(
+        status_code=status_code,
+        redirect_location=redirect_location,
+        body=body,
+        cloudflare_error_code=cloudflare_error_code,
+    )
+
+
+def _billing_handoff_login_probe_url(account_probe: Mapping[str, object]) -> str:
+    redirect_chain = [str(item or "").strip() for item in list(account_probe.get("account_handoff_redirect_chain") or [])]
+    for candidate in reversed(redirect_chain):
+        if "/login" in candidate.lower():
+            return candidate
+    redirect_location = str(account_probe.get("account_handoff_redirect_location") or "").strip()
+    if "/login" in redirect_location.lower():
+        return redirect_location
+    return ""
+
+
+def _billing_handoff_pricing_surface_url(handoff_url: str) -> str:
+    normalized_handoff_url = str(handoff_url or "").strip()
+    parsed = urllib.parse.urlparse(normalized_handoff_url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        return ""
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "/join", "", "", ""))
+
+
+def _billing_handoff_login_form_probe(
+    login_url: str,
+    *,
+    timeout_seconds: float = 5.0,
+) -> dict[str, object]:
+    normalized_login_url = str(login_url or "").strip()
+    parsed = urllib.parse.urlparse(normalized_login_url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        return {
+            "login_url": normalized_login_url,
+            "configured": False,
+            "recaptcha_required": False,
+            "error": "billing_handoff_login_url_not_https",
+        }
+    request_headers = {
+        "Accept": "text/html,application/json,*/*",
+        "User-Agent": "PropertyQuarryBillingLoginProbe/1.0",
+    }
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(),
+        _BrilliantDirectoriesNoRedirectHandler(),
+    )
+    try:
+        with opener.open(urllib.request.Request(normalized_login_url, headers=request_headers), timeout=timeout_seconds) as response:
+            login_page = response.read(128_000).decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        login_page = exc.read(128_000).decode("utf-8", errors="replace")
+    except Exception as exc:
+        return {
+            "login_url": normalized_login_url,
+            "configured": False,
+            "recaptcha_required": False,
+            "error": f"billing_handoff_login_probe_failed:{type(exc).__name__}",
+        }
+
+    login_page_lower = login_page.lower()
+    form_match = re.search(
+        r'<form[^>]+action="([^"]+)"[^>]*>(.*?)</form>',
+        login_page,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not form_match:
+        return {
+            "login_url": normalized_login_url,
+            "configured": False,
+            "recaptcha_required": "g-recaptcha" in login_page_lower,
+            "error": "billing_handoff_login_form_missing",
+        }
+
+    form_action_url = urllib.parse.urljoin(normalized_login_url, str(form_match.group(1) or "").strip())
+    form_body = str(form_match.group(2) or "")
+    payload_items: list[tuple[str, str]] = []
+    field_names: set[str] = set()
+    for input_match in re.finditer(r"<input[^>]*>", form_body, flags=re.IGNORECASE | re.DOTALL):
+        input_tag = str(input_match.group(0) or "")
+        name_match = re.search(r"""\bname=(["'])(.*?)\1""", input_tag, flags=re.IGNORECASE | re.DOTALL)
+        value_match = re.search(r"""\bvalue=(["'])(.*?)\1""", input_tag, flags=re.IGNORECASE | re.DOTALL)
+        name = str(name_match.group(2) or "").strip() if name_match else ""
+        if not name:
+            continue
+        field_names.add(name)
+        if name in {"email", "pass", "password"}:
+            continue
+        payload_items.append((name, str(value_match.group(2) or "").strip() if value_match else ""))
+    password_field = "pass" if "pass" in field_names else ("password" if "password" in field_names else "")
+    if "email" not in field_names or not password_field:
+        return {
+            "login_url": normalized_login_url,
+            "login_form_url": form_action_url,
+            "configured": False,
+            "recaptcha_required": "g-recaptcha" in login_page_lower or "recaptcha" in field_names,
+            "error": "billing_handoff_login_form_fields_missing",
+        }
+
+    payload_items.append(("email", "propertyquarry-billing-probe@example.com"))
+    payload_items.append((password_field, "invalid-login-probe"))
+    if "recaptcha" in field_names:
+        payload_items.append(("recaptcha", ""))
+    request_body = urllib.parse.urlencode(payload_items).encode("utf-8")
+    submit_headers = {
+        **request_headers,
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "Origin": f"{parsed.scheme}://{parsed.netloc}",
+        "Referer": normalized_login_url,
+    }
+    try:
+        with opener.open(
+            urllib.request.Request(form_action_url, data=request_body, headers=submit_headers, method="POST"),
+            timeout=timeout_seconds,
+        ) as response:
+            response_text = response.read(16_384).decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        response_text = exc.read(16_384).decode("utf-8", errors="replace")
+    except Exception as exc:
+        return {
+            "login_url": normalized_login_url,
+            "login_form_url": form_action_url,
+            "configured": True,
+            "recaptcha_required": "g-recaptcha" in login_page_lower or "recaptcha" in field_names,
+            "error": f"billing_handoff_login_submit_failed:{type(exc).__name__}",
+        }
+
+    try:
+        payload = json.loads(response_text)
+    except json.JSONDecodeError:
+        payload = {}
+    message = str(payload.get("message") or "").strip()
+    normalized_message = message.lower()
+    recaptcha_required = "invalid recaptcha response or setup" in normalized_message
+    error = ""
+    if recaptcha_required:
+        error = "billing_handoff_login_recaptcha_required"
+    elif payload.get("result") in {False, "error"}:
+        error = "billing_handoff_login_invalid_credentials"
+    elif not payload:
+        error = "billing_handoff_login_probe_unclassified"
     return {
-        "account_handoff_usable": usable,
-        "account_handoff_status_code": status_code,
-        "account_handoff_redirect_location": redirect_location,
-        "account_handoff_error": "" if usable else _billing_handoff_probe_error(
-            status_code=status_code,
-            requires_login=requires_login,
-            cloudflare_error_code=cloudflare_error_code,
-        ),
-        "account_handoff_warning": "",
+        "login_url": normalized_login_url,
+        "login_form_url": form_action_url,
+        "configured": True,
+        "recaptcha_required": recaptcha_required,
+        "error": error,
+        "message": message,
+    }
+
+
+def _billing_handoff_pricing_surface_probe(
+    pricing_url: str,
+    *,
+    timeout_seconds: float = 5.0,
+) -> dict[str, object]:
+    normalized_pricing_url = str(pricing_url or "").strip()
+    parsed = urllib.parse.urlparse(normalized_pricing_url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        return {
+            "pricing_url": normalized_pricing_url,
+            "configured": False,
+            "placeholder": False,
+            "error": "billing_pricing_surface_url_not_https",
+        }
+    request_headers = {
+        "Accept": "text/html,application/json,*/*",
+        "User-Agent": "PropertyQuarryBillingPricingProbe/1.0",
+    }
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(),
+        _BrilliantDirectoriesNoRedirectHandler(),
+    )
+    status_code = 0
+    try:
+        with opener.open(urllib.request.Request(normalized_pricing_url, headers=request_headers), timeout=timeout_seconds) as response:
+            status_code = int(response.status)
+            pricing_page = response.read(128_000).decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code)
+        pricing_page = exc.read(128_000).decode("utf-8", errors="replace")
+    except Exception as exc:
+        return {
+            "pricing_url": normalized_pricing_url,
+            "configured": False,
+            "placeholder": False,
+            "error": f"billing_pricing_surface_probe_failed:{type(exc).__name__}",
+        }
+
+    pricing_page_lower = pricing_page.lower()
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", pricing_page, flags=re.IGNORECASE | re.DOTALL)
+    title = " ".join(str(title_match.group(1) or "").split()) if title_match else ""
+    placeholder_hits = [
+        label
+        for token, label in BRILLIANT_DIRECTORIES_PLACEHOLDER_PRICING_TOKENS
+        if token in pricing_page_lower
+    ]
+    if "plan 1" in pricing_page_lower and "plan 2" in pricing_page_lower and "plan 3" in pricing_page_lower:
+        placeholder_hits.append("stock_plan_numbering")
+    placeholder_hits = sorted(set(placeholder_hits))
+    placeholder = len(placeholder_hits) >= 2
+    error = ""
+    if status_code >= 400:
+        error = f"billing_pricing_surface_http_{status_code}"
+    elif placeholder:
+        error = "billing_pricing_surface_placeholder"
+    return {
+        "pricing_url": normalized_pricing_url,
+        "configured": True,
+        "status_code": status_code,
+        "placeholder": placeholder,
+        "placeholder_hits": placeholder_hits,
+        "error": error,
+        "title": title,
     }
 
 
@@ -1207,19 +2249,94 @@ def build_brilliant_directories_verification_receipt(*, billing_handoff_resolver
     handoff_url = ""
     if not error:
         handoff_url = brilliant_directories_billing_handoff_url(config)
+    billing_sso_bridge = build_brilliant_directories_billing_sso_bridge_receipt(
+        resolver=billing_handoff_resolver,
+        config=config,
+    )
+    member_login_token_handoff = build_brilliant_directories_member_login_token_receipt(config=config)
     billing_handoff = build_brilliant_directories_billing_handoff_receipt(
         handoff_url,
         resolver=billing_handoff_resolver,
     )
+    direct_handoff_blocked = (
+        billing_handoff.get("configured") is True
+        and billing_handoff.get("host_resolves") is True
+        and billing_handoff.get("account_handoff_usable") is False
+    )
+    login_recaptcha_required = False
+    pricing_placeholder = False
     if billing_handoff["configured"] and (
         not billing_handoff["host_resolves"]
-        or billing_handoff.get("account_handoff_usable") is False
+        or (
+            billing_handoff.get("account_handoff_usable") is False
+            and member_login_token_handoff.get("ready") is not True
+            and billing_sso_bridge.get("ready") is not True
+        )
     ):
         status = "blocked"
         error = str(
             billing_handoff.get("error")
             or billing_handoff.get("account_handoff_error")
             or "billing_handoff_host_unresolved"
+        )
+    if direct_handoff_blocked:
+        login_probe_url = _billing_handoff_login_probe_url(billing_handoff)
+        if login_probe_url:
+            login_form_probe = _billing_handoff_login_form_probe(login_probe_url)
+            billing_handoff["login_form_probe"] = login_form_probe
+            if login_form_probe.get("recaptcha_required"):
+                login_recaptcha_required = True
+    pricing_probe_url = _billing_handoff_pricing_surface_url(str(billing_handoff.get("url") or handoff_url))
+    if billing_handoff.get("configured") is True and billing_handoff.get("host_resolves") is True and pricing_probe_url:
+        pricing_surface_probe = _billing_handoff_pricing_surface_probe(pricing_probe_url)
+        billing_handoff["pricing_surface_probe"] = pricing_surface_probe
+        if pricing_surface_probe.get("placeholder") is True:
+            pricing_placeholder = True
+            status = "blocked"
+            if not error:
+                error = "billing_pricing_surface_placeholder"
+    if direct_handoff_blocked and billing_sso_bridge.get("ready") is True and not pricing_placeholder:
+        billing_handoff["next_action"] = (
+            "keep /app/billing on the signed PropertyQuarry billing bridge; the vendor account lane still asks for "
+            "another sign-in, so it remains advisory only"
+        )
+    elif login_recaptcha_required and pricing_placeholder:
+        billing_handoff["next_action"] = (
+            "configure live reCAPTCHA keys for the billing domain or disable Brilliant Directories member-login reCAPTCHA, "
+            "or configure a trusted SSO/account handoff, "
+            "and replace the stock Brilliant Directories join page with real PropertyQuarry plan names, benefits, "
+            "and support copy before exposing billing"
+        )
+    elif login_recaptcha_required:
+        billing_handoff["next_action"] = (
+            "configure live reCAPTCHA keys for the billing domain or disable Brilliant Directories member-login reCAPTCHA, "
+            "or configure a trusted SSO/account handoff "
+            "before redirecting signed-in PropertyQuarry users"
+        )
+    elif pricing_placeholder:
+        billing_handoff["next_action"] = (
+            "replace the stock Brilliant Directories join page with real PropertyQuarry plan names, benefits, "
+            "and support copy before exposing billing"
+        )
+    if (
+        direct_handoff_blocked
+        and member_login_token_handoff.get("ready") is True
+        and not login_recaptcha_required
+        and not pricing_placeholder
+    ):
+        billing_handoff["next_action"] = (
+            "verify the PropertyQuarry member-token billing handoff against the live Brilliant Directories account lane "
+            "before redirecting signed-in users there"
+        )
+    elif (
+        direct_handoff_blocked
+        and billing_sso_bridge.get("ready") is True
+        and not login_recaptcha_required
+        and not pricing_placeholder
+    ):
+        billing_handoff["next_action"] = (
+            "verify the custom PropertyQuarry billing bridge against the live Brilliant Directories account lane "
+            "before redirecting signed-in users there"
         )
     return {
         "contract_name": BRILLIANT_DIRECTORIES_VERIFICATION_CONTRACT_NAME,
@@ -1229,6 +2346,8 @@ def build_brilliant_directories_verification_receipt(*, billing_handoff_resolver
         "error": error,
         "config": config.as_receipt(),
         "billing_handoff": billing_handoff,
+        "billing_sso_bridge": billing_sso_bridge,
+        "member_login_token_handoff": member_login_token_handoff,
         "live_network_called": False,
         "verified_capabilities": {
             "api_key_config_contract": True,
@@ -1253,10 +2372,15 @@ def build_brilliant_directories_verification_receipt(*, billing_handoff_resolver
             "billing_webhook_replay_guard_contract": True,
             "billing_webhook_entitlement_mutation_disabled": True,
             "billing_handoff_dns_resolution_required": True,
+            "white_label_pricing_surface_not_stock_template_required": True,
+            "custom_sso_bridge_contract": True,
         },
         "sources": [
             "https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000101842-brilliant-directories-api-endpoints-technical-reference",
+            "https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000108047-api-reference-users",
             "https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000088768-developer-hub-generate-api-key-overview",
             "https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000083005-developer-hub-webhooks",
+            "https://support.brilliantdirectories.com/support/solutions/articles/12000036189-how-to-login-as-member",
+            "https://support.brilliantdirectories.com/support/solutions/articles/12000050980-settings-general-settings-integrations-tab",
         ],
     }

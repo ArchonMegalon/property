@@ -531,8 +531,8 @@ def _property_match_html(
     reason_sections: list[str] = []
     for heading, values in (
         ("Why it stands out", good_fit_reasons[:4]),
-        ("What may be weak", bad_fit_reasons[:3]),
-        ("What still needs checking", unknowns[:3]),
+        ("Main caution", bad_fit_reasons[:3]),
+        ("Open checks", unknowns[:3]),
     ):
         if not values:
             continue
@@ -913,11 +913,11 @@ def send_property_tour_email(
     if recommendation:
         body.extend(["", f"Recommendation: {recommendation}"])
     if good_fit_reasons:
-        body.extend(["", "Why it could fit:", *[f"- {entry}" for entry in good_fit_reasons[:3]]])
+        body.extend(["", "Why it stands out:", *[f"- {entry}" for entry in good_fit_reasons[:3]]])
     if bad_fit_reasons:
-        body.extend(["", "Why it may not fit:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
+        body.extend(["", "Main caution:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
     if unknowns:
-        body.extend(["", "What still needs checking:", *[f"- {entry}" for entry in unknowns[:3]]])
+        body.extend(["", "Open checks:", *[f"- {entry}" for entry in unknowns[:3]]])
     body.extend(
         [
             "",
@@ -1022,9 +1022,9 @@ def send_property_match_email(
     if good_fit_reasons:
         body.extend(["", "Why it stands out:", *[f"- {entry}" for entry in good_fit_reasons[:4]]])
     if bad_fit_reasons:
-        body.extend(["", "What may be weak:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
+        body.extend(["", "Main caution:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
     if unknowns:
-        body.extend(["", "What still needs checking:", *[f"- {entry}" for entry in unknowns[:3]]])
+        body.extend(["", "Open checks:", *[f"- {entry}" for entry in unknowns[:3]]])
     return _send_emailit_email(
         recipient_email=recipient_email,
         subject=subject[:220],
@@ -1229,7 +1229,7 @@ def send_property_search_results_ready_email(
                 <strong>{max(int(hosted_tour_total), 0)}</strong> hosted tour view(s).
               </p>
               <div style="border:1px solid #e1d1b4;border-radius:18px;background:#fffdf8;padding:16px;">
-                <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#7d7468;margin-bottom:6px;">Current read</div>
+                <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#7d7468;margin-bottom:6px;">Quick take</div>
                 <div style="font-size:18px;line-height:1.35;font-weight:700;color:#242321;margin-bottom:8px;">{html.escape(best_title)}</div>
                 <div style="font-size:14px;line-height:1.6;color:#51493f;">{html.escape(best_fit_summary or 'A ranked shortlist is ready for review.')}</div>
                 {f'<div style="font-size:13px;line-height:1.55;color:#3f4c46;margin-top:10px;"><strong>Why it won:</strong> {html.escape(best_compare_reason)}</div>' if best_compare_reason else ''}
@@ -1406,7 +1406,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
             "text": (
                 "Hello,\n\n"
                 "PropertyQuarry prepared the investment property page.\n\n"
-                "Current read:\n"
+                "Quick take:\n"
                 "- Recommendation: investigate further\n"
                 "- Gross yield: 4.14%\n"
                 "- Net yield: 2.8-3.2%\n"

@@ -113,6 +113,74 @@ def test_materialize_property_tour_export_manifest_tour_root_prefers_runtime_sna
     assert _tour_root() == runtime_root.resolve()
 
 
+def test_materialize_property_tour_export_manifest_loads_krpano_env_defaults_before_verifying(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "property"
+    tour_root = repo / "public_tours"
+    incoming_root = repo / "incoming"
+    repo.mkdir()
+    (repo / "docker-compose.property.yml").write_text("services: {}\n", encoding="utf-8")
+    (repo / ".env").write_text(
+        "KRPANO_LICENSE_DOMAIN=propertyquarry.com\n"
+        "KRPANO_LICENSE_KEY=redacted-demo-value\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+    monkeypatch.delenv("KRPANO_LICENSE_DOMAIN", raising=False)
+    monkeypatch.delenv("KRPANO_LICENSE_KEY", raising=False)
+    _write_base_tour(tour_root, "needs-env-aware-verifier")
+
+    expected_tour_root = tour_root.resolve()
+
+    def fake_build_property_tour_control_receipt(*, tour_root: Path, require_all_provider_modes: bool) -> dict[str, object]:
+        assert require_all_provider_modes is True
+        assert tour_root == expected_tour_root
+        assert os.getenv("KRPANO_LICENSE_DOMAIN") == "propertyquarry.com"
+        assert os.getenv("KRPANO_LICENSE_KEY") == "redacted-demo-value"
+        return {
+            "missing_provider_modes": ["magicfit"],
+            "tours": [
+                {
+                    "slug": "needs-env-aware-verifier",
+                    "title": "needs-env-aware-verifier",
+                    "status": "ready",
+                    "controls": [
+                        {"provider": "matterport", "status": "ready"},
+                        {"provider": "3dvista", "status": "ready"},
+                        {"provider": "pano2vr", "status": "ready"},
+                        {"provider": "krpano", "status": "ready"},
+                    ],
+                    "missing_provider_modes": ["magicfit"],
+                    "missing_evidence": [
+                        {
+                            "provider": "magicfit",
+                            "reason": "missing_magicfit_walkthrough",
+                            "action": "render and import a receipt-backed playable MagicFit walkthrough",
+                        }
+                    ],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        "scripts.materialize_property_tour_export_manifest.build_property_tour_control_receipt",
+        fake_build_property_tour_control_receipt,
+    )
+
+    manifest = build_export_manifest(
+        tour_root=tour_root,
+        incoming_root=incoming_root,
+        limit_per_provider=1,
+    )
+
+    assert manifest["missing_provider_modes"] == ["magicfit"]
+    assert manifest["providers"] == ["magicfit"]
+    assert manifest["import_count"] == 1
+    assert manifest["imports"][0]["provider"] == "magicfit"
+
+
 def test_materialize_property_tour_export_manifest_prioritizes_ready_tour_gaps(tmp_path: Path) -> None:
     tour_root = tmp_path / "public_tours"
     incoming_root = tmp_path / "incoming"

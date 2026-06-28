@@ -445,7 +445,7 @@
         <a href="/app/account{{ packet_query_suffix or '' }}">Account</a>
       </nav>
       <nav class="pq-pack-actions">
-        <a class="pq-pack-button" href="/app/properties{{ packet_query_suffix or '' }}">{% if selected_search_run_id %}Open run {{ selected_search_run_id }}{% else %}Open run{% endif %}</a>
+        <a class="pq-pack-button" href="/app/properties{{ packet_query_suffix or '' }}">{% if selected_search_run_id %}Back to run{% else %}Open search{% endif %}</a>
         {% if account_nav %}
         <details class="pq-pack-account-menu">
           <summary aria-label="Account navigation" title="Account" data-account-label="{{ account_nav.label }}">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
@@ -455,9 +455,9 @@
               <strong>{{ account_nav.menu_label or account_nav.label or 'Account' }}</strong>
             </div>
             <div class="pq-pack-account-links">
-              <a class="pq-pack-button" href="{{ account_nav.profile_href }}">Search defaults</a>
-              <a class="pq-pack-button" href="{{ account_nav.billing_href }}">Billing</a>
-              <a class="pq-pack-button" href="{{ account_nav.settings_href }}">Connections</a>
+              <a class="pq-pack-button" href="{{ account_nav.profile_href }}">Saved defaults</a>
+              <a class="pq-pack-button" href="{{ account_nav.billing_href }}">Billing account</a>
+              <a class="pq-pack-button" href="{{ account_nav.settings_href }}">Access</a>
               <form method="post" action="{{ account_nav.sign_out_action }}">
                 <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
                 <button class="pq-pack-button" type="submit">Log out</button>
@@ -473,9 +473,9 @@
 
     <section class="pq-pack-hero">
       <div class="pq-pack-panel">
-        <div class="pq-pack-kicker">Sharing</div>
-        <h1>Share polished property pages and track the replies.</h1>
-        <p class="pq-pack-copy">Share only the material that is ready for another person to see: the property read, the key evidence, the open questions, and the actions you want back.</p>
+        <div class="pq-pack-kicker">Shared pages</div>
+        <h1>Share property pages and keep the replies together.</h1>
+        <p class="pq-pack-copy">Send only pages that are ready to be seen. Replies stay here before they change the search.</p>
       </div>
       <div class="pq-pack-panel">
         <div class="pq-pack-stat-grid">
@@ -491,35 +491,35 @@
     <section class="pq-pack-summary-grid" aria-label="Property sharing summary">
       <article class="pq-pack-summary-card">
         <div class="pq-pack-kicker">Ready to send</div>
-        <strong>Which property pages can safely leave your account</strong>
+        <strong>Pages that are ready to share</strong>
         <ul>
           <li>{{ dashboard_summary.published_total }} page(s) published and {{ dashboard_summary.share_total }} page(s) already shared.</li>
           <li>{{ fliplink_capacity.remaining }} sharing slot(s) remain on the current plan.</li>
-          <li>Use this page when a property page is ready to send instead of forwarding raw PDFs or scattered links.</li>
+          <li>Use this page instead of forwarding raw PDFs or scattered links.</li>
         </ul>
       </article>
       <article class="pq-pack-summary-card">
         <div class="pq-pack-kicker">Replies</div>
-        <strong>Keep feedback visible before it changes the search</strong>
+        <strong>Review replies before they change the search</strong>
         <ul>
           <li>{{ dashboard_summary.feedback_pending_total }} viewer response(s) still need your review.</li>
           <li>{{ dashboard_summary.followup_open_total }} follow-up loop(s) remain open across shared property pages.</li>
-          <li>Outside reactions stay in this queue before they change preferences or hard rules.</li>
+          <li>Outside reactions stay here before they change preferences or hard rules.</li>
         </ul>
       </article>
       <article class="pq-pack-summary-card">
         <div class="pq-pack-kicker">Next improvement</div>
-        <strong>Use real reactions to improve the next property page</strong>
+        <strong>Use real replies to improve the next page</strong>
         <ul>
           <li>{{ dashboard_summary.optimization_open_total }} optimization recommendation(s) are still open.</li>
-          <li>Property-page quality means clear evidence, useful actions, and fewer unanswered questions.</li>
+          <li>Better pages are clearer, faster to review, and leave fewer questions open.</li>
           <li>Views, replies, and objections should shape the next version.</li>
         </ul>
       </article>
     </section>
 
     <section class="pq-pack-panel">
-      <div class="pq-pack-kicker">Property pages</div>
+      <div class="pq-pack-kicker">Pages</div>
       <h2>Property pages</h2>
       {% if publications %}
       <div class="pq-pack-card-list">
@@ -533,7 +533,7 @@
               <span class="pq-pack-pill">{{ row.fliplink_format|replace("_", " ") }}</span>
             </div>
             <div class="pq-pack-muted">{{ row.recommended_folder }} · Updated {{ row.updated_at[:19] }}</div>
-            <div class="pq-pack-muted">Privacy checked · PDF ready · Sharing controls active</div>
+            <div class="pq-pack-muted">Ready to share · PDF ready · sharing active</div>
             <div class="pq-pack-muted" data-analytics-summary>
               Analytics:
               {{ row.analytics.views if row.analytics.views is not none else 'n/a' }} views ·
@@ -578,7 +578,7 @@
                 </ul>
               </section>
               <section class="pq-pack-decision-card">
-                <div class="pq-pack-kicker">Risk signals</div>
+                <div class="pq-pack-kicker">Watch-outs</div>
                 <ul>
                   {% for item in row.feedback_summary.risk_signals_visible[:3] %}
                   <li>{{ item.theme|replace("_", " ") }} · {{ item.confidence }} confidence · {{ item.summary }}</li>

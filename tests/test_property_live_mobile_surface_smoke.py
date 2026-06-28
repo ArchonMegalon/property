@@ -8,14 +8,30 @@ from scripts.propertyquarry_live_mobile_surface_smoke import (
     DEFAULT_ROUTES,
     SEEDED_RESEARCH_DETAIL_ROUTE,
     SEED_FIXTURE_USER_AGENT,
+    _resolve_mobile_billing_external_handoff,
     _seed_research_detail_headers,
+    build_seed_fixture_blocked_receipt,
     build_live_mobile_surface_receipt,
     build_mobile_coverage_checks,
     evaluate_mobile_metrics,
+    main,
     route_is_research_detail,
     seed_research_detail_fixture,
     routes_require_api_auth,
     seeded_research_detail_payload,
+)
+
+
+BILLING_PORTAL_UNAVAILABLE_BODY = (
+    "PropertyQuarry Billing portal unavailable. "
+    "The billing portal is still being connected. "
+    "Your PropertyQuarry access stays active from the account page."
+)
+
+BILLING_PORTAL_LOGIN_REQUIRED_BODY = (
+    "PropertyQuarry Billing portal unavailable. "
+    "This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now. "
+    "Your PropertyQuarry access stays active from the account page."
 )
 
 
@@ -38,6 +54,7 @@ def _base_metrics() -> dict[str, object]:
         "district_map_pinch_zoom_changed": True,
         "district_map_close_restored_scroll": True,
         "mobile_what_matters_single_open": True,
+        "mobile_fold_single_open": True,
         "mobile_what_matters_page_scroll": True,
         "account_logout_strip_visible": True,
         "logout_button_count": 1,
@@ -76,7 +93,14 @@ def test_live_mobile_smoke_accepts_empty_shortlist_with_top_navigation_only() ->
 
 def test_live_mobile_smoke_accepts_external_billing_handoff() -> None:
     metrics = _base_metrics()
-    metrics.update({"status_code": 303, "redirect_location": "https://billing.propertyquarry.com/account"})
+    metrics.update(
+        {
+            "status_code": 303,
+            "redirect_location": "https://billing.propertyquarry.com/account",
+            "billing_handoff_host_resolves": True,
+            "billing_handoff_usable": True,
+        }
+    )
 
     assert _failed_names("/app/billing", metrics) == set()
 
@@ -86,7 +110,19 @@ def test_live_mobile_smoke_accepts_fail_closed_billing_recovery() -> None:
     metrics.update(
         {
             "status_code": 503,
-            "billing_visible_text": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
+            "billing_visible_text": BILLING_PORTAL_UNAVAILABLE_BODY,
+        }
+    )
+
+    assert _failed_names("/app/billing", metrics) == set()
+
+
+def test_live_mobile_smoke_accepts_login_required_fail_closed_billing_recovery() -> None:
+    metrics = _base_metrics()
+    metrics.update(
+        {
+            "status_code": 503,
+            "billing_visible_text": BILLING_PORTAL_LOGIN_REQUIRED_BODY,
         }
     )
 
@@ -110,9 +146,64 @@ def test_live_mobile_smoke_rejects_local_billing_page() -> None:
 
 def test_live_mobile_smoke_rejects_local_billing_redirect_loop() -> None:
     metrics = _base_metrics()
-    metrics.update({"status_code": 303, "redirect_location": "/app/billing"})
+    metrics.update(
+        {
+            "status_code": 303,
+            "redirect_location": "/app/billing",
+            "billing_handoff_host_resolves": False,
+            "billing_handoff_usable": False,
+        }
+    )
 
-    assert _failed_names("/app/billing", metrics) == {"billing_external_handoff"}
+    assert _failed_names("/app/billing", metrics) == {
+        "billing_external_handoff",
+        "billing_external_handoff_resolves",
+        "billing_external_handoff_usable",
+    }
+
+
+def test_live_mobile_smoke_rejects_billing_handoff_that_requires_second_login() -> None:
+    metrics = _base_metrics()
+    metrics.update(
+        {
+            "status_code": 303,
+            "redirect_location": "https://billing.propertyquarry.com/account",
+            "billing_handoff_host_resolves": True,
+            "billing_handoff_usable": False,
+        }
+    )
+
+    assert _failed_names("/app/billing", metrics) == {"billing_external_handoff_usable"}
+
+
+def test_live_mobile_smoke_resolves_signed_bridge_launch_to_external_billing_host() -> None:
+    class _Response:
+        def __init__(self, location: str) -> None:
+            self.status = 303
+            self.headers = {"location": location}
+
+    class _RequestContext:
+        def get(self, url: str, *, headers=None, max_redirects=0, timeout=0):  # noqa: ANN001
+            assert url == "http://localhost:8097/app/api/property/billing/bridge-launch"
+            assert headers == {"Host": "propertyquarry.com"}
+            assert max_redirects == 0
+            assert timeout == 5000
+            return _Response("https://billing.propertyquarry.com/sso/propertyquarry?pq_bridge=token")
+
+    resolved = _resolve_mobile_billing_external_handoff(
+        base_url="http://localhost:8097",
+        redirect_location="/app/api/property/billing/bridge-launch",
+        request_context=_RequestContext(),
+        request_headers={"Host": "propertyquarry.com"},
+        timeout_ms=5000,
+    )
+
+    assert resolved == {
+        "external_location": "https://billing.propertyquarry.com/sso/propertyquarry?pq_bridge=token",
+        "bridge_launch_used": True,
+        "bridge_launch_url": "http://localhost:8097/app/api/property/billing/bridge-launch",
+        "bridge_launch_status_code": 303,
+    }
 
 
 def test_live_mobile_smoke_accepts_research_and_packets_surfaces_without_search_controls() -> None:
@@ -412,6 +503,63 @@ def test_live_mobile_smoke_seed_fixture_raises_for_http_error(monkeypatch) -> No
         raise AssertionError("expected HTTPError")
 
 
+def test_live_mobile_smoke_builds_blocked_receipt_when_seed_fixture_cannot_be_created() -> None:
+    receipt = build_seed_fixture_blocked_receipt(
+        base_url="https://propertyquarry.com",
+        host_header="propertyquarry.com",
+        principal_id="pq-live-mobile-smoke",
+        viewport_width=390,
+        viewport_height=844,
+        error="seed_research_detail_fixture_failed:TimeoutError: timed out",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["route_count"] == 0
+    assert receipt["failed_count"] == 1
+    assert receipt["error"] == "seed_research_detail_fixture_failed:TimeoutError: timed out"
+    assert receipt["coverage_checks"] == [
+        {
+            "name": "research_detail_seed_fixture_ready",
+            "ok": False,
+            "reason": "Live mobile smoke could not seed the saved research-detail fixture, so it cannot honestly prove the open-property surface.",
+            "error": "seed_research_detail_fixture_failed:TimeoutError: timed out",
+        }
+    ]
+
+
+def test_live_mobile_smoke_main_writes_blocked_receipt_when_seed_fixture_times_out(monkeypatch, tmp_path) -> None:
+    out_path = tmp_path / "live-mobile-timeout.json"
+
+    monkeypatch.setattr(
+        "scripts.propertyquarry_live_mobile_surface_smoke.seed_research_detail_fixture",
+        lambda **kwargs: (_ for _ in ()).throw(TimeoutError("timed out")),
+    )
+    monkeypatch.setattr(
+        "scripts.propertyquarry_live_mobile_surface_smoke.build_live_mobile_surface_receipt",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("receipt builder should not run when seeding fails")),
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "propertyquarry_live_mobile_surface_smoke.py",
+            "--base-url",
+            "https://propertyquarry.com",
+            "--api-token",
+            "secret-token",
+            "--seed-research-detail-fixture",
+            "--write",
+            str(out_path),
+        ],
+    )
+
+    exit_code = main()
+
+    assert exit_code == 1
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "blocked"
+    assert payload["error"] == "seed_research_detail_fixture_failed:TimeoutError: timed out"
+
+
 def test_live_mobile_smoke_rejects_horizontal_overflow_and_noisy_chrome() -> None:
     metrics = _base_metrics()
     metrics.update({"body_width": 420, "topbar_height": 140, "heavy_shadow_count": 5})
@@ -459,6 +607,13 @@ def test_live_mobile_smoke_requires_single_open_what_matters_group() -> None:
     metrics.update({"mobile_what_matters_single_open": False})
 
     assert _failed_names("/app/search", metrics) == {"mobile_what_matters_single_open_section"}
+
+
+def test_live_mobile_smoke_requires_single_open_generic_mobile_fold() -> None:
+    metrics = _base_metrics()
+    metrics.update({"mobile_fold_single_open": False})
+
+    assert _failed_names("/app/alerts", metrics) == {"mobile_fold_single_open"}
 
 
 def test_live_mobile_smoke_requires_page_scrolling_what_matters_surface() -> None:

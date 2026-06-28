@@ -114,6 +114,75 @@ def test_property_search_agents_can_be_managed_independently() -> None:
     assert [agent["agent_id"] for agent in agents] == [duplicate_id]
 
 
+def test_property_search_agent_principal_listing_only_returns_enabled_saved_searches() -> None:
+    client = build_property_client(principal_id="exec-property-search-agent-principal-listing")
+    onboarding = client.app.state.container.onboarding
+
+    start_workspace(client, mode="personal", workspace_name="Property office")
+    onboarding.start_workspace(
+        principal_id="principal-enabled",
+        workspace_name="Enabled workspace",
+        workspace_mode="personal",
+        region="AT",
+        language="de",
+        timezone="Europe/Vienna",
+        selected_channels=(),
+    )
+    onboarding.upsert_property_search_preferences(
+        principal_id="principal-enabled",
+        property_search_preferences_json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "search_agents": [
+                {
+                    "agent_id": "agent-enabled",
+                    "name": "Enabled",
+                    "enabled": True,
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "Wien",
+                    "selected_platforms": ["willhaben"],
+                }
+            ],
+        },
+    )
+    onboarding.start_workspace(
+        principal_id="principal-paused",
+        workspace_name="Paused workspace",
+        workspace_mode="personal",
+        region="AT",
+        language="de",
+        timezone="Europe/Vienna",
+        selected_channels=(),
+    )
+    onboarding.upsert_property_search_preferences(
+        principal_id="principal-paused",
+        property_search_preferences_json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "search_agents": [
+                {
+                    "agent_id": "agent-paused",
+                    "name": "Paused",
+                    "enabled": False,
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "Wien",
+                    "selected_platforms": ["willhaben"],
+                }
+            ],
+        },
+    )
+
+    principals = onboarding.list_property_search_agent_principals(limit=20)
+
+    assert principals == ("principal-enabled",)
+
+
 def test_property_search_preferences_drop_cross_country_providers() -> None:
     client = build_property_client(principal_id="exec-property-cross-country-providers")
     start_workspace(client, mode="personal", workspace_name="Property office")

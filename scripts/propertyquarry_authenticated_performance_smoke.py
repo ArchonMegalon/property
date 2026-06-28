@@ -78,6 +78,12 @@ SHARED_TOP_NAV_LABELS = (
     "Account",
 )
 
+BILLING_FAIL_CLOSED_STATE_MARKERS = (
+    "billing portal is still being connected",
+    "still opens another sign-in",
+    "billing account host is not ready yet",
+)
+
 ALLOWED_RYBBIT_APP_EVENTS = {
     "pq.search.started",
     "pq.search.results_viewed",
@@ -668,7 +674,9 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {
                     "name": "billing_fail_closed_recovery",
                     "ok": response.status_code == 503
-                    and all(marker in lowered_body for marker in ("billing handoff unavailable", "external account lane", "propertyquarry access remains active")),
+                    and "billing portal unavailable" in lowered_body
+                    and "propertyquarry access stays active" in lowered_body
+                    and any(marker in lowered_body for marker in BILLING_FAIL_CLOSED_STATE_MARKERS),
                 },
                 {"name": "billing_local_board_deleted", "ok": not billing_noise_hits, "detail": ", ".join(billing_noise_hits[:5])},
             )

@@ -7,11 +7,12 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
+from property_magicfit_env import default_magicfit_env_files, load_magicfit_env
 
 ROOT = Path(os.environ.get("PROPERTYQUARRY_MAGICFIT_COMPLETION_DIR") or "/docker/property/_completion/magicfit_provider")
 GENERATED = ROOT / "generated"
 REVIEW_FRAMES = ROOT / "review_frames"
-RUN_SERVICES_ENV = Path(os.environ.get("PROPERTYQUARRY_ENV_FILE") or "/docker/property/.env")
+DEFAULT_MAGICFIT_EMAIL = "magicfit-account@example.test"
 
 
 def utc_now() -> str:
@@ -63,25 +64,35 @@ def get_env_or_file(name: str, default: str = "") -> str:
     value = os.environ.get(name, "").strip()
     if value:
         return value
-    if RUN_SERVICES_ENV.is_file():
-        for line in RUN_SERVICES_ENV.read_text(encoding="utf-8").splitlines():
-            if not line or line.lstrip().startswith("#") or "=" not in line:
-                continue
-            key, raw_value = line.split("=", 1)
-            if key.strip() == name:
-                return raw_value.strip()
+    env_paths = tuple(
+        Path(path).expanduser()
+        for path in (
+            str(os.environ.get("PROPERTYQUARRY_ENV_FILE") or "").strip(),
+            *(str(path) for path in default_magicfit_env_files()),
+        )
+        if str(path).strip()
+    )
+    for env_path in env_paths:
+        if env_path.is_file():
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                if not line or line.lstrip().startswith("#") or "=" not in line:
+                    continue
+                key, raw_value = line.split("=", 1)
+                if key.strip() == name:
+                    return raw_value.strip()
     return default
 
 
 def build_provider_verification(results: list[dict], direct_t2v_path: Path) -> dict:
+    load_magicfit_env()
     direct_t2v = summarize_video(direct_t2v_path)
     password = get_env_or_file("PROPERTYQUARRY_MAGICFIT_PASSWORD") or get_env_or_file("MAGICFIT_PASSWORD")
     local_credential_present = bool(password)
     email = (
         get_env_or_file("PROPERTYQUARRY_MAGICFIT_EMAIL")
         or get_env_or_file("MAGICFIT_EMAIL")
-        or "tibor.girschele@gmail.com"
-    ).strip() or "tibor.girschele@gmail.com"
+        or DEFAULT_MAGICFIT_EMAIL
+    ).strip() or DEFAULT_MAGICFIT_EMAIL
     tier = get_env_or_file("PROPERTYQUARRY_MAGICFIT_TIER", "5").strip() or "5"
     account_user_hash = subprocess.check_output(
         ["python3", "-c", "import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:16])", email]

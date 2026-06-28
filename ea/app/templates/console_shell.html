@@ -1467,7 +1467,8 @@
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   };
 
-  const hasUnlimitedProviderResults = () => {% if (commercial.get('current_plan_key') in ['agent', 'agency', 'agency_tier', 'agency_lifetime', 'agency_tier_lifetime', 'agent_lifetime', 'agent_tier_lifetime']) and ((commercial.get('max_results_per_source') or 0)|int <= 0) %}true{% else %}false{% endif %};
+  {% set commercial_ctx = commercial if commercial is defined and commercial else ((property_meta.get('commercial') or {}) if property_meta is defined and property_meta else {}) %}
+  const hasUnlimitedProviderResults = () => {% if (commercial_ctx.get('current_plan_key') in ['agent', 'agency', 'agency_tier', 'agency_lifetime', 'agency_tier_lifetime', 'agent_lifetime', 'agent_tier_lifetime']) and ((commercial_ctx.get('max_results_per_source') or 0)|int <= 0) %}true{% else %}false{% endif %};
 
   const maxResultsPerSourceValue = (form) => (
     form?.querySelector('[name="max_results_per_source"]')
@@ -1497,7 +1498,7 @@
       public_housing: ['Public housing', 'Municipal and public-housing-adjacent sources.'],
       developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
       distressed_sales: ['Distressed and judicial', 'Auction, forced-sale, and judicial lanes.'],
-      community_signals: ['Community signals', 'Facebook, Telegram, and other weakly verified off-market hints.'],
+      community_signals: ['Community signals', 'Facebook, Telegram, and other lightly sourced off-market hints.'],
       community_meta: ['Watch-tier meta', 'Long-tail meta or watch-tier sources with lower trust.'],
     };
     const renderOption = (option) => {
@@ -1966,7 +1967,7 @@
     const scanLabel = providers
       ? `${providers} providers`
       : (sourceVariants > 0 ? 'selected sources' : 'warming up');
-    summaryNode.textContent = `${progress}% complete | ${scanLabel} | ${listings} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
+    summaryNode.textContent = `${progress}% complete | ${scanLabel} | ${listings} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} 3D tours`;
 
     const sources = Array.isArray(summary.sources) ? summary.sources : [];
     sourceNode.innerHTML = sources.slice(0, 6).map((source) => {

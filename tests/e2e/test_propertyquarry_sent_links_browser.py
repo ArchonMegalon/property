@@ -57,7 +57,7 @@ def test_sent_property_links_open_in_real_browser() -> None:
                 assert not hosted_cube, f"{title}: forbidden cube fallback was delivered as 3D tour"
                 assert "Marzipano" not in page_text, f"{title}: forbidden Marzipano fallback was delivered as 3D tour"
                 assert live_iframe or vista_marker or "Matterport" in status_text or "3DVista" in status_text, (
-                    f"{title}: hosted 3D lane did not open as Matterport or 3DVista"
+                    f"{title}: 3D tour did not open in a supported live viewer"
                 )
                 tour_page.close()
 

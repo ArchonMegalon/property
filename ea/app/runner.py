@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -1010,6 +1011,22 @@ def _scheduler_property_scout_principal_ids(container) -> tuple[str, ...]:  # ty
         values = tuple(sorted({part.strip() for part in raw.split(",") if part.strip()}))
         if values:
             return values
+    onboarding_service = getattr(container, "onboarding", None)
+    if onboarding_service is not None:
+        list_principals = getattr(onboarding_service, "list_property_search_agent_principals", None)
+        if callable(list_principals):
+            with contextlib.suppress(Exception):
+                discovered = tuple(
+                    sorted(
+                        {
+                            str(value or "").strip()
+                            for value in list_principals(limit=1000)
+                            if str(value or "").strip()
+                        }
+                    )
+                )
+                if discovered:
+                    return discovered
     settings = getattr(container, "settings", None)
     principal_candidates = {
         str(os.environ.get("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID") or "").strip(),
@@ -1026,10 +1043,27 @@ def _run_scheduler_property_scout(container, log: logging.Logger) -> dict[str, o
     attempted = 0
     synced = 0
     errors = 0
+    launched = 0
+    due = 0
+    skipped_active = 0
+    skipped_not_due = 0
     principals = _scheduler_property_scout_principal_ids(container)
     for principal_id in principals:
         attempted += 1
         try:
+            launch_due_agents = getattr(service, "launch_due_property_search_agents", None)
+            if callable(launch_due_agents):
+                launch_summary = dict(launch_due_agents(principal_id=principal_id, actor="scheduler") or {})
+            else:
+                launch_summary = {"mode": "fallback"}
+            if str(launch_summary.get("mode") or "").strip() == "agents":
+                launched_total = int(launch_summary.get("launched_total") or 0)
+                launched += launched_total
+                due += int(launch_summary.get("due_total") or 0)
+                skipped_active += int(launch_summary.get("skipped_active_total") or 0)
+                skipped_not_due += int(launch_summary.get("skipped_not_due_total") or 0)
+                synced += launched_total
+                continue
             summary = service.sync_direct_property_scout(
                 principal_id=principal_id,
                 actor="scheduler",
@@ -1047,6 +1081,10 @@ def _run_scheduler_property_scout(container, log: logging.Logger) -> dict[str, o
         "ran": True,
         "attempted": attempted,
         "synced": synced,
+        "launched": launched,
+        "due": due,
+        "skipped_active": skipped_active,
+        "skipped_not_due": skipped_not_due,
         "errors": errors,
         "principals": list(principals),
     }
@@ -1744,10 +1782,14 @@ def _run_execution_worker(role: str) -> None:
                     )
                     last_property_scout_at = now
                     log.info(
-                        "role=%s scheduler property scout attempted=%s synced=%s errors=%s principals=%s timeout=%s",
+                        "role=%s scheduler property scout attempted=%s synced=%s launched=%s due=%s skipped_active=%s skipped_not_due=%s errors=%s principals=%s timeout=%s",
                         role,
                         scout_summary.get("attempted"),
                         scout_summary.get("synced"),
+                        scout_summary.get("launched"),
+                        scout_summary.get("due"),
+                        scout_summary.get("skipped_active"),
+                        scout_summary.get("skipped_not_due"),
                         scout_summary.get("errors"),
                         ",".join(list(scout_summary.get("principals") or [])),
                         scout_summary.get("timeout"),

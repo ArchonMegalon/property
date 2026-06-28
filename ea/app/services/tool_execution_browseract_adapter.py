@@ -3245,6 +3245,9 @@ class BrowserActToolAdapter:
                 url_allowed=lambda _url: False,
                 bundle_dir_resolver=lambda requested_slug: staging_dir if str(requested_slug or "").strip() == slug else None,
             )
+            if hosted_url:
+                public_payload["hosted_url"] = hosted_url
+                public_payload["public_url"] = hosted_url
             (staging_dir / "tour.json").write_text(
                 json.dumps(public_payload, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",

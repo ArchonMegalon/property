@@ -229,3 +229,21 @@ class PostgresOnboardingStateRepository:
                 )
                 row = cur.fetchone()
         return self._from_row(row) if row else None
+
+    def list_states(self, *, limit: int = 1000) -> tuple[OnboardingState, ...]:
+        normalized_limit = max(int(limit or 0), 1)
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT onboarding_id, principal_id, workspace_name, workspace_mode, region, language, timezone,
+                           selected_channels_json, property_search_preferences_json, privacy_preferences_json, channel_preferences_json, brief_preview_json,
+                           status, created_at, updated_at
+                    FROM onboarding_states
+                    ORDER BY updated_at DESC, principal_id ASC
+                    LIMIT %s
+                    """,
+                    (normalized_limit,),
+                )
+                rows = cur.fetchall() or []
+        return tuple(self._from_row(row) for row in rows)

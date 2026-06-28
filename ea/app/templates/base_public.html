@@ -192,6 +192,67 @@
     .pq-mobile-auth {
       display: none;
     }
+    .mobile-nav-sheet {
+      display: none;
+      position: relative;
+      flex: 0 0 auto;
+    }
+    .mobile-nav-sheet > summary {
+      list-style: none;
+      min-height: var(--touch-target);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .mobile-nav-sheet > summary::-webkit-details-marker {
+      display: none;
+    }
+    .mobile-nav-sheet[open] > summary {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--panel) 92%, var(--accent-soft));
+    }
+    .mobile-nav-sheet-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      width: min(280px, calc(100vw - 20px));
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+    .mobile-nav-sheet-panel .nav-card {
+      padding: 0;
+      gap: 4px;
+      border: 0;
+      background: transparent;
+    }
+    .mobile-nav-sheet-panel .nav-card a,
+    .mobile-nav-sheet-panel .nav-card span {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-soft);
+    }
+    .mobile-nav-sheet-panel .nav-card span.active,
+    .mobile-nav-sheet-panel .nav-card a.active {
+      background: rgba(189, 139, 47, 0.12);
+      border: 1px solid rgba(189, 139, 47, 0.24);
+      color: var(--text);
+    }
     .btn:hover { border-color: var(--accent); }
     .btn.primary:hover { filter: brightness(1.03); }
     .btn.ghost:hover { color: var(--text); }
@@ -743,39 +804,9 @@
       .actions .pq-mobile-auth {
         display: inline-flex;
       }
-      .mobile-nav {
-        display: none;
-      }
-      .mobile-nav::-webkit-scrollbar {
-        display: none;
-      }
-      .mobile-nav a {
-        flex: 0 0 auto;
-        min-height: var(--touch-target);
-        display: inline-flex;
-        align-items: center;
-        padding: 0 12px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.92);
-        color: var(--text-soft);
-        font-size: 13px;
-        font-weight: 600;
-      }
-      .mobile-nav a.active {
-        color: var(--text);
-        border-color: var(--accent);
-        background: var(--panel);
-      }
-      html[data-pq-theme="dark"] .mobile-nav a {
-        background: var(--panel);
-        color: var(--text-soft);
-        border-color: var(--line);
-      }
-      html[data-pq-theme="dark"] .mobile-nav a.active {
-        background: var(--accent-soft);
-        color: var(--text);
-        border-color: var(--accent);
+      .mobile-nav { display: none; }
+      .mobile-nav-sheet {
+        display: block;
       }
       main, .console-main { padding-top: 24px; }
     }
@@ -837,6 +868,33 @@
         <a class="btn ghost" href="/register">{{ brand.create_label }}</a>
         {% endif %}
         {% endif %}
+        <details class="mobile-nav-sheet">
+          <summary>Menu</summary>
+          <div class="mobile-nav-sheet-panel">
+            <nav class="nav-card" aria-label="Mobile navigation">
+              {% for item in public_nav %}
+              {% set is_sign_in_item = item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string) %}
+              {% if not ((signing_in_progress or public_signed_in) and is_sign_in_item) %}
+              {% if current_nav == item.key %}
+              <span class="active" aria-current="page">{{ item.label }}</span>
+              {% else %}
+              <a href="{{ item.href }}">{{ item.label }}</a>
+              {% endif %}
+              {% endif %}
+              {% endfor %}
+              {% if current_nav == 'docs' %}
+              <span class="active" aria-current="page">Docs</span>
+              {% else %}
+              <a href="/docs">Docs</a>
+              {% endif %}
+              {% if current_nav == 'integrations' %}
+              <span class="active" aria-current="page">Integrations</span>
+              {% else %}
+              <a href="/integrations">Integrations</a>
+              {% endif %}
+            </nav>
+          </div>
+        </details>
       </div>
     </div>
     <div class="wrap mobile-nav" aria-label="Mobile navigation">

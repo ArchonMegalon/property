@@ -21,6 +21,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip==26.1.2 && \
 
 RUN mkdir -p /app/scripts /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea
 COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
+COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py
 COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py
 COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py
 COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py
@@ -30,6 +31,7 @@ COPY scripts/import_property_tour_exports.py /app/scripts/import_property_tour_e
 COPY scripts/attach_provider_tour_layer.py /app/scripts/attach_provider_tour_layer.py
 COPY scripts/discover_property_tour_exports.py /app/scripts/discover_property_tour_exports.py
 COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py
+COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_paths.py
 COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py
 COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py
 COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py

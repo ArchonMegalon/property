@@ -119,7 +119,7 @@ def _unavailable_overlay(layer: dict[str, object]) -> dict[str, object]:
         "title": _string(layer.get("title")) or _string(layer.get("layer_key")).replace("_", " ").title(),
         "ui_state": "unavailable",
         "tag": "Unavailable",
-        "detail": "No verified cached rollup is available yet. Search did not crawl or index this source inline.",
+        "detail": "No cached rollup is available yet. Search did not crawl or index this source inline.",
         "source_name": _string(layer.get("source_registry")) or "Source registry pending",
         "source_url": "",
         "article_url": "",
@@ -134,11 +134,11 @@ def _unavailable_overlay(layer: dict[str, object]) -> dict[str, object]:
 
 def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, stale_after_days: int) -> dict[str, object]:
     state = _state_for_rollup(row, stale_after_days=stale_after_days)
-    tag = {"verified": "Verified", "stale": "Stale", "unavailable": "Unavailable"}.get(state, "Unavailable")
+    tag = {"verified": "Ready", "stale": "Stale", "unavailable": "Unavailable"}.get(state, "Unavailable")
     source_name = _string(row.get("source_name")) or _string(layer.get("source_registry")) or "Cached source"
     source_url = _string(row.get("source_url"))
     summary = _string(row.get("summary") or row.get("value_label") or row.get("headline"))
-    uncertainty = _string(row.get("uncertainty_label")) or ("fresh cached rollup" if state == "verified" else "needs refresh")
+    uncertainty = _string(row.get("uncertainty_label")) or ("fresh cached read" if state == "verified" else "needs refresh")
     detail_parts = [summary or "Cached geographic evidence is available for this area.", f"source: {source_name}", f"uncertainty: {uncertainty}"]
     if state == "stale":
         detail_parts.append("refresh recommended")

@@ -12,6 +12,7 @@ from typing import Any
 
 
 REQUIRED_TOUR_PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
+ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES = ("AT", "DE", "CR")
 REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
     "research_candidate",
     "research_visual_cards_present",
@@ -107,10 +108,25 @@ PROVIDER_OPERATOR_DROP_README_TOKENS = {
 
 DEFAULT_RECEIPT_PATTERNS = {
     "performance": ("_completion/smoke/property-auth-performance-*.json",),
-    "live_mobile": ("_completion/smoke/property-live-mobile*.json",),
-    "public_smoke": ("_completion/smoke/property-live-public*.json",),
-    "authenticated_smoke": ("_completion/smoke/property-live-authenticated*.json",),
-    "tour_control": ("_completion/tours/property-tour-controls*.json",),
+    "live_mobile": (
+        "state/receipts/propertyquarry_live_mobile*.json",
+        "state/receipts/property_live_mobile*.json",
+        "_completion/smoke/property-live-mobile*.json",
+    ),
+    "public_smoke": (
+        "state/receipts/propertyquarry_live_public*.json",
+        "state/receipts/property_live_public*.json",
+        "_completion/smoke/property-live-public*.json",
+    ),
+    "authenticated_smoke": (
+        "state/receipts/propertyquarry_live_authenticated*.json",
+        "state/receipts/property_live_authenticated*.json",
+        "_completion/smoke/property-live-authenticated*.json",
+    ),
+    "tour_control": (
+        "_completion/property_tour_controls/*.json",
+        "_completion/tours/property-tour-controls*.json",
+    ),
     "export_discovery": ("_completion/tours/property-tour-export-discovery*.json",),
     "import_manifest": ("_completion/property_tour_exports/import-manifest*.json",),
     "billing": ("_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION*.json",),
@@ -118,6 +134,9 @@ DEFAULT_RECEIPT_PATTERNS = {
     "vendor_tooling": ("_completion/tours/property-tour-vendor-tooling*.json",),
     "repair_canary": ("_completion/repair/propertyquarry-repair-canary*.json",),
     "provider_matrix": (
+        "state/receipts/property_provider_stage*.json",
+        "state/receipts/property_live_provider_smoke*.json",
+        "state/receipts/property-provider-e2e*.json",
         "_completion/smoke/property-live-provider*.json",
         "_completion/provider_smoke/*provider-matrix*.json",
         "_completion/provider_smoke/all-search-ready*.json",
@@ -150,6 +169,12 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "bts_methodology_contract": "_completion/bts_methodology/property-bts-methodology-contract-latest.json",
     "tour_delivery_contract": "_completion/tour_delivery/property-tour-delivery-contract-latest.json",
 }
+
+_CANONICAL_GOLD_STATUS_LATEST_PATHS = (
+    "_completion/property_gold_status/latest.json",
+    "_completion/propertyquarry-gold-status-latest.json",
+)
+_CANONICAL_GOLD_STATUS_RELEASE_GATE_PATH = "_completion/property_gold_status/release-gate.json"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -199,6 +224,63 @@ def _provider_matrix_proof_rank(payload: dict[str, Any]) -> int:
     return 0
 
 
+def _provider_matrix_proof_coverage(payload: dict[str, Any]) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    summary = dict(payload.get("targeted_search_matrix_summary") or {})
+    counts: list[int] = []
+    for raw_value in (
+        payload.get("targeted_search_matrix_count"),
+        summary.get("case_count"),
+        summary.get("executed_case_count"),
+        summary.get("passed_case_count"),
+    ):
+        try:
+            parsed = int(raw_value or 0)
+        except Exception:
+            parsed = 0
+        if parsed > 0:
+            counts.append(parsed)
+    try:
+        strict_case_count = int(summary.get("strict_case_count") or 0)
+    except Exception:
+        strict_case_count = 0
+    try:
+        soft_case_count = int(summary.get("soft_filter_case_count") or 0)
+    except Exception:
+        soft_case_count = 0
+    if strict_case_count > 0 or soft_case_count > 0:
+        counts.append(strict_case_count + soft_case_count)
+    targeted_rows = [
+        row for row in list(payload.get("targeted_search_matrix") or [])
+        if isinstance(row, dict)
+    ]
+    if targeted_rows:
+        counts.append(len(targeted_rows))
+    return max(counts, default=0)
+
+
+def _provider_matrix_scope_rank(payload: dict[str, Any]) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    summary = dict(payload.get("targeted_search_matrix_summary") or {})
+    raw_country_codes = summary.get("country_codes")
+    if not isinstance(raw_country_codes, list):
+        raw_country_codes = payload.get("country_codes")
+    country_codes = tuple(
+        dict.fromkeys(
+            str(country or "").strip().upper()
+            for country in list(raw_country_codes or [])
+            if str(country or "").strip()
+        )
+    )
+    if not country_codes:
+        return 0
+    if tuple(sorted(country_codes)) != tuple(sorted(ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES)):
+        return 0
+    return 2 if str(payload.get("country_scope") or "").strip().lower() == "explicit" else 1
+
+
 def _latest_receipt_path(patterns: tuple[str, ...], *, fallback: str) -> Path:
     candidates: list[Path] = []
     for pattern in patterns:
@@ -210,13 +292,23 @@ def _latest_receipt_path(patterns: tuple[str, ...], *, fallback: str) -> Path:
         payload = _load_json(path)
         completeness_rank = 1 if _receipt_is_complete_enough(payload) else 0
         provider_matrix_rank = _provider_matrix_proof_rank(payload)
+        provider_matrix_scope_rank = _provider_matrix_scope_rank(payload)
+        provider_matrix_coverage = _provider_matrix_proof_coverage(payload)
         generated_at, _timestamp_source, _raw_generated_at = _receipt_generated_at(payload)
         generated_timestamp = generated_at.timestamp() if generated_at is not None else 0.0
         try:
             modified_timestamp = path.stat().st_mtime
         except OSError:
             modified_timestamp = 0.0
-        return (completeness_rank, provider_matrix_rank, generated_timestamp, modified_timestamp, path.as_posix())
+        return (
+            completeness_rank,
+            provider_matrix_rank,
+            provider_matrix_scope_rank,
+            provider_matrix_coverage,
+            generated_timestamp,
+            modified_timestamp,
+            path.as_posix(),
+        )
 
     return max(candidates, key=sort_key).resolve()
 
@@ -226,6 +318,32 @@ def _default_receipt_path(name: str) -> Path:
         DEFAULT_RECEIPT_PATTERNS[name],
         fallback=DEFAULT_RECEIPT_FALLBACKS[name],
     )
+
+
+def _canonical_gold_status_alias_targets(output_path: Path) -> list[Path]:
+    resolved_output = output_path.expanduser().resolve()
+    latest_targets = [Path(path).expanduser().resolve() for path in _CANONICAL_GOLD_STATUS_LATEST_PATHS]
+    release_gate_target = Path(_CANONICAL_GOLD_STATUS_RELEASE_GATE_PATH).expanduser().resolve()
+
+    if resolved_output == release_gate_target:
+        return [path for path in latest_targets if path != resolved_output]
+    if resolved_output in latest_targets:
+        return [path for path in latest_targets if path != resolved_output]
+    return []
+
+
+def _write_gold_status_output(output_path: Path, output: str) -> list[str]:
+    resolved_output = output_path.expanduser().resolve()
+    resolved_output.parent.mkdir(parents=True, exist_ok=True)
+    rendered = output if output.endswith("\n") else f"{output}\n"
+    resolved_output.write_text(rendered, encoding="utf-8")
+
+    synced: list[str] = []
+    for alias_path in _canonical_gold_status_alias_targets(resolved_output):
+        alias_path.parent.mkdir(parents=True, exist_ok=True)
+        alias_path.write_text(rendered, encoding="utf-8")
+        synced.append(str(alias_path))
+    return synced
 
 
 def _parse_receipt_datetime(value: object) -> datetime | None:
@@ -345,6 +463,42 @@ def _tour_provider_missing_note(missing_provider_modes: list[str]) -> str:
         return "This receipt has no missing tour provider modes in the active verifier output."
     joined = ", ".join(names)
     return f"This receipt intentionally treats missing {joined} evidence as blocked rather than pass."
+
+
+def _magicfit_renderer_summary(vendor_tooling: dict[str, Any], *, receipt_present: bool) -> dict[str, Any]:
+    renderer = dict(vendor_tooling.get("magicfit_renderer") or {}) if receipt_present else {}
+    python_modules = renderer.get("python_modules") if isinstance(renderer.get("python_modules"), dict) else {}
+    missing_python_modules = [
+        module
+        for module, status in python_modules.items()
+        if not isinstance(status, dict) or not bool(status.get("available"))
+    ]
+    return {
+        "status": str(renderer.get("status") or ("not_configured" if not receipt_present else "missing")),
+        "script_path": str(renderer.get("script_path") or "") if receipt_present else "",
+        "script_ready": (
+            bool(renderer.get("script_ready"))
+            if receipt_present and "script_ready" in renderer
+            else None
+        ),
+        "credentials_configured": (
+            bool(renderer.get("credentials_configured"))
+            if receipt_present and "credentials_configured" in renderer
+            else None
+        ),
+        "credential_sources": list(renderer.get("credential_sources") or []) if receipt_present else [],
+        "env_files_checked": list(renderer.get("env_files_checked") or []) if receipt_present else [],
+        "python_modules_ready": (
+            bool(renderer.get("python_modules_ready"))
+            if receipt_present and "python_modules_ready" in renderer
+            else None
+        ),
+        "python_modules": python_modules,
+        "missing_python_modules": missing_python_modules,
+        "ready": bool(renderer.get("ready")) if receipt_present and "ready" in renderer else None,
+        "next_action": str(renderer.get("next_action") or "") if receipt_present else "",
+        "note": str(renderer.get("note") or "") if receipt_present else "",
+    }
 
 
 def _performance_research_detail_checks(performance: dict[str, Any]) -> tuple[bool, list[str], str]:
@@ -574,6 +728,70 @@ def _host_readme_path(readme_path_text: str) -> Path:
     return host_incoming_root / relative
 
 
+def _repo_root() -> Path:
+    cwd = Path.cwd()
+    if (cwd / "docker-compose.property.yml").is_file():
+        return cwd.resolve()
+    return Path(__file__).resolve().parents[1]
+
+
+def _fallback_artifact_readme_path(*, slug: str, provider: str) -> Path:
+    configured_artifact_dir = str(os.getenv("EA_ARTIFACT_DIR") or os.getenv("EA_ARTIFACTS_DIR") or "").strip()
+    if configured_artifact_dir:
+        return (
+            Path(configured_artifact_dir).expanduser().resolve()
+            / "property-tour-export-drop-readmes"
+            / slug
+            / provider
+            / "README.propertyquarry-export.txt"
+        )
+    return (
+        _repo_root()
+        / "_completion"
+        / "property_tour_exports"
+        / "drop-readmes"
+        / slug
+        / provider
+        / "README.propertyquarry-export.txt"
+    ).resolve()
+
+
+def _operator_drop_provider_rows(import_manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    provider_rows: dict[str, dict[str, Any]] = {}
+    for raw_row in list(import_manifest.get("prepared_drop_dirs") or []):
+        if not isinstance(raw_row, dict):
+            continue
+        provider = str(raw_row.get("provider") or "").strip().lower()
+        if not provider:
+            continue
+        provider_rows[provider] = dict(raw_row)
+    for raw_row in list(import_manifest.get("imports") or []):
+        if not isinstance(raw_row, dict):
+            continue
+        provider = str(raw_row.get("provider") or "").strip().lower()
+        slug = str(raw_row.get("slug") or "").strip()
+        export_dir_text = str(raw_row.get("export_dir") or raw_row.get("asset_dir") or "").strip()
+        if not provider:
+            continue
+        export_dir = Path(export_dir_text).expanduser().resolve() if export_dir_text else None
+        export_readme_path = export_dir / "README.propertyquarry-export.txt" if export_dir is not None else None
+        synthesized_row: dict[str, Any] = {
+            "provider": provider,
+            "slug": slug,
+            "export_dir": str(export_dir) if export_dir is not None else export_dir_text,
+            "readme": str(export_readme_path) if export_readme_path is not None else "",
+            "drop_readme": str(export_readme_path) if export_readme_path is not None else "",
+            "artifact_readme": str(_fallback_artifact_readme_path(slug=slug, provider=provider)) if slug else "",
+        }
+        merged_row = dict(provider_rows.get(provider) or {})
+        for key, value in synthesized_row.items():
+            if merged_row.get(key):
+                continue
+            merged_row[key] = value
+        provider_rows[provider] = merged_row
+    return provider_rows
+
+
 def _read_first_available_readme(row: dict[str, Any]) -> tuple[str, str, str]:
     attempted: list[str] = []
     for key in ("readme", "artifact_readme", "drop_readme"):
@@ -595,12 +813,25 @@ def _billing_handoff_ready(billing_receipt: dict[str, Any]) -> bool:
     handoff = billing_receipt.get("billing_handoff")
     if not isinstance(handoff, dict):
         return False
-    return (
+    direct_ready = (
         bool(handoff.get("configured"))
         and bool(handoff.get("host_resolves"))
         and handoff.get("account_handoff_usable") is not False
         and str(handoff.get("url") or "").strip().startswith("https://")
         and str(billing_receipt.get("status") or "").strip() != "blocked"
+    )
+    if direct_ready:
+        return True
+    bridge = billing_receipt.get("billing_sso_bridge")
+    pricing_probe = handoff.get("pricing_surface_probe")
+    return (
+        isinstance(bridge, dict)
+        and bridge.get("ready") is True
+        and bool(handoff.get("configured"))
+        and bool(handoff.get("host_resolves"))
+        and str(handoff.get("url") or "").strip().startswith("https://")
+        and str(billing_receipt.get("status") or "").strip() != "blocked"
+        and not (isinstance(pricing_probe, dict) and pricing_probe.get("placeholder") is True)
     )
 
 
@@ -609,12 +840,13 @@ def _operator_drop_readme_status(
     *,
     expected_providers: set[str] | None = None,
 ) -> tuple[bool, int, list[str], list[dict[str, Any]]]:
-    expected_providers = expected_providers or set(PROVIDER_OPERATOR_DROP_README_TOKENS)
-    provider_rows = {
-        str(row.get("provider") or "").strip().lower(): row
-        for row in list(import_manifest.get("prepared_drop_dirs") or [])
-        if isinstance(row, dict) and str(row.get("provider") or "").strip().lower()
-    }
+    if expected_providers is None:
+        expected_providers = set(PROVIDER_OPERATOR_DROP_README_TOKENS)
+    else:
+        expected_providers = set(expected_providers)
+    if not expected_providers:
+        return True, 0, [], []
+    provider_rows = _operator_drop_provider_rows(import_manifest)
     failures: list[dict[str, Any]] = []
     verified_providers: set[str] = set()
     for provider in sorted(expected_providers):
@@ -692,6 +924,10 @@ def build_gold_status_receipt(
     billing_receipt = _load_json(billing_receipt_path) if billing_receipt_path is not None else {}
     tour_provider_ownership = _load_json(tour_provider_ownership_receipt_path) if tour_provider_ownership_receipt_path is not None else {}
     vendor_tooling = _load_json(vendor_tooling_receipt_path) if vendor_tooling_receipt_path is not None else {}
+    magicfit_renderer = _magicfit_renderer_summary(
+        vendor_tooling,
+        receipt_present=vendor_tooling_receipt_path is not None,
+    )
     whole_project_scope = _load_json(whole_project_scope_receipt_path) if whole_project_scope_receipt_path is not None else {}
     security_posture = _load_json(security_posture_receipt_path) if security_posture_receipt_path is not None else {}
     release_hygiene = _load_json(release_hygiene_receipt_path) if release_hygiene_receipt_path is not None else {}
@@ -822,23 +1058,32 @@ def build_gold_status_receipt(
         for provider in list(import_manifest.get("providers") or [])
         if str(provider or "").strip()
     }
-    expected_import_providers = manifest_providers or {"3dvista", "pano2vr", "krpano", "magicfit"}
-    prepared_drop_providers = {
-        str(row.get("provider") or "").strip().lower()
-        for row in list(import_manifest.get("prepared_drop_dirs") or [])
-        if isinstance(row, dict)
-    }
+    import_manifest_status = str(import_manifest.get("status") or "").strip()
+    import_manifest_not_needed = (
+        import_manifest_receipt_path is not None
+        and import_manifest_status == "pass"
+        and int(import_manifest.get("import_count") or 0) == 0
+        and not missing_provider_modes
+    )
+    expected_import_providers = (
+        set()
+        if import_manifest_not_needed
+        else (manifest_providers or {"3dvista", "pano2vr", "krpano", "magicfit"})
+    )
+    prepared_drop_providers = set(_operator_drop_provider_rows(import_manifest))
     hardened_readmes_ok, hardened_readme_provider_count, missing_hardened_readme_providers, hardened_readme_failures = _operator_drop_readme_status(
         import_manifest,
         expected_providers=expected_import_providers,
     )
-    import_manifest_status = str(import_manifest.get("status") or "").strip()
     operator_import_manifest_ready = (
-        import_manifest_status in {"ready_for_exports", "waiting_for_verified_assets", "partial_ready_for_import", "ready_for_import"}
-        and int(import_manifest.get("import_count") or 0) >= len(expected_import_providers)
-        and expected_import_providers.issubset(manifest_providers)
-        and expected_import_providers.issubset(prepared_drop_providers)
-        and hardened_readmes_ok
+        import_manifest_not_needed
+        or (
+            import_manifest_status in {"ready_for_exports", "waiting_for_verified_assets", "partial_ready_for_import", "ready_for_import"}
+            and int(import_manifest.get("import_count") or 0) >= len(expected_import_providers)
+            and expected_import_providers.issubset(manifest_providers)
+            and expected_import_providers.issubset(prepared_drop_providers)
+            and hardened_readmes_ok
+        )
     )
     repair_canary_ok = (
         repair_canary.get("status") == "pass"
@@ -966,15 +1211,26 @@ def build_gold_status_receipt(
                 "failed_billing_checks": failed_authenticated_billing_checks,
                 "missing_notification_checks": missing_authenticated_notification_checks,
                 "failed_notification_checks": failed_authenticated_notification_checks,
-                "action": "run propertyquarry_live_authenticated_smoke.py against the deployed stack and keep /app/billing either redirected to a resolving external account lane or fail-closed without local billing-board copy, while /app/account keeps the notification routing form usable",
+                "action": "run propertyquarry_live_authenticated_smoke.py against the deployed stack and keep /app/billing either redirected to a resolving billing portal or fail-closed without local billing-board copy, while /app/account keeps the notification routing form usable",
             }
         )
     if missing_provider_modes:
+        provider_details: dict[str, dict[str, Any]] = {}
+        if "magicfit" in missing_provider_modes:
+            provider_details["magicfit"] = {
+                "renderer_ready": magicfit_renderer.get("ready"),
+                "renderer_status": magicfit_renderer.get("status"),
+                "script_ready": magicfit_renderer.get("script_ready"),
+                "credentials_configured": magicfit_renderer.get("credentials_configured"),
+                "missing_python_modules": magicfit_renderer.get("missing_python_modules"),
+                "next_action": magicfit_renderer.get("next_action"),
+            }
         blockers.append(
             {
                 "area": "verified_tour_provider_modes",
                 "missing_provider_modes": missing_provider_modes,
                 "action": _tour_provider_evidence_action(missing_provider_modes),
+                **({"provider_details": provider_details} if provider_details else {}),
             }
         )
     if not magicfit_playback_ok:
@@ -1006,7 +1262,7 @@ def build_gold_status_receipt(
                 "host_resolves": bool(billing_handoff.get("host_resolves")),
                 "required_dns_record": billing_handoff.get("required_dns_record") if isinstance(billing_handoff.get("required_dns_record"), dict) else {},
                 "next_action": str(billing_handoff.get("next_action") or ""),
-                "action": "configure the white-label Brilliant Directories billing host so /app/billing redirects to a resolving external account lane",
+                "action": "configure the Brilliant Directories white-label billing host so /app/billing redirects to a resolving billing portal",
             }
         )
     if import_manifest_receipt_path is not None and import_manifest_status in {"ready_for_exports", "waiting_for_verified_assets", "partial_ready_for_import", "ready_for_import"} and not hardened_readmes_ok:
@@ -1174,6 +1430,21 @@ def build_gold_status_receipt(
                 "rejected_sample": missing_export_rejection_sample,
             }
         )
+    if "magicfit" in missing_provider_modes and vendor_tooling_receipt_path is not None and not bool(magicfit_renderer.get("ready")):
+        next_required_actions.append(
+            {
+                "provider": "magicfit",
+                "area": "magicfit_renderer",
+                "renderer_status": magicfit_renderer.get("status"),
+                "script_ready": magicfit_renderer.get("script_ready"),
+                "credentials_configured": magicfit_renderer.get("credentials_configured"),
+                "missing_python_modules": magicfit_renderer.get("missing_python_modules"),
+                "action": (
+                    str(magicfit_renderer.get("next_action") or "")
+                    or "configure the MagicFit render lane before expecting a receipt-backed walkthrough"
+                ),
+            }
+        )
 
     operator_import_manifest_ok = import_manifest_receipt_path is None or operator_import_manifest_ready
     tour_provider_ownership_ok = (
@@ -1322,11 +1593,15 @@ def build_gold_status_receipt(
             )
         if missing_provider_modes:
             notes.append("Every required tour provider mode must stay backed by verified evidence.")
+        if "magicfit" in missing_provider_modes and vendor_tooling_receipt_path is not None and not bool(magicfit_renderer.get("ready")):
+            notes.append("MagicFit is still blocked on renderer configuration, not just a missing imported walkthrough asset.")
     notes.append(_tour_provider_missing_note(missing_provider_modes))
+    ready_for_notification = status == "pass" and not blockers and not next_required_actions
 
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": status,
+        "ready_for_notification": ready_for_notification,
         "performance": {
             "status": performance.get("status"),
             "failed_count": performance.get("failed_count"),
@@ -1448,9 +1723,10 @@ def build_gold_status_receipt(
             "installed_apps": vendor_tooling.get("installed_apps") or [],
             "verified_export_ready_counts": vendor_tooling.get("verified_export_ready_counts") or {},
             "missing_verified_exports": vendor_tooling.get("missing_verified_exports") or [],
+            "magicfit_renderer": magicfit_renderer,
             "next_actions": vendor_tooling.get("next_actions") or [],
             "receipt_path": str(vendor_tooling_receipt_path) if vendor_tooling_receipt_path is not None else "",
-            "note": "Host tooling readiness is tracked separately from verified 3DVista/Pano2VR export evidence.",
+            "note": "Host tooling readiness is tracked separately from verified 3DVista/Pano2VR export evidence and MagicFit render-lane configuration.",
         },
         "tour_provider_ownership": {
             "status": tour_provider_ownership.get("status") or ("not_configured" if tour_provider_ownership_receipt_path is None else "missing"),
@@ -1615,8 +1891,7 @@ def main() -> int:
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:
         out_path = Path(args.write)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(output + "\n", encoding="utf-8")
+        _write_gold_status_output(out_path, output)
     try:
         print(output)
     except BrokenPipeError:

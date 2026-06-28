@@ -13,6 +13,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
+from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocationResult
 from app.repositories.task_contracts import InMemoryTaskContractRepository
 from app.services.ltd_runtime_skill_projection import projected_task_key
 from app.services.skills import SkillCatalogService
@@ -1452,6 +1453,135 @@ def test_skill_catalog_can_execute_create_mootion_movie_skill() -> None:
         "artifact_repository",
     ]
     assert session_body["artifacts"][0]["skill_key"] == "create_mootion_movie"
+
+
+def test_builtin_scene_video_generate_task_contract_executes_via_plan_api() -> None:
+    client = _client()
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={"task_key": "scene_video_generate", "goal": "render the runsite fight scene"},
+    )
+    assert compiled.status_code == 200
+    assert compiled.json()["skill_key"] == "scene_video_generate"
+    assert compiled.json()["plan"]["task_key"] == "scene_video_generate"
+    assert [step["step_key"] for step in compiled.json()["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_scene_video_generate",
+        "step_artifact_save",
+    ]
+    compiled_via_skill = client.post(
+        "/v1/plans/compile",
+        json={"skill_key": "scene_video_generate", "goal": "render the runsite fight scene"},
+    )
+    assert compiled_via_skill.status_code == 200
+    assert compiled_via_skill.json()["skill_key"] == "scene_video_generate"
+    assert compiled_via_skill.json()["plan"]["task_key"] == "scene_video_generate"
+
+    container = client.app.state.container
+    container.tool_execution._tool_runtime.upsert_tool(
+        tool_name="ea.scene_video_generate",
+        version="test-v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        policy_json={"builtin": True, "action_kind": "video.generate", "capability": "scene_video_generate"},
+        enabled=True,
+    )
+
+    def _fake_scene_video_generate(
+        request: ToolInvocationRequest,
+        definition: ToolDefinition,
+    ) -> ToolInvocationResult:
+        assert request.payload_json["provider_key"] == "omagic"
+        assert request.payload_json["context_kind"] == "scene_briefing"
+        assert request.payload_json["title"] == "Runsite fight scene"
+        structured = {
+            "deliverable_type": "scene_video_packet",
+            "provider_key": "omagic",
+            "render_status": "completed",
+            "asset_url": "https://cdn.example/runsite/fight-scene.mp4",
+            "download_url": "https://cdn.example/runsite/fight-scene.mp4?download=1",
+            "video_url": "https://cdn.example/runsite/fight-scene.mp4",
+            "editor_url": "https://editor.example/runsite/fight-scene",
+            "structured_output_json": {
+                "provider_backend_key": "onemin_i2v",
+            },
+        }
+        normalized_text = json.dumps(structured)
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="video.generate",
+            target_ref=structured["video_url"],
+            output_json={
+                "normalized_text": normalized_text,
+                "structured_output_json": structured,
+                "preview_text": normalized_text[:280],
+                "mime_type": "application/json",
+                "provider_key": "omagic",
+                "render_status": "completed",
+                "asset_url": structured["asset_url"],
+                "download_url": structured["download_url"],
+                "video_url": structured["video_url"],
+                "editor_url": structured["editor_url"],
+            },
+            receipt_json={
+                "provider_key": "omagic",
+                "provider_backend_key": "onemin_i2v",
+                "context_kind": "scene_briefing",
+            },
+        )
+
+    container.tool_execution.register_handler("ea.scene_video_generate", _fake_scene_video_generate)
+
+    executed = client.post(
+        "/v1/plans/execute",
+        json={
+            "task_key": "scene_video_generate",
+            "goal": "render the runsite fight scene",
+            "input_json": {
+                "provider_key": "omagic",
+                "context_kind": "scene_briefing",
+                "title": "Runsite fight scene",
+                "script_text": "Render a grounded Shadowrun field-briefing fight scene for runsite.",
+            },
+        },
+    )
+    assert executed.status_code == 200
+    body = executed.json()
+    assert body["task_key"] == "scene_video_generate"
+    assert body["skill_key"] == "scene_video_generate"
+    assert body["kind"] == "scene_video_packet"
+    assert body["structured_output_json"]["provider_key"] == "omagic"
+    assert body["structured_output_json"]["provider_backend_key"] == "onemin_i2v"
+    assert body["structured_output_json"]["structured_output_json"]["provider_backend_key"] == "onemin_i2v"
+    assert body["structured_output_json"]["video_url"] == "https://cdn.example/runsite/fight-scene.mp4"
+
+    executed_via_skill = client.post(
+        "/v1/plans/execute",
+        json={
+            "skill_key": "scene_video_generate",
+            "goal": "render the runsite fight scene",
+            "input_json": {
+                "provider_key": "omagic",
+                "context_kind": "scene_briefing",
+                "title": "Runsite fight scene",
+                "script_text": "Render a grounded Shadowrun field-briefing fight scene for runsite.",
+            },
+        },
+    )
+    assert executed_via_skill.status_code == 200
+    assert executed_via_skill.json()["skill_key"] == "scene_video_generate"
+    assert executed_via_skill.json()["task_key"] == "scene_video_generate"
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == "scene_video_generate"
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "ea.scene_video_generate",
+        "artifact_repository",
+    ]
+    assert session_body["artifacts"][0]["skill_key"] == "scene_video_generate"
 
 
 def test_skill_catalog_can_execute_browseract_bootstrap_manager_for_page_extract_templates() -> None:

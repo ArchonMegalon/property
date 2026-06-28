@@ -13,6 +13,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts.property_magicfit_env import default_magicfit_env_files, discover_magicfit_env
 from scripts.discover_property_tour_exports import build_discovery_receipt
 from scripts.property_tour_runtime_paths import preferred_public_tour_root
 
@@ -44,6 +45,12 @@ OFFICIAL_INSTALLER_SOURCES = {
         "operator_note": "The Garden Gnome download may be Cloudflare-challenged for headless curl; download with a browser if the host fetch returns 403.",
     },
 }
+MAGICFIT_RENDER_SCRIPT = "scripts/render_magicfit_property_flythrough.py"
+MAGICFIT_CREDENTIAL_ENV_PAIRS = (
+    ("PROPERTYQUARRY_MAGICFIT_EMAIL", "PROPERTYQUARRY_MAGICFIT_PASSWORD"),
+    ("MAGICFIT_EMAIL", "MAGICFIT_PASSWORD"),
+)
+MAGICFIT_RENDER_PYTHON_MODULES = ("playwright", "requests")
 
 
 def _repo_root() -> Path:
@@ -145,18 +152,98 @@ def _container_python_import_available(container: str, module: str) -> dict[str,
     }
 
 
-def _python_module_available(module: str) -> bool:
+def _python_module_status(module: str) -> dict[str, object]:
     try:
         completed = subprocess.run(
-            [sys.executable, "-c", f"import {module}"],
+            [sys.executable, "-c", f"import {module}; print(getattr({module}, '__version__', 'available'))"],
             check=False,
             capture_output=True,
             text=True,
             timeout=8,
         )
-    except Exception:
-        return False
-    return completed.returncode == 0
+    except Exception as exc:
+        return {"available": False, "path": sys.executable, "version": "", "reason": type(exc).__name__}
+    return {
+        "available": completed.returncode == 0,
+        "path": sys.executable,
+        "version": (completed.stdout or completed.stderr or "").strip().splitlines()[0][:120] if (completed.stdout or completed.stderr or "").strip() else "",
+        "returncode": int(completed.returncode),
+    }
+
+
+def _python_module_available(module: str) -> bool:
+    return bool(_python_module_status(module).get("available"))
+
+
+def _credential_pair_present(values: dict[str, str]) -> bool:
+    return any(values.get(email_key, "").strip() and values.get(password_key, "").strip() for email_key, password_key in MAGICFIT_CREDENTIAL_ENV_PAIRS)
+
+
+def _magicfit_renderer_receipt(repo_root: Path) -> dict[str, object]:
+    script_path = (repo_root / MAGICFIT_RENDER_SCRIPT).resolve()
+    env_files = tuple(
+        dict.fromkeys(
+            str(path)
+            for path in (
+                repo_root / ".env",
+                *default_magicfit_env_files(),
+            )
+        )
+    )
+    env_file_paths = tuple(Path(path).expanduser() for path in env_files)
+    discovered_values, discovered_sources = discover_magicfit_env(env_file_paths)
+    credential_sources: list[str] = []
+    if _credential_pair_present({key: str(value) for key, value in os.environ.items()}):
+        credential_sources.append("process_env")
+    if _credential_pair_present(discovered_values):
+        for email_key, password_key in MAGICFIT_CREDENTIAL_ENV_PAIRS:
+            email_source = discovered_sources.get(email_key, "")
+            password_source = discovered_sources.get(password_key, "")
+            if email_source and password_source:
+                credential_sources.extend([email_source, password_source])
+                break
+    env_files_checked = [str(path.resolve()) for path in env_file_paths]
+    deduped_sources = list(dict.fromkeys(credential_sources))
+    python_modules = {
+        module: _python_module_status(module)
+        for module in MAGICFIT_RENDER_PYTHON_MODULES
+    }
+    python_modules_ready = all(bool(row.get("available")) for row in python_modules.values())
+    credentials_configured = bool(deduped_sources)
+    script_ready = script_path.is_file()
+    ready = script_ready and credentials_configured and python_modules_ready
+    missing_python_modules = [
+        module
+        for module, status in python_modules.items()
+        if not bool(status.get("available"))
+    ]
+    if not script_ready:
+        next_action = f"restore {MAGICFIT_RENDER_SCRIPT} before claiming MagicFit walkthrough readiness"
+    elif not credentials_configured:
+        next_action = (
+            "configure PROPERTYQUARRY_MAGICFIT_EMAIL and PROPERTYQUARRY_MAGICFIT_PASSWORD in /docker/property/.env "
+            "or the current process environment before expecting MagicFit walkthrough renders"
+        )
+    elif missing_python_modules:
+        next_action = (
+            "install the missing Python modules for the MagicFit render lane: "
+            + ", ".join(missing_python_modules)
+        )
+    else:
+        next_action = ""
+    return {
+        "status": "pass" if ready else "blocked_configuration",
+        "script_path": str(script_path),
+        "script_ready": script_ready,
+        "credentials_configured": credentials_configured,
+        "credential_sources": deduped_sources,
+        "env_files_checked": env_files_checked,
+        "python_modules_ready": python_modules_ready,
+        "python_modules": python_modules,
+        "ready": ready,
+        "next_action": next_action,
+        "note": "Only readiness signals are recorded here; MagicFit credentials and session secrets are intentionally omitted.",
+    }
 
 
 def _installer_search_roots(extra_roots: list[str]) -> list[Path]:
@@ -393,6 +480,7 @@ def build_vendor_tooling_receipt(
     runtime_container: str = "",
     runtime_only: bool = False,
 ) -> dict[str, Any]:
+    repo_root = _repo_root()
     discovery = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=tour_root)
     discovery_provider_ready_counts = _provider_ready_counts(discovery)
     live_bundle_provider_ready_counts = _live_bundle_verified_export_counts(tour_root)
@@ -453,6 +541,7 @@ def build_vendor_tooling_receipt(
         if runtime_generated_tour_tools
         else None
     )
+    magicfit_renderer = _magicfit_renderer_receipt(repo_root)
     missing_exports = [
         provider
         for provider in ("3dvista", "pano2vr")
@@ -483,6 +572,17 @@ def build_vendor_tooling_receipt(
                 "container": runtime_container,
                 "missing_tools": missing_runtime_tools,
                 "action": "install missing runtime tools or route reconstruction generation to the prepared operator host lane",
+            }
+        )
+    if not bool(magicfit_renderer.get("ready")):
+        next_actions.append(
+            {
+                "area": "magicfit_renderer",
+                "script_ready": bool(magicfit_renderer.get("script_ready")),
+                "credentials_configured": bool(magicfit_renderer.get("credentials_configured")),
+                "python_modules_ready": bool(magicfit_renderer.get("python_modules_ready")),
+                "credential_sources": list(magicfit_renderer.get("credential_sources") or []),
+                "action": str(magicfit_renderer.get("next_action") or "configure the MagicFit render lane"),
             }
         )
     missing_installers = [
@@ -537,6 +637,7 @@ def build_vendor_tooling_receipt(
         "generated_tour_tools": generated_tour_tools,
         "runtime_generated_tour_ready": runtime_generated_tour_ready,
         "runtime_generated_tour_tools": runtime_generated_tour_tools,
+        "magicfit_renderer": magicfit_renderer,
         "wine_runtime_ready": wine_runtime_ready,
         "wine": wine,
         "wine64": wine64,

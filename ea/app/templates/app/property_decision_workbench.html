@@ -32,6 +32,7 @@
 {% set mobile_panel_count = (1 if has_mobile_results_panel else 0) + (1 if has_mobile_property_panel else 0) + (1 if has_mobile_brief_panel else 0) %}
 {% set mobile_primary = setup_mobile_primary if setup_mode else ('results' if has_results or run_terminal_no_results else 'property') %}
 {% set show_form_controls = show_brief_form and setup_mode %}
+{% set show_top_search_action = is_explicit_search_route and setup_mode and console_form and show_form_controls %}
 {% set result_surface = surface_mode in ['search', 'properties', 'shortlist'] %}
 {% set account_surface = surface_mode in ['account', 'settings'] %}
 {% set billing_surface = surface_mode == 'billing' %}
@@ -65,11 +66,11 @@
 {%- endmacro %}
 {% macro filtered_recovery_dialog(counterfactual_rows, suppression_rows) -%}
           <dialog class="pqx-filtered-dialog" data-pqx-filtered-dialog aria-label="Relax filtered homes">
-            <div class="pqx-filtered-dialog-card">
+              <div class="pqx-filtered-dialog-card">
               <div class="pqx-filtered-dialog-head">
                 <div>
-                  <strong>Relax one hard rule</strong>
-                  <div class="pqx-note">Hard rules only. Soft preferences stay in scoring.</div>
+                  <strong>Adjust ranking or one hard rule</strong>
+                  <div class="pqx-note">The ranking bar only changes ordering. Hard rules stay strict until you change them.</div>
                 </div>
                 <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
               </div>
@@ -107,6 +108,8 @@
                       type="button"
                       aria-label="{{ row.get('action_label') or 'Relax and restart' }}"
                       data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'
+                      data-pqx-counterfactual-action-kind="{{ slider.get('kind') or '' }}"
+                      data-pqx-counterfactual-action-default="{{ row.get('action_label') or 'Relax and restart' }}"
                     >{{ row.get('action_label') or 'Relax and restart' }}</button>
                     {% if row.get('affected_total') %}
                     <span class="pqx-filtered-dialog-estimate">
@@ -161,7 +164,7 @@
             <div class="pqx-evidence-atlas-card" data-pqx-evidence-atlas-card>
               <div class="pqx-evidence-atlas-head">
                 <div class="pqx-evidence-atlas-title">
-                  <span class="pqx-small">Evidence atlas</span>
+                  <span class="pqx-small">Area layers</span>
                   <strong data-pqx-evidence-atlas-title>Property context</strong>
                   <span class="pqx-note" data-pqx-evidence-atlas-caption>Cached evidence layers only. No search-time indexing.</span>
                 </div>
@@ -181,7 +184,7 @@
                   Searches read cached Teable/Postgres evidence rollups. Newspaper and provider indexing run in the background, never inside the search request.
                 </div>
                 <div class="pqx-evidence-atlas-cards" data-pqx-evidence-atlas-cards></div>
-                <div class="pqx-note" data-pqx-evidence-atlas-footer>Unavailable means not verified for this property yet, not a negative signal.</div>
+                <div class="pqx-note" data-pqx-evidence-atlas-footer>Unavailable means we do not have it for this property yet, not that it counts against the home.</div>
               </aside>
             </div>
           </dialog>
@@ -191,8 +194,8 @@
 <section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
   <div class="pqx-section-head">
     <div>
-      <h2>Still worth checking</h2>
-      <div class="pqx-note">Open this only when missing documents or floorplans could change your decision.</div>
+      <h2>Open questions</h2>
+      <div class="pqx-note">Only open this when a missing document or floorplan could still change the decision.</div>
     </div>
     <span class="pqx-pill warn" data-research-task-count>{{ counts.get('open') or 0 }} open</span>
   </div>
@@ -211,11 +214,11 @@
         </div>
         <span class="pqx-pill{% if task.get('status') == 'filled' %} good{% elif task.get('status') == 'dismissed' %}{% else %} warn{% endif %}" data-research-task-status-label>{{ task.get('status_label') or 'Up next' }}</span>
       </div>
-      <p class="pqx-note" data-research-task-detail>{{ task.get('detail') or 'This point is not verified enough to rely on for a decision yet.' }}</p>
+      <p class="pqx-note" data-research-task-detail>{{ task.get('detail') or 'This point is still too thin to rely on for a decision.' }}</p>
       {% if task.get('display_value') %}
       <div class="pqx-research-value"><span>Current answer</span><strong data-research-task-value>{{ task.get('display_value') }}</strong></div>
       {% else %}
-      <div class="pqx-research-value"><span>Current answer</span><strong data-research-task-value>Not verified yet</strong></div>
+      <div class="pqx-research-value"><span>Current answer</span><strong data-research-task-value>Still missing</strong></div>
       {% endif %}
       <form class="pqx-research-task-form" data-research-task-form>
         <label>
@@ -274,13 +277,22 @@
 {% set worker_state = run.get('worker_state') or summary.get('worker_state') or {} %}
 {% set reliability = run.get('reliability') or {} %}
 {% set progress_message_raw = (run.get('message') or '')|trim %}
-{% set progress_message_lower = progress_message_raw|lower %}
 {% set progress_provider_label = provider_display_total|string ~ ' provider checks' if provider_display_total > 0 else 'selected providers' %}
-{% set progress_message_display = progress_message_raw %}
-{% if not progress_message_display or 'could not load property search status' in progress_message_lower or 'checking run status' in progress_message_lower or 'suppressed_generic_listing_page' in progress_message_lower or progress_message_lower == 'starting' %}
-  {% set progress_message_display = 'Search is still running across ' ~ progress_provider_label ~ '; ' ~ reviewed_total ~ ' homes reviewed so far.' %}
+{% set progress_repair_status = ((reliability.get('repair') or {}).get('repair_status') or summary.get('repair_status') or summary.get('repair_status_label') or '')|lower %}
+{% set progress_has_repair_copy = status|lower == 'failed' or progress_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
+{% set progress_customer_message = (reliability.get('customer_status_message') or summary.get('customer_status_message') or '')|trim %}
+{% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
+{% set progress_message_display_lower = progress_message_display|lower %}
+{% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or progress_message_display_lower == 'starting' %}
+  {% if reviewed_total %}
+  {% set progress_message_display = 'Checking ' ~ progress_provider_label ~ ' · ' ~ reviewed_total ~ ' homes reviewed.' %}
+  {% elif provider_display_total > 0 %}
+  {% set progress_message_display = 'Preparing ' ~ progress_provider_label ~ '.' %}
+  {% else %}
+  {% set progress_message_display = 'Preparing provider checks.' %}
+  {% endif %}
 {% endif %}
-{% set reliability_message_raw = (reliability.get('customer_status_message') or '')|trim if reliability else '' %}
+{% set reliability_message_raw = progress_customer_message if reliability else '' %}
 {% set reliability_message_lower = reliability_message_raw|lower %}
 {% set reliability_message_display = reliability_message_raw %}
 {% if reliability_message_display and ('could not load property search status' in reliability_message_lower or 'checking run status' in reliability_message_lower or 'suppressed_generic_listing_page' in reliability_message_lower or reliability_message_lower == 'starting') %}
@@ -289,7 +301,7 @@
 <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
   <div class="pqx-concierge-pulse">
     <div class="pqx-progress-headline">
-      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed', 'completed_partial'] %}Results are ready{% elif status == 'failed' %}Search failed{% else %}Search in progress{% endif %}</strong>
+      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed', 'completed_partial'] %}Results are ready{% elif status == 'failed' %}Search paused{% else %}Search in progress{% endif %}</strong>
       <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{% if status in ['processed', 'completed', 'completed_partial'] %}100% · complete{% elif status == 'failed' %}stopped{% elif run_progress > 0 and eta_label %}{{ run_progress }}% · {{ eta_label }}{% elif run_progress > 0 %}{{ run_progress }}% · estimating{% elif eta_label %}starting · {{ eta_label }}{% else %}estimating{% endif %}</span>
     </div>
     <div class="pqx-pulse-line" aria-hidden="true"></div>
@@ -323,16 +335,9 @@
   {% if worker_state.get('workers') %}
   <div class="pqx-worker-strip" data-pqx-worker-strip>
     <div class="pqx-worker-strip-head">
-      {% set visible_worker_count = (worker_state.get('visible_workers') or (worker_state.get('workers')|length) or 0)|int %}
-      {% set available_worker_count = (worker_state.get('slot_cap') or visible_worker_count or 0)|int %}
-      <strong>
-        {% if available_worker_count > visible_worker_count %}
-          {{ visible_worker_count }} of {{ available_worker_count }} searches running
-        {% else %}
-          {{ visible_worker_count }} search{% if visible_worker_count != 1 %}es{% endif %} running
-        {% endif %}
-      </strong>
+      <strong>{{ worker_state.get('headline') or 'Preparing providers' }}</strong>
       <button type="button" class="pqx-tooltip" title="{{ worker_state.get('tooltip') }}" aria-label="{{ worker_state.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>
+      {% if worker_state.get('detail') %}<span class="pqx-note">{{ worker_state.get('detail') }}</span>{% endif %}
       {% if worker_state.get('upgrade_copy') %}<span class="pqx-note">{{ worker_state.get('upgrade_copy') }}</span>{% endif %}
     </div>
     <div class="pqx-worker-lanes">
@@ -867,13 +872,32 @@
       body { font-size: 15px; }
       .pqx-topbar {
         grid-template-columns: minmax(0, 1fr) auto;
-        grid-template-areas: "nav account";
+        grid-template-areas:
+          "brand account"
+          "nav nav";
         gap: 6px;
-        min-height: 52px;
-        padding: calc(4px + env(safe-area-inset-top, 0px)) 8px 4px;
+        min-height: 56px;
+        padding: calc(4px + env(safe-area-inset-top, 0px)) 8px 6px;
       }
-      .pqx-brand { display: none; }
-      .pqx-brand span:last-child { display: none; }
+      .pqx-brand {
+        display: inline-flex;
+        grid-area: brand;
+        gap: 8px;
+      }
+      .pqx-brand .pqx-mark {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+      }
+      .pqx-brand strong {
+        font-size: 0.82rem;
+        line-height: 1.05;
+      }
+      .pqx-brand-copy {
+        display: block;
+        font-size: 0.64rem;
+        line-height: 1;
+      }
       .pqx-mobile-nav-menu {
         display: contents;
         min-width: 0;
@@ -889,7 +913,7 @@
         width: 100%;
         max-width: 100%;
         gap: 4px;
-        padding: 0 2px 2px;
+        padding: 2px 0 0;
         overflow-x: auto;
         border: 0;
         border-radius: 0;
@@ -911,6 +935,9 @@
       .pqx-top-actions {
         gap: 4px;
         min-width: 0;
+        grid-area: account;
+        justify-content: flex-end;
+        align-self: start;
       }
       .pqx-top-actions > :not(.pqx-account-menu) { display: none !important; }
       .pqx-top-actions > [data-pqx-theme-toggle],
@@ -919,6 +946,23 @@
       }
       .pqx-shell[data-pqx-surface="account"] .pqx-top-actions {
         display: none;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-topbar,
+      .pqx-shell[data-pqx-surface="alerts"] .pqx-topbar {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "brand nav";
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-brand-copy,
+      .pqx-shell[data-pqx-surface="alerts"] .pqx-brand-copy {
+        display: none;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-top-actions,
+      .pqx-shell[data-pqx-surface="alerts"] .pqx-top-actions {
+        display: none;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-mobile-nav-menu,
+      .pqx-shell[data-pqx-surface="alerts"] .pqx-mobile-nav-menu {
+        justify-self: end;
       }
       .pqx-main { padding: 12px 10px 24px; }
       .pqx-setup {
@@ -3262,6 +3306,40 @@
     .pqx-location-selected-summary {
       display: none;
     }
+    .pqx-location-selected-tags {
+      display: none;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .pqx-location-selected-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 0 12px;
+      border: 1px solid rgba(137, 93, 28, 0.18);
+      border-radius: 999px;
+      background: rgba(255, 252, 244, 0.94);
+      color: var(--pq-ink);
+      font-size: 12px;
+      font-weight: 760;
+      line-height: 1.2;
+      cursor: pointer;
+    }
+    .pqx-location-selected-tag strong {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+    .pqx-location-selected-tag.is-overflow {
+      cursor: default;
+      background: rgba(243, 236, 223, 0.9);
+    }
+    .pqx-location-selected-tag-remove {
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 820;
+    }
     .pqx-location-mode-toggle {
       display: inline-flex;
       align-items: center;
@@ -3290,23 +3368,23 @@
     }
     .pqx-location-map-open {
       width: 100%;
-      min-height: 88px;
+      min-height: 76px;
       display: grid;
-      gap: 4px;
+      gap: 3px;
       place-items: center start;
-      padding: 18px;
-      border: 1px solid rgba(137, 93, 28, 0.24);
-      border-radius: 24px;
+      padding: 14px 16px;
+      border: 1px solid rgba(137, 93, 28, 0.18);
+      border-radius: 18px;
       background:
-        radial-gradient(circle at 16% 18%, rgba(214, 232, 222, 0.78), transparent 36%),
-        linear-gradient(135deg, rgba(255, 253, 248, 0.99), rgba(241, 236, 226, 0.96));
+        radial-gradient(circle at 14% 18%, rgba(214, 232, 222, 0.48), transparent 32%),
+        rgba(255, 253, 248, 0.98);
       color: var(--pq-ink);
-      box-shadow: 0 18px 42px rgba(48, 40, 28, 0.12);
+      box-shadow: none;
       cursor: pointer;
       text-align: left;
     }
     .pqx-location-map-open span {
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 840;
       letter-spacing: -0.02em;
     }
@@ -3335,12 +3413,12 @@
       display: none;
     }
     .pqx-location-map-dialog {
-      width: min(760px, calc(100vw - 32px));
+      width: min(720px, calc(100vw - 32px));
       max-width: calc(100vw - 32px);
       max-height: calc(100svh - 32px);
       padding: 0;
       border: 0;
-      border-radius: 30px;
+      border-radius: 24px;
       background: transparent;
       color: var(--pq-ink);
       overflow: visible;
@@ -3351,21 +3429,21 @@
     }
     .pqx-location-map-dialog-card {
       display: grid;
-      gap: 12px;
+      gap: 10px;
       max-height: calc(100svh - 32px);
-      padding: 14px;
-      border: 1px solid rgba(255, 255, 255, 0.48);
-      border-radius: 30px;
+      padding: 12px;
+      border: 1px solid rgba(137, 93, 28, 0.14);
+      border-radius: 24px;
       background:
-        radial-gradient(circle at 16% 12%, rgba(214, 232, 222, 0.86), transparent 34%),
-        linear-gradient(180deg, rgba(255, 254, 250, 0.99), rgba(242, 237, 226, 0.98));
-      box-shadow: 0 28px 80px rgba(29, 25, 18, 0.26);
+        radial-gradient(circle at 16% 12%, rgba(214, 232, 222, 0.5), transparent 34%),
+        rgba(255, 254, 250, 0.99);
+      box-shadow: 0 18px 46px rgba(29, 25, 18, 0.18);
       overflow: hidden;
     }
     .pqx-location-map-dialog-head {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       align-items: start;
-      justify-content: space-between;
       gap: 12px;
       padding: 2px 2px 0;
     }
@@ -3382,9 +3460,17 @@
       font-size: 12px;
       line-height: 1.35;
     }
-    .pqx-location-map-close {
+    .pqx-location-map-actions {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pqx-location-map-close,
+    .pqx-location-map-clear {
       flex: 0 0 auto;
-      min-width: 76px;
+      min-width: 72px;
       min-height: 44px;
       border: 1px solid rgba(137, 93, 28, 0.22);
       border-radius: 999px;
@@ -3393,6 +3479,61 @@
       font-size: 13px;
       font-weight: 820;
       cursor: pointer;
+    }
+    .pqx-location-map-clear {
+      background: rgba(255, 249, 238, 0.96);
+      color: var(--pq-muted);
+    }
+    .pqx-location-map-selection {
+      display: grid;
+      gap: 8px;
+      padding: 10px 12px 0;
+    }
+    .pqx-location-map-selection[hidden] {
+      display: none;
+    }
+    .pqx-location-map-selection-summary {
+      margin: 0;
+      color: var(--pq-ink);
+      font-size: 12px;
+      font-weight: 760;
+      line-height: 1.35;
+    }
+    .pqx-location-map-selection-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .pqx-location-map-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid rgba(176, 31, 31, 0.2);
+      border-radius: 999px;
+      background: rgba(255, 245, 243, 0.96);
+      color: var(--pq-ink);
+      font-size: 12px;
+      font-weight: 760;
+      line-height: 1.2;
+      cursor: pointer;
+    }
+    .pqx-location-map-tag strong {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+    .pqx-location-map-tag-remove {
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 820;
+    }
+    .pqx-location-map-tag.is-overflow {
+      cursor: default;
+      background: rgba(247, 239, 234, 0.96);
+      color: var(--pq-muted);
+      border-color: rgba(176, 31, 31, 0.12);
     }
     .pqx-location-map-dialog[open] .pqx-location-map-picker {
       display: grid;
@@ -3468,14 +3609,14 @@
       line-height: 1.18;
     }
     .pqx-location-map-picker {
-      gap: 10px;
+      gap: 8px;
       min-width: 0;
-      border: 1px solid rgba(151, 133, 102, 0.3);
-      border-radius: 24px;
+      border: 1px solid rgba(151, 133, 102, 0.24);
+      border-radius: 20px;
       background:
-        radial-gradient(circle at 18% 16%, rgba(205, 232, 222, 0.74), transparent 30%),
-        linear-gradient(180deg, rgba(255, 254, 250, 0.98), rgba(244, 240, 232, 0.94));
-      box-shadow: 0 18px 46px rgba(48, 40, 28, 0.12);
+        radial-gradient(circle at 18% 16%, rgba(205, 232, 222, 0.42), transparent 28%),
+        rgba(255, 254, 250, 0.98);
+      box-shadow: none;
       overflow: hidden;
     }
     .pqx-location-map-head,
@@ -3501,7 +3642,7 @@
       padding-top: 0;
     }
     .pqx-location-map-control {
-      min-width: 48px;
+      min-width: 44px;
       min-height: 44px;
       border: 1px solid rgba(137, 93, 28, 0.18);
       border-radius: 999px;
@@ -3557,7 +3698,7 @@
     }
     .pqx-location-map-label {
       fill: rgba(42, 36, 27, 0.82);
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 800;
       pointer-events: none;
       text-anchor: middle;
@@ -3566,7 +3707,7 @@
       display: block;
       margin: -4px 12px 12px;
       color: var(--pq-muted);
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.3;
     }
     .pqx-location-map-dialog-foot {
@@ -3786,10 +3927,10 @@
       padding: 0;
       margin-top: 2px;
       grid-column: 1 / -1;
-      border: 1px solid rgba(162, 143, 111, 0.46);
-      border-radius: 8px;
-      background: #fffefa;
-      box-shadow: 0 10px 28px rgba(65, 49, 26, 0.06);
+      border: 1px solid rgba(162, 143, 111, 0.28);
+      border-radius: 18px;
+      background: rgba(255, 254, 250, 0.98);
+      box-shadow: none;
       overflow: visible;
     }
     .pqx-what-matters-head {
@@ -3797,9 +3938,9 @@
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
       align-items: center;
-      padding: 8px 10px;
+      padding: 9px 10px;
       border-bottom: 1px solid var(--pq-line);
-      background: linear-gradient(180deg, rgba(255, 252, 246, 0.96), rgba(250, 246, 237, 0.78));
+      background: rgba(255, 252, 246, 0.82);
     }
     .pqx-what-matters-head .pqx-disclosure-copy {
       min-width: 0;
@@ -3813,7 +3954,7 @@
     .pqx-what-matters-summary-meta {
       display: flex;
       flex-wrap: wrap;
-      gap: 5px;
+      gap: 4px;
       align-items: center;
       margin-top: 4px;
     }
@@ -3821,10 +3962,10 @@
       display: inline-flex;
       align-items: center;
       min-height: 20px;
-      padding: 0 7px;
+      padding: 0 6px;
       border: 1px solid rgba(70, 56, 25, 0.12);
       border-radius: 999px;
-      background: rgba(70, 56, 25, 0.04);
+      background: rgba(70, 56, 25, 0.03);
       color: var(--pq-muted);
       font-size: 10px;
       font-weight: 600;
@@ -3842,10 +3983,10 @@
     .pqx-what-matters-panel .pqx-choice-groupbox {
       gap: 7px;
       padding: 8px;
-      border: 1px solid rgba(185, 173, 154, 0.32);
-      border-radius: 8px;
-      background: rgba(255, 253, 248, 0.72);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+      border: 1px solid rgba(185, 173, 154, 0.24);
+      border-radius: 14px;
+      background: rgba(255, 253, 248, 0.62);
+      box-shadow: none;
       box-sizing: border-box;
       min-width: 0;
       max-width: 100%;
@@ -3855,9 +3996,9 @@
     }
     .pqx-what-matters-panel .pqx-choice-groupbox[data-active-distance-rows="true"] {
       grid-column: 1 / -1;
-      border-color: rgba(189, 139, 47, 0.38);
-      background: linear-gradient(180deg, rgba(255, 253, 248, 0.88), rgba(252, 248, 239, 0.78));
-      box-shadow: 0 10px 22px rgba(65, 49, 26, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+      border-color: rgba(189, 139, 47, 0.32);
+      background: rgba(255, 251, 243, 0.82);
+      box-shadow: none;
       overflow: visible;
     }
     .pqx-what-matters-panel .pqx-choice-groupbox[data-mobile-distance-control-active="true"] {
@@ -3895,7 +4036,7 @@
     }
     .pqx-what-matters-panel .pqx-pref-list {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(236px, 1fr));
       gap: 5px;
       max-height: none;
       overflow: visible;
@@ -3905,17 +4046,17 @@
       max-width: 100%;
     }
     .pqx-what-matters-panel .pqx-choice-groupbox[data-active-distance-rows="true"] .pqx-pref-list {
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 320px));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 248px), 320px));
       justify-content: start;
     }
     .pqx-what-matters-panel .pqx-pref-row {
       grid-template-columns: minmax(96px, 1fr) max-content;
-      padding: 5px 6px;
+      padding: 6px 7px;
       gap: 6px;
       align-items: center;
-      border: 1px solid rgba(185, 173, 154, 0.2);
-      border-radius: 8px;
-      background: rgba(255, 253, 249, 0.58);
+      border: 1px solid rgba(185, 173, 154, 0.18);
+      border-radius: 12px;
+      background: rgba(255, 253, 249, 0.5);
       min-height: 0;
       min-width: 0;
       max-width: 100%;
@@ -3924,20 +4065,20 @@
       transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
     }
     .pqx-what-matters-panel .pqx-pref-row:hover {
-      border-color: rgba(151, 124, 70, 0.38);
-      background: rgba(255, 251, 241, 0.86);
+      border-color: rgba(151, 124, 70, 0.28);
+      background: rgba(255, 251, 241, 0.72);
     }
     .pqx-what-matters-panel .pqx-pref-row[data-preference-state="nice_to_have"],
     .pqx-what-matters-panel .pqx-pref-row[data-preference-state="important"],
     .pqx-what-matters-panel .pqx-pref-row[data-preference-state="must_have"] {
-      border-color: rgba(189, 139, 47, 0.42);
-      background: linear-gradient(180deg, rgba(255, 250, 236, 0.98), rgba(255, 246, 221, 0.78));
-      box-shadow: inset 3px 0 0 rgba(189, 139, 47, 0.58);
+      border-color: rgba(189, 139, 47, 0.32);
+      background: rgba(255, 248, 230, 0.78);
+      box-shadow: inset 3px 0 0 rgba(189, 139, 47, 0.48);
     }
     .pqx-what-matters-panel .pqx-pref-row[data-preference-state="avoid"] {
-      border-color: rgba(171, 77, 51, 0.42);
-      background: linear-gradient(180deg, rgba(255, 248, 242, 0.98), rgba(252, 232, 218, 0.7));
-      box-shadow: inset 3px 0 0 rgba(171, 77, 51, 0.56);
+      border-color: rgba(171, 77, 51, 0.32);
+      background: rgba(255, 241, 233, 0.78);
+      box-shadow: inset 3px 0 0 rgba(171, 77, 51, 0.48);
     }
     .pqx-what-matters-panel .pqx-pref-row[data-preference-state="must_have"] strong,
     .pqx-what-matters-panel .pqx-pref-row[data-preference-state="avoid"] strong {
@@ -3950,26 +4091,39 @@
       gap: 2px;
       align-self: center;
     }
+    .pqx-what-matters-panel .pqx-pref-row-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      max-width: 100%;
+    }
     .pqx-what-matters-panel .pqx-pref-row strong {
       font-size: 12px;
       line-height: 1.2;
       overflow-wrap: break-word;
     }
+    .pqx-what-matters-panel .pqx-pref-row-title .pqx-tooltip {
+      flex: 0 0 auto;
+      width: 16px;
+      height: 16px;
+      font-size: 10px;
+    }
     .pqx-what-matters-panel .pqx-pref-row small {
       display: none;
     }
     .pqx-what-matters-panel .pqx-pref-row select {
-      min-width: 96px;
-      max-width: 150px;
+      min-width: 92px;
+      max-width: 136px;
       min-height: 30px;
-      padding: 4px 24px 4px 7px;
+      padding: 4px 22px 4px 7px;
       font-size: 11px;
       align-self: center;
       justify-self: end;
       width: max-content;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
-      grid-template-columns: minmax(0, 1fr) minmax(104px, 110px) minmax(96px, 100px);
+      grid-template-columns: minmax(0, 1fr) minmax(92px, 102px) minmax(92px, 96px);
       row-gap: 5px;
       align-items: center;
       transform: translateY(-1px);
@@ -4004,7 +4158,7 @@
       grid-template-columns: minmax(110px, 1fr) max-content;
     }
     .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] {
-      grid-template-columns: minmax(0, 1fr) minmax(104px, 110px) minmax(96px, 100px);
+      grid-template-columns: minmax(0, 1fr) minmax(92px, 102px) minmax(92px, 96px);
       row-gap: 5px;
       align-items: center;
       z-index: 2;
@@ -4095,7 +4249,7 @@
         overflow: visible;
         padding: 0;
         border-radius: 16px;
-        background: linear-gradient(180deg, rgba(255, 253, 248, 0.99), rgba(246, 242, 234, 0.98));
+        background: rgba(255, 253, 248, 0.99);
         box-shadow: none;
       }
       .pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel .pqx-what-matters-head {
@@ -4104,7 +4258,7 @@
         z-index: 2;
         margin: 0;
         padding: 10px 10px 8px;
-        background: linear-gradient(180deg, rgba(255, 253, 248, 0.995), rgba(248, 244, 236, 0.98));
+        background: rgba(255, 253, 248, 0.995);
       }
       .pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel .pqx-advanced-panel-grid {
         min-height: 0;
@@ -4199,6 +4353,9 @@
         padding: 5px 6px;
         min-width: 0;
         max-width: 100%;
+      }
+      .pqx-what-matters-panel .pqx-pref-row-title .pqx-tooltip {
+        display: inline-grid;
       }
       .pqx-what-matters-panel .pqx-pref-row select,
       .pqx-what-matters-panel .pqx-keyword-priority-row select,
@@ -5264,7 +5421,10 @@
       gap: 10px;
     }
     .pqx-empty-results.pqx-empty-results-failed {
-      max-width: 980px;
+      grid-template-columns: minmax(0, 1fr);
+      max-width: 760px;
+      margin-inline: auto;
+      justify-items: stretch;
     }
     .pqx-run-hero {
       display: flex;
@@ -5298,6 +5458,7 @@
     .pqx-empty-results-failed .pqx-run-hero {
       gap: 12px;
       padding: 16px;
+      width: 100%;
       box-shadow: 0 18px 42px rgba(74, 61, 44, 0.12);
     }
     .pqx-empty-results-completed .pqx-run-hero {
@@ -6098,6 +6259,54 @@
     .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item .pqx-note {
       display: none;
     }
+    .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-grid {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+    .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item {
+      gap: 8px;
+      min-height: 144px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #fffdf7;
+      box-shadow: 0 10px 24px rgba(74, 61, 44, 0.06);
+    }
+    .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item strong {
+      font-size: 14px;
+      line-height: 1.3;
+      text-wrap: pretty;
+    }
+    .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item .pqx-note {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 4;
+      overflow: hidden;
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item-adjustable {
+      cursor: default;
+      gap: 10px;
+    }
+    .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item-adjustable .pqx-filter-radius-control {
+      margin-top: 0;
+      gap: 8px;
+    }
+    .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item-adjustable .pqx-filter-radius-control .pqx-small {
+      display: block;
+      color: var(--pq-muted);
+    }
+    .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item-adjustable .pqx-suppression-action {
+      cursor: pointer;
+    }
+    .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-action {
+      margin-top: auto;
+      white-space: normal;
+      text-align: left;
+      justify-self: start;
+    }
     .pqx-suppression-action,
     .pqx-trust-chip {
       display: inline-flex;
@@ -6383,6 +6592,12 @@
     .pqx-context-actions {
       padding-top: 4px;
     }
+    .pqx-context-primary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
     .pqx-context-actions .pqx-link-button {
       border-color: rgba(255, 249, 237, 0.28);
       background: rgba(255, 249, 237, 0.08);
@@ -6392,6 +6607,34 @@
       border-color: #fff9ed;
       background: #fff9ed;
       color: var(--pq-charcoal);
+    }
+    .pqx-context-tools {
+      min-width: 140px;
+    }
+    .pqx-context-tools summary {
+      list-style: none;
+      min-height: var(--pq-touch-target);
+      display: inline-flex;
+      width: 100%;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 0 13px;
+      border: 1px solid rgba(255, 249, 237, 0.28);
+      border-radius: 8px;
+      background: rgba(255, 249, 237, 0.08);
+      color: #fff9ed;
+      cursor: pointer;
+      font-weight: 720;
+    }
+    .pqx-context-tools summary::marker,
+    .pqx-context-tools summary::-webkit-details-marker {
+      display: none;
+    }
+    .pqx-context-tool-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
     }
     .pqx-evidence {
       display: grid;
@@ -6745,7 +6988,8 @@
       box-shadow: none;
     }
     html[data-pq-theme="dark"] .pqx-location-map-control,
-    html[data-pq-theme="dark"] .pqx-location-selected-summary {
+    html[data-pq-theme="dark"] .pqx-location-selected-summary,
+    html[data-pq-theme="dark"] .pqx-location-selected-tag {
       background: var(--pq-paper);
       color: var(--pq-ink);
       border-color: var(--pq-line);
@@ -7596,67 +7840,70 @@
         backdrop-filter: blur(14px);
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head h2 {
-        display: none;
+        display: none !important;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head .pqx-note {
         line-height: 1.35;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        display: flex;
+        flex-wrap: wrap;
         align-items: center;
+        justify-content: flex-start;
         width: 100%;
         margin-left: 0;
         gap: 6px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-pill {
-        grid-column: 1;
-        grid-row: 1;
-        width: auto;
-        min-height: 34px;
-        max-width: max-content;
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        margin-inline-end: auto;
         padding: 0 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        white-space: nowrap;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-button {
-        min-height: 46px;
+        min-height: 36px;
         min-width: 0;
+        padding: 0 12px;
+        font-size: 12px;
+        flex: 0 0 auto;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-back],
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-next] {
-        width: 100%;
+        width: auto;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-back] {
-        grid-column: 1;
-        grid-row: 2;
+        order: 3;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-next] {
-        grid-column: 2;
-        grid-row: 2;
-      }
-      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions:has([data-property-step-back][hidden]) [data-property-step-next] {
-        grid-column: 1 / -1;
+        order: 4;
+        min-width: 88px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-save-top] {
-        grid-column: 2;
-        grid-row: 1;
-        justify-self: end;
+        order: 2;
         width: auto;
-        min-height: 34px;
-        padding: 0 12px;
+        min-height: 36px;
+        padding: 0 10px;
         border-radius: 999px;
         font-size: 12px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-inline-status {
-        grid-column: 1 / -1;
-        grid-row: 3;
+        order: 5;
+        flex: 1 0 100%;
         min-height: 0;
+      }
+      .pqx-topbar:has(.pqx-account-menu) .pqx-primary-nav [data-pqx-nav-account] {
+        display: none;
       }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail] {
         position: sticky;
         top: 0;
         z-index: 26;
-        margin: -2px -2px 6px;
-        padding: 5px 2px 7px;
+        margin: -1px -2px 4px;
+        padding: 4px 2px 6px;
         border-bottom: 1px solid var(--pq-line);
         background: color-mix(in srgb, var(--pq-paper) 92%, transparent);
         backdrop-filter: blur(16px);
@@ -7735,7 +7982,8 @@
       .pqx-shell[data-pqx-surface="search"] .pqx-location-mode-toggle,
       .pqx-shell[data-pqx-surface="search"] .pqx-location-map-launch,
       .pqx-shell[data-pqx-surface="search"] .pqx-location-map-open,
-      .pqx-shell[data-pqx-surface="search"] .pqx-location-selected-summary {
+      .pqx-shell[data-pqx-surface="search"] .pqx-location-selected-summary,
+      .pqx-shell[data-pqx-surface="search"] .pqx-location-selected-tags {
         width: 100%;
         min-width: 0;
         max-width: 100%;
@@ -8103,9 +8351,9 @@
         border-radius: 14px;
       }
       [data-property-field-name="location_query"] .pqx-location-map-open {
-        min-height: 64px !important;
+        min-height: 60px !important;
         gap: 2px;
-        padding: 12px 14px;
+        padding: 11px 13px;
         border-radius: 16px;
         box-shadow: none;
       }
@@ -8129,10 +8377,23 @@
         border-radius: 0;
       }
       .pqx-surface-search .pqx-location-map-dialog-head {
-        align-items: center;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: start;
       }
       .pqx-surface-search .pqx-location-map-dialog-head span {
         max-width: 24ch;
+      }
+      .pqx-surface-search .pqx-location-map-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+      }
+      .pqx-surface-search .pqx-location-map-clear,
+      .pqx-surface-search .pqx-location-map-close {
+        width: 100%;
+      }
+      .pqx-surface-search .pqx-location-map-selection {
+        padding: 4px 0 0;
       }
       .pqx-surface-search .pqx-location-map-dialog .pqx-location-map-viewport {
         min-height: min(62svh, 520px);
@@ -8144,12 +8405,17 @@
       }
       .pqx-surface-search .pqx-location-map-dialog-foot {
         display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
         padding: 0 2px 2px;
       }
+      .pqx-surface-search .pqx-location-map-dialog-foot .pqx-location-map-clear,
       .pqx-surface-search .pqx-location-map-dialog-foot .pqx-location-map-close {
         width: 100%;
         min-height: 56px;
         border-radius: 18px;
+      }
+      .pqx-surface-search .pqx-location-map-dialog-foot .pqx-location-map-close {
         background: var(--pq-charcoal);
         color: #fffaf1;
       }
@@ -8220,6 +8486,17 @@
         font-size: 13px;
         font-weight: 760;
       }
+      .pqx-location-selected-tags {
+        display: none;
+        width: 100%;
+      }
+      .pqx-surface-search [data-property-field-name="location_query"]:has(input[name="location_query"]:checked) .pqx-location-selected-tags {
+        display: flex;
+      }
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-selected-tag {
+        min-height: 34px;
+        padding-inline: 12px;
+      }
       .pqx-surface-search [data-property-field-name="location_query"] .pqx-choice-groupbox {
         gap: 10px;
         padding: 10px;
@@ -8246,7 +8523,8 @@
       }
       .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-mode-toggle,
       .pqx-surface-search [data-property-field-name="location_query"] .pqx-mobile-helper,
-      .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-selected-summary {
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-selected-summary,
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-selected-tags {
         grid-column: 1 / -1;
       }
       .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-mode-toggle {
@@ -8693,6 +8971,15 @@
         align-items: stretch;
         flex-direction: column;
       }
+      .pqx-context-primary {
+        display: grid;
+        width: 100%;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .pqx-context-tools {
+        width: 100%;
+      }
       .pqx-mobile-property-panel .pqx-actions {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -8700,6 +8987,11 @@
       }
       .pqx-button,
       .pqx-link-button {
+        width: 100%;
+        min-height: 46px;
+        border-radius: 12px;
+      }
+      .pqx-context-tools summary {
         width: 100%;
         min-height: 46px;
         border-radius: 12px;
@@ -8828,37 +9120,95 @@
       }
       .pqx-topbar {
         min-height: 0;
-        grid-template-columns: minmax(0, 1fr) auto;
-        grid-template-areas: "nav actions";
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-areas: "brand nav actions";
         gap: 6px;
         align-items: center;
         margin: 0 -8px 2px;
-        padding: calc(3px + env(safe-area-inset-top, 0px)) 8px 4px;
+        padding: calc(2px + env(safe-area-inset-top, 0px)) 8px 4px;
         border-bottom-color: color-mix(in srgb, var(--pq-line) 72%, transparent);
         background: color-mix(in srgb, var(--pq-paper) 96%, transparent);
         box-shadow: none;
       }
       .pqx-brand {
-        display: none;
+        display: inline-flex;
+        grid-area: brand;
+        gap: 8px;
       }
       .pqx-brand .pqx-mark {
-        width: 26px;
-        height: 26px;
+        width: 24px;
+        height: 24px;
         border-radius: 7px;
       }
       .pqx-brand strong {
-        font-size: 0.82rem;
+        font-size: 0.8rem;
       }
-      .pqx-primary-nav {
+      .pqx-brand-copy {
+        display: none;
+      }
+      .pqx-mobile-nav-menu {
         grid-area: nav;
-        min-width: 0;
-        gap: 2px;
-        padding: 0;
+        display: block !important;
+        position: relative;
       }
-      .pqx-primary-nav :is(a, span) {
-        min-height: 40px;
-        padding: 0 10px;
+      .pqx-mobile-nav-menu > summary {
+        min-height: 38px;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 0 12px;
+        border: 1px solid color-mix(in srgb, var(--pq-line) 78%, transparent);
         border-radius: 999px;
+        background: color-mix(in srgb, var(--pq-paper) 98%, white);
+        color: var(--pq-muted);
+        font-size: 11px;
+        font-weight: 700;
+        list-style: none;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .pqx-mobile-nav-menu > summary::-webkit-details-marker {
+        display: none;
+      }
+      .pqx-mobile-nav-menu > summary::after {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(45deg) translateY(-1px);
+        transform-origin: center;
+      }
+      .pqx-mobile-nav-menu[open] > summary::after {
+        transform: rotate(225deg) translateY(-1px);
+      }
+      .pqx-mobile-nav-menu .pqx-primary-nav {
+        display: none !important;
+      }
+      .pqx-mobile-nav-menu[open] .pqx-primary-nav {
+        position: fixed;
+        top: calc(50px + env(safe-area-inset-top, 0px));
+        left: 8px;
+        right: 8px;
+        z-index: 46;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        padding: 8px;
+        border: 1px solid color-mix(in srgb, var(--pq-line) 82%, transparent);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--pq-paper) 98%, white);
+        box-shadow: 0 16px 30px rgba(28, 24, 18, 0.12);
+      }
+      html[data-pq-theme="dark"] .pqx-mobile-nav-menu[open] .pqx-primary-nav {
+        background: color-mix(in srgb, var(--pq-paper) 96%, black);
+        box-shadow: 0 18px 32px rgba(0, 0, 0, 0.34);
+      }
+      .pqx-mobile-nav-menu[open] .pqx-primary-nav :is(a, span) {
+        min-height: 40px;
+        justify-content: flex-start;
+        padding: 0 12px;
         font-size: 11px;
       }
       .pqx-top-actions {
@@ -8868,18 +9218,17 @@
         justify-content: flex-end;
         gap: 4px;
         min-width: 0;
+        align-self: center;
       }
-      .pqx-top-actions > :not([data-property-start-top]):not(.pqx-account-menu) {
+      .pqx-top-actions > :not([data-property-start-top]):not(.pqx-account-menu):not([data-pqx-delete-run]) {
         display: none !important;
       }
-      .pqx-top-actions [data-property-start-top] {
+      .pqx-top-actions [data-property-start-top],
+      .pqx-top-actions [data-pqx-delete-run],
+      .pqx-shell[data-pqx-surface="search"] [data-property-start-top] {
         min-height: 44px;
         padding: 0 12px;
         white-space: nowrap;
-      }
-      .pqx-shell[data-pqx-surface="search"] .pqx-primary-nav {
-        justify-content: flex-start;
-        padding-right: 4px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-top-actions {
         flex: 0 0 auto;
@@ -8906,6 +9255,19 @@
         min-width: 40px;
         width: 40px;
         padding: 0;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-topbar,
+      .pqx-shell[data-pqx-surface="alerts"] .pqx-topbar {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "brand nav";
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-top-actions,
+      .pqx-shell[data-pqx-surface="alerts"] .pqx-top-actions {
+        display: none;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-mobile-nav-menu,
+      .pqx-shell[data-pqx-surface="alerts"] .pqx-mobile-nav-menu {
+        justify-self: end;
       }
       .pqx-main {
         width: min(calc(100vw - 12px), 760px);
@@ -9065,9 +9427,6 @@
         border-radius: 13px !important;
         box-shadow: none;
       }
-      .pqx-shell[data-pqx-surface="search"] [data-property-start-top] {
-        display: none !important;
-      }
       .pqx-shell[data-pqx-surface="research"][data-pqx-state="setup"] .pqx-setup-intro > .pqx-title,
       .pqx-shell[data-pqx-surface="research"][data-pqx-state="setup"] .pqx-setup-intro > .pqx-brief-stack {
         display: none;
@@ -9170,7 +9529,7 @@
           <span class="pqx-brand-copy">Research desk</span>
         </span>
       </a>
-      <details class="pqx-mobile-nav-menu" data-pqx-mobile-nav-menu open>
+      <details class="pqx-mobile-nav-menu" data-pqx-mobile-nav-menu>
         <summary>{% if surface_mode in ['properties', 'search'] %}Search{% elif surface_mode == 'shortlist' %}Shortlist{% elif surface_mode == 'research' %}Research{% elif surface_mode == 'agents' %}Saved{% elif surface_mode == 'alerts' %}Alerts{% elif surface_mode == 'billing' %}Billing{% elif surface_mode == 'account' %}Account{% else %}Menu{% endif %}</summary>
       <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
         {% if surface_mode in ['properties', 'search'] %}
@@ -9189,9 +9548,9 @@
         <a href="/app/research{{ topnav_query_suffix }}">Research</a>
         {% endif %}
         {% if surface_mode in ['account', 'agents', 'alerts', 'billing'] %}
-        <span class="is-active" aria-current="page">Account</span>
+        <span class="is-active" aria-current="page" data-pqx-nav-account>Account</span>
         {% else %}
-        <a href="/app/account{{ topnav_query_suffix }}">Account</a>
+        <a href="/app/account{{ topnav_query_suffix }}" data-pqx-nav-account>Account</a>
         {% endif %}
       </nav>
       </details>
@@ -9220,7 +9579,7 @@
         <button class="pqx-button subtle" type="button" data-pqx-browser-alerts hidden>Browser alerts</button>
         {% endif %}
         <span class="pqx-context-actions" data-pw-top-actions></span>
-        {% if is_explicit_search_route and setup_mode and console_form and show_form_controls %}
+        {% if show_top_search_action %}
         <button class="pqx-button primary" type="button" data-property-start-top aria-label="{{ console_form.get('submit_label') or 'Launch search' }}">
           <span class="pqx-top-start-label-full">{{ console_form.get('submit_label') or 'Launch search' }}</span>
           <span class="pqx-top-start-label-short">Search</span>
@@ -9240,14 +9599,14 @@
               <strong>{{ account_nav.label }}</strong>
             </div>
             <div class="pqx-account-menu-links">
+              {% if not account_surface %}
+              <a class="pqx-link-button" href="{{ account_nav.profile_href }}">Saved defaults</a>
+              {% endif %}
             {% if not billing_surface and surface_mode != 'search' %}
-            <a class="pqx-link-button" href="{{ account_nav.billing_href }}">Upgrade</a>
+            <a class="pqx-link-button" href="{{ account_nav.billing_href }}">Billing account</a>
             {% endif %}
               {% if not account_surface %}
-              <a class="pqx-link-button" href="{{ account_nav.profile_href }}">Profile</a>
-              {% endif %}
-              {% if not account_surface %}
-              <a class="pqx-link-button subtle" href="{{ account_nav.settings_href }}">Connections</a>
+              <a class="pqx-link-button subtle" href="{{ account_nav.settings_href }}">Access</a>
               {% endif %}
               {% if surface_mode != 'account' %}
               <form class="is-secondary pqx-account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
@@ -9261,6 +9620,46 @@
         {% endif %}
       </div>
     </header>
+
+    <script>
+      (() => {
+        const root = document.querySelector('[data-property-decision-workbench]');
+        if (!root) return;
+        const applyMobileTopNavFallback = () => {
+          if (!window.matchMedia('(max-width: 760px)').matches) return;
+          const menu = root.querySelector('[data-pqx-mobile-nav-menu]');
+          if (!(menu instanceof HTMLDetailsElement)) return;
+          const summary = menu.querySelector(':scope > summary');
+          const nav = menu.querySelector('.pqx-primary-nav');
+          if (!(summary instanceof HTMLElement) || !(nav instanceof HTMLElement)) return;
+          const summaryRect = summary.getBoundingClientRect();
+          const navRect = nav.getBoundingClientRect();
+          const summaryVisible = summaryRect.width > 0 && summaryRect.height > 0;
+          const navVisible = navRect.width > 0 && navRect.height > 0;
+          if (!summaryVisible && !navVisible) {
+            menu.style.display = 'block';
+            menu.style.position = 'relative';
+            summary.style.display = 'inline-flex';
+            summary.style.alignItems = 'center';
+            summary.style.justifyContent = 'center';
+            nav.style.display = menu.open ? 'grid' : 'none';
+          } else if (!menu.open && navVisible) {
+            nav.style.display = 'none';
+          }
+        };
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', applyMobileTopNavFallback, { once: true });
+        } else {
+          applyMobileTopNavFallback();
+        }
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(applyMobileTopNavFallback);
+        });
+        window.setTimeout(applyMobileTopNavFallback, 180);
+        root.querySelector('[data-pqx-mobile-nav-menu]')?.addEventListener('toggle', applyMobileTopNavFallback);
+        window.addEventListener('resize', applyMobileTopNavFallback);
+      })();
+    </script>
 
     <main class="pqx-main">
       {% if route_recovery %}
@@ -9329,13 +9728,22 @@
           {% set live_preview_candidates = (run_summary.get('ranked_candidates') or []) %}
           {% set live_preview = live_preview_candidates[0] if live_preview_candidates else None %}
           {% set live_run_message_raw = (run.get('message') or '')|trim %}
-          {% set live_run_message_lower = live_run_message_raw|lower %}
           {% set live_provider_total = (run_summary.get('provider_total') or run_summary.get('source_variant_total') or 0)|int %}
           {% set live_reviewed_total = (run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0)|int %}
           {% set live_provider_label = live_provider_total|string ~ ' provider checks' if live_provider_total > 0 else 'selected providers' %}
-          {% set live_run_message_display = live_run_message_raw %}
-          {% if not live_run_message_display or 'could not load property search status' in live_run_message_lower or 'checking run status' in live_run_message_lower or 'suppressed_generic_listing_page' in live_run_message_lower or live_run_message_lower == 'starting' %}
-          {% set live_run_message_display = 'Search is still running across ' ~ live_provider_label ~ '; ' ~ live_reviewed_total ~ ' homes reviewed so far.' %}
+          {% set live_repair_status = (run_summary.get('repair_status') or run_summary.get('repair_status_label') or '')|lower %}
+          {% set live_has_repair_copy = run_status == 'failed' or live_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
+          {% set live_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
+          {% set live_run_message_display = live_safe_message if live_has_repair_copy and live_safe_message else live_run_message_raw %}
+          {% set live_run_message_display_lower = live_run_message_display|lower %}
+          {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or live_run_message_display_lower == 'starting' %}
+          {% if live_reviewed_total %}
+          {% set live_run_message_display = 'Checking ' ~ live_provider_label ~ ' · ' ~ live_reviewed_total ~ ' homes reviewed.' %}
+          {% elif live_provider_total > 0 %}
+          {% set live_run_message_display = 'Preparing ' ~ live_provider_label ~ '.' %}
+          {% else %}
+          {% set live_run_message_display = 'Preparing provider checks.' %}
+          {% endif %}
           {% endif %}
           <section class="pqx-card" style="margin-bottom:14px;">
             <div class="pqx-section-head">
@@ -9362,28 +9770,25 @@
           {% set live_preview_price_numeric = live_preview.get('price_eur') or live_preview.get('purchase_price_eur') or live_preview.get('buy_price_eur') or live_preview.get('rent_eur') or live_preview.get('total_rent_eur') or live_preview.get('monthly_rent_eur') or live_preview_facts.get('price_eur') or live_preview_facts.get('purchase_price_eur') or live_preview_facts.get('buy_price_eur') or live_preview_facts.get('rent_eur') or live_preview_facts.get('total_rent_eur') or live_preview_facts.get('monthly_rent_eur') %}
           {% set live_preview_currency = live_preview.get('currency_code') or live_preview_facts.get('currency_code') or ('EUR' if live_preview_price_numeric else '') %}
           {% set live_preview_price = live_preview_price_text or ((live_preview_currency ~ ' ' ~ '{:,.0f}'.format(live_preview_price_numeric|float)) if live_preview_price_numeric else '') %}
-          {% set live_preview_reason = (live_preview.get('fit_summary') or live_preview.get('compare_reason') or live_preview.get('summary') or '')|trim or 'Top-ranked home in the current run.' %}
+          {% set live_preview_reason_raw = (live_preview.get('fit_summary') or live_preview.get('summary') or '')|trim %}
+          {% set live_preview_reason_lower = live_preview_reason_raw|lower %}
+          {% set live_preview_reason = live_preview_reason_raw if live_preview_reason_raw and not (live_preview_reason_lower.startswith('http://') or live_preview_reason_lower.startswith('https://') or live_preview_reason_lower.startswith('www.')) else 'Leading match right now.' %}
           <div class="pqx-pref-row">
             <div>
-                  <strong>Current lead</strong>
-                  <small>Still provisional while the run is finishing.</small>
+                  <strong>{{ live_preview_title }}</strong>
+                  <small>{{ live_preview_reason }}</small>
                 </div>
                 <div><strong>Fit</strong><small>{{ (live_preview.get('fit_score') or 0)|int }}/100</small></div>
                 {% if live_preview_price %}
                 <div><strong>Price</strong><small>{{ live_preview_price }}</small></div>
                 {% endif %}
               </div>
-              <div class="pqx-pref-row">
-                <div>
-                  <strong>{{ live_preview_title }}</strong>
-                  <small>{{ live_preview_reason }}</small>
-                </div>
-              </div>
               {% if live_preview_location %}
               <div class="pqx-pref-row">
                 <div><strong>Location</strong><small>{{ live_preview_location }}</small></div>
               </div>
               {% endif %}
+              <div class="pqx-note" style="margin-top:4px;">Leading right now. Can still change before the search finishes.</div>
               {% if live_preview_image or live_preview_href %}
               <div class="pqx-pref-row">
                 <div style="display:flex; align-items:center; gap:12px; min-width:0;">
@@ -9591,13 +9996,13 @@
               </h2>
               <div class="pqx-note" data-property-step-summary>
                 {% if surface_mode == 'agents' %}
-                Edit saved searches, start a fresh sweep, and open recent outcomes.
+                Review saved searches, rerun them, and open recent results.
                 {% elif surface_mode == 'alerts' %}
-                Sent property pages, routing truth, recovery notes, and active run updates.
+                Sent pages, notifications, follow-up, and run updates.
                 {% elif surface_mode == 'billing' %}
-                Plan and checkout.
+                Current access and billing.
                 {% elif surface_mode == 'account' %}
-                Identity, saved defaults, delivery, and data controls stay together.
+                Saved defaults, notifications, billing, and access stay together.
                 {% else %}
                 Fill only what changes ranking. Everything else stays neutral.
                 {% endif %}
@@ -9871,7 +10276,12 @@
                         {% for option in group_options %}
                         <label class="pqx-pref-row pqx-keyword-priority-row"{% if option.get('hidden') %} hidden{% endif %} data-keyword-priority-row data-keyword-value="{{ option.get('value') }}" data-keyword-display-key="{{ option.get('display_key') or option.get('label') }}" data-preference-state="{{ option.get('state') or 'any' }}" data-keyword-distance-enabled="{{ 'true' if (option.get('state') or 'any') != 'any' else 'false' }}">
                           <div>
-                            <strong>{{ option.get('label') }}</strong>
+                            <span class="pqx-pref-row-title">
+                              <strong>{{ option.get('label') }}</strong>
+                              {% if option.get('tooltip') %}
+                              <button type="button" class="pqx-tooltip" title="{{ option.get('tooltip') }}" aria-label="{{ option.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>
+                              {% endif %}
+                            </span>
                             {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
                           </div>
                           <select name="keyword_preference__{{ option.get('value') }}" data-keyword-preference-select data-keyword-value="{{ option.get('value') }}">
@@ -9909,7 +10319,12 @@
                           {% if option.get('value') in ('public_kindergarten', 'private_kindergarten', 'ganztags_volksschule', 'halbtags_volksschule') and (option.get('state') or 'any') == 'any' %} hidden aria-hidden="true"{% endif %}
                         >
                           <div>
-                            <strong>{{ option.get('label') }}</strong>
+                            <span class="pqx-pref-row-title">
+                              <strong>{{ option.get('label') }}</strong>
+                              {% if option.get('tooltip') %}
+                              <button type="button" class="pqx-tooltip" title="{{ option.get('tooltip') }}" aria-label="{{ option.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>
+                              {% endif %}
+                            </span>
                             {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
                           </div>
                           <select name="school_preference__{{ option.get('value') }}" data-school-preference-select data-school-value="{{ option.get('value') }}">
@@ -9947,8 +10362,9 @@
                         <button class="pqx-field-action" type="button" data-location-mode-button="map" aria-pressed="true">Map</button>
                         <button class="pqx-field-action" type="button" data-location-mode-button="list" aria-pressed="false">List</button>
                       </div>
-                      <p class="pqx-mobile-helper">Use either the real-border map or the manual list. They stay separate to keep selection simple.</p>
+                      <p class="pqx-mobile-helper">Choose either the real-border map or the manual list.</p>
                       <p class="pqx-location-selected-summary" data-location-selected-summary>0 districts selected</p>
+                      <div class="pqx-location-selected-tags" data-location-selected-tags aria-label="Selected districts"></div>
                       <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all areas">All areas</button>
                       <button class="pqx-field-action" type="button" data-checkbox-group-clear-all="{{ field.name }}" aria-label="Clear selected areas">Clear</button>
                       {% endif %}
@@ -9992,7 +10408,7 @@
                   <div class="pqx-location-map-launch" data-location-map-launch>
                     <button class="pqx-location-map-open" type="button" data-location-map-open>
                       <span>Open district map</span>
-                      <small data-location-map-launch-note>Tap real borders. Pinch or drag in a separate popup.</small>
+                      <small data-location-map-launch-note>Real district borders in a separate map.</small>
                     </button>
                   </div>
                   <dialog class="pqx-location-map-dialog" data-location-map-dialog aria-label="District map picker">
@@ -10000,20 +10416,27 @@
                       <div class="pqx-location-map-dialog-head">
                         <div>
                           <strong data-location-map-dialog-title>District map</strong>
-                          <span>Tap district borders. Pinch or drag, then press Done.</span>
+                          <span>Tap districts, adjust the view, then press Done.</span>
+                          <div class="pqx-location-map-selection" data-location-map-selection hidden>
+                            <p class="pqx-location-map-selection-summary" data-location-map-selection-summary>No districts selected yet.</p>
+                            <div class="pqx-location-map-selection-tags" data-location-map-selection-tags aria-label="Selected districts in map"></div>
+                          </div>
                         </div>
-                        <button class="pqx-location-map-close" type="button" data-location-map-close aria-label="Done with district map">Done</button>
+                        <div class="pqx-location-map-actions">
+                          <button class="pqx-location-map-clear" type="button" data-location-map-clear hidden>Clear</button>
+                          <button class="pqx-location-map-close" type="button" data-location-map-close aria-label="Done with district map">Done</button>
+                        </div>
                       </div>
                       <div class="pqx-location-map-picker" data-location-map-picker aria-label="District map picker">
                         <div class="pqx-location-map-head">
                           <div>
                             <strong data-location-map-title>District map</strong>
-                            <span data-location-map-caption>Tap to add. Drag or pinch to move and zoom.</span>
+                            <span data-location-map-caption>Tap to add. Drag or pinch to move.</span>
                           </div>
                         </div>
                         <div class="pqx-location-map-controls" aria-label="Map controls">
                           <button class="pqx-location-map-control" type="button" data-location-map-zoom="out" aria-label="Zoom out">−</button>
-                          <button class="pqx-location-map-control" type="button" data-location-map-zoom="reset" aria-label="Reset map">1×</button>
+                          <button class="pqx-location-map-control" type="button" data-location-map-zoom="reset" aria-label="Zoom map">1x</button>
                           <button class="pqx-location-map-control" type="button" data-location-map-zoom="in" aria-label="Zoom in">+</button>
                         </div>
                         <div class="pqx-location-map-viewport" data-location-map-viewport>
@@ -10022,8 +10445,9 @@
                             <g class="pqx-location-map-pan-layer" data-location-map-layer></g>
                           </svg>
                         </div>
-                        <span class="pqx-location-map-note">Selected districts stay red. Switch to List for manual picking.</span>
+                        <span class="pqx-location-map-note">Selected districts stay red.</span>
                         <div class="pqx-location-map-dialog-foot">
+                          <button class="pqx-location-map-clear" type="button" data-location-map-clear hidden>Clear</button>
                           <button class="pqx-location-map-close" type="button" data-location-map-close>Done</button>
                         </div>
                       </div>
@@ -10174,7 +10598,7 @@
             <section class="pqx-card pqx-evidence-catalog" data-pqx-evidence-catalog hidden>
               <div class="pqx-section-head">
                 <div>
-                  <h2>Public records</h2>
+                  <h2>Public data</h2>
                   <div class="pqx-note">Public data used for this market.</div>
                 </div>
               </div>
@@ -10192,12 +10616,12 @@
             data-preference-archive-endpoint-template="{{ preference_manager.get('archive_endpoint_template') or '/app/api/people/self/preference-profile/nodes/__NODE_ID__/archive' }}"
             data-preference-schema='{{ (preference_manager.get("schema") or {})|tojson|safe }}'
           >
-            <summary>Fine-tune my preferences</summary>
+            <summary>Preferences</summary>
             <div class="pqx-advanced-panel-grid">
             <div class="pqx-section-head">
               <div>
-                <h2>Learned preferences</h2>
-                <div class="pqx-note">Edit only the rules you want future searches to remember.</div>
+                <h2>Saved preferences</h2>
+                <div class="pqx-note">Only change the rules you want future searches to keep using.</div>
               </div>
               <span class="pqx-pill">{{ (preference_manager.get('active_nodes') or [])|length }} active</span>
             </div>
@@ -10221,8 +10645,8 @@
               </div>
               {% else %}
               <div class="pqx-empty" data-preference-empty>
-                <strong>No active learned preferences yet</strong>
-                <span class="pqx-note">Add explicit profile rules here or save feedback on property reviews.</span>
+                <strong>No saved preferences yet</strong>
+                <span class="pqx-note">Add a rule here or save feedback on property reviews.</span>
               </div>
               {% endfor %}
             </div>
@@ -10303,31 +10727,32 @@
       {% set empty_next_move = (empty_outcome.get('next_move') or '')|trim %}
       {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
       {% set hard_filtered_total = (run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or 0)|int %}
-      {% set soft_demoted_total = (run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0)|int %}
       {% set held_back_ranked_total = (run_summary.get('held_back_ranked_total') or 0)|int %}
-      {% set soft_only_empty_state = hard_filtered_total == 0 and soft_demoted_total > 0 %}
+      {% set recovery_ns = namespace(ranking_row=None) %}
+      {% for row in (workbench.get('counterfactual_rows') or []) %}
+        {% set slider = row.get('slider') or {} %}
+        {% if not recovery_ns.ranking_row and slider.get('kind') == 'ranking_bar' and row.get('adjustments') %}
+          {% set recovery_ns.ranking_row = row %}
+        {% endif %}
+      {% endfor %}
       <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}{% if run_failed_no_results %} pqx-empty-results-failed{% else %} pqx-empty-results-completed{% endif %}" data-pqx-empty-results>
         <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results" data-pqx-screenfit-target="run-progress">
           <div class="pqx-title">
             <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Completed{% endif %}</span>
             <h1>
               {% if run_status == 'failed' %}
-                {{ empty_happened or (run_reliability.get('repair_step_label') and 'Search paused. Repair is retrying the saved search.' or 'Search paused before ranking.') }}
-              {% elif soft_only_empty_state %}
-                No homes cleared the shortlist score for the current brief.
+                {{ empty_happened or run_reliability.get('customer_status_message') or 'Search paused before ranking finished.' }}
               {% else %}
                 {{ empty_happened or 'No shortlist yet.' }}
               {% endif %}
             </h1>
             <p class="pqx-note pqx-empty-outcome-line" data-pqx-run-summary>
               {% if run_status == 'failed' %}
-                {{ empty_eta_feedback or empty_still_worked or 'Repair is checking the run.' }}
-              {% elif soft_only_empty_state %}
-                {{ soft_demoted_total }} home{% if soft_demoted_total != 1 %}s{% endif %} stayed below the current shortlist score for the current brief.
+                {{ empty_eta_feedback or empty_still_worked or 'The brief was saved. Start a fresh search after adjusting one provider or rule.' }}
               {% elif held_back_ranked_total > 0 %}
                 {{ held_back_ranked_total }} reviewed home{% if held_back_ranked_total != 1 %}s{% endif %} appeared during the run but stayed outside the selected area or another hard scope rule.
               {% else %}
-                {{ empty_eta_feedback or empty_still_worked or 'No strong matches cleared the current brief.' }}
+                {{ empty_eta_feedback or empty_still_worked or 'No homes fit the current hard brief yet.' }}
               {% endif %}
             </p>
           </div>
@@ -10337,19 +10762,51 @@
               <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
               <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
               <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
-              {% if not run_failed_no_results %}
-              <div class="pqx-fact"><span>Min score</span><strong>{{ run_summary.get('high_match_min_score') or 'n/a' }}</strong></div>
-              {% endif %}
             </div>
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
             <div class="pqx-empty-outcome-next">
               {% if empty_active_rule %}<span class="pqx-pill">{{ empty_active_rule }}</span>{% endif %}
-              <span class="pqx-small">{{ 'Lower the shortlist score or inspect the reviewed homes.' if soft_only_empty_state else ('Open the area choices if you want to include those homes; otherwise keep the hard scope.' if held_back_ranked_total > 0 else (empty_next_move or ('Restart the same brief and let repair retry the interrupted search.' if run_status == 'failed' else 'Widen one hard rule first, then rerun.'))) }}</span>
+              <span class="pqx-small">{{ 'Open the area choices if you want to include those homes; otherwise keep the hard scope.' if held_back_ranked_total > 0 else (empty_next_move or ('Start a fresh search or adjust one provider or rule before retrying.' if run_status == 'failed' else 'Widen one hard rule first, then rerun.')) }}</span>
             </div>
             {% endif %}
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/search">New search</a>
             </div>
+            {% if recovery_ns.ranking_row and not run_failed_no_results %}
+            {% set ranking_slider = recovery_ns.ranking_row.get('slider') or {} %}
+            <div class="pqx-suppression-grid" style="margin-top:12px;">
+              <div class="pqx-suppression-item pqx-suppression-item-adjustable">
+                <strong>{{ recovery_ns.ranking_row.get('title') }}</strong>
+                <span class="pqx-note">Current ranking bar: {{ ranking_slider.get('max') or 0 }}/100. {{ recovery_ns.ranking_row.get('detail') }}</span>
+                <label class="pqx-filter-radius-control pqx-suppression-slider">
+                  <span>{{ ranking_slider.get('label') or 'Adjustment' }} <b data-pqx-filter-slider-value>{{ ranking_slider.get('value') or ranking_slider.get('min') or 0 }}{% if ranking_slider.get('unit') %} {{ ranking_slider.get('unit') }}{% endif %}</b></span>
+                  <input
+                    type="range"
+                    min="{{ ranking_slider.get('min') or 0 }}"
+                    max="{{ ranking_slider.get('max') or ranking_slider.get('value') or 0 }}"
+                    step="{{ ranking_slider.get('step') or 1 }}"
+                    value="{{ ranking_slider.get('value') or ranking_slider.get('min') or 0 }}"
+                    data-pqx-filter-slider
+                    data-pqx-filter-field="{{ ranking_slider.get('field') or '' }}"
+                    data-pqx-filter-kind="{{ ranking_slider.get('kind') or '' }}"
+                    data-pqx-filter-unit="{{ ranking_slider.get('unit') or '' }}"
+                    data-pqx-filter-base="{{ ranking_slider.get('min') or 0 }}"
+                    data-pqx-filter-max-value="{{ ranking_slider.get('max') or ranking_slider.get('value') or 0 }}"
+                    data-pqx-filter-max="{{ recovery_ns.ranking_row.get('affected_total') or 0 }}"
+                  >
+                  <span class="pqx-small" data-pqx-filter-estimate>Rerun to refresh the full ranking with the new bar.</span>
+                </label>
+                <button
+                  class="pqx-suppression-action"
+                  type="button"
+                  aria-label="{{ recovery_ns.ranking_row.get('action_label') or 'Adjust ranking bar' }}"
+                  data-pqx-counterfactual='{{ recovery_ns.ranking_row.get("adjustments")|tojson|safe }}'
+                  data-pqx-counterfactual-action-kind="{{ ranking_slider.get('kind') or '' }}"
+                  data-pqx-counterfactual-action-default="{{ recovery_ns.ranking_row.get('action_label') or 'Adjust ranking bar' }}"
+                >{{ recovery_ns.ranking_row.get('action_label') or 'Adjust ranking bar' }}</button>
+              </div>
+            </div>
+            {% endif %}
           </div>
         </aside>
         {% if not run_failed_no_results %}
@@ -10358,8 +10815,8 @@
           {% if not ranked_candidates %}
           <div class="pqx-section-head" data-pqx-screenfit-target="run-progress">
             <div>
-                <h2>{{ 'Near misses' if soft_only_empty_state else 'Next move' }}</h2>
-                <div class="pqx-note" data-pqx-run-summary>{{ 'Lower the shortlist score or inspect the strongest near-misses.' if soft_only_empty_state else (empty_next_move or 'Adjust one hard rule, then rerun.') }}</div>
+                <h2>Next move</h2>
+                <div class="pqx-note" data-pqx-run-summary>{{ empty_next_move or 'Adjust one hard rule, then rerun.' }}</div>
               </div>
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
@@ -10377,29 +10834,57 @@
           </div>
           {% endif %}
           <div data-pqx-counterfactuals>
-          {% if soft_only_empty_state and not ranked_candidates %}
-          <div class="pqx-suppression-grid" style="margin-bottom:12px;">
-            <a class="pqx-suppression-item" href="/app/properties{{ topnav_query_suffix }}">
-              <strong>Lower shortlist score</strong>
-              <span class="pqx-note">{{ soft_demoted_total }} reviewed homes are still available once the shortlist bar moves down.</span>
-              <span class="pqx-suppression-action">Adjust score</span>
-            </a>
-          </div>
-          {% elif (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) and not ranked_candidates %}
+          {% if (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) and not ranked_candidates %}
           <div class="pqx-suppression-grid" style="margin-bottom:12px;">
             {% for row in (workbench.get('counterfactual_rows') or [])[:3] %}
+            {% set slider = row.get('slider') or {} %}
+            {% if slider.get('kind') != 'ranking_bar' %}
             {% if row.get('adjustments') %}
+            {% if slider %}
+            <div class="pqx-suppression-item pqx-suppression-item-adjustable">
+              <strong>{{ row.get('title') }}</strong>
+              <span class="pqx-note">{{ row.get('detail') }}</span>
+              <label class="pqx-filter-radius-control pqx-suppression-slider">
+                <span>{{ slider.get('label') or 'Adjustment' }} <b data-pqx-filter-slider-value>{{ slider.get('value') }}{% if slider.get('unit') %} {{ slider.get('unit') }}{% endif %}</b></span>
+                <input
+                  type="range"
+                  min="{{ slider.get('min') or 0 }}"
+                  max="{{ slider.get('max') or slider.get('value') or 0 }}"
+                  step="{{ slider.get('step') or 1 }}"
+                  value="{{ slider.get('value') or slider.get('min') or 0 }}"
+                  data-pqx-filter-slider
+                  data-pqx-filter-field="{{ slider.get('field') or '' }}"
+                  data-pqx-filter-kind="{{ slider.get('kind') or '' }}"
+                  data-pqx-filter-unit="{{ slider.get('unit') or '' }}"
+                  data-pqx-filter-base="{{ slider.get('min') or 0 }}"
+                  data-pqx-filter-max-value="{{ slider.get('max') or slider.get('value') or 0 }}"
+                  data-pqx-filter-max="{{ row.get('affected_total') or 0 }}"
+                >
+                <span class="pqx-small" data-pqx-filter-estimate>Estimated newly ranked homes updates live.</span>
+              </label>
+              <button
+                class="pqx-suppression-action"
+                type="button"
+                aria-label="{{ row.get('action_label') or 'Relax rule' }}"
+                data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'
+                data-pqx-counterfactual-action-kind="{{ slider.get('kind') or '' }}"
+                data-pqx-counterfactual-action-default="{{ row.get('action_label') or 'Relax rule' }}"
+              >{{ row.get('action_label') or 'Relax rule' }}</button>
+            </div>
+            {% else %}
             <button class="pqx-suppression-item" type="button" data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}' aria-label="Relax rule">
               <strong>{{ row.get('title') }}</strong>
               <span class="pqx-note">{{ row.get('detail') }}</span>
               <span class="pqx-suppression-action">{{ row.get('action_label') or 'Relax rule' }}</span>
             </button>
+            {% endif %}
             {% else %}
             <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax rule">
               <strong>{{ row.get('title') or 'Reopen brief' }}</strong>
               <span class="pqx-note">{{ row.get('detail') or 'Reopen the brief and adjust one filter before rerunning.' }}</span>
               <span class="pqx-suppression-action">{{ row.get('action_label') or 'Reopen brief' }}</span>
             </button>
+            {% endif %}
             {% endif %}
             {% endfor %}
             {% for row in (workbench.get('suppression_rows') or [])[:3] %}
@@ -10419,11 +10904,11 @@
               </button>
             </div>
           {% endif %}
-          {% if not soft_only_empty_state and surface_mode != 'shortlist' %}
+          {% if surface_mode != 'shortlist' %}
           {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or [], run_summary.get('filtered_total') or run_summary.get('held_back_total') or None) }}
           {% endif %}
           </div>
-          {% if not soft_only_empty_state and surface_mode != 'shortlist' %}
+          {% if surface_mode != 'shortlist' %}
           {{ filtered_recovery_dialog(workbench.get('counterfactual_rows') or [], workbench.get('suppression_rows') or []) }}
           {% endif %}
           {% if not ranked_candidates %}
@@ -10463,7 +10948,7 @@
                 <tr>
                   <th>#</th>
                   <th>Property</th>
-                  <th>Evidence</th>
+                  <th>Media</th>
                   <th>Fit</th>
                   <th>Why it ranks</th>
                   <th>Open</th>
@@ -10491,7 +10976,7 @@
                       <span class="pqx-trust-chip">Rank #{{ candidate.get('rank') or loop.index }}</span>
                       <span class="pqx-trust-chip">Fit {{ candidate.get('fit_score') or 0 }}/100</span>
                       {% set candidate_facts = candidate.get('property_facts') or {} %}
-                      <span class="pqx-trust-chip">Layout {{ 'verified' if candidate.get('has_floorplan') or candidate.get('floorplan_count') or candidate.get('floorplan_urls_json') or candidate_facts.get('has_floorplan') or candidate_facts.get('floorplan_count') or candidate_facts.get('floorplan_urls_json') else 'unverified' }}</span>
+                      <span class="pqx-trust-chip">Layout {{ 'on file' if candidate.get('has_floorplan') or candidate.get('floorplan_count') or candidate.get('floorplan_urls_json') or candidate_facts.get('has_floorplan') or candidate_facts.get('floorplan_count') or candidate_facts.get('floorplan_urls_json') else 'missing' }}</span>
                       {% set tour_status = candidate.get('tour_status') or candidate.get('tour', {}).get('status') or '' %}
                       {% if tour_status and tour_status not in ['not_ready', 'not ready', 'pending', 'blocked', 'unavailable', 'suppressed'] %}
                       <span class="pqx-trust-chip">Tour {{ tour_status|replace('_', ' ')|title }}</span>
@@ -10511,11 +10996,11 @@
                       {% endfor %}
                     </div>
                     {% else %}
-                    <span class="pqx-small">Routes not verified yet</span>
+                    <span class="pqx-small">Routes not available yet</span>
                     {% endif %}
                   </td>
                   <td>{{ candidate.get('fit_score') or 0 }}</td>
-                  <td>{{ candidate.get('fit_summary') or candidate.get('compare_reason') or (candidate.get('match_reasons') or ['Open the property page for more context'])[0] }}</td>
+                  <td>{{ candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Open the property page for more context'])[0] }}</td>
                   <td>
                     {% set hosted_tour_url = candidate.get('tour_url') or candidate.get('tour', {}).get('url') or '' %}
                     {% set walkthrough_url = candidate.get('flythrough_url') or candidate.get('flythrough', {}).get('url') or '' %}
@@ -10542,7 +11027,6 @@
             </table>
           </div>
           {% else %}
-          {% if not soft_only_empty_state %}
           <section class="pqx-card pqx-empty-results-note" data-pqx-ranked-candidates>
             <div class="pqx-section-head">
               <div>
@@ -10552,7 +11036,6 @@
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
             </div>
           </section>
-          {% endif %}
           </div>
           {% endif %}
           {% if run.get('events') %}
@@ -10561,8 +11044,34 @@
           <div class="pqx-note" data-pqx-run-updated>Last update {{ run.get('updated_at') or run.get('generated_at') or 'not available' }}</div>
           <div class="pqx-event-list" data-pqx-run-events>
             {% for event in (run.get('events') or [])|reverse %}
+            {% set event_step = (event.get('step') or '')|lower %}
+            {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
+            {% set event_label = 'Preparing search' %}
+            {% elif event_step in ['source_search', 'provider_search', 'search'] %}
+            {% set event_label = 'Searching providers' %}
+            {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
+            {% set event_label = 'Checking details' %}
+            {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
+            {% set event_label = 'Checking listings' %}
+            {% elif event_step in ['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'] %}
+            {% set event_label = 'Ranking homes' %}
+            {% elif event_step == 'shortlist_ready' %}
+            {% set event_label = 'First shortlist' %}
+            {% elif event_step in ['source_review_packet', 'source_review_packet_failed'] %}
+            {% set event_label = 'Open property ready' %}
+            {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
+            {% set event_label = 'Applying hard rules' %}
+            {% elif event_step in ['source_completed', 'completed'] %}
+            {% set event_label = 'Provider finished' %}
+            {% elif event_step in ['source_notify'] %}
+            {% set event_label = 'Sending update' %}
+            {% elif event_step.startswith('repair') or event_step in ['source_repair_reuse', 'source_failed'] %}
+            {% set event_label = 'Recovery' %}
+            {% else %}
+            {% set event_label = 'Update' %}
+            {% endif %}
             <div class="pqx-event-card">
-              <strong>{{ (event.get('step') or 'Update')|replace('_', ' ')|title }}</strong>
+              <strong>{{ event_label }}</strong>
               <span class="pqx-note">{{ event.get('message') or 'Search is still running.' }}</span>
             </div>
             {% endfor %}
@@ -10610,7 +11119,7 @@
                   {% if selected.get('layout_display') %}<span class="pqx-result-fact">{{ selected.get('layout_display') }}</span>{% endif %}
                   {% if selected.get('location_label') or selected_facts.get('postal_name') %}<span class="pqx-result-fact">{{ selected.get('location_label') or selected_facts.get('postal_name') }}</span>{% endif %}
                 </div>
-                <p class="pqx-note" data-pw-ooda-summary>{{ selected.get('fit_summary') or selected.get('compare_reason') or 'Open the listing or property page to review the selected home.' }}</p>
+                <p class="pqx-note" data-pw-ooda-summary>{{ selected.get('fit_summary') or (selected.get('match_reasons') or ['Open the listing or property page to review the selected home.'])[0] }}</p>
                 <div class="pqx-actions">
                   {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}">Open property</a>{% endif %}
                   {% if selected.get('source_url') or selected.get('property_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') or selected.get('property_url') }}" target="_blank" rel="noreferrer">Open listing</a>{% endif %}
@@ -10619,10 +11128,10 @@
             </div>
           </div>
           <details class="pqx-card pqx-mobile-review-more">
-            <summary><strong>Why it is ranked</strong></summary>
+            <summary><strong>Why it fits</strong></summary>
             <div class="pqx-event-list" data-pw-match>
               {% for reason in (selected.get('match_reasons') or [])[:3] %}
-              <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">{{ reason }}</span></div>
+              <div class="pqx-event-card"><strong>Fit</strong><span class="pqx-note">{{ reason }}</span></div>
               {% else %}
               <div class="pqx-note">{{ selected.get('fit_summary') or 'No explicit match reason captured yet.' }}</div>
               {% endfor %}
@@ -10630,11 +11139,13 @@
           </details>
           {% if score_methodology %}
           {% set score_application = score_methodology.get('candidate_application') or {} %}
+          {% set negative_label = score_methodology.get('negative_label') or 'Main caution' %}
+          {% if negative_label == 'What still needs checking' %}{% set negative_label = 'Main caution' %}{% endif %}
           <details class="pqx-card pqx-mobile-review-more">
-            <summary><strong>{{ score_methodology.get('candidate_title') or 'Current score read' }}</strong><span class="pqx-pill">{{ score_application.get('fit_score') or selected.get('fit_score') or 0 }}/100</span></summary>
+            <summary><strong>{{ score_methodology.get('candidate_title') or 'Score at a glance' }}</strong><span class="pqx-pill">{{ score_application.get('fit_score') or selected.get('fit_score') or 0 }}/100</span></summary>
             <div class="pqx-event-list">
-              <div class="pqx-event-card"><strong>{{ score_methodology.get('positive_label') or 'Signals lifting the score' }}</strong><span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['Verified facts and matching preferences move this upward.'])[:2]|join(' · ') }}</span></div>
-              <div class="pqx-event-card"><strong>{{ score_methodology.get('negative_label') or 'Signals reducing confidence or score' }}</strong><span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['Missing facts stay visible and lower confidence until checked.'])[:2]|join(' · ') }}</span></div>
+              <div class="pqx-event-card"><strong>{{ score_methodology.get('positive_label') or 'Best signals' }}</strong><span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['No strong signal attached yet.'])[:2]|join(' · ') }}</span></div>
+              <div class="pqx-event-card"><strong>{{ negative_label }}</strong><span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['No caution attached yet.'])[:2]|join(' · ') }}</span></div>
             </div>
           </details>
           {% endif %}

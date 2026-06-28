@@ -20,6 +20,9 @@ def _write_json(path: Path, payload: dict[str, object]) -> Path:
 def test_gold_status_cli_keeps_live_container_tour_receipt_as_fallback() -> None:
     source = (ROOT / "scripts/propertyquarry_gold_status.py").read_text(encoding="utf-8")
 
+    assert "state/receipts/propertyquarry_live_authenticated*.json" in source
+    assert "state/receipts/property_provider_stage*.json" in source
+    assert "_completion/property_tour_controls/*.json" in source
     assert "_completion/tours/property-tour-controls-live-container-current.json" in source
     assert "_completion/smoke/property-live-mobile-surface-latest.json" in source
     assert "_completion/smoke/property-live-public-latest.json" in source
@@ -45,6 +48,22 @@ def test_gold_status_defaults_pick_newest_matching_receipt(tmp_path: Path, monke
     )
 
     assert selected == newer
+
+
+def test_gold_status_tour_control_default_prefers_newer_property_tour_controls_lane(tmp_path: Path, monkeypatch) -> None:
+    from scripts.propertyquarry_gold_status import _default_receipt_path
+
+    monkeypatch.chdir(tmp_path)
+    _write_json(
+        tmp_path / "_completion" / "tours" / "property-tour-controls-live-container-current.json",
+        {"generated_at": "2026-06-26T23:28:00+00:00", "status": "pass"},
+    )
+    strict_current = _write_json(
+        tmp_path / "_completion" / "property_tour_controls" / "strict-current.json",
+        {"generated_at": "2026-06-27T11:36:37+00:00", "status": "blocked_missing_provider_modes"},
+    )
+
+    assert _default_receipt_path("tour_control") == strict_current.resolve()
 
 
 def test_gold_status_defaults_prefer_complete_receipt_over_newer_running_checkpoint(tmp_path: Path, monkeypatch) -> None:
@@ -141,6 +160,102 @@ def test_gold_status_provider_matrix_default_prefers_executed_pass_over_newer_pl
     assert _default_receipt_path("provider_matrix") == deploy_receipt.resolve()
 
 
+def test_gold_status_provider_matrix_default_prefers_broader_staged_receipt_over_narrower_newer_slice(tmp_path: Path, monkeypatch) -> None:
+    from scripts.propertyquarry_gold_status import _default_receipt_path
+
+    monkeypatch.chdir(tmp_path)
+    aggregate = _write_json(
+        tmp_path / "state" / "receipts" / "property_provider_stage_at_de_cr_batch2.json",
+        {
+            "generated_at": "2026-06-27T21:18:38.700044+00:00",
+            "status": "staged_provider_coverage_incomplete",
+            "targeted_search_matrix_status": "partial",
+            "targeted_search_matrix_executed": True,
+            "targeted_search_matrix_count": 12,
+            "targeted_search_matrix_summary": {
+                "executed": True,
+                "case_count": 12,
+                "executed_case_count": 12,
+            },
+        },
+    )
+    _write_json(
+        tmp_path / "state" / "receipts" / "property_live_provider_smoke_at_willhaben_e2e.json",
+        {
+            "generated_at": "2026-06-27T21:30:00+00:00",
+            "status": "staged_provider_coverage_incomplete",
+            "targeted_search_matrix_status": "partial",
+            "targeted_search_matrix_executed": True,
+            "targeted_search_matrix_count": 2,
+            "targeted_search_matrix_summary": {
+                "executed": True,
+                "case_count": 2,
+                "executed_case_count": 2,
+            },
+        },
+    )
+
+    assert _default_receipt_path("provider_matrix") == aggregate.resolve()
+
+
+def test_gold_status_provider_matrix_default_prefers_current_at_de_cr_scope_over_older_broader_history(tmp_path: Path, monkeypatch) -> None:
+    from scripts.propertyquarry_gold_status import _default_receipt_path
+
+    monkeypatch.chdir(tmp_path)
+    _write_json(
+        tmp_path / "_completion" / "provider_smoke" / "production-e2e-provider-matrix-rerun30.json",
+        {
+            "generated_at": "2026-06-26T09:19:42.699605+00:00",
+            "status": "pass",
+            "country_scope": "all_search_ready",
+            "targeted_search_matrix_status": "pass",
+            "targeted_search_matrix_executed": True,
+            "targeted_search_matrix_count": 242,
+            "targeted_search_matrix_summary": {
+                "executed": True,
+                "case_count": 242,
+                "country_codes": ["AT", "BE", "CA", "CR", "DE", "CH", "IE", "UK", "AU", "ES", "IT", "FR", "NL", "PT", "PL", "SE", "US"],
+                "all_search_ready_providers_covered": True,
+            },
+        },
+    )
+    current_scope = _write_json(
+        tmp_path / "_completion" / "provider_smoke" / "production-e2e-provider-matrix-at-de-cr-current.json",
+        {
+            "generated_at": "2026-06-27T18:08:25.149862+00:00",
+            "status": "pass",
+            "country_scope": "explicit",
+            "targeted_search_matrix_status": "pass",
+            "targeted_search_matrix_executed": True,
+            "targeted_search_matrix_count": 140,
+            "targeted_search_matrix_summary": {
+                "executed": True,
+                "case_count": 140,
+                "country_codes": ["AT", "DE", "CR"],
+                "all_search_ready_providers_covered": True,
+            },
+        },
+    )
+
+    assert _default_receipt_path("provider_matrix") == current_scope.resolve()
+
+
+def test_gold_status_authenticated_smoke_default_finds_newer_state_receipt(tmp_path: Path, monkeypatch) -> None:
+    from scripts.propertyquarry_gold_status import _default_receipt_path
+
+    monkeypatch.chdir(tmp_path)
+    _write_json(
+        tmp_path / "_completion" / "smoke" / "property-live-authenticated-latest.json",
+        {"generated_at": "2026-06-27T19:19:51.123278+00:00", "status": "pass"},
+    )
+    current = _write_json(
+        tmp_path / "state" / "receipts" / "propertyquarry_live_authenticated_smoke_latest.json",
+        {"generated_at": "2026-06-27T21:26:46.749288+00:00", "status": "pass"},
+    )
+
+    assert _default_receipt_path("authenticated_smoke") == current.resolve()
+
+
 def test_gold_status_provider_ownership_default_finds_release_gate_receipt(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     expected = _write_json(
@@ -149,6 +264,36 @@ def test_gold_status_provider_ownership_default_finds_release_gate_receipt(tmp_p
     )
 
     assert gold_status._default_receipt_path("tour_provider_ownership") == expected.resolve()
+
+
+def test_gold_status_write_syncs_latest_aliases_from_release_gate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    output_path = tmp_path / "_completion" / "property_gold_status" / "release-gate.json"
+    payload = json.dumps({"status": "pass", "generated_at": "2026-06-27T11:05:53+00:00"})
+
+    synced = gold_status._write_gold_status_output(output_path, payload)
+
+    latest_path = (tmp_path / "_completion" / "property_gold_status" / "latest.json").resolve()
+    legacy_path = (tmp_path / "_completion" / "propertyquarry-gold-status-latest.json").resolve()
+    assert json.loads(output_path.read_text(encoding="utf-8"))["status"] == "pass"
+    assert json.loads(latest_path.read_text(encoding="utf-8"))["status"] == "pass"
+    assert json.loads(legacy_path.read_text(encoding="utf-8"))["status"] == "pass"
+    assert synced == [str(latest_path), str(legacy_path)]
+
+
+def test_gold_status_write_syncs_other_latest_alias_only(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    output_path = tmp_path / "_completion" / "property_gold_status" / "latest.json"
+    payload = json.dumps({"status": "pass", "generated_at": "2026-06-27T11:05:53+00:00"})
+
+    synced = gold_status._write_gold_status_output(output_path, payload)
+
+    legacy_path = (tmp_path / "_completion" / "propertyquarry-gold-status-latest.json").resolve()
+    release_gate_path = tmp_path / "_completion" / "property_gold_status" / "release-gate.json"
+    assert json.loads(output_path.read_text(encoding="utf-8"))["status"] == "pass"
+    assert json.loads(legacy_path.read_text(encoding="utf-8"))["status"] == "pass"
+    assert not release_gate_path.exists()
+    assert synced == [str(legacy_path)]
 
 
 def _provider_matrix_payload(*, status: str = "pass", executed: bool = True) -> dict[str, object]:
@@ -254,6 +399,31 @@ def _billing_payload(*, host_resolves: bool = True, status: str = "disabled") ->
     }
 
 
+def _billing_bridge_payload() -> dict[str, object]:
+    payload = _billing_payload(host_resolves=True, status="dry_verified_configured")
+    payload["billing_handoff"]["account_handoff_usable"] = False
+    payload["billing_handoff"]["account_handoff_error"] = "billing_handoff_requires_separate_login"
+    payload["billing_handoff"]["pricing_surface_probe"] = {
+        "pricing_url": "https://billing.propertyquarry.com/join",
+        "configured": True,
+        "status_code": 302,
+        "placeholder": False,
+        "placeholder_hits": [],
+        "error": "",
+        "title": "",
+    }
+    payload["billing_sso_bridge"] = {
+        "enabled": True,
+        "configured": True,
+        "ready": True,
+        "url": "https://billing.propertyquarry.com/sso/propertyquarry",
+        "host": "billing.propertyquarry.com",
+        "host_resolves": True,
+        "error": "",
+    }
+    return payload
+
+
 def _tour_provider_ownership_payload() -> dict[str, object]:
     return {
         "status": "pass",
@@ -281,7 +451,11 @@ def _release_hygiene_payload(*, status: str = "pass") -> dict[str, object]:
     return {
         "schema": "propertyquarry.release_hygiene_receipt.v1",
         "status": status,
-        "required_checks": ["release_manifest_runtime_commit_matches_head_or_parent"],
+        "required_checks": [
+            "release_manifest_runtime_commit_matches_head_or_parent",
+            "tracked_worktree_clean",
+            "no_untracked_release_source_files",
+        ],
         "failure_count": len(failures),
         "failures": failures,
         "manifest_runtime_commit": "d8426c7",
@@ -798,6 +972,92 @@ def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: P
     assert blocker["ready_count"] == 1
 
 
+def test_gold_status_surfaces_magicfit_renderer_configuration_when_magicfit_mode_is_missing(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "blocked_missing_provider_modes",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 0},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano"],
+            "missing_provider_modes": ["magicfit"],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    ownership = _write_json(tmp_path / "tour-provider-ownership.json", _tour_provider_ownership_payload())
+    vendor_tooling = _write_json(
+        tmp_path / "vendor-tooling.json",
+        {
+            "status": "pass",
+            "host_ready": True,
+            "generated_tour_ready": True,
+            "generated_tour_tools": {},
+            "runtime_generated_tour_ready": False,
+            "runtime_generated_tour_tools": {},
+            "wine_runtime_ready": True,
+            "installer_count": 2,
+            "installer_counts": {"3dvista": 1, "pano2vr": 1},
+            "installed_app_count": 1,
+            "installed_app_counts": {"3dvista": 1, "pano2vr": 0},
+            "installed_apps": [],
+            "verified_export_ready_counts": {"3dvista": 1, "pano2vr": 1},
+            "missing_verified_exports": [],
+            "magicfit_renderer": {
+                "status": "blocked_configuration",
+                "script_path": "/docker/property/scripts/render_magicfit_property_flythrough.py",
+                "script_ready": True,
+                "credentials_configured": False,
+                "credential_sources": [],
+                "env_files_checked": ["/docker/property/.env"],
+                "python_modules_ready": True,
+                "python_modules": {
+                    "playwright": {"available": True, "path": "/usr/bin/python3", "version": "ok"},
+                    "requests": {"available": True, "path": "/usr/bin/python3", "version": "ok"},
+                },
+                "ready": False,
+                "next_action": "configure PROPERTYQUARRY_MAGICFIT_EMAIL and PROPERTYQUARRY_MAGICFIT_PASSWORD",
+            },
+            "next_actions": [],
+        },
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        tour_provider_ownership_receipt_path=ownership,
+        vendor_tooling_receipt_path=vendor_tooling,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "verified_tour_provider_modes")
+    magicfit_action = next(
+        row
+        for row in receipt["next_required_actions"]
+        if row.get("provider") == "magicfit" and row.get("area") == "magicfit_renderer"
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["vendor_tooling"]["magicfit_renderer"]["ready"] is False
+    assert receipt["vendor_tooling"]["magicfit_renderer"]["credentials_configured"] is False
+    assert blocker["provider_details"]["magicfit"]["renderer_ready"] is False
+    assert blocker["provider_details"]["magicfit"]["credentials_configured"] is False
+    assert magicfit_action["script_ready"] is True
+    assert magicfit_action["credentials_configured"] is False
+    assert "renderer configuration" in " ".join(receipt["notes"]).lower()
+
+
 def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path: Path) -> None:
     performance = _write_json(
         tmp_path / "performance.json",
@@ -883,6 +1143,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     )
 
     assert receipt["status"] == "pass"
+    assert receipt["ready_for_notification"] is True
     assert receipt["performance"]["research_detail_checks_ok"] is True
     assert receipt["performance"]["missing_research_detail_checks"] == []
     assert receipt["performance"]["search_checks_ok"] is True
@@ -956,6 +1217,7 @@ def test_gold_status_blocks_when_security_posture_receipt_fails(tmp_path: Path) 
 
     blocker = next(row for row in receipt["blockers"] if row["area"] == "production_security_posture")
     assert receipt["status"] == "blocked"
+    assert receipt["ready_for_notification"] is False
     assert receipt["production_security_posture"]["status"] == "fail"
     assert "USER ea" in blocker["failures"][0]
     assert "isolated runtime" in blocker["action"]
@@ -1253,6 +1515,51 @@ def test_gold_status_accepts_resolving_url_only_brilliant_directories_billing_ha
     assert receipt["status"] == "pass"
     assert receipt["billing_handoff"]["ready"] is True
     assert receipt["billing_handoff"]["host_resolves"] is True
+    assert not any(row["area"] == "billing_handoff" for row in receipt["blockers"])
+
+
+def test_gold_status_accepts_signed_billing_bridge_when_vendor_account_lane_needs_login(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    authenticated_smoke = _write_json(
+        tmp_path / "authenticated-smoke.json",
+        _authenticated_smoke_payload(),
+    )
+    live_mobile = _write_json(tmp_path / "live-mobile.json", _live_mobile_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    billing = _write_json(tmp_path / "billing.json", _billing_bridge_payload())
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        authenticated_smoke_receipt_path=authenticated_smoke,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        billing_receipt_path=billing,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["billing_handoff"]["ready"] is True
     assert not any(row["area"] == "billing_handoff" for row in receipt["blockers"])
 
 
@@ -2066,6 +2373,44 @@ import_3dvista_export.py
     assert failures == []
 
 
+def test_gold_status_accepts_operator_readmes_from_import_rows_when_prepared_rows_are_missing(tmp_path: Path) -> None:
+    from scripts.propertyquarry_gold_status import _operator_drop_readme_status
+
+    export_dir = tmp_path / "incoming" / "demo" / "magicfit"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    (export_dir / "README.propertyquarry-export.txt").write_text(
+        """
+PropertyQuarry provider export drop folder
+Do not copy placeholder HTML.
+Single-provider dry import example: python /app/scripts/import_magicfit_walkthrough.py --slug demo --video-path drop/magicfit/magicfit-walkthrough.mp4 --source-receipt drop/magicfit/magicfit-receipt.json
+Gold only passes when verify_property_tour_controls reports ready provider modes.
+Copy magicfit-walkthrough.mp4 and magicfit-receipt.json into this directory.
+""",
+        encoding="utf-8",
+    )
+
+    ok, count, missing, failures = _operator_drop_readme_status(
+        {
+            "providers": ["magicfit"],
+            "prepared_drop_dirs": [],
+            "imports": [
+                {
+                    "provider": "magicfit",
+                    "slug": "demo",
+                    "export_dir": str(export_dir),
+                    "asset_dir": str(export_dir),
+                }
+            ],
+        },
+        expected_providers={"magicfit"},
+    )
+
+    assert ok is True
+    assert count == 1
+    assert missing == []
+    assert failures == []
+
+
 def test_gold_status_blocks_when_performance_receipt_lacks_research_detail_checks(tmp_path: Path) -> None:
     performance = _write_json(
         tmp_path / "performance.json",
@@ -2293,3 +2638,128 @@ def test_gold_status_blocks_when_operator_import_manifest_is_missing(tmp_path: P
     assert receipt["operator_import_manifest"]["ready_for_exports"] is False
     blocker = next(row for row in receipt["blockers"] if row["area"] == "tour_operator_import_manifest")
     assert blocker["status"] == "missing"
+
+
+def test_gold_status_does_not_require_operator_drop_prep_when_all_tour_modes_are_ready(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 0, "rejected_count": 0})
+    import_manifest = _write_json(
+        tmp_path / "import-manifest.json",
+        {
+            "status": "pass",
+            "import_count": 0,
+            "providers": [],
+            "drop_status_summary": {"ready_for_import": 0, "waiting_for_assets": 0, "other": 0},
+            "prepared_drop_dirs": [],
+            "next_command": "python /app/scripts/import_property_tour_exports.py --manifest manifest.json",
+        },
+    )
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        import_manifest_receipt_path=import_manifest,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["operator_import_manifest"]["ready_for_exports"] is True
+    assert receipt["operator_import_manifest"]["missing_prepared_providers"] == []
+    assert receipt["operator_import_manifest"]["hardened_readmes_ok"] is True
+    assert not any(row["area"] == "tour_operator_import_manifest" for row in receipt["blockers"])
+
+
+def test_gold_status_uses_import_rows_as_operator_drop_fallback_for_missing_magicfit_only(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "blocked_missing_provider_modes",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 0},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano"],
+            "missing_provider_modes": ["magicfit"],
+        },
+    )
+    discovery = _write_json(
+        tmp_path / "discovery.json",
+        {"status": "ready", "import_count": 1, "rejected_count": 0},
+    )
+    export_dir = tmp_path / "incoming" / "demo-flat" / "magicfit"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    (export_dir / "README.propertyquarry-export.txt").write_text(
+        """
+PropertyQuarry provider export drop folder
+Do not copy placeholder HTML.
+Single-provider dry import example: python /app/scripts/import_magicfit_walkthrough.py --slug demo-flat --video-path drop/magicfit/magicfit-walkthrough.mp4 --source-receipt drop/magicfit/magicfit-receipt.json
+Gold only passes when verify_property_tour_controls reports ready provider modes.
+Copy magicfit-walkthrough.mp4 and magicfit-receipt.json into this directory.
+""",
+        encoding="utf-8",
+    )
+    import_manifest = _write_json(
+        tmp_path / "import-manifest.json",
+        {
+            "status": "waiting_for_verified_assets",
+            "import_count": 1,
+            "providers": ["magicfit"],
+            "imports": [
+                {
+                    "provider": "magicfit",
+                    "slug": "demo-flat",
+                    "title": "Demo Flat",
+                    "export_dir": str(export_dir),
+                    "asset_dir": str(export_dir),
+                    "reason": "missing_magicfit_walkthrough",
+                    "action": "render and import a receipt-backed playable MagicFit walkthrough",
+                }
+            ],
+            "drop_status_summary": {"ready_for_import": 0, "waiting_for_assets": 1, "other": 0},
+            "prepared_drop_dirs": [],
+            "next_command": "python /app/scripts/import_property_tour_exports.py --manifest manifest.json",
+        },
+    )
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        import_manifest_receipt_path=import_manifest,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["operator_import_manifest"]["ready_for_exports"] is True
+    assert receipt["operator_import_manifest"]["missing_prepared_providers"] == []
+    assert receipt["operator_import_manifest"]["hardened_readmes_ok"] is True
+    assert [row["area"] for row in receipt["blockers"]] == ["verified_tour_provider_modes"]

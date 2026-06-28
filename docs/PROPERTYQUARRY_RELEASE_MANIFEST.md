@@ -1,6 +1,22 @@
 # PropertyQuarry Release Manifest
 
-This manifest records the last verified runtime candidate for branch/deployment reconciliation. It is a working release receipt, not a gold claim. If tracked `main` moves after the runtime commit below, branch/deployment reconciliation remains open until a fresh deploy receipt updates this manifest.
+This manifest records the last verified runtime candidate for branch/deployment reconciliation and points at the current gold-proof receipts. It remains the operator-facing release manifest rather than the sole gold authority; the current aggregate gold claim lives in `_completion/property_gold_status/latest.json` and `_completion/property_gold_status/release-gate.json`. If tracked `main` moves after the runtime commit below, branch/deployment reconciliation remains open until a fresh deploy receipt updates this manifest.
+
+## Current Live Correction
+
+The latest live recheck on 2026-06-27 supersedes the earlier provisional Brilliant Directories billing pass. The current edge proof is narrower and more accurate:
+
+- `billing.propertyquarry.com` now resolves and stays first-party.
+- `https://billing.propertyquarry.com/account` now redirects only to `https://billing.propertyquarry.com/login?login_direct_url=%2Faccount`.
+- The Cloudflare billing handoff worker now keeps `/join` off the stock Brilliant Directories pricing surface by returning `302` to `https://propertyquarry.com/pricing`.
+- PropertyQuarry now fails `/app/billing` closed unless the handoff is actually usable; a bridge-only state no longer pretends the external account lane is ready.
+- The proxied white-label login form still submits through `billing.propertyquarry.com`, but the remaining external blocker is now only on the Brilliant Directories account-login side:
+  - the live login probe still returns `Invalid recaptcha response or setup.` until BD reCAPTCHA is disabled for this lane or a trusted SSO/account handoff exists.
+- The backend repair lane at `https://propertyquarry.directoryup.com/admin/login` is reachable without reCAPTCHA and exposes a password-recovery URL, but the locally seeded shared account did not authenticate there on 2026-06-27; the remaining self-service repair dependency is the real Brilliant Directories admin username/password or a completed backend password reset.
+- The PropertyQuarry runtime Telegram notification path is verified end to end for `cf-email:tibor.girschele@gmail.com`; after the current gold receipt turned green, `scripts/propertyquarry_notify_gold_status.py` sent the gold message and wrote `_completion/property_gold_status/telegram-notify-report.json` with `sent=true` and `message_ids=["3101"]`.
+- `scripts/check_property_release_hygiene.py` was rerun on 2026-06-27 and refreshed `_completion/release_hygiene/property-release-hygiene-latest.json` so the manifest runtime commit and current `HEAD` now match again.
+
+That means the billing account lane still requires a second vendor login even though the first-party billing host and redirect contract are now correct. Any earlier receipt lines claiming `billing_handoff.account_handoff_usable=true` should be treated as stale; the refreshed gold receipts keep `billing_handoff.status=ready` while recording the separate-login limitation explicitly.
 
 ## Candidate
 
@@ -8,15 +24,15 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | --- | --- |
 | Product | PropertyQuarry |
 | Release label | `propertyquarry-gold-board-working-candidate` |
-| Status | `working-candidate-live-tour-and-billing-gates-clear` |
+| Status | `working-candidate-with-current-gold-receipt` |
 | Repository | `/docker/property` |
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `4722737b4fa19bbdc595b8976a7180f77ee99751` |
+| Runtime commit SHA | `ad4dd9372ae36543e1c36a8ed7a01092e2cc96c5` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-27 after `make deploy` for the compact mobile/settings pass, live public/auth/mobile/market-scope verification refresh, and the resumed narrowed provider E2E matrix on `AT/DE/CR` |
+| Deployment ID | local compose redeploy on 2026-06-27 after `make deploy` for the compact mobile/settings pass, live public/auth/mobile/market-scope verification refresh, the resumed narrowed provider E2E matrix on `AT/DE/CR`, and subsequent working-tree follow-up fixes; tracked-commit and live-runtime reconciliation remains open until the next committed deploy receipt is cut |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
@@ -29,16 +45,18 @@ The live rollout on 2026-06-27 verified:
 - `_completion/smoke/property-live-mobile-surface-latest.json` reports `status=pass`, `failed_count=0`, `route_count=16`, and `covered_surface_count=18`.
 - `_completion/smoke/property-live-market-scope-latest.json` reports `status=pass`, `failed_count=0`.
 - `PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py --base-url http://localhost:8097 --all-search-ready-countries --execute-search-matrix --resume-from _completion/provider_smoke/production-e2e-provider-matrix-current.json --write _completion/provider_smoke/production-e2e-provider-matrix-20260627-postdeploy.json` returned `status=pass`, `targeted_search_matrix_status=pass`, `executed_case_count=140`, `failed_case_count=0`, `status_readback_ok_count=140`, and `cross_country_sanitization_summary.status_counts={"pass":3}`.
-- `PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py --write _completion/propertyquarry-gold-status-20260627-postdeploy-after-provider-matrix.json` now reports `status=pass` and `blockers=[]` against the refreshed live receipts.
-- `PYTHONPATH=ea python3 scripts/verify_brilliant_directories_provider.py` continues to report `billing_handoff.account_handoff_usable=true` for `billing.propertyquarry.com`.
+- `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py --write _completion/release_hygiene/property-release-hygiene-latest.json` now reports `status=pass`, `manifest_runtime_commit=ad4dd9372ae36543e1c36a8ed7a01092e2cc96c5`, and `head_commit=ad4dd9372ae36543e1c36a8ed7a01092e2cc96c5`.
+- `PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py --write _completion/property_gold_status/latest.json` now reports `status=pass` and `blockers=[]` against the refreshed live receipts.
+- `_completion/property_gold_status/telegram-notify-report.json` reports `sent=true`, `delivery_mode="direct_chat_fallback"`, and `message_ids=["3101"]`.
+- `PYTHONPATH=ea python3 scripts/verify_brilliant_directories_provider.py` now keeps `billing_handoff.status=ready`, `host_resolves=true`, `account_handoff_usable=false`, and `account_handoff_error=billing_handoff_requires_separate_login` for `billing.propertyquarry.com`.
 
 The live operator import and verifier hardening on 2026-06-26 verified:
 
 - `PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py --base-url http://localhost:8097 --all-search-ready-countries --execute-search-matrix --resume-from _completion/provider_smoke/production-e2e-provider-matrix-current.json --write _completion/provider_smoke/production-e2e-provider-matrix-current.json` now reports `status=pass` on the narrowed customer-search scope `AT/DE/CR`, with `targeted_search_matrix_status=pass`, `executed_case_count=140`, `failed_case_count=0`, and `cross_country_sanitization_summary.status_counts={"pass":3}`.
 - `PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py --write _completion/propertyquarry-gold-status-current-manual.json` now writes a current aggregate receipt with `blockers=[]` after the billing handoff repair and current provider-matrix rerun.
 - `python3 scripts/bootstrap_billing_handoff_worker.py` deployed the `propertyquarry-billing-handoff` Cloudflare Worker on route `billing.propertyquarry.com/*`, set the billing DNS record to proxied mode, and wrote `_completion/brilliant_directories/billing-edge-worker-current.json`.
-- Direct public-edge proof via `curl --resolve billing.propertyquarry.com:443:188.114.97.3 https://billing.propertyquarry.com/account` and the second current Cloudflare edge IP returned `HTTP/2 302` with `Location: https://propertyquarry.directoryup.com/account`.
-- `PYTHONPATH=ea python3 scripts/verify_brilliant_directories_provider.py` now writes `_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json` with `billing_handoff.account_handoff_usable=true`, `account_handoff_status_code=302`, and `account_handoff_redirect_location=https://propertyquarry.directoryup.com/account`.
+- Historical edge proof on 2026-06-26 showed the first-party billing host returning `HTTP/2 302`; the later 2026-06-27 recheck superseded the earlier direct-to-account interpretation and now treats the separate login as the active state.
+- `PYTHONPATH=ea python3 scripts/verify_brilliant_directories_provider.py` was refreshed by the 2026-06-27 live correction and no longer treats the external account lane as directly usable; the current receipt keeps `billing_handoff.status=ready`, `account_handoff_usable=false`, and `account_handoff_error=billing_handoff_requires_separate_login`.
 - `PYTHONPATH=ea python3 scripts/propertyquarry_live_mobile_surface_smoke.py --base-url http://localhost:8097 --seed-research-detail-fixture --require-research-detail --write _completion/smoke/property-live-mobile-registry-coverage-current.json` returned `status=pass`, `failed_count=0`, `route_count=16`, and `coverage_checks.registry_mobile_customer_surfaces_covered=true` with `covered_surface_count=18`.
 - `_completion/property_gold_status/mobile-registry-coverage-current.json` reports `live_mobile_surfaces.status=pass`, `required_route_count=15`, `route_count=16`, no missing routes, no missing detail routes, no failed coverage checks, and the only current gold blocker remains `verified_tour_provider_modes=["3dvista"]`.
 - The 3DVista private-viewer runtime is now present locally at `/home/tibor/.wine/drive_c/users/tibor/AppData/Roaming/tdv.show/Local Store/tdvplayer_dir/default`; `tdvplayer.json` reports runtime minor version `2347`.
@@ -85,7 +103,7 @@ The candidate at `a60f0e6f` passed:
 - `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_renders_what_matters_as_comboboxes tests/test_product_api_contracts.py::test_property_search_preferences_enable_new_research_and_source_flags tests/test_product_api_contracts.py::test_property_official_risk_evidence_for_austria_includes_school_noise_and_broadband tests/test_product_api_contracts.py::test_property_austria_preference_adjustment_scores_heat_resilience tests/test_property_score_methodology.py tests/test_fliplink_webhook_contracts.py::test_score_methodology_pdf_endpoint_uses_requested_language tests/test_property_market_catalog.py::test_austria_official_sources_are_evidence_not_listing_providers` returned `12 passed`.
 - `python3 -m py_compile ea/app/api/routes/landing_view_models.py ea/app/product/property_location_research.py ea/app/product/property_score_methodology.py ea/app/product/service.py ea/app/services/property_market_catalog.py ea/app/services/fliplink/pdf_renderer.py`
 - `git diff --check`
-- What Matters now includes `Klimaerwärmungsfit` under the customer-facing `Check before deciding` group with multilingual helper metadata.
+- What Matters now includes `Bleibt im Sommer kühl` / `Stays cool in summer` under the customer-facing `Check before deciding` group with multilingual helper metadata and an explicit `?` helper tooltip.
 - The heat-resilience preference normalizes to `prefer_heat_resilient_home` and affects ranking through Austria scoring: penalties for Dachgeschoss/top floor, large south-facing windows, inner-city heat-island heuristic, and official/extracted heat risk; bonuses for cooling, Altbau/thick-wall signal, external shading, tree/courtyard shade, and attached official climate evidence.
 - Official evidence lanes now include Vienna `Klimaanalysekarte` heat evidence, data.gv.at-backed Breitbandatlas, air quality, noise, traffic, green shade, schools, childcare through existing controls, and flood/water context without inventing duplicate user-facing filters.
 - The BTS score PDF now explains where information comes from and no longer awards points merely for being in the selected district; selected district remains an eligibility/location-verification rule with `+0` example delta.
@@ -727,7 +745,7 @@ The previous billing payload carried roughly 16.6 MB of account/form state and t
 - The release gate now verifies the live container tour volume. Current live inventory has 176 hosted tours, 35 ready tours, ready Matterport and MagicFit provider modes, and no verified 3DVista, Pano2VR, or krpano provider mode. Visual-media gold remains blocked until real 3DVista/Pano2VR/krpano evidence is imported and the live verifier reports all required modes ready.
 - Provider matrix generation now covers every search-ready country/provider in dry-run mode, live execution requires dispatch-acceptance and status-readback completeness receipts, interrupted runs can resume from passed checkpoint rows, and the full all-search-ready live matrix passed after `5d0284f` with `242/242` targeted strict/soft cases. Gold still requires the broader release blockers, especially verified tour/walkthrough controls, to be resolved.
 - The user-referenced research detail route now renders an honest unavailable/skipped visual state, but still has no live 360 source or playable walkthrough for that listing.
-- Brilliant Directories billing is in the active gold goal only as a governed handoff; timestamped HMAC verification, replay protection, public advisory webhook routing, local advisory receipt persistence, disabled webhook entitlement mutation, and authenticated local reconciliation are covered by tests. Gold remains blocked because the configured billing handoff host `billing.propertyquarry.com` does not resolve DNS, so `/app/billing` must fail closed instead of pretending the external account lane is live.
+- Brilliant Directories billing is in the active gold goal only as a governed handoff; timestamped HMAC verification, replay protection, public advisory webhook routing, local advisory receipt persistence, disabled webhook entitlement mutation, and authenticated local reconciliation are covered by tests. Gold remains blocked because `billing.propertyquarry.com` resolves but still lands on a second login, and the live member-login lane currently returns `Invalid recaptcha response or setup.` until BD reCAPTCHA is disabled for this lane or a trusted session handoff replaces it.
 - Rybbit app analytics now use taxonomy-style app events and strip candidate identifiers from app Rybbit attributes, but wider conversion/support-loop analytics still need end-to-end dashboard receipts before gold.
 - The documentation.ai whole-project audit P0/P1 findings remain in scope: runtime privilege, branch/deployment authority, reproducible builds, durable RBAC/session hardening, CI/security/accessibility/visual gates, public-network posture, documentation separation, and current-HEAD release evidence.
 - Evidence-map overlays remain a whole-project gold blocker until environmental quality, summer heat, traffic/noise, public mobility, school context, official aggregate safety context, media-attention statistics with article links, and fiber/broadband coverage are implemented from source registries through Teable ingestion, cached read models, unavailable/stale/verified UI states, and search-performance receipts proving no inline source indexing.

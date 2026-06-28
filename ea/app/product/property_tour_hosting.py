@@ -23,6 +23,7 @@ _PANO2VR_EXPORT_MARKERS = ("ggpkg", "ggskin", "pano.xml", "tour.js")
 _KRPANO_PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 _KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
 _KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
+_CUSTOMER_FACING_TOUR_PROVIDERS = ("matterport", "3dvista", "pano2vr")
 
 
 def _now_iso() -> str:
@@ -318,7 +319,7 @@ def _property_tour_payload_is_disabled_fallback(structured_output: dict[str, obj
         return True
     if creation_mode == "hosted_listing_fallback":
         return True
-    if control_mode == "walkable_3d":
+    if control_mode in {"walkable_3d", "internal_walkable_3d"}:
         return True
     scenes = [dict(entry) for entry in (normalized.get("scenes") or []) if isinstance(entry, dict)]
     if any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes):
@@ -550,7 +551,7 @@ def _hosted_property_tour_verified_provider(tour_url: object) -> str:
     if not normalized_url:
         return ""
     direct_provider = _property_tour_provider_host_kind(normalized_url)
-    if direct_provider:
+    if direct_provider in _CUSTOMER_FACING_TOUR_PROVIDERS:
         return direct_provider
     payload = _hosted_property_tour_payload_for_url(normalized_url)
     if not payload:
@@ -562,8 +563,6 @@ def _hosted_property_tour_verified_provider(tour_url: object) -> str:
             return "3dvista"
         if _hosted_property_tour_has_pano2vr_export(normalized_url):
             return "pano2vr"
-    if _hosted_property_tour_has_krpano_control(normalized_url):
-        return "krpano"
     return ""
 
 

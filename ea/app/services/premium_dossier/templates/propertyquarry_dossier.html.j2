@@ -88,7 +88,7 @@
         <div class="section-kicker">Executive decision</div>
         <div class="decision-grid">
           <div class="decision-panel">
-            <div class="decision-label">Current read</div>
+            <div class="decision-label">Quick take</div>
             <h2>{{ dossier.recommendation }}</h2>
             <div class="decision-pills">
               <span class="pill">Confidence · {{ dossier.confidence_label }}</span>
@@ -181,7 +181,7 @@
         {% endif %}
         <div class="score-grid">
           <div class="panel">
-            <h3>{{ score.positive_label or "Signals lifting the score" }}</h3>
+            <h3>{{ score.positive_label or "Best signals" }}</h3>
             <ul>
               {% for line in score_application.positive_signals[:4] %}
               <li>{{ line }}</li>
@@ -189,7 +189,7 @@
             </ul>
           </div>
           <div class="panel">
-            <h3>{{ score.negative_label or "Signals reducing confidence or score" }}</h3>
+            <h3>{{ score.negative_label or "Main caution" }}</h3>
             <ul>
               {% for line in score_application.negative_signals[:4] %}
               <li>{{ line }}</li>
@@ -318,7 +318,7 @@
             <ul>
               <li>Purpose: fast visual orientation before the full 3D surface</li>
               <li>Type: generated preview, not source evidence</li>
-              <li>Linked to the hosted 3D tour and walkthrough</li>
+              <li>Linked to the live 3D tour and walkthrough</li>
             </ul>
           </div>
         </div>

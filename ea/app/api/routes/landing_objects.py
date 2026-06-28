@@ -84,9 +84,9 @@ def _handoff_customer_status(
             return "Needs another try", retry_detail or "The prepared send needs another attempt."
     if task_type == "property_tour_followup":
         if str(handoff.tour_url or "").strip():
-            return "3D tour ready", "The hosted 3D tour is ready to review."
+            return "3D tour ready", "The 3D tour is ready to review."
         if property_tour_followup_open:
-            return "3D tour in progress", "The hosted 3D tour is still being prepared."
+            return "3D tour in progress", "The 3D tour is still being prepared."
     return "Open follow-up", "This page keeps only the next useful action and the supporting links."
 
 
@@ -608,7 +608,7 @@ def handoff_detail(
         mismatch_reasons = [str(item).strip() for item in list(assessment.get("mismatch_reasons_json") or []) if str(item).strip()]
         ooda_rows = [
             _object_detail_row(
-                "Why this was selected",
+                "Why it ranks",
                 match_reasons[0]
                 if match_reasons
                 else str(input_json.get("summary") or handoff.summary or "This property survived the ranking pass.").strip(),
@@ -730,7 +730,7 @@ def handoff_detail(
                 _object_detail_row("Summary", str(input_json.get("summary") or handoff.summary or "No summary was captured.").strip(), "Summary"),
                 _object_detail_row(
                     "Hosted tour",
-                    primary_tour_url or "No hosted tour exists yet.",
+                    primary_tour_url or "No 3D tour exists yet.",
                     "Tour",
                     href=primary_tour_url,
                     secondary_action_href=primary_tour_url,
@@ -747,7 +747,7 @@ def handoff_detail(
                     secondary_action_method="get" if property_url else "",
                 ),
                 _object_detail_row("Recommendation", str(assessment.get("recommendation") or "No recommendation projected.").replace("_", " "), "Decision"),
-                _object_detail_row("Next question", next_review_question, "Review"),
+                _object_detail_row("Ask next", next_review_question, "Review"),
             ],
             object_sections=[
                 {
@@ -867,11 +867,11 @@ def handoff_detail(
                     [
                         _object_detail_row(
                             "Property tour",
-                            tour_url or "The hosted 3D tour is not ready yet.",
+                            tour_url or "The 3D tour is not ready yet.",
                             "Tour",
                             href=tour_url or vendor_tour_url,
                             secondary_action_href=vendor_tour_url if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
-                            secondary_action_label="Open source 360" if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
+                            secondary_action_label="Open original tour" if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
                             secondary_action_method="get" if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
                         )
                     ]

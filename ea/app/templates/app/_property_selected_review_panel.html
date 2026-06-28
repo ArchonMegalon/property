@@ -43,23 +43,23 @@
       {% set selected_flythrough_provider_label = selected_flythrough.get('provider_label') or '' %}
       {% set selected_visual_status = '' %}
       {% if selected_tour_pending %}
-        {% set selected_visual_status = (selected_tour.get('status_detail') or selected_tour.get('detail') or selected_tour.get('label') or '3D tour is building.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') %}
+        {% set selected_visual_status = (selected_tour.get('status_detail') or selected_tour.get('detail') or selected_tour.get('label') or 'Tour is on the way.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') %}
       {% elif selected_flythrough_pending %}
         {% set selected_visual_status = (selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') %}
       {% elif selected_tour.get('status') == 'blocked' %}
-        {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('eta_label') or 'No verified 3D tour is published yet. A Matterport, 3DVista, Pano2VR, or licensed krpano capture is still needed.' %}
+        {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('eta_label') or 'Tour not available yet.' %}
       {% elif selected_flythrough.get('status') == 'blocked' %}
-        {% set selected_visual_status = selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or 'No receipt-backed playable MagicFit walkthrough is attached yet.' %}
+        {% set selected_visual_status = selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or 'Walkthrough not available yet.' %}
       {% elif not selected_tour.get('url') and not selected_flythrough.get('url') %}
-        {% set selected_visual_status = 'No verified 3D tour or playable MagicFit walkthrough is attached yet.' %}
+        {% set selected_visual_status = 'Tour or walkthrough not available yet.' %}
       {% endif %}
       <div class="pqx-context-actions" data-pw-actions>
+        <div class="pqx-context-primary">
         {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}" data-rybbit-event="pq.property.opened" data-rybbit-prop-surface="selected_review">Open property</a>{% endif %}
-        {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer" data-rybbit-event="pq.property.opened" data-rybbit-prop-cta-key="open_listing" data-rybbit-prop-surface="selected_review">Open listing</a>{% endif %}
         {% if selected_tour.get('url') and not is_shortlist_surface %}
         <a class="pqx-progress-button is-ready" id="tour-preview" href="{{ selected_tour.get('url') }}" title="{{ selected_tour.get('detail') or '3D tour ready' }}" aria-label="{{ selected_tour.get('detail') or '3D tour ready' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="selected_review">Open 3D tour</a>
         {% elif selected_tour_pending and not is_shortlist_surface %}
-        <button class="pqx-progress-button is-processing" id="tour-preview" type="button" disabled style="--pqx-fill: {{ selected_tour_progress }}%;" title="{{ (selected_tour.get('detail') or selected_tour.get('label') or '3D tour is building.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') }}" data-pw-visual-request="tour" data-pw-visual-state="{{ selected_tour_status or 'queued' }}" data-pw-visual-progress="{{ selected_tour_progress }}" data-pw-visual-eta="{{ selected_tour.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_tour.get('detail') or selected_tour.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_tour.get('label') or '3D tour queued' }}</button>
+        <button class="pqx-progress-button is-processing" id="tour-preview" type="button" disabled style="--pqx-fill: {{ selected_tour_progress }}%;" title="{{ (selected_tour.get('detail') or selected_tour.get('label') or 'Tour is on the way.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') }}" data-pw-visual-request="tour" data-pw-visual-state="{{ selected_tour_status or 'queued' }}" data-pw-visual-progress="{{ selected_tour_progress }}" data-pw-visual-eta="{{ selected_tour.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_tour.get('detail') or selected_tour.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_tour.get('label') or '3D tour queued' }}</button>
         {% elif selected_visual_property_url and not is_shortlist_surface %}
         <button class="pqx-button" id="tour-preview" type="button" data-pw-visual-request="tour" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="selected_review">Request 3D tour</button>
         {% endif %}
@@ -70,35 +70,44 @@
     {% elif selected_visual_property_url and not is_shortlist_surface %}
         <button class="pqx-button" id="walkthrough-preview" type="button" data-pw-visual-request="flythrough" data-pw-walkthrough-provider="magicfit" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">Request walkthrough</button>
         {% endif %}
-        <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}" data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="selected_review">Share this home</button>
-        <button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="selected_review">Share results</button>
+        </div>
+        {% if selected.get('source_url') or selected.get('packet_url') or selected.get('candidate_ref') %}
+        <details class="pqx-context-tools pqx-mobile-fold" data-pw-secondary-tools>
+          <summary><strong>More</strong></summary>
+          <div class="pqx-context-tool-list">
+            {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer" data-rybbit-event="pq.property.opened" data-rybbit-prop-cta-key="open_listing" data-rybbit-prop-surface="selected_review">Open listing</a>{% endif %}
+            <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}" data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="selected_review">Share this home</button>
+            <button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="selected_review">Share results</button>
+          </div>
+        </details>
+        {% endif %}
       </div>
       {% if selected_tour.get('url') or selected_tour_pending or selected_tour.get('status') == 'blocked' or selected_flythrough.get('url') or selected_flythrough_pending or selected_flythrough.get('status') == 'blocked' %}
       <div class="pqx-result-facts" aria-label="Visual delivery status">
         {% if selected_tour.get('url') %}
-        <span class="pqx-result-fact">{{ selected_tour_provider_label or '3D tour' }} live</span>
+        <span class="pqx-result-fact">{{ selected_tour_provider_label or '3D tour' }} ready</span>
         {% elif selected_tour_pending %}
-        <span class="pqx-result-fact">{{ selected_tour.get('recovery_label') or '3D tour processing' }}</span>
+        <span class="pqx-result-fact">{{ selected_tour.get('recovery_label') or 'Tour in progress' }}</span>
         {% elif selected_tour.get('status') == 'blocked' %}
-        <span class="pqx-result-fact warn">{{ selected_tour.get('recovery_label') or '3D tour unavailable' }}</span>
+        <span class="pqx-result-fact warn">{{ selected_tour.get('recovery_label') or 'Tour not ready' }}</span>
         {% endif %}
         {% if selected_flythrough.get('url') %}
         <span class="pqx-result-fact">{{ selected_flythrough_provider_label or 'Walkthrough' }} ready</span>
         {% elif selected_flythrough_pending %}
-        <span class="pqx-result-fact">{{ selected_flythrough.get('recovery_label') or 'Walkthrough processing' }}</span>
+        <span class="pqx-result-fact">{{ selected_flythrough.get('recovery_label') or 'Walkthrough in progress' }}</span>
         {% elif selected_flythrough.get('status') == 'blocked' %}
-        <span class="pqx-result-fact warn">{{ selected_flythrough.get('recovery_label') or 'Walkthrough unavailable' }}</span>
+        <span class="pqx-result-fact warn">{{ selected_flythrough.get('recovery_label') or 'Walkthrough not ready' }}</span>
         {% endif %}
       </div>
       {% endif %}
-      <div class="pqx-decision-status" data-pw-visual-request-status>{{ selected_visual_status or 'Request a verified 3D tour or a receipt-backed MagicFit walkthrough only when the listing deserves a deeper review.' }}</div>
+      <div class="pqx-decision-status" data-pw-visual-request-status>{{ selected_visual_status or 'Ask for a tour or walkthrough only if this home stays in the running.' }}</div>
     </div>
   </div>
     <div class="pqx-evidence">
     <section class="pqx-card pqx-reading-shell">
       <div class="pqx-section-head pqx-reading-section-head">
         <div>
-          <h2>Current read</h2>
+          <h2>Quick take</h2>
           <span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span>
         </div>
       </div>
@@ -113,29 +122,29 @@
         </article>
         <article class="pqx-reading-card">
           <span class="pqx-small">{% if brief.get('search_goal') == 'investment' %}Return{% else %}Money{% endif %}</span>
-          <strong data-pw-investment>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('net_yield_display') or selected.get('investment', {}).get('cap_rate_display') or selected.get('investment', {}).get('gross_yield_display') or selected.get('investment', {}).get('market_delta_display') or selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Not verified yet.' }}{% else %}{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Not verified yet.' }}{% endif %}</strong>
+          <strong data-pw-investment>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('net_yield_display') or selected.get('investment', {}).get('cap_rate_display') or selected.get('investment', {}).get('gross_yield_display') or selected.get('investment', {}).get('market_delta_display') or selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Not available yet.' }}{% else %}{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Not available yet.' }}{% endif %}</strong>
         </article>
       </div>
       {% if brief.get('search_goal') == 'investment' or selected.get('review_page_neuronwriter', {}).get('questions') %}
-      <details class="pqx-reading-more" data-pw-reading-more>
+      <details class="pqx-reading-more pqx-mobile-fold" data-pw-reading-more>
         <summary><strong>More signals</strong></summary>
         <div class="pqx-reading-board">
           <article class="pqx-reading-card">
-            <span class="pqx-small">Next answer</span>
+            <span class="pqx-small">Check next</span>
             <strong>{% if selected.get('review_page_neuronwriter', {}).get('questions') %}{{ (selected.get('review_page_neuronwriter', {}).get('questions') or [])[0] }}{% elif brief.get('search_goal') == 'investment' %}Confirm rent, tax, and operating cost evidence before acting on the underwriting read.{% else %}Open the property page, confirm the layout, and check the next agent-facing question.{% endif %}</strong>
           </article>
           {% if brief.get('search_goal') == 'investment' %}
           <article class="pqx-reading-card">
-            <strong>Institutional read <button type="button" class="pqx-tooltip" title="This institutional score combines return, value, demand, liquidity, risk control, execution effort, and evidence confidence. Open the property page for the full underlying notes." aria-label="This institutional score combines return, value, demand, liquidity, risk control, execution effort, and evidence confidence. Open the property page for the full underlying notes." aria-expanded="false" data-tooltip-trigger>?</button></strong>
+            <strong>Underwriting summary <button type="button" class="pqx-tooltip" title="This score combines return, value, demand, liquidity, risk control, execution effort, and confidence. Open the property page for the full notes." aria-label="This score combines return, value, demand, liquidity, risk control, execution effort, and confidence. Open the property page for the full notes." aria-expanded="false" data-tooltip-trigger>?</button></strong>
             <span class="pqx-note" data-pw-underwriting-summary>{{ selected.get('investment', {}).get('score_display') or selected.get('investment', {}).get('underwriting_summary') or selected.get('investment', {}).get('confidence_label') or 'Scoring will appear once rent, cost, and market evidence are firm enough.' }}{% if selected.get('investment', {}).get('confidence_label') and not selected.get('investment', {}).get('score_display') %}{% elif selected.get('investment', {}).get('confidence_label') %} · {{ selected.get('investment', {}).get('confidence_label') }}{% endif %}{% if selected.get('investment', {}).get('underwriting_summary') and selected.get('investment', {}).get('score_display') %} · {{ selected.get('investment', {}).get('underwriting_summary') }}{% endif %}</span>
           </article>
           <article class="pqx-reading-card">
-            <span class="pqx-small">External model</span>
-            <strong data-pw-feed-status>{{ selected.get('investment', {}).get('feed_status_label') or 'Using listing and shortlist evidence until external rent, cost, and financing reads arrive.' }}{% if selected.get('investment', {}).get('feed_status_detail') %} · {{ selected.get('investment', {}).get('feed_status_detail') }}{% endif %}{% if selected.get('investment', {}).get('dscr_display') %} · {{ selected.get('investment', {}).get('dscr_display') }}{% endif %}</strong>
+            <span class="pqx-small">Model status</span>
+            <strong data-pw-feed-status>{{ selected.get('investment', {}).get('feed_status_label') or 'Using current listing and shortlist data until rent, cost, and financing reads arrive.' }}{% if selected.get('investment', {}).get('feed_status_detail') %} · {{ selected.get('investment', {}).get('feed_status_detail') }}{% endif %}{% if selected.get('investment', {}).get('dscr_display') %} · {{ selected.get('investment', {}).get('dscr_display') }}{% endif %}</strong>
           </article>
           <article class="pqx-reading-card">
-            <strong>Evidence confidence</strong>
-            <span class="pqx-note">{{ selected.get('investment', {}).get('confidence_label') or 'Partial evidence until the external model finishes.' }}</span>
+            <strong>Confidence</strong>
+            <span class="pqx-note">{{ selected.get('investment', {}).get('confidence_label') or 'Still partial until the external model finishes.' }}</span>
           </article>
           {% endif %}
           {% if selected.get('review_page_neuronwriter', {}).get('questions') %}
@@ -145,7 +154,7 @@
       </details>
       {% endif %}
       {% if brief.get('search_goal') == 'investment' and selected.get('investment', {}).get('dimensions') %}
-      <details class="pqx-reading-more">
+      <details class="pqx-reading-more pqx-mobile-fold">
         <summary><strong>Score breakdown</strong></summary>
         <div class="pqx-fact-grid" data-pw-underwriting-facts style="margin-top:10px;">
           {% for row in selected.get('investment', {}).get('dimensions') or [] %}
@@ -163,7 +172,7 @@
         <div>
           <h2>Next step</h2>
         </div>
-        <button class="pqx-button subtle" type="button" data-pw-finetune-toggle aria-expanded="false">Fine-tune my preferences</button>
+        <button class="pqx-button subtle" type="button" data-pw-finetune-toggle aria-expanded="false">Adjust my search</button>
       </div>
       <div class="pqx-actions">
         <button class="pqx-button" type="button" data-pw-decision-state="viewing_requested">Viewing requested</button>
@@ -179,24 +188,24 @@
           <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="dislike">No</button>
           <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="hide">Hide</button>
         </div>
-        <div class="pqx-decision-status" data-pw-feedback-status>Pick Yes, Maybe, No, or Hide.</div>
+        <div class="pqx-decision-status" data-pw-feedback-status>Choose Yes, Maybe, No, or Hide.</div>
         <div class="pqx-decision-detail" data-pw-decision-detail hidden>
-          <div class="pqx-decision-copy"><strong>What drove that?</strong></div>
+          <div class="pqx-decision-copy"><strong>Why?</strong></div>
           <div class="pqx-decision-reasons" data-pw-feedback-reasons></div>
-          <div class="pqx-decision-copy"><strong>Next question</strong></div>
+          <div class="pqx-decision-copy"><strong>Ask next</strong></div>
           <div class="pqx-event-list" data-pw-feedback-questions>
             <div class="pqx-note">Loading the next suggested questions.</div>
           </div>
           <textarea class="pqx-decision-note" rows="3" placeholder="What worked, failed, or still feels unclear?" data-pw-feedback-note></textarea>
           <div class="pqx-actions">
-            <button class="pqx-button primary" type="button" data-pw-feedback-save aria-label="Save decision">Save answer</button>
+            <button class="pqx-button primary" type="button" data-pw-feedback-save aria-label="Save decision">Save</button>
             <a class="pqx-link-button subtle" href="/app/search{{ review_query_suffix }}">Open search brief</a>
           </div>
         </div>
       </div>
     </section>
-    <details class="pqx-card">
-      <summary><strong>Optional context</strong></summary>
+    <details class="pqx-card pqx-mobile-fold">
+      <summary><strong>More context</strong></summary>
       {% if selected.get('object_rows') %}
       <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
         <div class="pqx-section-head"><h2>Property details</h2></div>
@@ -228,29 +237,31 @@
       </section>
       {% endif %}
       <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
-        <div class="pqx-section-head"><h2>Why it made the shortlist</h2><span class="pqx-pill">{{ selected.get('fit_label') or 'Candidate' }}</span></div>
+        <div class="pqx-section-head"><h2>Why it fits</h2><span class="pqx-pill">{{ selected.get('fit_label') or 'Candidate' }}</span></div>
         <div class="pqx-event-list" data-pw-match>
           {% for reason in selected.get('match_reasons') or [] %}
-          <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">{{ reason }}</span></div>
+          <div class="pqx-event-card"><strong>Fit</strong><span class="pqx-note">{{ reason }}</span></div>
           {% endfor %}
           {% if not selected.get('match_reasons') %}<div class="pqx-note">No explicit match reason captured yet.</div>{% endif %}
         </div>
       </section>
       {% if score_methodology %}
       {% set score_application = score_methodology.get('candidate_application') or {} %}
+      {% set negative_label = score_methodology.get('negative_label') or 'Main caution' %}
+      {% if negative_label == 'What still needs checking' %}{% set negative_label = 'Main caution' %}{% endif %}
       <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
         <div class="pqx-section-head">
-          <h2>{{ score_methodology.get('candidate_title') or 'Current score read' }}</h2>
+          <h2>{{ score_methodology.get('candidate_title') or 'Score at a glance' }}</h2>
           <span class="pqx-pill">{{ score_application.get('fit_score') or selected.get('fit_score') or 0 }}/100{% if score_application.get('band_label') %} · {{ score_application.get('band_label') }}{% endif %}</span>
         </div>
         <div class="pqx-event-list">
           <div class="pqx-event-card">
-            <strong>{{ score_methodology.get('positive_label') or 'Signals lifting the score' }}</strong>
-            <span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['No concrete positive signal attached yet.'])[:2]|join(' · ') }}</span>
+            <strong>{{ score_methodology.get('positive_label') or 'Best signals' }}</strong>
+            <span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['No strong signal attached yet.'])[:2]|join(' · ') }}</span>
           </div>
           <div class="pqx-event-card">
-            <strong>{{ score_methodology.get('negative_label') or 'Signals reducing confidence or score' }}</strong>
-            <span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['No concrete negative signal attached yet.'])[:2]|join(' · ') }}</span>
+            <strong>{{ negative_label }}</strong>
+            <span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['No caution attached yet.'])[:2]|join(' · ') }}</span>
           </div>
         </div>
       </section>

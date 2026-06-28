@@ -49,6 +49,23 @@ def test_propertyquarry_customer_templates_avoid_internal_operator_language() ->
         assert marker not in body
 
 
+def test_propertyquarry_mobile_navigation_stays_branded_and_compact() -> None:
+    workbench = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    public_base = (ROOT / "ea/app/templates/base_public.html").read_text(encoding="utf-8")
+
+    assert 'grid-template-areas: "brand nav actions";' in workbench
+    assert '.pqx-top-actions > :not([data-property-start-top]):not(.pqx-account-menu):not([data-pqx-delete-run])' in workbench
+    assert ".pqx-brand-copy {\n        display: none;" in workbench
+    assert '.pqx-shell[data-pqx-surface="agents"] .pqx-topbar,\n      .pqx-shell[data-pqx-surface="alerts"] .pqx-topbar {\n        grid-template-columns: minmax(0, 1fr) auto;\n        grid-template-areas: "brand nav";' in workbench
+    assert '.pqx-shell[data-pqx-surface="agents"] .pqx-top-actions,\n      .pqx-shell[data-pqx-surface="alerts"] .pqx-top-actions {\n        display: none;' in workbench
+    assert '<details class="pqx-mobile-nav-menu" data-pqx-mobile-nav-menu>' in workbench
+    assert '.pqx-mobile-nav-menu > summary {\n        min-height: 38px;' in workbench
+    assert '.pqx-mobile-nav-menu[open] .pqx-primary-nav {' in workbench
+    assert '<details class="mobile-nav-sheet">' in public_base
+    assert '<summary>Menu</summary>' in public_base
+    assert '.mobile-nav { display: none; }' in public_base
+
+
 def test_propertyquarry_layout_guide_is_the_design_contract() -> None:
     gate = (ROOT / "docs/PROPERTYQUARRY_DESIGN_SYSTEM_GATE.md").read_text(encoding="utf-8")
     guide = (ROOT / "docs/PROPERTYQUARRY_APP_LAYOUT_GUIDE.md").read_text(encoding="utf-8")
@@ -282,7 +299,9 @@ def test_propertyquarry_app_surfaces_expose_account_navigation() -> None:
 
     for body in (console_shell, workbench):
         assert "Account navigation" in body
-        assert ">Upgrade<" in body
+        assert ">Saved defaults<" in body
+        assert ">Billing account<" in body
+        assert ">Access<" in body
         assert ">Log out<" in body
 
 

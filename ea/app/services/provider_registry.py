@@ -464,6 +464,18 @@ class ProviderRegistryService:
                 ),
             ),
             ProviderBinding(
+                provider_key="ea",
+                display_name="EA",
+                executable=True,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="ea",
+                        capability_key="scene_video_generate",
+                        tool_name="ea.scene_video_generate",
+                    ),
+                ),
+            ),
+            ProviderBinding(
                 provider_key="browseract",
                 display_name="BrowserAct",
                 executable=True,
@@ -1131,7 +1143,7 @@ class ProviderRegistryService:
     def _auth_mode(self, binding: ProviderBinding) -> str:
         if binding.source == "tests":
             return "internal"
-        if binding.provider_key in {"artifact_repository", "connector_dispatch"}:
+        if binding.provider_key in {"artifact_repository", "connector_dispatch", "ea"}:
             return "internal"
         if binding.provider_key == "comfyui":
             return "http"

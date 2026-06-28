@@ -4,7 +4,6 @@
 {% set is_research_surface = surface_mode == 'research' %}
 {% set run_sources = run_summary.get('sources') or [] %}
 {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_generic_page_total') or 0) + (run_summary.get('filtered_listing_mode_total') or 0) %}
-{% set score_demoted_total = run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0 %}
 {% set results_label = 'shortlisted opportunities' if is_shortlist_surface and brief.get('search_goal') == 'investment' else ('shortlisted homes' if is_shortlist_surface else ('ranked opportunities' if brief.get('search_goal') == 'investment' else 'ranked homes')) %}
 {% set shortlist_compact_actions = is_shortlist_surface %}
 <section class="pqx-result-panel active{% if is_research_surface and not results %} is-empty-research{% endif %}" data-pqx-mobile-panel="results">
@@ -30,11 +29,6 @@
         <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} candidates stayed outside the brief because of hard rules">
           {{ filtered_total }} {{ 'outside brief' if is_shortlist_surface else 'filtered' }}
         </a>
-        {% endif %}
-        {% if not is_shortlist_surface and score_demoted_total %}
-        <span class="pqx-results-summary-link pqx-results-soft-link" aria-label="{{ score_demoted_total }} homes stayed below the shortlist score">
-          {{ score_demoted_total }} below score
-        </span>
         {% endif %}
       </div>
       {% if is_research_surface %}
@@ -90,7 +84,7 @@
       {% set tour_status = (tour.get('status') or '')|lower %}
       {% set tour_pending = tour_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
       {% set tour_progress = tour.get('progress_pct') or (18 if tour_pending else (100 if tour.get('url') else 0)) %}
-      {% set tour_tooltip = (tour.get('detail') or tour.get('label') or '3D tour is building.') ~ ((' · ETA ' ~ tour.get('eta_label')) if tour.get('eta_label') else '') %}
+      {% set tour_tooltip = (tour.get('detail') or tour.get('label') or 'Tour is on the way.') ~ ((' · ETA ' ~ tour.get('eta_label')) if tour.get('eta_label') else '') %}
       {% set walkthrough = candidate.get('flythrough') or {} %}
       {% set walkthrough_status = (walkthrough.get('status') or '')|lower %}
       {% set walkthrough_pending = walkthrough_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
@@ -114,10 +108,10 @@
               type="button"
               data-pqx-atlas-open
               data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
-              aria-label="Open evidence atlas for {{ candidate.get('title') or 'property' }}"
+              aria-label="Open area map for {{ candidate.get('title') or 'property' }}"
             >
               <img src="{{ primary_preview_url }}" alt="" loading="lazy" decoding="async" fetchpriority="low">
-              <span class="pqx-thumb-atlas-label">Evidence</span>
+              <span class="pqx-thumb-atlas-label">Map</span>
             </button>
           </span>
           {% endif %}
@@ -262,7 +256,7 @@
       <span class="pqx-note">Relax one hard rule to rank more homes.</span>
       <span class="pqx-actions">
         <a class="pqx-button primary" href="/app/properties{{ results_query_suffix }}">Adjust search</a>
-        {% if filtered_total or score_demoted_total %}
+        {% if filtered_total %}
         <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Widen the shortlist</button>
         {% endif %}
       </span>
@@ -282,7 +276,6 @@
           <span>Checked <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
           <span>Ranked <b>{{ source.get('high_fit_total') or 0 }}</b></span>
           <span>Hard rules <b>{{ (source.get('filtered_area_total') or 0) + (source.get('filtered_property_type_total') or 0) + (source.get('filtered_availability_total') or 0) + (source.get('filtered_floorplan_total') or 0) + (source.get('filtered_generic_page_total') or 0) + (source.get('filtered_listing_mode_total') or 0) }}</b></span>
-          <span>Score affected <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
           <span>Missing floorplans <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
         </div>
         {% if source.get('message') or source.get('error') %}

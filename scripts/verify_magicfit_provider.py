@@ -7,9 +7,11 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
+from property_magicfit_env import load_magicfit_env
 
 OUT_DIR = Path(os.environ.get("PROPERTYQUARRY_MAGICFIT_COMPLETION_DIR") or "/docker/property/_completion/magicfit_provider")
 OUT_PATH = OUT_DIR / "MAGICFIT_PROVIDER_VERIFICATION.generated.json"
+DEFAULT_MAGICFIT_EMAIL = "magicfit-account@example.test"
 
 
 def utc_now() -> str:
@@ -21,11 +23,12 @@ def account_hash(email: str) -> str:
 
 
 def main() -> int:
+    load_magicfit_env()
     out_email = (
         os.environ.get("PROPERTYQUARRY_MAGICFIT_EMAIL")
         or os.environ.get("MAGICFIT_EMAIL")
-        or "tibor.girschele@gmail.com"
-    ).strip() or "tibor.girschele@gmail.com"
+        or DEFAULT_MAGICFIT_EMAIL
+    ).strip() or DEFAULT_MAGICFIT_EMAIL
     out_tier = os.environ.get("PROPERTYQUARRY_MAGICFIT_TIER", "5").strip() or "5"
     password_present = bool((os.environ.get("PROPERTYQUARRY_MAGICFIT_PASSWORD") or os.environ.get("MAGICFIT_PASSWORD") or "").strip())
     payload = {

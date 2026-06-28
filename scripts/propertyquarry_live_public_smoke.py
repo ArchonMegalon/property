@@ -18,8 +18,6 @@ DEFAULT_ROUTES = (
     "/",
     "/security",
     "/pricing",
-    "/directory",
-    "/directory/profile/sample",
     "/privacy",
     "/terms",
     "/support",
@@ -65,8 +63,6 @@ def _security_header_checks(*, path: str, final_url: str, headers: dict[str, obj
         "/",
         "/security",
         "/pricing",
-        "/directory",
-        "/directory/profile/sample",
         "/privacy",
         "/terms",
         "/support",
@@ -150,8 +146,6 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
         "/",
         "/security",
         "/pricing",
-        "/directory",
-        "/directory/profile/sample",
         "/privacy",
         "/terms",
         "/support",
@@ -243,57 +237,6 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                     ("sign_in_facebook_feedback", 'data-submitting-label="Opening Facebook..."' in text),
                 )
             )
-    elif path == "/directory":
-        lowered_visible = visible_text.lower()
-        checks.extend(
-            (
-                (
-                    "directory_white_label",
-                    "PropertyQuarry directory" in text
-                    and "brilliant directories" not in lowered_visible
-                    and "brilliantdirectories" not in lowered_visible
-                    and "credentials" not in lowered_visible
-                    and "not active on this host" not in lowered_visible
-                    and "provider returned" not in lowered_visible
-                    and "provider stores" not in lowered_visible,
-                ),
-                (
-                    "directory_action_state",
-                    (
-                        "Search directory" in text
-                        and "Directory is temporarily unavailable" not in text
-                    )
-                    or (
-                        "Directory is temporarily unavailable" in text
-                        and "Search directory" not in text
-                        and ">Reset<" not in text
-                        and ">Clear<" not in text
-                    ),
-                ),
-                (
-                    "directory_empty_noindex",
-                    "Directory opening soon" not in text
-                    and "governed directory lane" not in text
-                    and 'name="robots" content="noindex, follow, noarchive, nosnippet"' in text,
-                ),
-            )
-        )
-    elif path.startswith("/directory/profile/"):
-        lowered_visible = visible_text.lower()
-        checks.extend(
-            (
-                ("directory_profile_white_label", "Profile details stay on PropertyQuarry" in text and "brilliant directories" not in lowered_visible and "brilliantdirectories" not in lowered_visible),
-                ("directory_profile_local_navigation", "Back to directory" in text and "Contact support" in text),
-                (
-                    "directory_profile_placeholder_noindex",
-                    "Profile details stay on PropertyQuarry" not in text
-                    or (
-                        'name="robots" content="noindex, follow, noarchive, nosnippet"' in text
-                        and "another branded site" not in text
-                    ),
-                ),
-            )
-        )
     elif path in {"/privacy", "/terms", "/support", "/imprint", "/cookies", "/subprocessors", "/refunds", "/disclaimers"}:
         expected_by_path = {
             "/privacy": ("Privacy", "Public tours should use a narrow public manifest"),

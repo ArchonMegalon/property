@@ -507,9 +507,9 @@ def _assert_no_horizontal_overflow(page: Page) -> None:
 
 
 def _assert_propertyquarry_billing_fallback_page(page: Page) -> None:
-    expect(page.locator("body", has_text="Billing handoff unavailable")).to_be_visible()
-    expect(page.locator("body", has_text="external account lane")).to_be_visible()
-    expect(page.locator("body", has_text="PropertyQuarry access remains active")).to_be_visible()
+    expect(page.locator("body", has_text="Billing portal unavailable")).to_be_visible()
+    expect(page.locator("body", has_text="billing portal is still being connected")).to_be_visible()
+    expect(page.locator("body", has_text=re.compile(r"PropertyQuarry access (remains|stays) active", re.I))).to_be_visible()
     expect(page.get_by_role("link", name="Back to account")).to_be_visible()
     body_text = page.evaluate("() => document.body.innerText")
     assert "Billing history" not in body_text
@@ -630,6 +630,31 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
         _assert_no_horizontal_overflow(desktop_page)
+        desktop_sign_in_metrics = desktop_page.evaluate(
+            """() => {
+                const panel = document.querySelector('.access-panel');
+                const shell = document.querySelector('.access-shell');
+                const intro = document.querySelector('.access-intro');
+                const entry = document.querySelector('.access-entry');
+                const heading = document.querySelector('.access-panel h1');
+                const panelRect = panel ? panel.getBoundingClientRect() : null;
+                const introRect = intro ? intro.getBoundingClientRect() : null;
+                const entryRect = entry ? entry.getBoundingClientRect() : null;
+                const headingRect = heading ? heading.getBoundingClientRect() : null;
+                return {
+                    panelWidth: panelRect ? panelRect.width : 0,
+                    introWidth: introRect ? introRect.width : 0,
+                    entryWidth: entryRect ? entryRect.width : 0,
+                    shellColumns: shell ? window.getComputedStyle(shell).gridTemplateColumns.split(' ').filter(Boolean).length : 0,
+                    headingHeight: headingRect ? headingRect.height : 0,
+                };
+            }"""
+        )
+        assert desktop_sign_in_metrics["panelWidth"] >= 780, desktop_sign_in_metrics
+        assert desktop_sign_in_metrics["shellColumns"] == 2, desktop_sign_in_metrics
+        assert desktop_sign_in_metrics["introWidth"] >= 260, desktop_sign_in_metrics
+        assert desktop_sign_in_metrics["entryWidth"] >= 300, desktop_sign_in_metrics
+        assert desktop_sign_in_metrics["headingHeight"] <= 270, desktop_sign_in_metrics
         sign_in_shot = tmp_path / "propertyquarry-sign-in-desktop.png"
         desktop_page.screenshot(path=str(sign_in_shot), full_page=True)
         assert sign_in_shot.exists()
@@ -659,6 +684,50 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         desktop.close()
         mobile.close()
         signed_in.close()
+
+
+def test_propertyquarry_sign_in_desktop_uses_balanced_two_column_entry_surface(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_public_context(browser, mobile=False, width=1440, height=900)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/sign-in?signing_in=1", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
+        expect(page.get_by_role("link", name="Open current session")).to_be_visible()
+        expect(page.get_by_text("Any provider below reopens the same account or creates it automatically on first use.")).to_be_visible()
+        expect(page.get_by_text("Trusted device")).to_be_visible()
+        _assert_no_horizontal_overflow(page)
+        metrics = page.evaluate(
+            """() => {
+                const panel = document.querySelector('.access-panel');
+                const shell = document.querySelector('.access-shell');
+                const intro = document.querySelector('.access-intro');
+                const entry = document.querySelector('.access-entry');
+                const heading = document.querySelector('.access-panel h1');
+                const panelRect = panel ? panel.getBoundingClientRect() : null;
+                const introRect = intro ? intro.getBoundingClientRect() : null;
+                const entryRect = entry ? entry.getBoundingClientRect() : null;
+                const headingRect = heading ? heading.getBoundingClientRect() : null;
+                return {
+                    panelWidth: panelRect ? panelRect.width : 0,
+                    introWidth: introRect ? introRect.width : 0,
+                    entryWidth: entryRect ? entryRect.width : 0,
+                    shellColumns: shell ? window.getComputedStyle(shell).gridTemplateColumns.split(' ').filter(Boolean).length : 0,
+                    headingHeight: headingRect ? headingRect.height : 0,
+                };
+            }"""
+        )
+        assert metrics["panelWidth"] >= 780, metrics
+        assert metrics["shellColumns"] == 2, metrics
+        assert metrics["introWidth"] >= 260, metrics
+        assert metrics["entryWidth"] >= 300, metrics
+        assert metrics["headingHeight"] <= 270, metrics
+    finally:
+        context.close()
 
 
 def test_propertyquarry_home_example_media_links_open_real_public_tour_targets(
@@ -1468,7 +1537,7 @@ def test_propertyquarry_all_customer_app_surfaces_are_motor_accessible_on_phone(
         context.close()
 
 
-def test_propertyquarry_soft_only_empty_state_uses_score_language_not_filtered_dialog(
+def test_propertyquarry_soft_only_empty_state_uses_neutral_empty_state_copy(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
 ) -> None:
@@ -1482,11 +1551,8 @@ def test_propertyquarry_soft_only_empty_state_uses_score_language_not_filtered_d
         response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="networkidle")
         assert response is not None and response.ok
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
-        expect(page.locator("[data-pqx-empty-results]")).to_contain_text(
-            re.compile(r"below the shortlist score|Lower shortlist score|Review scored homes", re.I),
-            timeout=5000,
-        )
-        assert page.locator('[data-pqx-filtered-open]:visible').count() == 0
+        expect(page.locator("[data-pqx-empty-results]")).to_contain_text(re.compile(r"No shortlist yet|Change one hard rule", re.I), timeout=5000)
+        expect(page.locator("[data-pqx-empty-results]")).not_to_contain_text(re.compile(r"below the shortlist score|Lower shortlist score|Review scored homes", re.I), timeout=5000)
     finally:
         context.close()
 
@@ -1710,9 +1776,9 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
         assert packet_path
         response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Current read").is_visible()
+        assert page.locator("body", has_text="Quick take").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
-        page.locator("summary", has_text="Fine-tune my preferences").first.click()
+        page.locator("summary", has_text="Preferences").first.click()
         answered_button = page.locator('[data-object-followups] [data-object-followup-action="answered"]:visible').first
         expect(answered_button).to_be_visible()
         answered_button.scroll_into_view_if_needed()
@@ -1722,7 +1788,7 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
         assert update_response.ok, update_response.text()
         page.reload(wait_until="networkidle")
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
-        assert page.locator("body", has_text="Risk signals").is_visible()
+        assert page.locator("body", has_text="Watch-outs").is_visible()
     finally:
         context.close()
 
@@ -1762,7 +1828,7 @@ def test_propertyquarry_packet_tracks_followup_state_in_browser(
         assert response is not None and response.ok
         assert page.locator("body", has_text="Tracked follow-up").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
-        page.locator("summary", has_text="Fine-tune my preferences").first.click()
+        page.locator("summary", has_text="Preferences").first.click()
         answered_button = page.locator('[data-object-followups] [data-object-followup-action="answered"]:visible').first
         expect(answered_button).to_be_visible()
         answered_button.scroll_into_view_if_needed()
@@ -1799,11 +1865,11 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
             page.locator("[data-object-feedback-save]").click()
         save_response = save_response_info.value
         assert save_response.ok, save_response.text()
-        page.get_by_text("Fine-tune my preferences", exact=True).click()
+        page.get_by_text("Preferences", exact=True).click()
         assert page.locator("body", has_text="Tracked follow-up").is_visible()
-        assert page.locator("body", has_text="Current read").is_visible()
+        assert page.locator("body", has_text="Quick take").is_visible()
         assert page.locator("body", has_text="Next move").is_visible()
-        assert page.locator("body", has_text="Fine-tune my preferences").is_visible()
+        assert page.locator("body", has_text="Preferences").is_visible()
     finally:
         context.close()
 
@@ -1813,6 +1879,20 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
     propertyquarry_browser_server: dict[str, object],
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "selected_platforms": ["willhaben"],
+            "min_match_score": 60,
+        },
+    )
+    assert stored.status_code == 200, stored.text
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     page.add_init_script(
@@ -1843,10 +1923,25 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
         )
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
         assert page.locator("[data-pqx-empty-results]", has_text=re.compile("No strong matches|No valid homes|No shortlist|current brief|search finished", re.I)).is_visible()
-        assert page.locator("body", has_text=re.compile("Review scored homes|Lower shortlist score", re.I)).is_visible()
+        assert page.locator("body", has_text=re.compile("Change one hard rule|No shortlist yet", re.I)).is_visible()
+        assert page.locator("body", has_text=re.compile("Lower shortlist score|below the shortlist score", re.I)).count() == 0
         assert page.locator("[data-pqx-counterfactuals]").is_visible()
-        assert page.get_by_role("link", name=re.compile("Adjust score", re.I)).is_visible()
-        assert page.locator("[data-pqx-filtered-open]:visible").count() == 0
+        first_counterfactual = page.locator("[data-pqx-counterfactuals] .pqx-suppression-item").first
+        assert first_counterfactual.is_visible()
+        assert page.locator("[data-pqx-counterfactuals] .pqx-suppression-item .pqx-note").first.is_visible()
+        ranking_slider = page.locator('[data-pqx-counterfactuals] [data-pqx-filter-slider][data-pqx-filter-field="min_match_score"]').first
+        assert ranking_slider.is_visible()
+        ranking_action = page.locator('[data-pqx-counterfactuals] [data-pqx-counterfactual]').first
+        expect(ranking_action).to_have_text(re.compile(r"Use \d+/100|Turn bar off", re.I))
+        ranking_slider.evaluate(
+            """(node) => {
+              node.value = '0';
+              node.dispatchEvent(new Event('input', { bubbles: true }));
+            }"""
+        )
+        expect(ranking_action).to_have_text("Turn bar off")
+        first_counterfactual_width = first_counterfactual.bounding_box()["width"]
+        assert first_counterfactual_width >= 220
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
@@ -2121,6 +2216,7 @@ def test_propertyquarry_account_notifications_have_dedicated_phone_layout(
         assert response is not None and response.ok
         delivery_card = page.locator("#delivery")
         expect(delivery_card).to_be_visible()
+        delivery_card.evaluate("(node) => { node.open = true; }")
         delivery_card.locator('input[name="notification_channels"][value="whatsapp"]').check()
 
         metrics = page.evaluate(
@@ -2160,6 +2256,103 @@ def test_propertyquarry_account_notifications_have_dedicated_phone_layout(
         assert metrics["maxRowRight"] <= metrics["viewportWidth"] + 1, metrics
         assert metrics["maxDetailRight"] <= metrics["viewportWidth"] + 1, metrics
         assert metrics["maxInputRight"] <= metrics["viewportWidth"] + 1, metrics
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("route", ["/app/account", "/app/alerts"])
+def test_propertyquarry_mobile_generic_folds_only_keep_one_panel_open(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    route: str,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}{route}", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        metrics = page.evaluate(
+            """() => {
+                const folds = Array.from(document.querySelectorAll('details.pqx-mobile-fold'));
+                folds.forEach((node) => { node.open = false; });
+                if (folds.length >= 2) {
+                    const summaries = folds.map((node) => node.querySelector('summary')).filter(Boolean);
+                    summaries[0]?.click();
+                    summaries[1]?.click();
+                }
+                return {
+                    foldCount: folds.length,
+                    openCount: folds.filter((node) => node.open).length,
+                    secondOpen: Boolean(folds[1]?.open),
+                    labels: folds.map((node) => (
+                        node.querySelector('summary strong, summary h2')?.textContent || ''
+                    ).trim()).filter(Boolean),
+                };
+            }"""
+        )
+        assert metrics["foldCount"] >= 2, metrics
+        assert metrics["openCount"] == 1, metrics
+        assert metrics["secondOpen"] is True, metrics
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("route", ["/app/settings/google", "/app/settings/support", "/app/settings/access", "/app/settings/invitations"])
+def test_propertyquarry_mobile_settings_disclosures_keep_one_panel_open(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    route: str,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}{route}", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        metrics = page.evaluate(
+            """() => {
+                const disclosures = Array.from(document.querySelectorAll('.is-settings-surface details.object-disclosure'));
+                const labelFor = (node) => (
+                    node?.querySelector('summary strong, summary h2')?.textContent || ''
+                ).trim();
+                const openBefore = disclosures.filter((node) => node.open);
+                const initialOpenLabel = labelFor(openBefore[0] || null);
+                const target = disclosures.find((node) => labelFor(node) && labelFor(node) !== initialOpenLabel) || null;
+                target?.querySelector('summary')?.click();
+                const openAfter = disclosures.filter((node) => node.open);
+                return {
+                    disclosureCount: disclosures.length,
+                    initialOpenCount: openBefore.length,
+                    initialOpenLabel,
+                    finalOpenCount: openAfter.length,
+                    finalOpenLabel: labelFor(openAfter[0] || null),
+                    labels: disclosures.map((node) => labelFor(node)).filter(Boolean),
+                    sidebarLabelPresent: disclosures.some((node) => node.classList.contains('object-sidebar-disclosure')),
+                };
+            }"""
+        )
+        assert metrics["disclosureCount"] >= 2, metrics
+        assert metrics["initialOpenCount"] == 1, metrics
+        assert metrics["initialOpenLabel"], metrics
+        if route == "/app/settings/google":
+            assert metrics["initialOpenLabel"] == "Google sign-in", metrics
+        if route == "/app/settings/access":
+            assert metrics["initialOpenLabel"] in {"Create an access link", "Live access links"}, metrics
+        if route == "/app/settings/invitations":
+            assert metrics["initialOpenLabel"] == "Invite another person", metrics
+        assert metrics["finalOpenCount"] == 1, metrics
+        assert metrics["finalOpenLabel"], metrics
+        assert metrics["finalOpenLabel"] != metrics["initialOpenLabel"], metrics
+        assert metrics["sidebarLabelPresent"] is True or route in {"/app/settings/access", "/app/settings/invitations"}, metrics
     finally:
         context.close()
 
@@ -2575,9 +2768,9 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
             if inner_width >= 900:
                 assert float(row["rowWidth"]) >= 320.0, row
             for control in row["controls"]:
-                assert float(control["width"]) >= 96.0, row
+                assert float(control["width"]) >= 90.0, row
                 if inner_width >= 900:
-                    assert float(control["width"]) <= 132.0, row
+                    assert float(control["width"]) <= 126.0, row
                 assert float(control["left"]) >= -1.0, row
                 assert float(control["right"]) >= -1.0, row
         school_rows = page.evaluate(
@@ -2612,11 +2805,11 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
             assert row["distanceDisabled"] is False, row
             assert row["distanceField"] == f"max_distance_to_{value}_m", row
             assert float(row["rowScrollWidth"]) <= float(row["rowWidth"]) + 1.0, row
-            assert float(row["preferenceWidth"]) >= 96.0, row
-            assert float(row["distanceWidth"]) >= 96.0, row
+            assert float(row["preferenceWidth"]) >= 90.0, row
+            assert float(row["distanceWidth"]) >= 90.0, row
             if inner_width >= 900:
-                assert float(row["preferenceWidth"]) <= 132.0, row
-                assert float(row["distanceWidth"]) <= 132.0, row
+                assert float(row["preferenceWidth"]) <= 126.0, row
+                assert float(row["distanceWidth"]) <= 126.0, row
             assert float(row["preferenceLeft"]) >= -1.0, row
             assert float(row["distanceRight"]) >= -1.0, row
         playground_clip = page.evaluate(
@@ -2654,8 +2847,8 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         assert playground_clip["selectTop"] >= playground_clip["listTop"] - 1, playground_clip
         assert playground_clip["selectBottom"] <= playground_clip["listBottom"] + 1, playground_clip
         if int(playground_clip["viewportWidth"]) >= 900:
-            assert 96 <= float(playground_clip["preferenceWidth"]) <= 132, playground_clip
-            assert 96 <= float(playground_clip["selectWidth"]) <= 132, playground_clip
+            assert 90 <= float(playground_clip["preferenceWidth"]) <= 126, playground_clip
+            assert 90 <= float(playground_clip["selectWidth"]) <= 126, playground_clip
             assert float(playground_clip["preferenceRight"]) >= -1.0, playground_clip
             assert float(playground_clip["selectRight"]) >= -1.0, playground_clip
         if int(page.evaluate("window.innerWidth")) <= 760:
@@ -2839,7 +3032,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
             assert first_screen["galleryBottom"] <= first_screen["viewportHeight"] + 1
         page.screenshot(path=str(screenshot_path), full_page=False, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
-        assert page.get_by_text("Current read").first.is_visible()
+        assert page.get_by_text("Quick take").first.is_visible()
         decision_fit = page.evaluate(
             """
             () => {
@@ -3307,13 +3500,14 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('label', has_text="Zillow").count() == 0
         match_slider = page.locator('input[name="min_match_score"]')
         assert match_slider.is_visible()
+        assert match_slider.get_attribute("min") == "0"
         assert match_slider.get_attribute("max") == "60"
         assert match_slider.get_attribute("data-range-selectable-max") == "35"
         assert match_slider.get_attribute("data-range-visual-max") == "60"
         tooltip = match_slider.get_attribute("title") or ""
-        assert "backend" in tooltip.lower()
-        assert "slower" in tooltip.lower()
-        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "35/60"
+        assert "stay in the run" in tooltip.lower()
+        assert "off" in tooltip.lower()
+        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "Off"
         assert page.locator('[data-current-plan-cap]').filter(has_text="Plan cap 35").count() >= 1
         floorplan_filter = page.locator('input[name="require_floorplan"]')
         assert floorplan_filter.is_visible()
@@ -3598,7 +3792,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["topbarRight"] <= mobile_metrics["viewportWidth"] + 1
         assert mobile_metrics["topnavScrollWidth"] >= mobile_metrics["topnavClientWidth"]
         assert mobile_metrics["topnavFirstLeft"] >= -1
-        assert mobile_metrics["topLaunchWidth"] == 0
+        assert 44 <= mobile_metrics["topLaunchWidth"] <= 96
         assert mobile_metrics["topLaunchRight"] <= mobile_metrics["viewportWidth"] + 1
         assert mobile_metrics["drawerScrollTopBeforeInteraction"] <= 2
         assert mobile_metrics["railOverflowX"] in {"auto", "scroll"}
@@ -3826,6 +4020,64 @@ def test_propertyquarry_search_launch_strips_cross_country_provider_selection(
         context.close()
 
 
+def test_propertyquarry_country_switch_replaces_out_of_market_provider_selection(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    client = propertyquarry_browser_server["client"]
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "DE",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "Berlin",
+            "selected_platforms": ["immoscout_de", "immowelt"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
+        assert response is not None and response.ok
+        checked_before = page.locator('input[name="selected_platforms"]:checked')
+        expect(checked_before).to_have_count(2)
+        checked_before_values = page.eval_on_selector_all(
+            'input[name="selected_platforms"]:checked',
+            "(nodes) => nodes.map((node) => ({ value: node.value, country: node.getAttribute('data-country-code') || '' }))",
+        )
+        assert {row["value"] for row in checked_before_values} == {"immoscout_de", "immowelt"}
+
+        page.select_option('select[name="country_code"]', "AT")
+        page.wait_for_function(
+            """
+            () => {
+              const checked = Array.from(document.querySelectorAll('input[name="selected_platforms"]:checked'));
+              if (!checked.length) return false;
+              const values = checked.map((node) => String(node.value || '').trim());
+              return values.includes('willhaben') && !values.includes('immoscout_de') && !values.includes('immowelt');
+            }
+            """
+        )
+
+        checked_after = page.locator('input[name="selected_platforms"]:checked')
+        expect(checked_after).to_have_count(3)
+        checked_values = page.eval_on_selector_all(
+            'input[name="selected_platforms"]:checked',
+            "(nodes) => nodes.map((node) => ({ value: node.value, country: node.getAttribute('data-country-code') || '' }))",
+        )
+        assert "willhaben" in {row["value"] for row in checked_values}
+        assert "immoscout_de" not in {row["value"] for row in checked_values}
+        assert "immowelt" not in {row["value"] for row in checked_values}
+        assert {str(row["country"] or "").upper() for row in checked_values} == {"AT"}
+    finally:
+        context.close()
+
+
 def test_propertyquarry_automation_page_uses_compact_card_cockpit(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -4039,7 +4291,11 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             _assert_property_shell_visual_gates(page, max_appbar_height=130)
 
             expect(page.locator("[data-property-mobile-dock]")).to_have_count(0)
-            expect(page.locator('nav[aria-label="PropertyQuarry sections"]').first).to_be_visible()
+            if route in {"/app/agents", "/app/alerts", "/app/account"} or route.startswith("/app/shortlist"):
+                expect(page.locator('nav[aria-label="PropertyQuarry sections"]').first).to_be_hidden()
+                expect(page.locator(".pqx-topbar")).to_be_visible()
+            else:
+                expect(page.locator('nav[aria-label="PropertyQuarry sections"]').first).to_be_visible()
             if page.get_by_role("button", name=mobile_mode_name).count():
                 expect(page.get_by_role("button", name=mobile_mode_name)).to_be_visible()
             else:
@@ -4094,7 +4350,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.locator(".pqx-automation-thumbnail").first).to_be_visible()
             elif route == "/app/alerts":
                 expect(page.locator("body", has_text="Alerts")).to_be_visible()
-                expect(page.locator("body", has_text=re.compile(r"Delivery rules|Notifications", re.I))).to_be_visible()
+                expect(page.locator("body", has_text="Notifications")).to_be_visible()
                 alerts_mobile_metrics = page.evaluate(
                     """() => {
                         const rows = Array.from(document.querySelectorAll('.pqx-shell[data-pqx-surface="alerts"] .pqx-pref-row'));
@@ -4120,7 +4376,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.locator("body", has_text="Export account data")).to_be_visible()
                 expect(page.get_by_role("link", name="Billing account")).to_be_visible()
                 expect(page.locator("body", has_text="Access and shared pages")).to_be_visible()
-                expect(page.locator("body", has_text="Connections and privacy")).to_be_visible()
+                expect(page.locator("body", has_text="Sign-in and privacy")).to_be_visible()
                 expect(page.locator("[data-account-page-sign-out] button")).to_be_visible()
                 assert density["logoutVisible"] is True
             elif route == "/app/settings/google":
@@ -4128,16 +4384,16 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.locator("body", has_text=re.compile(r"Connect Google|Add Google account", re.I))).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"account", re.I))).to_be_visible()
             elif route == "/app/settings/access":
-                expect(page.locator("body", has_text=re.compile(r"Access|Identity and return access", re.I))).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"Access|Sign-in and access", re.I))).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"Invite|access", re.I))).to_be_visible()
             elif route == "/app/settings/usage":
-                expect(page.locator("body", has_text="Usage and activation")).to_be_visible()
+                expect(page.locator("body", has_text="Usage")).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"activation|usage", re.I))).to_be_visible()
             elif route == "/app/settings/support":
-                expect(page.locator("body", has_text="What support answers")).to_be_visible()
+                expect(page.locator("body", has_text="Support at a glance")).to_be_visible()
                 expect(page.locator("body", has_text="See what failed, what still works, and the next useful action.")).to_be_visible()
             elif route == "/app/settings/trust":
-                expect(page.locator("body", has_text=re.compile(r"Trust|Security", re.I))).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"Reliability|Security", re.I))).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"privacy|recovery|access", re.I))).to_be_visible()
             else:
                 expect(page.locator("body", has_text=re.compile(r"Invite|Invitations", re.I))).to_be_visible()
@@ -5173,9 +5429,9 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
         response = page.goto(f"{base_url}/app/properties/packets", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("[data-property-packets-dashboard]").is_visible()
-        assert page.locator("body", has_text="Share polished property pages and track the replies.").is_visible()
+        assert page.locator("body", has_text="Share property pages and keep the replies together.").is_visible()
         assert page.locator("body", has_text="Household reactions").is_visible()
-        assert page.locator("body", has_text="Risk signals").is_visible()
+        assert page.locator("body", has_text="Watch-outs").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         page.locator('[data-packet-share-form] input[name="recipient_name"]').first.fill("Anna")
         page.locator('[data-packet-share-form] input[name="recipient_email"]').first.fill("anna@example.com")
@@ -5312,9 +5568,9 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         separator = "&" if "?" in packet_url else "?"
         response = page.goto(f"{packet_url}{separator}run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Current read").is_visible()
+        assert page.locator("body", has_text="Quick take").is_visible()
         assert page.locator("body", has_text="Decision shortcut loaded from the email or shared link.").is_visible()
-        assert page.locator("body", has_text="Clippy prompt loaded from the email or shared link.").is_visible()
+        assert page.locator("body", has_text="Question loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Tracked follow-up").is_visible()
     finally:
         context.close()

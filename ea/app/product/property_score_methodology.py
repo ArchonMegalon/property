@@ -111,7 +111,7 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
     "en": {
         "title": "Behind the score",
         "subtitle": "How PropertyQuarry turns a listing into a personal fit score.",
-        "summary": "The score is not portal popularity. It is a 0-100 personal fit estimate built from hard eligibility, verified listing facts, soft preferences, route and neighbourhood evidence, missing facts, and your saved feedback.",
+        "summary": "The score is not portal popularity. It is a 0-100 personal fit estimate built from hard eligibility, confirmed listing facts, soft preferences, route and neighbourhood evidence, missing facts, and your saved feedback.",
         "principles": [
             "Hard rules remove a listing before scoring: country, selected districts, listing mode, property type, budget, and explicit must-have rules.",
             "Soft preferences only move the score. A missing nice-to-have balcony should not hide a home; it should explain why it ranks lower.",
@@ -132,16 +132,16 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
             ("Balcony nice-to-have", "If balcony is nice-to-have and missing, the listing stays visible but loses score."),
             ("School route looks safe", "A safer school or kindergarten route can upgrade the score when family preferences are active."),
             ("Costs missing", "Missing operating costs lower confidence and become a follow-up question instead of silently inventing a value."),
-            ("Real tour available", "A Matterport, 3DVista, or verified 360 source improves remote-screening confidence."),
+            ("Real tour available", "A Matterport, 3DVista, or real 360 source improves remote-screening confidence."),
         ],
         "bands": [("0-34", "Watch only"), ("35-44", "Possible fit"), ("45-59", "Good fit"), ("60+", "Strong fit")],
         "pdf_title": "How the PropertyQuarry score is calculated",
-        "candidate_title": "Current candidate score read",
+        "candidate_title": "Score at a glance",
         "calculation_title": "Example calculation: why this property lands at 58",
         "steps_label": "Rules applied",
         "examples_label": "Examples",
-        "positive_label": "Signals lifting the score",
-        "negative_label": "Signals reducing confidence or score",
+        "positive_label": "Best signals",
+        "negative_label": "Main caution",
         "neutral_note": "Exact weights can vary by market and search mode, but hard rules, evidence quality, soft preferences, and feedback are always separated.",
         "calculation_rows": [
             ("Start", "+50", "A candidate starts neutral once it has passed the hard gate."),
@@ -149,9 +149,9 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
             ("Evidence quality", "+10", "Floorplan, costs and a real 360/tour source make the listing easier to verify remotely."),
             ("Soft preferences", "+6", "Daily-life, commute and family preferences fit well enough to lift rank."),
             ("Location checked", "+0", "The selected district is an eligibility check, not a reward. Central, edge, or border position inside an allowed district does not add points; only missing or contradictory location evidence hurts the score."),
-            ("Missing heating detail", "-8", "Heating is still unknown, so confidence drops until verified."),
+            ("Missing heating detail", "-8", "Heating is still unknown, so confidence drops until it is confirmed."),
             ("One soft wish missing", "-3", "A missing nice-to-have lowers rank but does not filter the home."),
-            ("Open verification risk", "-5", "Remaining unknowns are kept as viewing questions."),
+            ("Open questions", "-5", "Remaining unknowns are kept as viewing questions."),
             ("Final score", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. The rows below explain every delta and show how neutral, nice-to-have, strong wish, must-have, and avoid settings change the movement."),
         ],
     },
@@ -179,7 +179,7 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
             ("Balkon als Wunsch", "Fehlt der Balkon nur als Wunsch, bleibt das Objekt sichtbar und verliert lediglich Score."),
             ("Sicherer Schulweg", "Ein plausibel sicherer Weg zur Schule oder zum Kindergarten kann den Score erhöhen."),
             ("Kosten fehlen", "Fehlende Betriebskosten senken Vertrauen und werden als Rueckfrage markiert, statt erfunden zu werden."),
-            ("Echte Tour vorhanden", "Matterport, 3DVista oder eine verifizierte 360-Quelle erhöht die Remote-Screening-Sicherheit."),
+            ("Echte Tour vorhanden", "Matterport, 3DVista oder eine echte 360-Quelle erhöht die Remote-Screening-Sicherheit."),
         ],
         "bands": [("0-34", "Nur beobachten"), ("35-44", "Mögliche Passung"), ("45-59", "Gute Passung"), ("60+", "Starke Passung")],
         "pdf_title": "Wie der PropertyQuarry-Score berechnet wird",
@@ -562,7 +562,7 @@ _LOCALIZED_PDF_EXAMPLE_COPY: dict[str, dict[str, tuple[str, ...] | str]] = {
         "recommendation": "Strong fit",
         "match_reasons": (
             "Selected area is respected.",
-            "Verified costs, floorplan, and 360 evidence raise confidence.",
+            "Confirmed costs, floorplan, and 360 evidence raise confidence.",
             "Commute and daily-life preferences score well.",
         ),
         "mismatch_reasons": (
@@ -570,7 +570,7 @@ _LOCALIZED_PDF_EXAMPLE_COPY: dict[str, dict[str, tuple[str, ...] | str]] = {
             "Heating detail still needs confirmation before a final decision.",
         ),
         "viewing_questions": (
-            "Verify the still-missing fact with the agent.",
+            "Check the remaining gap with the agent.",
             "Compare the route and noise evidence during an actual viewing.",
         ),
         "postal_name": "Demo market",
@@ -750,17 +750,17 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
             ("Official geo data", "Official sources such as data.gv.at, climate maps, air-quality, noise, flood, broadband, school, childcare, and other public datasets are attached as evidence lanes when they cover the location."),
             ("Maps and routes", "OpenStreetMap/Overpass, route checks, and distance calculations turn errands, transit, schools, parks, shade, and services into comparable proximity facts."),
             ("User preferences", "What Matters settings and saved feedback decide whether a fact is neutral, a wish, a strong wish, a must-have, or an avoid signal."),
-            ("Verification rules", "Prices, costs, energy data, tours, floorplans, and location facts are promoted only when source evidence supports them. Missing evidence lowers confidence instead of being invented."),
+            ("How facts are checked", "Prices, costs, energy data, tours, floorplans, and location facts are promoted only when source evidence supports them. Missing evidence lowers confidence instead of being invented."),
         ],
         "calculation_detail_rows": [
             ("Start", "+50", "Neutral baseline after hard-gate eligibility.", "Every reviewable candidate starts from 50 so positive and negative evidence can both move it.", "Preference strength does not change the baseline."),
             ("Hard gate passed", "+8", "Country, transaction type, home type, budget, rooms and area do not conflict; selected district is only a pass/fail gate.", "This is an eligibility confidence lift, not a soft preference or district reward.", "If a selected district, buy/rent mode, budget, rooms or hard type fails, the candidate is excluded instead of scored."),
-            ("Evidence quality", "+10", "Floorplan, operating costs and real 360/tour evidence are available in the example.", "More verified facts means the remote decision is safer, so confidence rises.", "Floorplan only would be closer to +4; floorplan plus costs closer to +7; full evidence earns the +10 example."),
+            ("Evidence quality", "+10", "Floorplan, operating costs and real 360/tour evidence are available in the example.", "More confirmed facts make the remote decision safer, so confidence rises.", "Floorplan only would be closer to +4; floorplan plus costs closer to +7; full evidence earns the +10 example."),
             ("Soft preferences", "+6", "Commute, daily-life and family preferences match at nice-to-have strength.", "Soft matches raise rank but never hide other homes by themselves.", "Neutral would be +0; nice-to-have gives about +6 here; strong wish would be about +12; a must-have contradiction would gate or cap."),
-            ("Location checked", "+0", "The listing has candidate-level postal or district evidence, not only provider search-scope text.", "Specific location evidence verifies eligibility and nearby evidence. Being central, at the edge, or on a border inside an allowed district is not rewarded.", "Coarse evidence stays neutral; a contradicted postal code such as 1220 during a hard 1010 search excludes."),
-            ("Missing heating detail", "-8", "Heating is relevant but unknown in the reviewed source.", "Missing facts are not invented; important unknowns reduce confidence until verified.", "If heating detail were neutral it might be -2 or 0; as a strong wish it can be -8 to -12; as a hard must-have it can cap or exclude."),
+            ("Location checked", "+0", "The listing has candidate-level postal or district evidence, not only provider search-scope text.", "Specific location evidence checks eligibility and nearby context. Being central, at the edge, or on a border inside an allowed district is not rewarded.", "Coarse evidence stays neutral; a contradicted postal code such as 1220 during a hard 1010 search excludes."),
+            ("Missing heating detail", "-8", "Heating is relevant but unknown in the reviewed source.", "Missing facts are not invented; important unknowns reduce confidence until they are confirmed.", "If heating detail were neutral it might be -2 or 0; as a strong wish it can be -8 to -12; as a hard must-have it can cap or exclude."),
             ("One soft wish missing", "-3", "A non-critical desired feature is absent or unproven.", "A soft miss lowers rank only.", "Neutral would be 0; nice-to-have is about -3; strong wish about -6; must-have missing would gate or cap."),
-            ("Open verification risk", "-5", "There are still unresolved viewing or agent questions.", "The score keeps uncertainty visible instead of pretending the listing is complete.", "Minor risk would be about -2; unresolved important risk about -5; high risk can cap below the strong-fit band."),
+            ("Open questions", "-5", "There are still unresolved viewing or agent questions.", "The score keeps uncertainty visible instead of pretending the listing is complete.", "Minor risk would be about -2; unresolved important risk about -5; high risk can cap below the strong-fit band."),
         ],
     },
     "de": {
@@ -1074,7 +1074,7 @@ def build_property_score_methodology(
     negative = _text_items(candidate_payload.get("mismatch_reasons"), limit=4)
     if not positive:
         positive = [
-            "Verified facts improve confidence.",
+            "Confirmed facts improve confidence.",
             "Good matches in What matters move the score upward.",
         ]
     if not negative:

@@ -66,7 +66,7 @@ def _write_equirectangular_image(path: Path) -> None:
     image.save(path, format="JPEG")
 
 
-def test_best_tour_root_prefers_richer_runtime_snapshot(tmp_path: Path) -> None:
+def test_best_tour_root_prefers_fresher_runtime_snapshot(tmp_path: Path) -> None:
     sparse = tmp_path / "sparse"
     rich = tmp_path / "rich"
     (sparse / "only-one").mkdir(parents=True)
@@ -75,8 +75,23 @@ def test_best_tour_root_prefers_richer_runtime_snapshot(tmp_path: Path) -> None:
     (sparse / "only-one" / "tour.json").write_text("{}", encoding="utf-8")
     (rich / "one" / "tour.json").write_text("{}", encoding="utf-8")
     (rich / "two" / "tour.json").write_text("{}", encoding="utf-8")
+    sparse_mtime = (sparse / "only-one" / "tour.json").stat().st_mtime
+    os.utime(rich / "two" / "tour.json", (sparse_mtime + 5, sparse_mtime + 5))
 
     assert _best_tour_root([sparse, rich]) == rich
+
+
+def test_best_tour_root_prefers_earlier_candidate_when_freshness_matches(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    for root, slug in ((repo_root, "current"), (runtime_root, "archive")):
+        bundle = root / slug
+        bundle.mkdir(parents=True)
+        (bundle / "tour.json").write_text("{}", encoding="utf-8")
+    shared_mtime = (repo_root / "current" / "tour.json").stat().st_mtime
+    os.utime(runtime_root / "archive" / "tour.json", (shared_mtime, shared_mtime))
+
+    assert _best_tour_root([repo_root, runtime_root]) == repo_root
 
 
 def test_running_container_public_tour_dir_reads_docker_mount(monkeypatch, tmp_path: Path) -> None:

@@ -641,10 +641,77 @@ def test_scheduler_property_scout_runs_for_configured_principals(
         "ran": True,
         "attempted": 2,
         "synced": 4,
+        "launched": 0,
+        "due": 0,
+        "skipped_active": 0,
+        "skipped_not_due": 0,
         "errors": 0,
         "principals": ["principal-a", "principal-b"],
     }
     assert calls == ["principal-a|scheduler", "principal-b|scheduler"]
+
+
+def test_scheduler_property_scout_principal_ids_discover_enabled_saved_search_principals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.delenv("EA_PROPERTY_SCOUT_PRINCIPAL_IDS", raising=False)
+
+    container = SimpleNamespace(
+        onboarding=SimpleNamespace(
+            list_property_search_agent_principals=lambda limit=1000: ("principal-b", "principal-a", "principal-a")
+        ),
+        settings=SimpleNamespace(auth=SimpleNamespace(default_principal_id="fallback")),
+    )
+
+    principals = runner._scheduler_property_scout_principal_ids(container)
+
+    assert principals == ("principal-a", "principal-b")
+
+
+def test_scheduler_property_scout_queues_due_search_agents_when_service_supports_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_PROPERTY_SCOUT_PRINCIPAL_IDS", "principal-b, principal-a")
+
+    calls: list[str] = []
+
+    class _FakeService:
+        def launch_due_property_search_agents(self, *, principal_id: str, actor: str):
+            calls.append(f"agents:{principal_id}|{actor}")
+            return {
+                "mode": "agents",
+                "launched_total": 1,
+                "due_total": 1,
+                "skipped_active_total": 0,
+                "skipped_not_due_total": 0,
+            }
+
+        def sync_direct_property_scout(self, *, principal_id: str, actor: str):
+            raise AssertionError("scheduler should not fall back to sync_direct_property_scout when agent launcher is available")
+
+    container = SimpleNamespace(settings=SimpleNamespace(auth=SimpleNamespace(default_principal_id="fallback")))
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+
+    summary = runner._run_scheduler_property_scout(container, logging.getLogger("test.runner"))
+
+    assert summary == {
+        "ran": True,
+        "attempted": 2,
+        "synced": 2,
+        "launched": 2,
+        "due": 2,
+        "skipped_active": 0,
+        "skipped_not_due": 0,
+        "errors": 0,
+        "principals": ["principal-a", "principal-b"],
+    }
+    assert calls == ["agents:principal-a|scheduler", "agents:principal-b|scheduler"]
 
 
 def test_scheduler_property_only_profile_helper_accepts_property_aliases(

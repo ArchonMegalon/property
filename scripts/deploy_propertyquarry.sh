@@ -36,6 +36,22 @@ Environment:
                                   1 enables the full all-search-ready provider matrix with strict and
                                   soft-filter dispatch/readback checks after deploy. Default 0 keeps the
                                   lighter provider-catalog smoke.
+  PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES
+                                  Optional comma-separated country list for focused provider verification,
+                                  for example AT,DE,CR. When set with PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1,
+                                  the deploy runs the strict/soft targeted matrix only for those countries
+                                  instead of every search-ready country.
+  PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID
+                                  Telegram notification principal for a green gold receipt.
+                                  Defaults to EA_PRINCIPAL_ID or cf-email:tibor.girschele@gmail.com.
+  PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL
+                                  Public URL included in the gold notification. Defaults to https://propertyquarry.com.
+  PROPERTYQUARRY_GOLD_NOTIFICATION_STATE
+                                  Send-once state file for green gold notifications.
+  PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BOOTSTRAP_EDGE
+                                  1|0|auto. When billing.propertyquarry.com is configured, keeps the
+                                  Cloudflare billing worker aligned with the current billing host and
+                                  bridge path. Default auto.
 EOF
 }
 
@@ -133,9 +149,24 @@ host_port="$(effective_env_value EA_HOST_PORT)"
 host_port="${host_port:-8090}"
 api_token="$(effective_env_value EA_API_TOKEN)"
 signing_secret="$(effective_env_value EA_SIGNING_SECRET)"
+storage_backend="$(effective_env_value EA_STORAGE_BACKEND)"
+database_url="$(effective_env_value DATABASE_URL)"
 cf_access_team_domain="$(effective_env_value EA_CF_ACCESS_TEAM_DOMAIN)"
 cf_access_aud="$(effective_env_value EA_CF_ACCESS_AUD)"
 allow_loopback_no_auth="$(effective_env_value EA_ALLOW_LOOPBACK_NO_AUTH)"
+telegram_bot_registry_json="$(effective_env_value EA_TELEGRAM_BOT_REGISTRY_JSON)"
+telegram_bot_token="$(effective_env_value EA_TELEGRAM_BOT_TOKEN)"
+telegram_bot_handle="$(effective_env_value EA_TELEGRAM_BOT_HANDLE)"
+property_public_base_url="$(effective_env_value PROPERTYQUARRY_PUBLIC_BASE_URL)"
+property_public_base_url="${property_public_base_url:-https://propertyquarry.com}"
+bd_bootstrap_edge="$(effective_env_value PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BOOTSTRAP_EDGE)"
+bd_bootstrap_edge="${bd_bootstrap_edge:-auto}"
+bd_billing_url="$(effective_env_value PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL)"
+bd_billing_dns_target="$(effective_env_value PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET)"
+bd_billing_fallback_urls="$(effective_env_value PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URLS)"
+bd_bridge_enabled="$(effective_env_value PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED)"
+bd_bridge_url="$(effective_env_value PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL)"
+bd_bridge_secret="$(effective_env_value PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET)"
 
 require_nonempty "POSTGRES_PASSWORD" "Set it in .env or export it for this deploy."
 
@@ -152,6 +183,13 @@ if [[ "${runtime_mode}" == "prod" ]]; then
     echo "EA_RUNTIME_MODE=prod forbids EA_ALLOW_LOOPBACK_NO_AUTH=1." >&2
     exit 2
   fi
+fi
+
+if env_truthy "${bd_bridge_enabled}"; then
+  require_nonempty "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL" \
+    "Set the signed billing bridge URL before enabling the bridge."
+  require_nonempty "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET" \
+    "Set a shared bridge secret before enabling the bridge."
 fi
 
 if ! [[ "${host_port}" =~ ^[0-9]+$ ]] || (( host_port < 1 || host_port > 65535 )); then
@@ -381,6 +419,110 @@ restart_existing_cloudflared_tunnel() {
 
 restart_existing_cloudflared_tunnel
 
+bootstrap_billing_edge_worker() {
+  local mode="$1"
+  local lower_mode
+  lower_mode="$(printf '%s' "${mode}" | tr '[:upper:]' '[:lower:]')"
+  case "${lower_mode}" in
+    0|false|no|off|disabled)
+      return 0
+      ;;
+  esac
+  if [[ -z "${bd_billing_url}" ]]; then
+    return 0
+  fi
+  local worker_payload
+  if ! worker_payload="$(
+    BILLING_URL="${bd_billing_url}" \
+    BILLING_DNS_TARGET="${bd_billing_dns_target}" \
+    BILLING_FALLBACK_URLS="${bd_billing_fallback_urls}" \
+    python3 - <<'PY'
+import json
+import os
+import urllib.parse
+
+def host(value: str) -> str:
+    parsed = urllib.parse.urlparse(str(value or "").strip())
+    return str(parsed.hostname or "").strip().lower()
+
+billing_url = str(os.getenv("BILLING_URL") or "").strip()
+dns_target = str(os.getenv("BILLING_DNS_TARGET") or "").strip().lower().rstrip(".")
+fallbacks = [item.strip() for item in str(os.getenv("BILLING_FALLBACK_URLS") or "").split(",") if item.strip()]
+billing_host = host(billing_url)
+target_host = dns_target or ""
+if not target_host:
+    for candidate in fallbacks:
+        candidate_host = host(candidate)
+        if candidate_host and candidate_host != billing_host:
+            target_host = candidate_host
+            break
+print(json.dumps({"billing_host": billing_host, "target_host": target_host}))
+PY
+  )"; then
+    if env_truthy "${lower_mode}"; then
+      echo "Could not derive the billing worker host/target pair." >&2
+      exit 1
+    fi
+    echo "Warning: could not derive the billing worker host/target pair." >&2
+    return 0
+  fi
+  local billing_host=""
+  local target_host=""
+  billing_host="$(python3 - <<'PY' "${worker_payload}"
+import json, sys
+payload = json.loads(sys.argv[1])
+print(str(payload.get("billing_host") or "").strip())
+PY
+)"
+  target_host="$(python3 - <<'PY' "${worker_payload}"
+import json, sys
+payload = json.loads(sys.argv[1])
+print(str(payload.get("target_host") or "").strip())
+PY
+)"
+  if [[ -z "${billing_host}" || -z "${target_host}" ]]; then
+    if env_truthy "${lower_mode}"; then
+      echo "Billing worker bootstrap requires both a public billing host and an upstream billing target host." >&2
+      exit 1
+    fi
+    echo "Warning: billing worker bootstrap skipped because the public host or upstream target host is missing." >&2
+    return 0
+  fi
+  local worker_receipt="/tmp/propertyquarry_billing_edge_worker.json"
+  local bridge_path="/sso/propertyquarry"
+  if [[ -n "${bd_bridge_url}" ]]; then
+    local parsed_bridge_path
+    parsed_bridge_path="$(
+      BRIDGE_URL="${bd_bridge_url}" python3 - <<'PY'
+import os
+import urllib.parse
+raw = str(os.getenv("BRIDGE_URL") or "").strip()
+parsed = urllib.parse.urlparse(raw)
+path = str(parsed.path or "").strip()
+print(path or "/sso/propertyquarry")
+PY
+    )"
+    bridge_path="${parsed_bridge_path:-/sso/propertyquarry}"
+  fi
+  if ! python3 scripts/bootstrap_billing_handoff_worker.py \
+    --host "${billing_host}" \
+    --target-host "${target_host}" \
+    --pricing-url "${property_public_base_url%/}/pricing" \
+    --property-origin "${property_public_base_url}" \
+    --bridge-path "${bridge_path}" >"${worker_receipt}"; then
+    if env_truthy "${lower_mode}"; then
+      echo "PropertyQuarry billing worker bootstrap failed." >&2
+      cat "${worker_receipt}" >&2 2>/dev/null || true
+      exit 1
+    fi
+    echo "Warning: PropertyQuarry billing worker bootstrap failed." >&2
+    cat "${worker_receipt}" >&2 2>/dev/null || true
+    return 0
+  fi
+}
+
+bootstrap_billing_edge_worker "${bd_bootstrap_edge}"
+
 version_json="$(curl -fsS --connect-timeout 2 --max-time 8 "${base_url}/version")"
 if ! printf '%s' "${version_json}" | grep -q '"storage_backend"[[:space:]]*:[[:space:]]*"postgres"'; then
   echo "Expected /version to report storage_backend=postgres; got: ${version_json}" >&2
@@ -461,11 +603,42 @@ cp "${market_scope_smoke_receipt}" _completion/smoke/property-live-market-scope-
 
 provider_smoke_receipt="/tmp/propertyquarry_deploy_provider_smoke.json"
 provider_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PROVIDER_SMOKE_TIMEOUT_SECONDS:-20}"
-provider_e2e_receipt="_completion/provider_smoke/production-e2e-provider-matrix-current.json"
 provider_smoke_mode="catalog"
+provider_smoke_scope_label="catalog"
+provider_country_scope_raw="$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES)"
+provider_country_scope_slug=""
+provider_country_args=()
+provider_smoke_scope_args=(--all-search-ready-countries)
+if [[ -n "${provider_country_scope_raw}" ]]; then
+  IFS=',' read -r -a provider_country_scope_items <<<"${provider_country_scope_raw}"
+  normalized_provider_countries=()
+  for raw_country in "${provider_country_scope_items[@]}"; do
+    country_code="$(printf '%s' "${raw_country}" | tr '[:lower:]' '[:upper:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    if [[ -z "${country_code}" ]]; then
+      continue
+    fi
+    if [[ ! "${country_code}" =~ ^[A-Z]{2}$ ]]; then
+      echo "PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES must be a comma-separated list of two-letter country codes; got ${country_code}." >&2
+      exit 2
+    fi
+    normalized_provider_countries+=("${country_code}")
+    provider_country_args+=(--country "${country_code}")
+  done
+  if (( ${#normalized_provider_countries[@]} == 0 )); then
+    echo "PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES was set but no valid country codes were found." >&2
+    exit 2
+  fi
+  provider_country_scope_slug="$(printf '%s\n' "${normalized_provider_countries[@]}" | tr '[:upper:]' '[:lower:]' | paste -sd '-' -)"
+  provider_smoke_scope_args=("${provider_country_args[@]}")
+fi
+provider_e2e_receipt="_completion/provider_smoke/production-e2e-provider-matrix-current.json"
+if [[ -n "${provider_country_scope_slug}" ]]; then
+  provider_e2e_receipt="_completion/provider_smoke/production-e2e-provider-matrix-${provider_country_scope_slug}-current.json"
+fi
 if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"; then
   provider_smoke_mode="e2e"
   mkdir -p _completion/provider_smoke
+  provider_smoke_scope_label="${provider_country_scope_slug:-all-search-ready}"
   if ! EA_API_TOKEN="${api_token}" \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 \
@@ -473,7 +646,7 @@ if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"; then
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
     PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
     --base-url "${base_url}" \
-    --all-search-ready-countries \
+    "${provider_smoke_scope_args[@]}" \
     --execute-search-matrix \
     --resume-from "${provider_e2e_receipt}" \
     --timeout-seconds "${provider_smoke_timeout_seconds}" \
@@ -484,12 +657,14 @@ if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"; then
   fi
   cp "${provider_smoke_receipt}" "${provider_e2e_receipt}"
 else
+  provider_smoke_scope_label="${provider_country_scope_slug:-catalog}"
   if ! EA_API_TOKEN="${api_token}" \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
     PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
     --base-url "${base_url}" \
+    "${provider_country_args[@]}" \
     --timeout-seconds "${provider_smoke_timeout_seconds}" \
     --write "${provider_smoke_receipt}" >/dev/null; then
     echo "PropertyQuarry provider catalog smoke failed." >&2
@@ -499,4 +674,36 @@ else
 fi
 cp "${provider_smoke_receipt}" _completion/smoke/property-live-provider-latest.json
 
-echo "ok: PropertyQuarry deployed at ${base_url} (${provider_smoke_mode} provider verification)"
+gold_status_receipt="_completion/property_gold_status/release-gate.json"
+legacy_gold_status_receipt="_completion/propertyquarry-gold-status-latest.json"
+PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py \
+  --live-mobile-receipt _completion/smoke/property-live-mobile-surface-latest.json \
+  --public-smoke-receipt _completion/smoke/property-live-public-latest.json \
+  --authenticated-smoke-receipt _completion/smoke/property-live-authenticated-latest.json \
+  --billing-receipt _completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json \
+  --write "${gold_status_receipt}" >/dev/null || true
+cp "${gold_status_receipt}" "${legacy_gold_status_receipt}"
+
+gold_notification_principal_id="$(effective_env_value PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID)"
+gold_notification_principal_id="${gold_notification_principal_id:-${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}}"
+gold_notification_base_url="$(effective_env_value PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL)"
+gold_notification_base_url="${gold_notification_base_url:-https://propertyquarry.com}"
+gold_notification_state="$(effective_env_value PROPERTYQUARRY_GOLD_NOTIFICATION_STATE)"
+gold_notification_state="${gold_notification_state:-_completion/propertyquarry-gold-notification-state.json}"
+gold_notification_report="_completion/property_gold_status/telegram-notify-report.json"
+if ! DATABASE_URL="${database_url}" \
+  EA_STORAGE_BACKEND="${storage_backend}" \
+  EA_TELEGRAM_BOT_REGISTRY_JSON="${telegram_bot_registry_json}" \
+  EA_TELEGRAM_BOT_TOKEN="${telegram_bot_token}" \
+  EA_TELEGRAM_BOT_HANDLE="${telegram_bot_handle}" \
+  PYTHONPATH=ea python3 scripts/propertyquarry_notify_gold_status.py \
+    --receipt "${gold_status_receipt}" \
+    --state-file "${gold_notification_state}" \
+    --principal-id "${gold_notification_principal_id}" \
+    --base-url "${gold_notification_base_url}" \
+    --write "${gold_notification_report}" >/dev/null; then
+  echo "Warning: PropertyQuarry gold notification script failed." >&2
+  cat "${gold_notification_report}" >&2 2>/dev/null || true
+fi
+
+echo "ok: PropertyQuarry deployed at ${base_url} (${provider_smoke_mode} provider verification: ${provider_smoke_scope_label})"

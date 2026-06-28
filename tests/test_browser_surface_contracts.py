@@ -16,8 +16,6 @@ PUBLIC_ROUTES = (
     "/security",
     "/data-deletion",
     "/pricing",
-    "/directory",
-    "/directory/profile/sample",
     "/docs",
     "/integrations",
     "/guides/wohnung-kaufen-wien-checkliste",
@@ -140,22 +138,12 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     )
 
     directory = client.get("/directory")
-    assert directory.status_code == 200
-    assert "Property advisors." in directory.text
-    assert "Directory is temporarily unavailable" in directory.text
-    assert "governed directory lane" not in directory.text
-    assert "another branded site" not in directory.text
-    assert "Search directory" not in directory.text
-    assert ">Reset<" not in directory.text
-    assert "Brilliant Directories" not in directory.text
-    assert "credentials" not in directory.text
-    assert "provider returned" not in directory.text.lower()
+    assert directory.status_code == 404
+    assert directory.json()["error"]["code"] == "directory_unavailable"
 
     directory_profile = client.get("/directory/profile/sample")
-    assert directory_profile.status_code == 200
-    assert "Profile details stay on PropertyQuarry." in directory_profile.text
-    assert "another branded site" not in directory_profile.text
-    assert "Brilliant Directories" not in directory_profile.text
+    assert directory_profile.status_code == 404
+    assert directory_profile.json()["error"]["code"] == "directory_unavailable"
 
     pricing = client.get("/pricing")
     assert "<h1>Pricing</h1>" not in pricing.text
@@ -163,7 +151,8 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Upgrade when the current lane is the bottleneck." not in pricing.text
     assert "Typical office path" not in pricing.text
     assert "Checkout pending" not in pricing.text
-    assert "Open account, then activate from billing." in pricing.text
+    assert "Open billing account" in pricing.text
+    assert "Use your active account lane." in pricing.text
     assert re.search(r'<span class="active" aria-current="page">Pricing</span>', pricing.text)
     assert re.search(r'<a href="/pricing"[^>]*>Pricing</a>', pricing.text) is None
 
@@ -212,6 +201,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         and "account, with connections inside it" in " ".join(SIGN_IN_NOTES).lower()
     )
 
+    disclaimers = client.get("/disclaimers")
+    assert "verified live provider embed" not in disclaimers.text.lower()
+    assert "provider verification" not in disclaimers.text.lower()
+    assert "check before deciding" in disclaimers.text.lower()
+
     for href in _internal_links(landing.text):
         assert not href.startswith("/tours")
         assert not href.startswith("/results")
@@ -258,8 +252,8 @@ def test_pricing_surfaces_payfunnels_checkout_when_configured(monkeypatch: pytes
     assert "data-pricing-provider" not in pricing.text
     assert "Checkout uses PayFunnels" not in pricing.text
     assert "Checkout pending" not in pricing.text
-    assert "Sign in to upgrade" in pricing.text
-    assert 'data-rybbit-event="pricing_sign_in_to_upgrade"' in pricing.text
+    assert "Start checkout" in pricing.text
+    assert "Secure checkout." in pricing.text
 
 
 def test_propertyquarry_exposes_privacy_safe_pwa_shell() -> None:
@@ -420,7 +414,7 @@ def test_propertyquarry_management_settings_use_property_language() -> None:
     assert "Ranked homes" in usage.text
     assert "Sources used" in usage.text
     assert "Source checks" not in usage.text
-    assert "Repair status" in usage.text
+    assert "Recovery" in usage.text
 
     trust = client.get("/app/settings/trust", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert 'href="/downloads"' not in trust.text
@@ -483,6 +477,9 @@ def test_propertyquarry_core_surface_internal_links_resolve() -> None:
     )
     for path in paths:
         response = client.get(path, headers={"host": "propertyquarry.com", "accept": "text/html"}, follow_redirects=True)
+        if path == "/app/billing":
+            assert response.status_code in {303, 503}, path
+            continue
         assert response.status_code == 200, path
         _assert_internal_links_resolve(client, source_path=path, html=response.text)
 

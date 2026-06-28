@@ -653,7 +653,7 @@ def _property_official_risk_evidence(
     sources = [
         {
             "risk_key": "heat_resilience",
-            "label": "Klimaerwärmungsfit",
+            "label": "Summer heat",
             "authority_label": "Stadt Wien / data.gv.at",
             "provider": "data.gv.at / Stadt Wien",
             "source_label": "Klimaanalysekarte Wien",

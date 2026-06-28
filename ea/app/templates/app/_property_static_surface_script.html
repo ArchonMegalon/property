@@ -40,4 +40,39 @@
         setMode(button.getAttribute('data-pw-mode') || 'results');
       });
     });
+    const syncMobileDetailsAccordion = (openedPanel = null, forceSingleOpen = false) => {
+      if (!forceSingleOpen && !window.matchMedia('(max-width: 760px)').matches) return;
+      root.querySelectorAll('details.pqx-mobile-fold').forEach((details) => {
+        if (!(details instanceof HTMLDetailsElement)) return;
+        if (openedPanel && details !== openedPanel) details.open = false;
+      });
+    };
+    const bindMobileFoldPanels = () => {
+      root.querySelectorAll('details.pqx-mobile-fold').forEach((details) => {
+        if (!(details instanceof HTMLDetailsElement)) return;
+        if (details.dataset.pqxAccordionBound === 'true') return;
+        details.dataset.pqxAccordionBound = 'true';
+        details.addEventListener('toggle', () => {
+          if (details.open) syncMobileDetailsAccordion(details);
+        });
+        const summary = details.querySelector('summary');
+        if (summary instanceof HTMLElement) {
+          summary.addEventListener('click', () => {
+            if (!window.matchMedia('(max-width: 760px)').matches) return;
+            syncMobileDetailsAccordion(details, true);
+          });
+        }
+      });
+    };
+    const initializeMobileFoldAccordions = () => {
+      bindMobileFoldPanels();
+      if (!window.matchMedia('(max-width: 760px)').matches) return;
+      const firstOpen = root.querySelector('details.pqx-mobile-fold[open]') || root.querySelector('details.pqx-mobile-fold');
+      if (firstOpen instanceof HTMLDetailsElement) {
+        firstOpen.open = true;
+        syncMobileDetailsAccordion(firstOpen, true);
+      }
+    };
+    initializeMobileFoldAccordions();
+    window.addEventListener('resize', initializeMobileFoldAccordions);
   })();

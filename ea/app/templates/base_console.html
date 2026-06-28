@@ -1040,9 +1040,12 @@
       .pq-appbar-mobile-nav {
         display: flex;
         width: 100%;
-        gap: 7px;
-        margin: 2px 0 0;
-        padding: 2px 0 4px;
+        gap: 6px;
+        margin: 4px 0 0;
+        padding: 6px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: var(--panel);
         overflow-x: auto;
         overscroll-behavior-x: contain;
         scroll-snap-type: x proximity;
@@ -1058,13 +1061,15 @@
         display: inline-grid;
         place-items: center;
         min-height: var(--touch-target);
-        padding: 0 10px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: rgba(255, 253, 248, 0.72);
+        flex: 1 0 auto;
+        min-width: 90px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: transparent;
         color: var(--text-dim);
         font-size: 11.5px;
-        font-weight: 760;
+        font-weight: 650;
         text-decoration: none;
         scroll-snap-align: start;
       }
@@ -1141,6 +1146,9 @@
         margin: 0;
         padding: 0;
         gap: 5px;
+        border-radius: 12px;
+        border-color: transparent;
+        background: transparent;
       }
       .pq-appbar-mobile-nav a,
       .pq-appbar-mobile-nav span {
@@ -1203,6 +1211,7 @@
         min-width: 0;
         max-height: calc(100dvh - 74px);
         overflow: auto;
+        z-index: 90;
       }
       .pq-surface {
         padding: 6px 4px calc(8px + env(safe-area-inset-bottom, 0px));
@@ -1416,9 +1425,9 @@
                   <strong>{{ account_nav.label }}</strong>
                 </div>
                 <div class="account-menu-links">
-                  <a class="btn" href="{{ account_nav.billing_href }}">Upgrade</a>
-                  <a class="btn" href="{{ account_nav.profile_href }}">Profile</a>
-                  <a class="btn ghost" href="{{ account_nav.settings_href }}">Connections</a>
+                  <a class="btn" href="{{ account_nav.profile_href }}">Saved defaults</a>
+                  <a class="btn" href="{{ account_nav.billing_href }}">Billing account</a>
+                  <a class="btn ghost" href="{{ account_nav.settings_href }}">Access</a>
                   <form class="account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
                     <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
                     <button class="btn ghost" type="submit">Log out</button>
@@ -1502,9 +1511,9 @@
                 <strong>{{ account_nav.label }}</strong>
               </div>
               <div class="account-menu-links">
-                <a class="btn" href="{{ account_nav.billing_href }}">Upgrade</a>
-                <a class="btn" href="{{ account_nav.profile_href }}">Profile</a>
-                <a class="btn ghost" href="{{ account_nav.settings_href }}">Connections</a>
+                <a class="btn" href="{{ account_nav.profile_href }}">Saved defaults</a>
+                <a class="btn" href="{{ account_nav.billing_href }}">Billing account</a>
+                <a class="btn ghost" href="{{ account_nav.settings_href }}">Access</a>
                 <form class="account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
                   <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
                   <button class="btn ghost" type="submit">Log out</button>

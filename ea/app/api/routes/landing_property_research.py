@@ -144,6 +144,7 @@ def _render_console_object_detail(
     object_sidebar_title: str,
     object_sidebar_copy: str,
     object_sidebar_rows: list[dict[str, str]],
+    object_sidebar_default_open: bool = False,
     object_sections: list[dict[str, object]],
     object_sidebar_form: dict[str, object] | None = None,
     object_feedback: dict[str, object] | None = None,
@@ -183,6 +184,7 @@ def _render_console_object_detail(
             "object_sidebar_title": object_sidebar_title,
             "object_sidebar_copy": object_sidebar_copy,
             "object_sidebar_rows": object_sidebar_rows,
+            "object_sidebar_default_open": object_sidebar_default_open,
             "object_sections": object_sections,
             "object_sidebar_form": object_sidebar_form or {},
             "object_feedback": object_feedback or {},
@@ -575,9 +577,9 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
     blocked_reason = str(candidate.get("blocked_reason") or "").strip()
     if blocked_reason:
         reason_map = {
-            "listing_360_media_missing": "Floorplan or source 360 media missing: the listing does not expose usable tour material yet.",
-            "pure_360_assets_unavailable": "Source 360 assets are not accessible enough to rebuild a hosted PropertyQuarry tour.",
-            "property_tour_fallback_disabled": "Generated fallback tours are disabled until source floorplan or 360 material is available.",
+            "listing_360_media_missing": "Floorplan or original 360 media missing: the listing does not expose enough tour material yet.",
+            "pure_360_assets_unavailable": "Original 360 media is not accessible enough to rebuild the tour.",
+            "property_tour_fallback_disabled": "3D tour generation is waiting for a floorplan or usable original 360 media.",
         }
         return reason_map.get(blocked_reason, blocked_reason.replace("_", " "))
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -597,14 +599,18 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
         return False
 
     if _false_flag(facts.get("has_floorplan")) or _zero_count("floorplan_count", "floorplans_count"):
-        return "No hosted 3D tour yet. Floorplan missing or usable source 360 media still needs to be found before a hosted tour can be built."
+        return "3D tour not ready yet. Floorplan or original 360 media is still missing."
     if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
-        return "No hosted 3D tour yet. The source did not expose enough room media, a floorplan, or a usable 360."
-    return "No hosted 3D tour yet. More source media is needed before PropertyQuarry can build it."
+        return "3D tour not ready yet. This listing does not expose enough room media or a usable original 360."
+    return "3D tour not ready yet. More source media is still needed."
 
 
 def _property_hosted_tour_ready(tour_url: str) -> bool:
     return bool(property_tour_hosting._hosted_property_tour_verified_open_url(tour_url))
+
+
+def _hosted_tour_rebuild_detail() -> str:
+    return "The hosted tour link is not backed by usable Matterport, 3DVista, or Pano2VR viewer assets yet. Request a rebuild from this page."
 
 
 def _property_visual_provider_label(value: object) -> str:
@@ -616,10 +622,13 @@ def _property_visual_provider_label(value: object) -> str:
         "three_d_vista": "3DVista",
         "pano2vr": "Pano2VR",
         "pano_2_vr": "Pano2VR",
-        "krpano": "krpano",
+        "krpano": "Panorama tour",
         "magicfit": "MagicFit",
-        "ea_one_manager_onemin_i2v": "MagicFit",
-        "onemin_i2v": "MagicFit",
+        "mootion": "Mootion",
+        "omagic": "OMagic",
+        "magic": "OMagic",
+        "ea_one_manager_onemin_i2v": "OMagic",
+        "onemin_i2v": "OMagic",
         "poppy_ai": "Poppy AI",
     }
     if normalized in label_map:
@@ -693,19 +702,19 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     if hosted_tour_ready:
         status_label = f"{verified_tour_provider_label} ready" if verified_tour_provider_label else "Live 360 ready"
         status_detail = (
-            f"{verified_tour_provider_label} control is live inside the hosted PropertyQuarry tour."
+            f"{verified_tour_provider_label} is ready on this page."
             if verified_tour_provider_label
-            else "Hosted 360 is ready on PropertyQuarry and should be reviewed before the raw listing."
+            else "3D tour is ready on this page and should be reviewed before the raw listing."
         )
     elif tour_url:
         status_label = "360 needs rebuild"
-        status_detail = "The hosted tour link is not backed by usable Matterport, 3DVista, Pano2VR, or licensed krpano viewer assets yet. Request a rebuild from this page."
+        status_detail = _hosted_tour_rebuild_detail()
     elif vendor_tour_url:
-        status_label = f"{vendor_tour_provider_label} source ready" if vendor_tour_provider_label else "Source 360 available"
+        status_label = f"{vendor_tour_provider_label} available" if vendor_tour_provider_label else "Original tour available"
         status_detail = (
-            f"{vendor_tour_provider_label} source is available, but this page keeps it as an external action instead of embedding a brittle vendor viewer."
+            f"{vendor_tour_provider_label} is available. Open it directly while the in-page 3D tour is still missing."
             if vendor_tour_provider_label
-            else "The source 360 is available, but this page keeps it as an external action instead of embedding a brittle vendor viewer."
+            else "The original tour is available. Open it directly while the in-page 3D tour is still missing."
         )
     elif status in {"queued", "pending"}:
         status_label = "360 queued"
@@ -738,7 +747,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "generated_reconstruction_walkthrough_href": generated_reconstruction_walkthrough_href if not hosted_tour_ready else "",
         "generated_reconstruction_label": "Generated model",
         "generated_reconstruction_status_detail": (
-            "Generated reconstruction is available from listing photos and floorplan evidence. It is not a verified provider capture."
+            "Generated reconstruction is available from listing photos and floorplan evidence. It is not a live provider tour."
             if generated_reconstruction_href and not hosted_tour_ready
             else ""
         ),
@@ -746,12 +755,12 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "primary_label": (
             (f"Open {verified_tour_provider_label}" if verified_tour_provider_label else "Open 3D tour")
             if hosted_tour_ready
-            else ((f"Open {vendor_tour_provider_label}" if vendor_tour_provider_label else "Open source 360") if vendor_tour_url else ("Open property page" if review_url else ""))
+            else ((f"Open {vendor_tour_provider_label}" if vendor_tour_provider_label else "Open original tour") if vendor_tour_url else ("Open property page" if review_url else ""))
         ),
         "secondary_href": review_url,
         "secondary_label": "Open property page" if review_url else "",
         "tertiary_href": vendor_tour_url if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
-        "tertiary_label": (f"Open {vendor_tour_provider_label}" if vendor_tour_provider_label else "Open source 360") if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
+        "tertiary_label": (f"Open {vendor_tour_provider_label}" if vendor_tour_provider_label else "Open original tour") if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
         "walkthrough_href": verified_walkthrough_href,
         "provider_label": verified_tour_provider_label or vendor_tour_provider_label,
         "provider_key": verified_tour_provider or vendor_tour_provider,
@@ -778,9 +787,9 @@ def _property_tour_detail_line(candidate: dict[str, object]) -> str:
     tour_url = str(candidate.get("tour_url") or "").strip()
     vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
     if _property_hosted_tour_ready(tour_url):
-        return "Open the verified 3D tour on PropertyQuarry."
+        return "Open the 3D tour on PropertyQuarry."
     if vendor_tour_url:
-        return "A source 360 exists, but the preferred PropertyQuarry-hosted tour is not ready yet."
+        return "An original tour exists, but the in-page 3D tour is not ready yet."
     return _property_tour_source_gap_detail(candidate)
 
 
@@ -1097,8 +1106,8 @@ def _property_packet_missing_rows(
         normalized_key = str(primary_key or "").strip().lower()
         explicit = {
             "address": "No exact address confirmed yet.",
-            "heating_type": "No verified heating type yet.",
-            "has_lift": "No verified lift status yet.",
+            "heating_type": "Heating type still missing.",
+            "has_lift": "Lift status still missing.",
             "nearest_supermarket_m": "No confirmed supermarket distance yet.",
             "distance_supermarket_m": "No confirmed supermarket distance yet.",
             "nearest_playground_m": "No confirmed playground distance yet.",
@@ -1117,13 +1126,13 @@ def _property_packet_missing_rows(
             "nearest_subway_m": "No confirmed underground distance yet.",
             "nearest_transit_m": "No confirmed underground distance yet.",
             "distance_underground_m": "No confirmed underground distance yet.",
-            "air_quality_risk": "No verified air-quality read yet.",
-            "crime_risk": "No verified safety read yet.",
-            "parking_pressure_risk": "No verified parking-pressure read yet.",
-            "drinking_water_risk": "No verified water-source read yet.",
-            "cesspit_risk": "No verified septic read yet.",
-            "winter_access_risk": "No verified winter-access read yet.",
-            "flood_risk": "No verified flood read yet.",
+            "air_quality_risk": "Air-quality read still missing.",
+            "crime_risk": "Safety read still missing.",
+            "parking_pressure_risk": "Parking-pressure read still missing.",
+            "drinking_water_risk": "Water-source read still missing.",
+            "cesspit_risk": "Septic read still missing.",
+            "winter_access_risk": "Winter-access read still missing.",
+            "flood_risk": "Flood read still missing.",
         }
         if normalized_key in explicit:
             return explicit[normalized_key]
@@ -1333,6 +1342,255 @@ def _property_research_distance_detail(
     return " | ".join(parts)
 
 
+_PROPERTY_DISTANCE_MISMATCH_SPECS: tuple[dict[str, object], ...] = (
+    {
+        "label": "supermarket",
+        "tokens": ("supermarket",),
+        "distance_keys": ("nearest_supermarket_m", "distance_supermarket_m"),
+        "name_keys": ("nearest_supermarket_name", "supermarket_name"),
+        "preference_keys": ("max_distance_to_supermarket_m",),
+        "importance_keys": ("max_distance_to_supermarket_importance",),
+    },
+    {
+        "label": "playground",
+        "tokens": ("playground",),
+        "distance_keys": ("nearest_playground_m", "distance_playground_m"),
+        "name_keys": ("nearest_playground_name", "playground_name"),
+        "preference_keys": ("max_distance_to_playground_m",),
+        "importance_keys": ("max_distance_to_playground_importance",),
+    },
+    {
+        "label": "library",
+        "tokens": ("library",),
+        "distance_keys": ("nearest_library_m",),
+        "name_keys": ("nearest_library_name", "library_name"),
+        "preference_keys": ("max_distance_to_library_m",),
+        "importance_keys": ("max_distance_to_library_importance",),
+    },
+    {
+        "label": "zoo",
+        "tokens": ("zoo",),
+        "distance_keys": ("nearest_zoo_m",),
+        "name_keys": ("nearest_zoo_name", "zoo_name"),
+        "preference_keys": ("max_distance_to_zoo_m",),
+        "importance_keys": ("max_distance_to_zoo_importance",),
+    },
+    {
+        "label": "pharmacy",
+        "tokens": ("pharmacy",),
+        "distance_keys": ("nearest_pharmacy_m", "distance_pharmacy_m"),
+        "name_keys": ("nearest_pharmacy_name", "pharmacy_name"),
+        "preference_keys": ("max_distance_to_medical_care_m",),
+        "importance_keys": ("max_distance_to_medical_care_importance",),
+    },
+    {
+        "label": "medical care",
+        "tokens": ("medical care", "doctor", "hospital"),
+        "distance_keys": ("nearest_medical_care_m",),
+        "name_keys": ("nearest_medical_care_name", "medical_care_name"),
+        "preference_keys": ("max_distance_to_medical_care_m",),
+        "importance_keys": ("max_distance_to_medical_care_importance",),
+    },
+    {
+        "label": "market",
+        "tokens": ("market",),
+        "distance_keys": ("nearest_market_m",),
+        "name_keys": ("nearest_market_name", "market_name"),
+        "preference_keys": ("max_distance_to_market_m",),
+        "importance_keys": ("max_distance_to_market_importance",),
+    },
+    {
+        "label": "Baumarkt",
+        "tokens": ("baumarkt", "hardware store"),
+        "distance_keys": ("nearest_hardware_store_m",),
+        "name_keys": ("nearest_hardware_store_name", "hardware_store_name"),
+        "preference_keys": ("max_distance_to_hardware_store_m",),
+        "importance_keys": ("max_distance_to_hardware_store_importance",),
+    },
+    {
+        "label": "shopping center",
+        "tokens": ("shopping center", "shopping-center"),
+        "distance_keys": ("nearest_shopping_center_m",),
+        "name_keys": ("nearest_shopping_center_name", "shopping_center_name"),
+        "preference_keys": ("max_distance_to_shopping_center_m",),
+        "importance_keys": ("max_distance_to_shopping_center_importance",),
+    },
+    {
+        "label": "Flaniermeile",
+        "tokens": ("flaniermeile", "shopping street", "promenade"),
+        "distance_keys": ("nearest_shopping_street_m",),
+        "name_keys": ("nearest_shopping_street_name", "shopping_street_name"),
+        "preference_keys": ("max_distance_to_shopping_street_m",),
+        "importance_keys": ("max_distance_to_shopping_street_importance",),
+    },
+    {
+        "label": "theatre",
+        "tokens": ("theatre", "theater"),
+        "distance_keys": ("nearest_theatre_m",),
+        "name_keys": ("nearest_theatre_name", "theatre_name"),
+        "preference_keys": ("max_distance_to_theatre_m",),
+        "importance_keys": ("max_distance_to_theatre_importance",),
+    },
+    {
+        "label": "public pool",
+        "tokens": ("public pool", "pool"),
+        "distance_keys": ("nearest_public_pool_m",),
+        "name_keys": ("nearest_public_pool_name", "public_pool_name"),
+        "preference_keys": ("max_distance_to_public_pool_m",),
+        "importance_keys": ("max_distance_to_public_pool_importance",),
+    },
+    {
+        "label": "underground",
+        "tokens": ("underground", "subway", "u-bahn", "transit"),
+        "distance_keys": ("nearest_subway_m", "nearest_transit_m", "distance_underground_m"),
+        "name_keys": ("nearest_subway_name", "subway_station_name", "nearest_transit_name", "transit_stop_name"),
+        "preference_keys": ("max_distance_to_subway_m",),
+        "importance_keys": ("max_distance_to_subway_importance",),
+    },
+    {
+        "label": "kindergarten",
+        "tokens": ("kindergarten",),
+        "distance_keys": ("nearest_kindergarten_m",),
+        "name_keys": ("nearest_kindergarten_name", "kindergarten_name"),
+        "preference_keys": ("max_distance_to_kindergarten_m",),
+        "importance_keys": ("max_distance_to_kindergarten_importance",),
+    },
+    {
+        "label": "school",
+        "tokens": ("school", "volksschule"),
+        "distance_keys": ("nearest_school_m",),
+        "name_keys": ("nearest_school_name", "school_name"),
+        "preference_keys": (
+            "max_distance_to_school_m",
+            "max_distance_to_ganztags_volksschule_m",
+            "max_distance_to_halbtags_volksschule_m",
+        ),
+        "importance_keys": (
+            "max_distance_to_school_importance",
+            "max_distance_to_ganztags_volksschule_importance",
+            "max_distance_to_halbtags_volksschule_importance",
+        ),
+    },
+)
+
+
+def _property_positive_distance_value(
+    facts: dict[str, object],
+    distance_keys: tuple[str, ...],
+) -> int | None:
+    for key in distance_keys:
+        raw_value = facts.get(key)
+        if raw_value in (None, "", []):
+            continue
+        try:
+            meters = int(float(raw_value))
+        except Exception:
+            continue
+        if meters > 0:
+            return meters
+    return None
+
+
+def _property_positive_preference_distance(
+    preferences: dict[str, object],
+    preference_keys: tuple[str, ...],
+) -> int | None:
+    for key in preference_keys:
+        raw_value = preferences.get(key)
+        if raw_value in (None, "", [], {}, False):
+            continue
+        try:
+            meters = int(float(raw_value))
+        except Exception:
+            continue
+        if meters > 0:
+            return meters
+    return None
+
+
+def _property_first_fact_text(
+    facts: dict[str, object],
+    keys: tuple[str, ...],
+) -> str:
+    for key in keys:
+        value = str(facts.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _property_distance_mismatch_reason_detail(
+    reason: object,
+    *,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+) -> str:
+    text = " ".join(str(reason or "").split()).strip()
+    if not text:
+        return ""
+    normalized = text.casefold()
+    for spec in _PROPERTY_DISTANCE_MISMATCH_SPECS:
+        tokens = tuple(str(token).casefold() for token in spec.get("tokens", ()) if str(token).strip())
+        if not tokens or not any(token in normalized for token in tokens):
+            continue
+        meters = _property_positive_distance_value(
+            facts,
+            tuple(str(key) for key in spec.get("distance_keys", ()) if str(key).strip()),
+        )
+        if meters is None:
+            return ""
+        place_name = _property_first_fact_text(
+            facts,
+            tuple(str(key) for key in spec.get("name_keys", ()) if str(key).strip()),
+        )
+        requested = _property_positive_preference_distance(
+            preferences,
+            tuple(str(key) for key in spec.get("preference_keys", ()) if str(key).strip()),
+        )
+        importance = _property_first_fact_text(
+            preferences,
+            tuple(str(key) for key in spec.get("importance_keys", ()) if str(key).strip()),
+        ).casefold()
+        label = str(spec.get("label") or "place").strip().lower()
+        subject = f"Nearest {label}"
+        if place_name:
+            subject = f"{subject}: {place_name}"
+        if "avoid" in importance or "avoid preference" in normalized or "too close" in normalized:
+            if requested is not None:
+                return f"{subject} is {meters} m away; you asked to keep it farther than {requested} m."
+            return f"{subject} is {meters} m away."
+        if requested is not None:
+            return f"{subject} is {meters} m away; your limit was {requested} m."
+        return f"{subject} is {meters} m away."
+    return text
+
+
+def _property_normalized_mismatch_reasons(
+    mismatch_reasons: list[object],
+    *,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+    limit: int = 4,
+) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for item in list(mismatch_reasons or [])[: max(limit, 0) or 0]:
+        detail = _property_distance_mismatch_reason_detail(
+            item,
+            facts=facts,
+            preferences=preferences,
+        )
+        detail = " ".join(str(detail or "").split()).strip()
+        if not detail:
+            continue
+        dedupe_key = detail.casefold()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        rows.append(detail)
+    return rows
+
+
 def _property_packet_everyday_fit_rows(
     *,
     facts: dict[str, object],
@@ -1467,11 +1725,11 @@ def _property_packet_risk_fit_rows(
     if bool(preferences.get("require_drinking_water_quality_research")) and not bool(facts.get("drinking_water_risk")):
         rows.append(_object_detail_row("Water-source check", "The brief explicitly asks for water-source and groundwater validation.", "Research"))
     if bool(preferences.get("avoid_cesspit_or_septic_risk")) and not bool(facts.get("cesspit_risk")):
-        rows.append(_object_detail_row("Senkgrube check", "The brief explicitly asks to avoid Senkgrube or septic burden, so the infrastructure should be verified.", "Research"))
+        rows.append(_object_detail_row("Senkgrube check", "The brief explicitly asks to avoid Senkgrube or septic burden, so the infrastructure should be checked.", "Research"))
     if bool(preferences.get("require_winter_access_research")) and not bool(facts.get("winter_access_risk")):
         rows.append(_object_detail_row("Winter-access check", "The brief explicitly asks for snow and slope driveability validation.", "Research"))
     if bool(preferences.get("avoid_flood_risk_area")) and not bool(facts.get("flood_risk")):
-        rows.append(_object_detail_row("Flood check", "The brief explicitly asks to avoid flood exposure, so runoff and flood-zone history should be verified.", "Research"))
+        rows.append(_object_detail_row("Flood check", "The brief explicitly asks to avoid flood exposure, so runoff and flood-zone history should be checked.", "Research"))
     return rows
 
 
@@ -1565,25 +1823,25 @@ def _property_investment_context_rows(
 
     if provider_group == "genossenschaften_at":
         provider_label = provider_channel.replace("_", " ").strip().title() if provider_channel else "Genossenschaften"
-        rows.append(_object_detail_row("Provider lane", f"{provider_label} cooperative supply lane.", "Source"))
+        rows.append(_object_detail_row("Source", f"{provider_label} cooperative listing.", "Source"))
         if marketing_type:
             rows.append(_object_detail_row("Offer posture", marketing_type, "Source"))
             if listing_mode == "buy" and marketing_type.lower().startswith("miet"):
                 risk_rows.append(
                     _object_detail_row(
-                        "Rental-led cooperative lane",
-                        "This candidate is coming through a rental/cooperative supply lane while the brief is in buy mode. Treat the underwriting output as weak until the acquisition path is confirmed.",
+                        "Rental cooperative listing",
+                        "This candidate is coming through a rental/cooperative listing while the brief is in buy mode. Treat the underwriting output as weak until the acquisition path is confirmed.",
                         "High",
                     )
                 )
         if availability_label:
             rows.append(_object_detail_row("Delivery timing", availability_label, "Timing"))
         if registration_count > 0:
-            rows.append(_object_detail_row("Applicant pressure", f"{registration_count:,} registrations or applicants were visible on the source lane.", "Demand"))
+            rows.append(_object_detail_row("Applicant pressure", f"{registration_count:,} registrations or applicants were visible on the source page.", "Demand"))
             if registration_count >= 10000:
-                risk_rows.append(_object_detail_row("Extremely high applicant pressure", "Competition on this cooperative lane is already very high, so practical conversion odds may be weak even if the fit looks decent.", "High"))
+                risk_rows.append(_object_detail_row("Extremely high applicant pressure", "Competition on this cooperative listing is already very high, so practical conversion odds may be weak even if the fit looks decent.", "High"))
             elif registration_count >= 1000:
-                risk_rows.append(_object_detail_row("High applicant pressure", "Competition on this cooperative lane is already meaningful. Keep conversion risk in mind before overvaluing the headline fit.", "Medium"))
+                risk_rows.append(_object_detail_row("High applicant pressure", "Competition on this cooperative listing is already meaningful. Keep conversion risk in mind before overvaluing the headline fit.", "Medium"))
 
     if court or court_file_reference or valuation_display or reserve_display:
         if court:

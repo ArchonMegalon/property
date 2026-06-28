@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
-from scripts.propertyquarry_live_market_scope_smoke import build_live_market_scope_receipt
+from scripts.propertyquarry_live_market_scope_smoke import _default_api_token, build_live_market_scope_receipt
 
 
 def _response(payload: dict[str, object], *, status_code: int) -> dict[str, object]:
@@ -55,3 +56,19 @@ def test_live_market_scope_smoke_rejects_australian_catalog_leak_without_network
     assert australia["status_code"] == 200
     assert australia["provider_count"] == 1
     assert any(check["name"] == "blocked_error_code" and check["ok"] is False for check in australia["checks"])
+
+
+def test_live_market_scope_default_api_token_reads_dotenv_when_env_missing(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_LIVE_API_TOKEN", raising=False)
+    monkeypatch.delenv("EA_API_TOKEN", raising=False)
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text("EA_API_TOKEN=dotenv-token\n", encoding="utf-8")
+
+    assert _default_api_token(dotenv_paths=(dotenv_path,)) == "dotenv-token"
+
+
+def test_live_market_scope_default_api_token_prefers_specific_env(monkeypatch) -> None:
+    monkeypatch.setenv("EA_API_TOKEN", "generic-token")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_API_TOKEN", "specific-token")
+
+    assert _default_api_token(dotenv_paths=()) == "specific-token"

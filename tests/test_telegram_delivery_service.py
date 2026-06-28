@@ -273,6 +273,31 @@ def test_resolve_primary_telegram_binding_falls_back_to_default_principal(monkey
     assert str(binding.external_account_ref) == "1354554303"
 
 
+def test_resolve_primary_telegram_binding_prefers_high_confidence_chat_ref_over_newer_placeholder_numeric() -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    runtime.upsert_connector_binding(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        connector_name="telegram_identity",
+        external_account_ref="424242",
+        auth_metadata_json={"default_chat_ref": "424242", "bot_key": "girschele"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+
+    binding = resolve_primary_telegram_binding(runtime, principal_id="cf-email:tibor.girschele@gmail.com")
+
+    assert binding is not None
+    assert str(binding.external_account_ref) == "1354554303"
+
+
 def test_send_telegram_message_for_principal_falls_back_to_default_principal_binding(monkeypatch) -> None:
     runtime = _tool_runtime()
     runtime.upsert_connector_binding(

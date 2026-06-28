@@ -50,7 +50,6 @@ _PROPERTY_SEARCH_RUN_COMPACT_PREFERENCE_DROP_KEYS = (
     "raw_preferences",
     "saved_shortlist_candidates",
     "search_agents",
-    "property_commercial",
     "preference_bundle",
 )
 
@@ -60,6 +59,13 @@ _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS = (
     "progress",
     "stage",
     "stage_label",
+    "current_plan_key",
+    "current_plan_label",
+    "research_depth",
+    "max_results_per_source",
+    "provider_total",
+    "provider_group_total",
+    "provider_workers",
     "sources_total",
     "source_total",
     "source_variant_total",
@@ -113,6 +119,64 @@ _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS = (
     "repair_parent_run_ids",
 )
 
+_PROPERTY_SEARCH_RUN_COMPACT_SOURCE_KEYS = (
+    "source_url",
+    "source_label",
+    "source_scope_label",
+    "platform",
+    "provider_family",
+    "provider_trust_tier",
+    "source_access_level",
+    "verification_required",
+    "provider_filter_pushdown",
+    "provider_cache",
+    "listing_total",
+    "reviewed_listing_total",
+    "raw_listing_total",
+    "scanned_listing_total",
+    "review_created_total",
+    "review_existing_total",
+    "high_fit_total",
+    "filtered_property_type_total",
+    "filtered_area_total",
+    "filtered_availability_total",
+    "filtered_floorplan_total",
+    "filtered_generic_page_total",
+    "filtered_listing_mode_total",
+    "filtered_low_fit_total",
+    "floorplan_recovered_total",
+    "provider_repair_task_opened_total",
+    "provider_repair_task_existing_total",
+    "provider_repair_tasks",
+    "top_fit_score",
+    "status",
+    "state",
+    "progress",
+    "error",
+    "timing_ms",
+    "filter_near_miss_total",
+    "filter_near_miss_notified_total",
+    "filter_near_misses",
+    "location_mismatch_candidate_total",
+    "preview_prepared_total",
+)
+
+_PROPERTY_SEARCH_RUN_COMPACT_PROVIDER_CACHE_KEYS = (
+    "status",
+    "cache_key",
+)
+
+_PROPERTY_SEARCH_RUN_COMPACT_PROVIDER_REPAIR_TASK_KEYS = (
+    "status",
+    "filter_key",
+    "human_task_id",
+    "queue_item_ref",
+    "resolution",
+    "reason",
+    "repair_owner",
+    "repair_workflow",
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -136,6 +200,58 @@ def _quote_pg_identifier(value: str) -> str:
 
 
 def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, object]:
+    def _compact_provider_cache_row(value: object) -> dict[str, object]:
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        return {
+            key: payload[key]
+            for key in _PROPERTY_SEARCH_RUN_COMPACT_PROVIDER_CACHE_KEYS
+            if key in payload
+        }
+
+    def _compact_provider_repair_task_row(value: object) -> dict[str, object]:
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        return {
+            key: payload[key]
+            for key in _PROPERTY_SEARCH_RUN_COMPACT_PROVIDER_REPAIR_TASK_KEYS
+            if key in payload
+        }
+
+    def _compact_source_row(value: object) -> dict[str, object]:
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        compact_row = {
+            key: payload[key]
+            for key in _PROPERTY_SEARCH_RUN_COMPACT_SOURCE_KEYS
+            if key in payload
+        }
+        if isinstance(compact_row.get("provider_cache"), dict):
+            compact_row["provider_cache"] = _compact_provider_cache_row(compact_row.get("provider_cache"))
+        if isinstance(compact_row.get("provider_repair_tasks"), list):
+            compact_row["provider_repair_tasks"] = [
+                _compact_provider_repair_task_row(task)
+                for task in compact_row.get("provider_repair_tasks") or []
+                if isinstance(task, dict)
+            ]
+        if isinstance(compact_row.get("filter_near_misses"), list):
+            compact_row["filter_near_misses"] = [
+                {
+                    key: item[key]
+                    for key in (
+                        "property_url",
+                        "title",
+                        "failed_filter_key",
+                        "failed_filter_label",
+                        "requested_distance_m",
+                        "observed_distance_m",
+                        "observed_place_name",
+                        "prefilter_score",
+                    )
+                    if isinstance(item, dict) and key in item
+                }
+                for item in compact_row.get("filter_near_misses") or []
+                if isinstance(item, dict)
+            ]
+        return compact_row
+
     payload = dict(record or {})
     compact = {
         key: payload[key]
@@ -155,6 +271,12 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
             for key in _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS
             if key in summary
         }
+        if isinstance(summary.get("sources"), list):
+            compact_summary["sources"] = [
+                _compact_source_row(row)
+                for row in summary.get("sources") or []
+                if isinstance(row, dict)
+            ]
         if compact_summary:
             compact["summary"] = compact_summary
     if "run_id" not in compact and payload.get("run_id"):

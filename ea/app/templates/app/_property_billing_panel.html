@@ -16,8 +16,8 @@
   <div class="pqx-section-head">
     <div>
       <div class="pqx-small">Billing</div>
-      <h2>Plan access</h2>
-      <div class="pqx-note">Current access is summarized here. Billing opens in the external account lane.</div>
+      <h2>Billing</h2>
+      <div class="pqx-note">See current access here. Billing opens in your billing account.</div>
     </div>
   </div>
 
@@ -37,7 +37,7 @@
       <div class="pqx-section-head">
         <div>
           {% if card.get('eyebrow') %}<div class="pqx-small">{{ card.get('eyebrow') }}</div>{% endif %}
-          <h2>{% if card.get('title') == 'Current access' %}Plan access{% else %}{{ card.get('title') }}{% endif %}</h2>
+          <h2>{{ card.get('title') }}</h2>
           {% if card.get('body') %}<div class="pqx-note">{{ card.get('body') }}</div>{% endif %}
         </div>
       </div>

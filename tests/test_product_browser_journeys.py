@@ -256,7 +256,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Price" in response.text
     assert "Layout" in response.text
     assert "Property details" in response.text
-    assert "Current read" in response.text
+    assert "Quick take" in response.text
     assert "360 ready" in response.text
     assert "Berlin" in response.text
     assert "Germany" in response.text
@@ -315,7 +315,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=property_headers)
     assert billing.status_code == 503
-    assert "Billing handoff unavailable" in billing.text
+    assert "Billing portal unavailable" in billing.text
     assert "Your plan" not in billing.text
     assert "Current search access" not in billing.text
     assert "Current commercial state" not in billing.text
@@ -374,10 +374,11 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
     assert "Min area" in response.text
     assert "Plan cap 35" in response.text
     assert "Agent unlocks 60" in response.text
-    assert "Minimum personal fit score" in response.text
+    assert "Ranking bar" in response.text
     assert "Search agent" in response.text
     assert "Messages per" in response.text
-    assert "backend crawl and scoring load" in response.text
+    assert "It does not remove homes from the run" in response.text
+    assert "Set it to Off when you want one broad ranked list" in response.text
     assert "min_match_score: integerValue(form, 'min_match_score')" in response.text
 
 
@@ -416,12 +417,12 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
 
     settings = client.get("/app/settings", headers={"host": "propertyquarry.com"})
     assert settings.status_code == 200
-    assert "Identity and return access" in settings.text
+    assert "Sign-in and access" in settings.text
     assert "Google sign-in" in settings.text
     assert "Current search brief state" in settings.text
     assert "Operating posture" not in settings.text
     assert "Notifications" in settings.text
-    assert "Billing handoff" in settings.text
+    assert "Billing account" in settings.text
     assert "How it works" in settings.text
     assert "Sync runs" not in settings.text
     assert "Last Google sync" not in settings.text
@@ -898,7 +899,7 @@ def test_google_settings_surface_manages_multiple_connected_google_accounts(monk
     assert "sync_error=google_identity_only" in primary_callback.headers["location"]
     primary_connected = client.get(primary_callback.headers["location"])
     assert primary_connected.status_code == 200
-    assert "Google is linked for sign-in and verified return access only." in primary_connected.text
+    assert "Google is linked for sign-in and return access only." in primary_connected.text
     assert "tibor@girschele.com" in primary_connected.text
     assert "Google link" in primary_connected.text
 
@@ -1156,7 +1157,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
 
     usage_page = client.get("/app/settings/usage")
     assert usage_page.status_code == 200
-    assert "Usage and activation" in usage_page.text
+    assert "Usage" in usage_page.text
     assert "Success metrics" in usage_page.text
     assert "Draft approvals granted" in usage_page.text
 
@@ -1189,7 +1190,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
 
     trust_page = client.get("/app/settings/trust")
     assert trust_page.status_code == 200
-    assert "Trust" in trust_page.text
+    assert "Reliability" in trust_page.text
     assert "Get help without guessing" in trust_page.text
     assert "What the assistant recently did" in trust_page.text
     assert "Evidence, rules, and retention" in trust_page.text
@@ -1213,7 +1214,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Pending review and recent decisions" in support_page.text
     assert "Operational reliability" in support_page.text
     assert "Commercial escalation" in support_page.text
-    assert "Source status" in support_page.text
+    assert "Source health" in support_page.text
     assert "Delivery and fallback" in support_page.text
     assert "Runtime posture" not in support_page.text
     assert "Provider risk" not in support_page.text

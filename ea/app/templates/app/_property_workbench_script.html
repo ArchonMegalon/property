@@ -66,11 +66,7 @@
       const provider = hostedTourProviderFromProof(...values);
       return hostedBase && provider ? `${hostedBase}/control/${provider}` : '';
     };
-    const normalizeWalkthroughProvider = (value) => {
-      const normalized = String(value || '').trim().toLowerCase();
-      if (['magicfit', 'magic'].includes(normalized)) return 'magicfit';
-      return 'magicfit';
-    };
+    const normalizeWalkthroughProvider = (_value) => 'magicfit';
     const getWalkthroughProviderFromButton = (button) => {
       if (!button) return 'magicfit';
       const directProvider = normalizeWalkthroughProvider(button.getAttribute?.('data-pw-walkthrough-provider') || '');
@@ -280,12 +276,21 @@
     };
     const briefPreferences = (data.brief_preferences && typeof data.brief_preferences === 'object') ? { ...data.brief_preferences } : {};
     const currentPlanKey = () => String(
-      meta?.commercial?.current_plan_key
+      data?.run?.summary?.current_plan_key
       || data?.brief?.plan_key
       || data?.run?.brief?.plan_key
+      || meta?.commercial?.current_plan_key
+      || meta?.run?.summary?.current_plan_key
+      || meta?.brief?.plan_key
+      || meta?.run?.brief?.plan_key
       || 'free'
     ).trim().toLowerCase();
-    const currentResultCap = () => Number(meta?.commercial?.max_results_per_source ?? 0);
+    const currentResultCap = () => Number(
+      data?.run?.summary?.max_results_per_source
+      ?? meta?.run?.summary?.max_results_per_source
+      ?? meta?.commercial?.max_results_per_source
+      ?? 0
+    );
     const isAgentPlanKey = (planKey) => {
       const normalized = String(planKey || 'free').trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
       return ['agent', 'agency', 'agency_tier', 'agency_lifetime', 'agency_tier_lifetime', 'agent_lifetime', 'agent_tier_lifetime'].includes(normalized);
@@ -314,7 +319,7 @@
       <div class="pqx-ooda-item"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong><small>${escapeHtml(row.detail)}</small></div>
     `).join('') || '<div class="pqx-note">No quick-read detail captured yet.</div>';
     const renderMatch = (rows) => (Array.isArray(rows) ? rows : []).map((reason) => `
-      <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">${escapeHtml(reason)}</span></div>
+      <div class="pqx-event-card"><strong>Fit</strong><span class="pqx-note">${escapeHtml(reason)}</span></div>
     `).join('') || '<div class="pqx-note">No explicit match reason captured yet.</div>';
     const renderTimeline = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
       <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Update')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span></div>
@@ -326,8 +331,8 @@
       <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Stakeholder')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
     `).join('') || '<div class="pqx-note">No household vote captured yet.</div>';
     const renderRiskSignals = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
-      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Risk signal')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
-    `).join('') || '<div class="pqx-note">No market-risk candidate captured yet.</div>';
+      <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Shared watch-out')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
+    `).join('') || '<div class="pqx-note">No shared note yet.</div>';
     const renderRecentChanges = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
       <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Change')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
     `).join('') || '<div class="pqx-note">No new deltas yet.</div>';
@@ -414,7 +419,7 @@
       const isOpen = Boolean(open);
       finetunePanelNode.hidden = !isOpen;
       finetuneToggleNode.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-      finetuneToggleNode.textContent = isOpen ? 'Hide preferences' : 'Fine-tune my preferences';
+      finetuneToggleNode.textContent = isOpen ? 'Hide search settings' : 'Adjust my search';
     };
     finetuneToggleNode?.addEventListener('click', () => {
       setFinetunePanelOpen(finetunePanelNode?.hidden);
@@ -500,7 +505,7 @@
         rooms: candidate.rooms_value || '',
         area_sqm: candidate.area_value || '',
         recommendation: String(candidate.recommendation || '').trim(),
-        compare_reason: String(candidate.compare_reason || candidate.fit_summary || '').trim(),
+        compare_reason: String(candidate.fit_summary || (Array.isArray(candidate.match_reasons) ? candidate.match_reasons[0] : '') || '').trim(),
         fit_summary: String(candidate.fit_summary || '').trim(),
         property_url: absoluteUrl(candidate.source_url || candidate.property_url || candidate.listing_url || ''),
         source_url: absoluteUrl(candidate.source_url || candidate.property_url || candidate.listing_url || ''),
@@ -905,8 +910,8 @@
       }
       if (visualRequestStatusNode) {
         visualRequestStatusNode.textContent = requestKind === 'flythrough'
-          ? 'Requesting a verified rendered walkthrough...'
-          : 'Requesting a verified 3D tour capture...';
+          ? 'Requesting a walkthrough...'
+          : 'Requesting a 3D tour...';
       }
       let requestSucceeded = false;
       let keepButtonDisabled = false;
@@ -964,7 +969,7 @@
             || (nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending'
               ? 'Queued. Estimating timing...'
               : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus)
-                ? 'Rendering from the source material.'
+                ? 'Walkthrough is rendering now.'
                 : '')));
         const flythroughProgress = nextFlythroughUrl
           ? 100
@@ -980,7 +985,7 @@
             : ((nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending')
               ? 'Walkthrough queued'
               : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus)
-                ? 'Walkthrough processing'
+                ? 'Walkthrough in progress'
                 : '')),
           detail: flythroughDetail,
           eta_label: flythroughEtaLabel,
@@ -1059,9 +1064,37 @@
       if (shortlistMatch) return 'Shortlist ready';
       return text;
     };
+    const canonicalSourceLabel = (value) => String(value || '')
+      .trim()
+      .replace(/\s+with\s+\d+\s+raw listing candidate\(s\)\.?$/i, '')
+      .replace(/\s+with\s+\d+\s+listing candidate\(s\)\.?$/i, '')
+      .replace(/\s+with\s+\d+\s+listing preview\(s\)\.?$/i, '')
+      .replace(/\s+with\s+\d+\s+preview\(s\)\.?$/i, '')
+      .replace(/\s*\.$/, '')
+      .trim();
     const parseRunMessageInfo = (value) => {
       const text = String(value || '').trim();
       if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first provider update.' };
+      const providerLoadMatch = text.match(/^Loading provider page for\s+(.+?)\.?$/i);
+      if (providerLoadMatch) {
+        const sourceLabel = canonicalSourceLabel(providerLoadMatch[1] || '');
+        return { raw: text, fraction: '', sourceLabel, phaseLabel: compactRunMessage(text) };
+      }
+      const providerLoadedMatch = text.match(/^Loaded provider page for\s+(.+?)\s+with\s+\d+\s+raw listing candidate\(s\)\.?$/i);
+      if (providerLoadedMatch) {
+        const sourceLabel = canonicalSourceLabel(providerLoadedMatch[1] || '');
+        return { raw: text, fraction: '', sourceLabel, phaseLabel: compactRunMessage(text) };
+      }
+      const providerFailedMatch = text.match(/^Could not load provider page for\s+(.+?)\.?$/i);
+      if (providerFailedMatch) {
+        const sourceLabel = canonicalSourceLabel(providerFailedMatch[1] || '');
+        return { raw: text, fraction: '', sourceLabel, phaseLabel: compactRunMessage(text) };
+      }
+      const previewMatch = text.match(/^(?:Checking listing previews from|Prepared \d+ listing preview\(s\) from|Prepared preview queue for)\s+(.+?)\.?$/i);
+      if (previewMatch) {
+        const sourceLabel = canonicalSourceLabel(previewMatch[1] || '');
+        return { raw: text, fraction: '', sourceLabel, phaseLabel: compactRunMessage(text) };
+      }
       const sourceMatch = text.match(/\sfor\s+(.+?)\.?$/i);
       const candidateMatch = text.match(/^(Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
       if (candidateMatch) {
@@ -1108,6 +1141,62 @@
       }
       return current;
     };
+    const distancePhaseSubject = (value) => {
+      let label = String(value || '').replaceAll('-', ' ').replace(/\s+/g, ' ').trim();
+      label = label.replace(/\b(radius|distance)\b/ig, '').replace(/\s+/g, ' ').trim();
+      if (!label) return 'Distance';
+      return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+    };
+    const distancePhaseLabel = ({
+      filterLabel = '',
+      observedDistanceM = 0,
+      requestedDistanceM = 0,
+      observedPlaceName = '',
+    } = {}) => {
+      const observed = Math.max(0, Number(observedDistanceM || 0));
+      if (!(observed > 0)) return '';
+      const subject = distancePhaseSubject(filterLabel);
+      const placeName = String(observedPlaceName || '').replace(/\s+/g, ' ').trim();
+      let detail = placeName
+        ? `${subject}: ${placeName} is ${Math.round(observed)} m away`
+        : `${subject}: ${Math.round(observed)} m away`;
+      const requested = Math.max(0, Number(requestedDistanceM || 0));
+      if (requested > 0) detail += `. Limit ${Math.round(requested)} m`;
+      return `${detail}.`;
+    };
+    const distancePhaseLabelFromText = (value) => {
+      const text = String(value || '').trim();
+      if (!text) return '';
+      const match = text.match(/(?:outside the relaxed|beyond the preferred)\s+(.+?)\s+radius(?:\s+for\s+.+?)?:\s*(\d+(?:[.,]\d+)?)\s*m\s+vs\s+(\d+(?:[.,]\d+)?)\s*m\b/i);
+      if (!match) return '';
+      return distancePhaseLabel({
+        filterLabel: match[1],
+        observedDistanceM: String(match[2] || '').replace(',', '.'),
+        requestedDistanceM: String(match[3] || '').replace(',', '.'),
+      });
+    };
+    const sourceNearMissPhaseLabel = (source) => {
+      const rows = Array.isArray(source?.filter_near_misses) ? source.filter_near_misses.filter((row) => row && typeof row === 'object') : [];
+      for (const row of rows) {
+        const label = distancePhaseLabel({
+          filterLabel: row.failed_filter_label || row.failed_filter_key,
+          observedDistanceM: row.observed_distance_m,
+          requestedDistanceM: row.requested_distance_m,
+          observedPlaceName: row.observed_place_name,
+        });
+        if (label) return label;
+      }
+      return '';
+    };
+    const sourceSummaryForLabel = (sourceRows, sourceLabel) => {
+      const needle = canonicalSourceLabel(sourceLabel || '');
+      if (!needle) return null;
+      const lowered = needle.toLowerCase();
+      return (Array.isArray(sourceRows) ? sourceRows : []).find((row) => {
+        const rowLabel = canonicalSourceLabel(row?.source_label || row?.label || '');
+        return rowLabel === needle || rowLabel.toLowerCase() === lowered;
+      }) || null;
+    };
     const candidateReasonLabel = (value) => {
       const text = String(value || '').trim();
       if (!text) return '';
@@ -1115,6 +1204,8 @@
       if (!candidate) return '';
       const ordinal = `${candidate[1]}/${candidate[2]}`;
       const normalized = text.toLowerCase();
+      const concreteDistanceLabel = distancePhaseLabelFromText(text);
+      if (concreteDistanceLabel) return concreteDistanceLabel;
       const measuredDistanceMatch = text.match(/\b\d+(?:[.,]\d+)?\s*(?:m|meter|metre|km|kilometer|kilometre)\b/i);
       if (
         ['balcony', 'terrace', 'outdoor'].some((token) => normalized.includes(token))
@@ -1268,8 +1359,12 @@
         && ['too far', 'farther', 'further', 'beyond', 'outside'].some((token) => normalized.includes(token))
       ) {
         if (!measuredDistanceMatch) return '';
-        const fitLabel = normalized.includes('kindergarten') ? 'Kindergarten distance' : 'School distance';
-        return `${fitLabel} was wider than preferred for candidate ${ordinal} (score impact only)`;
+        const fitLabel = normalized.includes('kindergarten') ? 'Kindergarten' : 'School';
+        const observedDistance = String(measuredDistanceMatch[0] || '').match(/\d+(?:[.,]\d+)?/);
+        return distancePhaseLabel({
+          filterLabel: fitLabel,
+          observedDistanceM: observedDistance ? String(observedDistance[0] || '').replace(',', '.') : 0,
+        });
       }
       if (normalized.includes('commute') && ['within', 'fast', 'short', 'fits', 'fit', 'matched'].some((token) => normalized.includes(token))) {
         return `Commute fit improved the score for candidate ${ordinal}`;
@@ -1281,15 +1376,7 @@
         ['supermarket', 'pharmacy', 'bakery', 'market', 'errand'].some((token) => normalized.includes(token))
         && ['far', 'farther', 'beyond', 'outside'].some((token) => normalized.includes(token))
       ) {
-        if (!measuredDistanceMatch) return '';
-        return `Daily errands were farther than preferred for candidate ${ordinal} (score impact only)`;
-      }
-      const distanceMatch = text.match(/(?:outside the relaxed|beyond the preferred)\s+(.+?)\s+radius/i);
-      if (distanceMatch) {
-        if (!measuredDistanceMatch) return '';
-        const rawLabel = String(distanceMatch[1] || '').trim().replaceAll('-', ' ');
-        const label = rawLabel ? `${rawLabel.charAt(0).toUpperCase()}${rawLabel.slice(1)}` : 'Distance';
-        return `${label} was too far away for candidate ${ordinal} (score impact only)`;
+        return '';
       }
       if (normalized.includes('below') && (normalized.includes('/m2') || normalized.includes('area'))) {
         return `Area was below the minimum for candidate ${ordinal}`;
@@ -1384,8 +1471,132 @@
       }
       return Math.max(explicitProviderTotal, inferredProviderTotal);
     };
+    const joinStatusSentences = (...parts) => parts
+      .map((part) => String(part || '').trim())
+      .filter(Boolean)
+      .map((part) => /[.!?]$/.test(part) ? part : `${part}.`)
+      .join(' ');
+    const repairCustomerReason = (summary, rawMessage = '') => {
+      const receipts = Array.isArray(summary?.repair_receipts)
+        ? summary.repair_receipts.filter((row) => row && typeof row === 'object')
+        : [];
+      const latestReceipt = receipts.length ? receipts[receipts.length - 1] : null;
+      const repairTasks = Array.isArray(summary?.provider_repair_tasks)
+        ? summary.provider_repair_tasks.filter((row) => row && typeof row === 'object')
+        : [];
+      const latestTask = repairTasks.length ? repairTasks[repairTasks.length - 1] : null;
+      const resolution = String(latestReceipt?.resolution || latestTask?.resolution || '').trim().toLowerCase();
+      const reason = String(latestReceipt?.reason || latestTask?.reason || '').trim().toLowerCase();
+      const combined = `${resolution} ${reason} ${String(rawMessage || '').trim().toLowerCase()}`.trim();
+      if (!combined) return '';
+      if (
+        resolution === 'suppressed_source_fetch_forbidden'
+        || combined.includes('blocked or rejected automated source fetch')
+        || combined.includes('403')
+        || combined.includes('forbidden')
+      ) return 'This source stopped returning a usable listing page.';
+      if (
+        resolution === 'suppressed_generic_listing_page'
+        || combined.includes('generic marketing or overview page')
+        || combined.includes('generic listing page')
+        || combined.includes('overview page')
+      ) return 'This source opened an overview page instead of one concrete home.';
+      if (
+        resolution === 'provider_quarantined_retry_budget_exhausted'
+        || combined.includes('manual_provider_patch_required')
+      ) return 'This source changed enough that the run could not recover it automatically yet.';
+      if (
+        resolution === 'suppressed_missing_location'
+        || combined.includes('missing location')
+        || combined.includes('lacks a concrete location')
+      ) return 'This source no longer returned a clear location for the home.';
+      if (
+        resolution === 'suppressed_missing_price'
+        || combined.includes('missing price')
+        || combined.includes('lacks a concrete price')
+      ) return 'This source no longer returned a confirmed price for the home.';
+      if (
+        resolution === 'suppressed_location_scope'
+        || combined.includes('location scope')
+        || combined.includes('wrong area')
+        || combined.includes('conflicts with the active search location')
+      ) return 'This source no longer matched the saved search area cleanly.';
+      if (
+        combined.includes('provider returned')
+        || combined.includes('while fetching')
+        || combined.includes('fetch failed')
+        || combined.includes('temporary fetch failed')
+        || combined.includes('timeout')
+        || combined.includes('timed out')
+        || combined.includes('blocked')
+        || combined.includes('webpage')
+        || combined.includes('provider page')
+        || combined.includes('extract')
+      ) return 'This source changed and the current check could not confirm the listing reliably.';
+      return '';
+    };
+    const isInternalRepairFailureCopy = (value = '') => {
+      const lowered = String(value || '').trim().toLowerCase();
+      if (!lowered) return false;
+      return (
+        lowered.startsWith('no source completed cleanly enough')
+        || lowered.startsWith('search failed before ranking')
+        || lowered.startsWith('search paused before a stable shortlist was ready')
+      );
+    };
+    const repairReasonPointsToProviderSiteChange = (reason = '') => {
+      const lowered = String(reason || '').trim().toLowerCase();
+      if (!lowered) return false;
+      return [
+        'source stopped returning',
+        'overview page',
+        'clear location',
+        'confirmed price',
+        'matched the saved search area',
+        'confirm the listing reliably',
+      ].some((token) => lowered.includes(token));
+    };
+    const calmRepairCustomerCopy = (summary, rawMessage = '') => {
+      const replacementRunId = String(summary?.repair_replacement_run_id || '').trim();
+      const repairStatus = String(summary?.repair_status || summary?.repair_status_label || '').trim().toLowerCase();
+      const repairReason = repairCustomerReason(summary, rawMessage);
+      if (replacementRunId && repairReasonPointsToProviderSiteChange(repairReason)) {
+        return 'A source changed, so a fresh search is already running.';
+      }
+      if (replacementRunId) {
+        return 'A replacement search run is checking the saved brief.';
+      }
+      if (!repairReasonPointsToProviderSiteChange(repairReason)) return '';
+      if (repairStatus === 'failed' || repairStatus === 'repair failed') {
+        return 'One source changed, so this run could not finish automatically.';
+      }
+      return 'One source changed, so PropertyQuarry is retrying it.';
+    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
+      const status = String(runPayload?.status || summary?.status || '').trim().toLowerCase();
+      const repairStatus = String(summary?.repair_status || summary?.repair_status_label || '').trim().toLowerCase();
+      const replacementRunId = String(summary?.repair_replacement_run_id || '').trim();
+      const rawCustomerStatus = String(summary?.customer_status_message || '').trim();
+      const calmRepairCopy = calmRepairCustomerCopy(summary, String(runPayload?.message || ''));
+      const customerStatus = isInternalRepairFailureCopy(rawCustomerStatus) && calmRepairCopy ? calmRepairCopy : rawCustomerStatus;
+      const repairReason = calmRepairCopy ? '' : repairCustomerReason(summary, String(runPayload?.message || ''));
+      if (replacementRunId) {
+        return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
+      }
+      if (
+        status === 'failed'
+        || repairStatus === 'repairing'
+        || repairStatus === 'repair failed'
+        || repairStatus === 'degraded'
+      ) {
+        if (customerStatus && repairReason && !customerStatus.toLowerCase().includes(repairReason.toLowerCase())) {
+          return joinStatusSentences(customerStatus, repairReason);
+        }
+        if (customerStatus || calmRepairCopy || repairReason) {
+          return customerStatus || calmRepairCopy || repairReason;
+        }
+      }
       const sources = Number(summary.sources_total || 0);
       const completedSources = Number(summary.sources_completed || summary.completed_sources || 0);
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
@@ -1416,6 +1627,29 @@
     };
     const renderRunEvents = (events) => {
       const rawRows = Array.isArray(events) ? [...events] : [];
+      const labelRunEvent = (event) => {
+        const step = String(event?.step || '').trim().toLowerCase();
+        if (['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'].includes(step)) {
+          return 'Preparing search';
+        }
+        if (['source_search', 'provider_search', 'search'].includes(step)) {
+          return 'Searching providers';
+        }
+        if (['source_detail_check', 'listing_detail_check', 'source_fetch', 'source_fetch_page'].includes(step)) {
+          return 'Checking details';
+        }
+        if (['source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'].includes(step)) {
+          return 'Checking listings';
+        }
+        if (['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'].includes(step)) return 'Ranking homes';
+        if (step === 'shortlist_ready') return 'First shortlist';
+        if (['source_review_packet', 'source_review_packet_failed'].includes(step)) return 'Open property ready';
+        if (['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'].includes(step)) return 'Applying hard rules';
+        if (['source_completed', 'completed'].includes(step)) return 'Provider finished';
+        if (step === 'source_notify') return 'Sending update';
+        if (step.startsWith('repair') || ['source_repair_reuse', 'source_failed'].includes(step)) return 'Recovery';
+        return 'Update';
+      };
       const isUsefulRunEvent = (event) => {
         const step = String(event?.step || '').trim().toLowerCase();
         const message = String(event?.message || '').trim().toLowerCase();
@@ -1424,34 +1658,92 @@
           && !message.includes('could not load property search status')
           && !message.includes('checking run status')
           && !message.includes('suppressed_generic_listing_page')
+          && !message.includes('starting property search run')
         );
       };
       const hasRealEvents = rawRows.some(isUsefulRunEvent);
       const rows = rawRows.filter(isUsefulRunEvent).reverse().slice(0, 4);
       return rows.map((event) => {
-        const step = String(event?.step || 'Update').replaceAll('_', ' ');
-        const label = step ? step.charAt(0).toUpperCase() + step.slice(1) : 'Update';
+        const label = labelRunEvent(event);
         return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'Search is still running.')}</span></div>`;
-      }).join('') || '<div class="pqx-empty">Waiting for the first search update.</div>';
+      }).join('') || '<div class="pqx-empty">Waiting for the next useful update.</div>';
     };
     const displayRunMessage = (runPayload) => {
       const raw = String(runPayload?.message || '').trim();
       const lowered = raw.toLowerCase();
       const summary = runPayload?.summary || {};
+      const status = String(runPayload?.status || summary?.status || '').trim().toLowerCase();
+      const replacementRunId = String(summary?.repair_replacement_run_id || '').trim();
+      const repairStatus = String(summary?.repair_status || summary?.repair_status_label || '').trim().toLowerCase();
+      const rawCustomerStatus = String(summary?.customer_status_message || '').trim();
+      const calmRepairCopy = calmRepairCustomerCopy(summary, raw);
+      const customerStatus = isInternalRepairFailureCopy(rawCustomerStatus) && calmRepairCopy ? calmRepairCopy : rawCustomerStatus;
+      const repairReason = calmRepairCopy ? '' : repairCustomerReason(summary, raw);
+      if (replacementRunId) {
+        return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
+      }
+      if (
+        status === 'failed'
+        || repairStatus === 'repairing'
+        || repairStatus === 'repair failed'
+        || repairStatus === 'degraded'
+      ) {
+        if (customerStatus && repairReason && !customerStatus.toLowerCase().includes(repairReason.toLowerCase())) {
+          return joinStatusSentences(customerStatus, repairReason);
+        }
+        if (customerStatus || calmRepairCopy || repairReason) {
+          return customerStatus || calmRepairCopy || repairReason;
+        }
+      }
       if (
         !raw
         || lowered.includes('could not load property search status')
         || lowered.includes('checking run status')
         || lowered.includes('suppressed_generic_listing_page')
+        || lowered.includes('starting property search run')
       ) {
         const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
         const providers = Number(summary.provider_total || summary.source_variant_total || 0);
         const providerLabel = providers > 0 ? `${providers} provider checks` : 'selected providers';
-        return `Search is still running across ${providerLabel}; ${reviewed} homes reviewed so far.`;
+        if (reviewed > 0) {
+          return `Checking ${providerLabel} · ${reviewed} homes reviewed.`;
+        }
+        if (providers > 0) {
+          return `Preparing ${providerLabel}.`;
+        }
+        return 'Preparing provider checks.';
       }
       return raw;
     };
     const pollRetryEvents = () => [];
+    const stripLastConfirmedPrefix = (value = '') => String(value || '').replace(/^Using the last confirmed update\.\s*/i, '').trim();
+    const isGenericPollRetryMessage = (value = '') => {
+      const lowered = stripLastConfirmedPrefix(value).toLowerCase();
+      return (
+        !lowered
+        || lowered === 'checking run status...'
+        || lowered === 'checking the latest search update.'
+        || lowered === 'still waiting for the latest search update. keeping the visible progress.'
+      );
+    };
+    const lastVisibleRunMessage = () => String(root.querySelector('[data-pqx-run-message]')?.textContent || '').trim();
+    const pollRetryMessage = (failedPolls) => {
+      const previousRun = data?.run && typeof data.run === 'object' ? data.run : {};
+      const candidates = [
+        lastVisibleRunMessage(),
+        displayRunMessage(previousRun),
+        runSummaryText(previousRun),
+      ]
+        .map(stripLastConfirmedPrefix)
+        .filter((value, index, rows) => value && rows.indexOf(value) === index);
+      const stableMessage = candidates.find((value) => !isGenericPollRetryMessage(value)) || '';
+      if (failedPolls >= 3) {
+        return stableMessage
+          ? `Using the last confirmed update. ${stableMessage}`
+          : 'Using the last confirmed update while the next status check catches up.';
+      }
+      return stableMessage || 'Checking the latest search update.';
+    };
     const shouldPreserveRenderedRunEvents = (eventsNode, events) => {
       if (!eventsNode) return false;
       const hasRenderedEvents = eventsNode.querySelectorAll('.pqx-event-card').length > 0;
@@ -1460,12 +1752,15 @@
       if (renderedText.includes('could not load property search status') || renderedText.includes('checking run status') || renderedText.includes('suppressed_generic_listing_page')) {
         return false;
       }
+      if (renderedText.includes('starting property search run')) {
+        return false;
+      }
       if (!Array.isArray(events)) return true;
       const rawRows = Array.isArray(events) ? [...events] : [];
       const hasRealEvents = rawRows.some((event) => {
         const step = String(event?.step || '').trim().toLowerCase();
         const message = String(event?.message || '').trim().toLowerCase();
-        return step !== 'status_refresh' && !message.includes('could not load property search status') && !message.includes('checking run status') && !message.includes('suppressed_generic_listing_page');
+        return step !== 'status_refresh' && !message.includes('could not load property search status') && !message.includes('checking run status') && !message.includes('suppressed_generic_listing_page') && !message.includes('starting property search run');
       });
       if (!hasRealEvents) return true;
       if (!Array.isArray(events)) return true;
@@ -1490,12 +1785,12 @@
           + Number(source?.filtered_floorplan_total || 0)
           + Number(source?.filtered_generic_page_total || 0)
           + Number(source?.filtered_listing_mode_total || 0);
-        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Checked')}</span><div class="pqx-source-metrics"><span>Checked <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>Ranked <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Hard rules <b>${escapeHtml(filtered)}</b></span><span>Score affected <b>${escapeHtml(source?.filtered_low_fit_total || 0)}</b></span><span>Missing floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
+        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Checked')}</span><div class="pqx-source-metrics"><span>Checked <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>Ranked <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Hard rules <b>${escapeHtml(filtered)}</b></span><span>Missing floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
       }).join('');
     };
     const renderRouteEvidence = (routes) => {
       const rows = Array.isArray(routes) ? routes.slice(0, 4) : [];
-      if (!rows.length) return '<span class="pqx-small">Routes not verified yet</span>';
+      if (!rows.length) return '<span class="pqx-small">Routes not available yet</span>';
       return `<div class="pqx-route-evidence">${rows.map((route) => {
         const label = `${route?.label || 'Route'} · ${route?.distance || 'checking'}`;
         const inner = `<i>${escapeHtml(route?.icon || 'MAP')}</i>${escapeHtml(label)}`;
@@ -1740,7 +2035,7 @@
       const shortlistReady = Number(summary.high_fit_total || 0);
       const title = status === 'processed' || status === 'completed' || status === 'completed_partial'
         ? 'Results are ready'
-        : (status === 'failed' ? 'Search failed' : 'Search in progress');
+        : (status === 'failed' ? 'Search paused' : 'Search in progress');
       const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
       const progressFill = status === 'processed' || status === 'completed' || status === 'completed_partial' ? 100 : (progress > 0 ? progress : 4);
@@ -1748,8 +2043,8 @@
       const liveFraction = liveInfo.fraction;
       const planKey = currentPlanKey();
       const planCap = isAgentPlanKey(planKey) ? 4 : (planKey === 'plus' ? 2 : 1);
-      const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
-      const workerTooltip = 'Selected sources keep moving in parallel. Saved searches are separate.';
+      const configuredWorkers = Math.max(0, Number(summary?.provider_workers?.worker_concurrency || 0));
+      const workerTooltip = 'This strip shows the provider trail inside this search. Visible lanes reflect running, queued, repaired, and failed provider checks. Separate saved searches use their own run slots.';
       const sourceChips = limitRowsForPlan(summary.sources, 8).map((source) => {
         const label = source?.source_label || source?.label || 'Source';
         const state = source?.error ? 'warn' : 'good';
@@ -1757,8 +2052,14 @@
       }).join('');
       const sourceMeta = `${reviewed} homes reviewed${sourceProgressLabel && providerDisplayTotal ? ` · ${providerDisplayTotal} providers` : ''}${layout > 0 ? ` · ${layout} still waiting on floorplans` : ''}`;
       let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first provider update.';
+      const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
+      const activeSourceLabel = canonicalSourceLabel(liveInfo.sourceLabel || parseRunMessageInfo(runPayload?.message).sourceLabel || '');
+      const activeSourceSummary = sourceSummaryForLabel(sourceRows, activeSourceLabel);
+      const nearMissPhase = sourceNearMissPhaseLabel(activeSourceSummary);
       const latestReason = latestCandidateReasonLabel(runPayload);
-      if (liveInfo.fraction && latestReason) {
+      if (liveInfo.fraction && nearMissPhase) {
+        phaseMeta = nearMissPhase;
+      } else if (liveInfo.fraction && latestReason) {
         phaseMeta = latestReason;
       }
       if (!liveInfo.phaseLabel && currentStep === 'source_review_packet' && packetPrepared > 0) {
@@ -1766,21 +2067,28 @@
       } else if (!liveInfo.phaseLabel && currentStep === 'source_shortlist' && shortlistReady > 0) {
         phaseMeta = `${shortlistReady} shortlist homes ready`;
       }
-      const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
       const runState = String(runPayload?.status || '').trim().toLowerCase();
-      const activeSourceLabel = String(liveInfo.sourceLabel || parseRunMessageInfo(runPayload?.message).sourceLabel || '').trim();
       const sourceProviderGroup = (source) => {
-        const family = String(source?.provider_family || '').trim().toLowerCase();
-        if (family) return family;
-        const platform = String(source?.platform || '').trim().toLowerCase();
-        if (platform) return platform;
+        const explicitKeys = [
+          'provider_source_key',
+          'source_provider_key',
+          'provider_key',
+          'platform',
+          'provider_group',
+          'provider_channel',
+          'provider_family',
+        ];
+        for (const key of explicitKeys) {
+          const value = String(source?.[key] || '').trim().toLowerCase();
+          if (value) return value;
+        }
         const label = String(source?.source_label || source?.label || '').trim();
         return (label.split('|')[0] || label).trim().toLowerCase() || 'provider';
       };
       const normalizedSourceRows = sourceRows.map((source) => {
         const row = { ...(source || {}) };
         const rawStatus = String(row.status || row.state || '').trim().toLowerCase();
-        const rowLabel = String(row.source_label || row.label || '').trim();
+        const rowLabel = canonicalSourceLabel(row.source_label || row.label || '');
         const repairTasks = Array.isArray(row.provider_repair_tasks) ? row.provider_repair_tasks.filter((task) => task && typeof task === 'object') : [];
         const repairTask = repairTasks[0] || null;
         const repairStatus = String(repairTask?.status || row.repair_status || '').trim().toLowerCase();
@@ -1803,7 +2111,7 @@
         }
         return row;
       });
-      const syntheticActiveSource = activeSourceLabel && !normalizedSourceRows.some((source) => String(source?.source_label || source?.label || '').trim() === activeSourceLabel)
+      const syntheticActiveSource = activeSourceLabel && !normalizedSourceRows.some((source) => canonicalSourceLabel(source?.source_label || source?.label || '') === activeSourceLabel)
         ? [{ source_label: activeSourceLabel, label: activeSourceLabel, status: 'running' }]
         : [];
       const laneSourceRows = [...syntheticActiveSource, ...normalizedSourceRows];
@@ -1825,7 +2133,8 @@
       });
       const sourceLead = compactProviderLabel(liveInfo.sourceLabel || workerQueue[0]?.source_label || workerQueue[0]?.label || '');
       const runActive = progress > 0 || ['queued', 'in_progress', 'running', 'processing', 'starting'].includes(runState);
-      const actualWorkerCount = Math.min(planCap, workerQueue.length);
+      const effectiveWorkerCap = Math.max(1, Math.min(4, Math.max(configuredWorkers || planCap, runActive ? workerQueue.length : 0)));
+      const actualWorkerCount = Math.min(effectiveWorkerCap, workerQueue.length);
       const workerCount = actualWorkerCount > 0 ? actualWorkerCount : (runActive ? 1 : 0);
       const workers = Array.from({ length: workerCount }, (_, index) => {
         const source = workerQueue[index] || null;
@@ -1839,8 +2148,10 @@
           if (rawStatus === 'repaired' || repairStatus === 'returned') progressPct = 100;
           else if (rawStatus === 'repairing' || ['pending', 'assigned'].includes(repairStatus)) progressPct = 72;
           else if (['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(rawStatus)) progressPct = 100;
-          else if (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus)) progressPct = 58;
-          else if (['queued', 'pending', 'starting'].includes(rawStatus)) progressPct = 18;
+          else if (rawStatus === 'starting') progressPct = 26;
+          else if (rawStatus === 'warming') progressPct = 42;
+          else if (['running', 'processing', 'in_progress', 'working'].includes(rawStatus)) progressPct = 58;
+          else if (['queued', 'pending'].includes(rawStatus)) progressPct = 18;
           else progressPct = 0;
         }
         let statusLabel = 'Idle';
@@ -1854,7 +2165,11 @@
           statusLabel = 'Done';
         } else if (['failed', 'error'].includes(rawStatus) || source?.error) {
           statusLabel = 'Fetch failed';
-        } else if (['running', 'processing', 'in_progress', 'working', 'warming'].includes(rawStatus)) {
+        } else if (rawStatus === 'starting') {
+          statusLabel = 'Starting';
+        } else if (rawStatus === 'warming') {
+          statusLabel = 'Preparing';
+        } else if (['running', 'processing', 'in_progress', 'working'].includes(rawStatus)) {
           statusLabel = 'Running';
         } else {
           statusLabel = 'Up next';
@@ -1863,7 +2178,7 @@
           ? (statusLabel === 'Starting' ? 'active' : 'idle')
           : (progressPct >= 100 && ['Done', 'Repaired'].includes(statusLabel)
             ? 'done'
-            : ((statusLabel === 'Running' || statusLabel === 'Starting' || statusLabel === 'Repairing')
+            : ((statusLabel === 'Running' || statusLabel === 'Starting' || statusLabel === 'Preparing' || statusLabel === 'Repairing')
               ? 'active'
               : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
         const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
@@ -1877,9 +2192,30 @@
           tone,
         };
       });
-      const upgradeCopy = planKey === 'free'
-        ? 'Plus checks 2 sources at once; Agent checks 4.'
-        : (planKey === 'plus' ? 'Agent checks 4 sources at once.' : '');
+      const checkedSourceCount = sourceRows.filter((source) => ['completed', 'processed', 'done', 'success', 'repaired', 'failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()) || source?.error).length;
+      const activeProviderCount = workers.filter((worker) => ['Running', 'Starting', 'Preparing', 'Repairing'].includes(String(worker?.statusLabel || ''))).length;
+      const queuedWorkerCount = workers.filter((worker) => String(worker?.statusLabel || '') === 'Up next').length;
+      let displayActiveProviderCount = activeProviderCount;
+      const displayIncludesQueuedLanes = runActive && activeProviderCount <= 1 && queuedWorkerCount > 0;
+      if (displayIncludesQueuedLanes) {
+        displayActiveProviderCount = Math.min(workerCount, activeProviderCount + queuedWorkerCount);
+      }
+      const queuedSourceCount = Math.max(0, sourceVariantTotal - checkedSourceCount - activeProviderCount);
+      const workerHeadline = displayActiveProviderCount > 0
+        ? `${displayActiveProviderCount} provider${displayActiveProviderCount === 1 ? '' : 's'} active`
+        : ((runActive && !sourceRows.length)
+          ? 'Preparing providers'
+          : (queuedSourceCount > 0
+            ? 'Preparing providers'
+            : (checkedSourceCount > 0 ? `${checkedSourceCount} provider${checkedSourceCount === 1 ? '' : 's'} checked` : 'Providers ready')));
+      const workerDetailParts = [];
+      if (displayIncludesQueuedLanes && activeProviderCount > 0) {
+        workerDetailParts.push(`${activeProviderCount} live`);
+      }
+      if (queuedSourceCount > 0) workerDetailParts.push(`${queuedSourceCount} queued`);
+      if (checkedSourceCount > 0 && displayActiveProviderCount > 0) workerDetailParts.push(`${checkedSourceCount} checked`);
+      const workerDetail = workerDetailParts.join(' · ');
+      const upgradeCopy = '';
       const workerHtml = workers.map((worker) => `
         <div class="pqx-worker-lane tone-${escapeHtml(worker.tone)}">
           <div class="pqx-worker-lane-head">
@@ -1915,8 +2251,9 @@
         </div>
         <div class="pqx-worker-strip" data-pqx-worker-strip>
           <div class="pqx-worker-strip-head">
-            <strong>${escapeHtml(planCap > workerCount ? `${workerCount} of ${planCap} searches running` : `${workerCount} search${workerCount === 1 ? '' : 'es'} running`)}</strong>
+            <strong>${escapeHtml(workerHeadline)}</strong>
             <button type="button" class="pqx-tooltip" title="${escapeHtml(workerTooltip)}" aria-label="${escapeHtml(workerTooltip)}" aria-expanded="false" data-tooltip-trigger>?</button>
+            ${workerDetail ? `<span class="pqx-note">${escapeHtml(workerDetail)}</span>` : ''}
             ${upgradeCopy ? `<span class="pqx-note">${escapeHtml(upgradeCopy)}</span>` : ''}
           </div>
           <div class="pqx-worker-lanes">${workerHtml}</div>
@@ -1942,12 +2279,6 @@
         + Number(summary.filtered_floorplan_total || 0)
         + Number(summary.filtered_generic_page_total || 0)
         + Number(summary.filtered_listing_mode_total || 0);
-      const scoreDemotedTotal = Number(
-        runPayload?.score_demoted_total
-        || summary.score_demoted_total
-        || summary.filtered_low_fit_total
-        || 0
-      );
       const filteredTotal = Number(
         runPayload?.filtered_total
         || runPayload?.held_back_total
@@ -1970,11 +2301,7 @@
         `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
         `aria-label="${escapeHtml(filteredTotal)} candidates stayed outside the brief because of hard rules">${escapeHtml(filteredTotal)} filtered</a>`
       ) : '';
-      const scoreDemotedLabel = !shortlistSurface && scoreDemotedTotal > 0 ? (
-        `<span class="pqx-results-summary-link pqx-results-soft-link" ` +
-        `aria-label="${escapeHtml(scoreDemotedTotal)} homes stayed below the shortlist score">${escapeHtml(scoreDemotedTotal)} below score</span>`
-      ) : '';
-      const filteredBreakdown = (!shortlistSurface && (filteredTotal > 0 || scoreDemotedTotal > 0)) ? `
+      const filteredBreakdown = (!shortlistSurface && filteredTotal > 0) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
             <summary><strong>What to widen</strong><span class="pqx-note">Hard filters</span></summary>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
@@ -1988,9 +2315,8 @@
               <div class="pqx-results-headline">
                 <div class="pqx-note pqx-results-summary-row">
                   <a class="pqx-results-summary-link" href="#results-list"><b>0</b> ${summaryLabel}</a>
-                  ${filteredLabel}
-                  ${scoreDemotedLabel}
-                </div>
+            ${filteredLabel}
+          </div>
               </div>
             </div>
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
@@ -2057,11 +2383,10 @@
         const fitSummary = String(
           candidate?.fit_summary
           || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '')
-          || candidate?.compare_reason
           || 'Open the property page for more context.'
         ).trim();
         const thumb = previewUrl
-          ? `<span class="pqx-thumb"><button class="pqx-thumb-link pqx-thumb-atlas-button" type="button" data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open evidence atlas for ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"><span class="pqx-thumb-atlas-label">Evidence</span></button></span>`
+          ? `<span class="pqx-thumb"><button class="pqx-thumb-link pqx-thumb-atlas-button" type="button" data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"><span class="pqx-thumb-atlas-label">Map</span></button></span>`
           : '';
         const tour = (candidate?.tour && typeof candidate.tour === 'object') ? candidate.tour : {};
         const tourUrl = directHostedTourUrl(tour.url, candidate?.tour_url, tour.embed_url, tour.provider_url, candidate?.vendor_tour_url, candidate?.source_virtual_tour_url);
@@ -2072,7 +2397,7 @@
             ? '3D tour ready'
             : (tourPending ? '3D tour queued' : 'Request 3D tour'))
         ).trim();
-        const tourDetail = String(tour.detail || (tourUrl ? '3D tour ready' : '3D tour is building.')).trim();
+        const tourDetail = String(tour.detail || (tourUrl ? '3D tour ready' : 'Tour is on the way.')).trim();
         const tourEta = String(tour.eta_label || '').trim();
         const tourTooltip = [tourDetail, tourEta ? `ETA ${tourEta}` : ''].filter(Boolean).join(' · ');
         const tourProgress = Math.max(0, Math.min(100, Number(tour.progress_pct || (tourPending ? 18 : (tourUrl ? 100 : 0))) || 0));
@@ -2249,8 +2574,10 @@
       const layout = String(candidate?.layout_display || '').trim();
       const provider = compactProviderLabel(candidate?.source_label || candidate?.provider_label || candidate?.platform || '');
       const location = String(candidate?.location_label || '').trim() || provider || 'Source match';
-      const reason = String(candidate?.fit_summary || candidate?.compare_reason || candidate?.summary || '').trim()
-        || (provider ? `Currently leads the run from ${provider}.` : 'Currently leads the run.');
+      const rawReason = String(candidate?.fit_summary || candidate?.summary || '').trim();
+      const reason = /^(https?:\/\/|www\.)/i.test(rawReason)
+        ? 'Leading match right now.'
+        : (rawReason || (provider ? `Currently leads the run from ${provider}.` : 'Leading match right now.'));
       const href = String(candidate?.packet_url || candidate?.property_url || '').trim();
       const rawTitle = String(candidate?.title || '').trim();
       const title = /^(https?:\/\/|www\.)/i.test(rawTitle)
@@ -2271,22 +2598,17 @@
         <section class="pqx-card" style="margin-top:14px;">
           <div class="pqx-section-head">
             <div>
-              <h2>Current lead</h2>
-              <div class="pqx-note">Still provisional while the run is finishing.</div>
+              <h2>${escapeHtml(title)}</h2>
+              <div class="pqx-note">${escapeHtml(reason)}</div>
             </div>
             ${fitScore > 0 ? `<span class="pqx-pill">${escapeHtml(Math.round(fitScore))}/100</span>` : ''}
           </div>
           <div class="pqx-pref-list">
             <div class="pqx-pref-row">
-              <div>
-                <strong>${escapeHtml(title)}</strong>
-                <small>${escapeHtml(reason)}</small>
-              </div>
-            </div>
-            <div class="pqx-pref-row">
               ${factsRow}
             </div>
           </div>
+          <div class="pqx-note" style="margin-top:12px;">Leading right now. Can still change before the search finishes.</div>
           ${action ? `<div class="pqx-actions">${action}</div>` : ''}
         </section>
       `;
@@ -2419,9 +2741,7 @@
             failedPolls = 0;
           } catch (err) {
             failedPolls += 1;
-            const message = failedPolls >= 3
-              ? 'Still waiting for the latest search update. Keeping the visible progress.'
-              : 'Checking run status...';
+            const message = pollRetryMessage(failedPolls);
             renderRun({
               status: 'in_progress',
               progress: Number(root.querySelector('[data-pw-run-progress-label]')?.textContent?.replace('%', '') || 0),
@@ -2449,6 +2769,8 @@
     const startQuietFailedRepairPolling = (statusUrl) => {
       const normalizedUrl = compactRunStatusUrl(statusUrl);
       if (!normalizedUrl) return;
+      const activeRepairStates = new Set(['repairing', 'queued', 'pending', 'assigned', 'retrying', 'existing']);
+      const activeRepairTaskStates = new Set(['opened', 'assigned', 'running', 'repairing', 'pending', 'existing', 'queued']);
       let lastSignature = [
         String(data.run?.status || '').trim(),
         String(data.run?.current_step || '').trim(),
@@ -2456,6 +2778,13 @@
         String(data.run?.summary?.repair_last_updated_at || '').trim(),
       ].join('|');
       let inFlight = false;
+      let intervalId = 0;
+      const stopPolling = () => {
+        if (intervalId) {
+          window.clearInterval(intervalId);
+          intervalId = 0;
+        }
+      };
       const check = async () => {
         if (inFlight || document.hidden) return;
         inFlight = true;
@@ -2479,12 +2808,23 @@
           }
           const replacementRunId = encodeURIComponent(String(payload.summary?.repair_replacement_run_id || '').trim());
           if (status === 'failed' && replacementRunId) {
+            stopPolling();
             window.location.href = `/app/properties?run_id=${replacementRunId}`;
             return;
           }
+          const repairState = String(payload.summary?.repair_status || payload.summary?.repair_status_label || '').trim().toLowerCase();
+          const repairTasks = Array.isArray(payload.summary?.provider_repair_tasks)
+            ? payload.summary.provider_repair_tasks.filter((task) => task && typeof task === 'object')
+            : [];
+          const hasActiveRepairTask = repairTasks.some((task) => activeRepairTaskStates.has(String(task.status || '').trim().toLowerCase()));
+          const terminalRepairFailure = status === 'failed' && !replacementRunId && !hasActiveRepairTask && !activeRepairStates.has(repairState);
           if (signature !== lastSignature) {
             lastSignature = signature;
             renderRun(payload);
+          }
+          if (terminalRepairFailure) {
+            stopPolling();
+            return;
           }
         } catch (_error) {
           // Keep the repair card stable; the next interval can try again.
@@ -2493,9 +2833,82 @@
         }
       };
       window.setTimeout(check, 900);
-      window.setInterval(check, 3000);
+      intervalId = window.setInterval(check, 3000);
     };
     const form = root.querySelector('[data-console-form-variant="property_search"]');
+    const syncMobileDetailsAccordion = ({ selector, openedPanel = null, container = root, forceSingleOpen = false } = {}) => {
+      if (!container || !selector) return;
+      if (!forceSingleOpen && !window.matchMedia('(max-width: 760px)').matches) return;
+      container.querySelectorAll(selector).forEach((details) => {
+        if (!(details instanceof HTMLDetailsElement)) return;
+        if (openedPanel && details !== openedPanel) details.open = false;
+      });
+    };
+    const bindMobileAccordionPanels = ({ selector, container = root } = {}) => {
+      if (!container || !selector) return;
+      container.querySelectorAll(selector).forEach((details) => {
+        if (!(details instanceof HTMLDetailsElement)) return;
+        if (details.dataset.pqxAccordionBound === 'true') return;
+        details.dataset.pqxAccordionBound = 'true';
+        const syncOpenedPanel = (forceSingleOpen = false) => {
+          if (!details.open) return;
+          syncMobileDetailsAccordion({ selector, openedPanel: details, container, forceSingleOpen });
+        };
+        details.addEventListener('toggle', () => {
+          syncOpenedPanel();
+        });
+        const summary = details.querySelector('summary');
+        if (summary instanceof HTMLElement) {
+          summary.addEventListener('click', () => {
+            if (!window.matchMedia('(max-width: 760px)').matches) return;
+            syncMobileDetailsAccordion({ selector, openedPanel: details, container, forceSingleOpen: true });
+          });
+        }
+      });
+    };
+    bindMobileAccordionPanels({ selector: 'details.pqx-mobile-fold', container: root });
+    const initializeMobileFoldAccordions = () => {
+      if (!window.matchMedia('(max-width: 760px)').matches) return;
+      bindMobileAccordionPanels({ selector: 'details.pqx-mobile-fold', container: root });
+      const opened = [...root.querySelectorAll('details.pqx-mobile-fold[open]')];
+      if (!opened.length) return;
+      syncMobileDetailsAccordion({
+        selector: 'details.pqx-mobile-fold',
+        openedPanel: opened[0],
+        forceSingleOpen: true,
+      });
+    };
+    initializeMobileFoldAccordions();
+    window.addEventListener('resize', initializeMobileFoldAccordions);
+    const normalizeMobileTopNavigation = () => {
+      if (!window.matchMedia('(max-width: 760px)').matches) return;
+      const menu = root.querySelector('[data-pqx-mobile-nav-menu]');
+      if (!(menu instanceof HTMLDetailsElement)) return;
+      const summary = menu.querySelector(':scope > summary');
+      const nav = menu.querySelector('.pqx-primary-nav');
+      if (!(summary instanceof HTMLElement) || !(nav instanceof HTMLElement)) return;
+      const summaryRect = summary.getBoundingClientRect();
+      const navRect = nav.getBoundingClientRect();
+      const summaryVisible = summaryRect.width > 0 && summaryRect.height > 0;
+      const navVisible = navRect.width > 0 && navRect.height > 0;
+      if (!summaryVisible && !navVisible) {
+        menu.style.display = 'block';
+        menu.style.position = 'relative';
+        summary.style.display = 'inline-flex';
+        summary.style.alignItems = 'center';
+        summary.style.justifyContent = 'center';
+        nav.style.display = menu.open ? 'grid' : 'none';
+      } else if (!menu.open && navVisible) {
+        nav.style.display = 'none';
+      }
+    };
+    normalizeMobileTopNavigation();
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(normalizeMobileTopNavigation);
+    });
+    window.setTimeout(normalizeMobileTopNavigation, 160);
+    root.querySelector('[data-pqx-mobile-nav-menu]')?.addEventListener('toggle', normalizeMobileTopNavigation);
+    window.addEventListener('resize', normalizeMobileTopNavigation);
     furnitureStyleSelect = form?.querySelector('[data-furniture-style-select]') || null;
     const furnitureStyleCards = () => (form ? [...form.querySelectorAll('[data-furniture-style-card]')] : []);
     const syncFurnitureStylePicker = () => {
@@ -2816,6 +3229,10 @@
       const locationMapViewport = locationMapPicker?.querySelector('[data-location-map-viewport]');
       const locationMapTitle = locationMapPicker?.querySelector('[data-location-map-title]');
       const locationMapCaption = locationMapPicker?.querySelector('[data-location-map-caption]');
+      const locationMapSelection = locationMapDialog?.querySelector('[data-location-map-selection]');
+      const locationMapSelectionSummary = locationMapDialog?.querySelector('[data-location-map-selection-summary]');
+      const locationMapSelectionTags = locationMapDialog?.querySelector('[data-location-map-selection-tags]');
+      const locationMapClearButtons = [...form.querySelectorAll('[data-location-map-clear]')];
       let locationMapSignature = '';
       let locationMapScale = 1;
       let locationMapPanX = 0;
@@ -2994,9 +3411,77 @@
           };
         })
         .filter((row) => row.value);
+      const removeLocationValue = (value) => {
+        const normalizedValue = String(value || '').trim();
+        if (!normalizedValue) return false;
+        const input = form.querySelector(`input[name="location_query"][value="${CSS.escape(normalizedValue)}"]`);
+        if (!(input instanceof HTMLInputElement) || input.disabled || !input.checked) return false;
+        input.checked = false;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      };
+      const clearSelectedLocations = () => {
+        let changed = false;
+        form.querySelectorAll('input[name="location_query"]').forEach((input) => {
+          if (!(input instanceof HTMLInputElement) || input.disabled || !input.checked) return;
+          input.checked = false;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          changed = true;
+        });
+        return changed;
+      };
+      const renderLocationTagRail = (
+        node,
+        selectedLocations,
+        locationLabels,
+        {
+          tagClass = 'pqx-location-selected-tag',
+          removeClass = 'pqx-location-selected-tag-remove',
+          overflowClass = `${tagClass} is-overflow`,
+          maxVisible = 4,
+        } = {},
+      ) => {
+        if (!(node instanceof HTMLElement)) return;
+        node.innerHTML = '';
+        if (!selectedLocations.length) {
+          node.hidden = true;
+          node.style.display = 'none';
+          return;
+        }
+        node.hidden = false;
+        node.style.display = 'flex';
+        selectedLocations.slice(0, maxVisible).forEach((value) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = tagClass;
+          button.setAttribute('data-location-remove-value', String(value || '').trim());
+          button.setAttribute('aria-label', `Remove ${locationLabels.get(String(value || '').trim()) || String(value || '').trim()}`);
+          const strong = document.createElement('strong');
+          strong.textContent = locationLabels.get(String(value || '').trim()) || String(value || '').trim();
+          const remove = document.createElement('span');
+          remove.className = removeClass;
+          remove.setAttribute('aria-hidden', 'true');
+          remove.textContent = '×';
+          button.append(strong, remove);
+          button.addEventListener('click', () => {
+            removeLocationValue(value);
+          });
+          node.appendChild(button);
+        });
+        if (selectedLocations.length > maxVisible) {
+          const overflow = document.createElement('span');
+          overflow.className = overflowClass;
+          overflow.textContent = `+${selectedLocations.length - maxVisible} more`;
+          node.appendChild(overflow);
+        }
+      };
       const syncLocationMapPickerSelection = () => {
         if (!locationMapPicker) return;
-        const selected = new Set(checkedValues(form, 'location_query').map((value) => String(value || '').trim()));
+        const selectedLocations = checkedValues(form, 'location_query').map((value) => String(value || '').trim()).filter(Boolean);
+        const selected = new Set(selectedLocations);
+        const locationLabels = new Map(
+          locationOptionRows().map((row) => [String(row.value || '').trim(), String(row.label || row.value || '').trim()])
+        );
         locationMapPicker.querySelectorAll('[data-location-map-district]').forEach((node) => {
           const value = String(node.getAttribute('data-location-value') || '').trim();
           const active = selected.has(value);
@@ -3005,14 +3490,37 @@
         });
         if (locationMapCaption) {
           locationMapCaption.textContent = selected.size
-            ? `${selected.size} district${selected.size === 1 ? '' : 's'} selected. Drag to pan.`
-            : 'Tap a district to add it. Drag to pan.';
+            ? `${selected.size} selected. Tap red districts to remove them.`
+            : 'Tap a district to add it.';
         }
         if (locationMapLaunchNote) {
+          const previewLabels = selectedLocations
+            .slice(0, 2)
+            .map((value) => locationLabels.get(value) || value)
+            .filter(Boolean);
+          const moreCount = Math.max(0, selectedLocations.length - previewLabels.length);
           locationMapLaunchNote.textContent = selected.size
-            ? `${selected.size} selected. Open map to adjust real district borders.`
-            : 'Real Vienna district borders. Select by tapping a shape.';
+            ? `${selected.size} selected${previewLabels.length ? `: ${previewLabels.join(', ')}${moreCount ? ` +${moreCount} more` : ''}` : ''}.`
+            : 'Real district borders in a separate map.';
         }
+        if (locationMapSelection instanceof HTMLElement) {
+          locationMapSelection.hidden = selectedLocations.length === 0;
+        }
+        if (locationMapSelectionSummary) {
+          locationMapSelectionSummary.textContent = selectedLocations.length
+            ? `${selectedLocations.length} district${selectedLocations.length === 1 ? '' : 's'} selected`
+            : 'No districts selected yet.';
+        }
+        renderLocationTagRail(locationMapSelectionTags, selectedLocations, locationLabels, {
+          tagClass: 'pqx-location-map-tag',
+          removeClass: 'pqx-location-map-tag-remove',
+          overflowClass: 'pqx-location-map-tag is-overflow',
+        });
+        locationMapClearButtons.forEach((button) => {
+          const hasSelection = selectedLocations.length > 0;
+          button.hidden = !hasSelection;
+          button.disabled = !hasSelection;
+        });
       };
       const renderLocationMapPicker = () => {
         if (!locationMapPicker || !locationMapLayer) return;
@@ -3078,6 +3586,12 @@
           event.preventDefault();
           if (locationMapDialog instanceof HTMLDialogElement && locationMapDialog.open) locationMapDialog.close();
           setLocationMapDialogOpenState(false);
+        });
+      });
+      locationMapClearButtons.forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          clearSelectedLocations();
         });
       });
       locationMapDialog?.addEventListener('click', (event) => {
@@ -3227,11 +3741,11 @@
         if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form);
       };
       const syncMobileWhatMattersAccordion = (openedPanel = null) => {
-        if (!window.matchMedia('(max-width: 760px)').matches) return;
         const panel = openedPanel?.closest?.('[data-property-what-matters-panel]') || form.querySelector('[data-property-what-matters-panel]');
-        if (!panel) return;
-        panel.querySelectorAll('details[data-what-matters-group]').forEach((details) => {
-          if (details !== openedPanel) details.open = false;
+        syncMobileDetailsAccordion({
+          selector: 'details[data-what-matters-group]',
+          openedPanel,
+          container: panel,
         });
       };
       form.querySelectorAll('details[data-what-matters-group]').forEach((details) => {
@@ -3609,13 +4123,22 @@
         const isSearchStep = !activeStep || activeStep === 'search' || activeStep === 'areas';
         const hasAreaOptions = form.querySelectorAll('input[name="location_query"]').length > 0;
         const selectedLocations = checkedValues(form, 'location_query');
+        const locationLabels = new Map(
+          locationOptionRows().map((row) => [String(row.value || '').trim(), String(row.label || row.value || '').trim()])
+        );
         const allLocationsSelected = hasAreaOptions && selectedLocations.length > 0 && selectedLocations.length === form.querySelectorAll('input[name="location_query"]').length;
         form.querySelectorAll('[data-location-selected-summary]').forEach((node) => {
           const count = selectedLocations.length;
-          const total = form.querySelectorAll('input[name="location_query"]').length;
           node.textContent = count
-            ? `${count} of ${total} district${total === 1 ? '' : 's'} selected`
-            : 'No districts selected';
+            ? `${count} district${count === 1 ? '' : 's'} selected`
+            : 'No districts selected yet';
+        });
+        form.querySelectorAll('[data-location-selected-tags]').forEach((node) => {
+          renderLocationTagRail(node, selectedLocations, locationLabels, {
+            tagClass: 'pqx-location-selected-tag',
+            removeClass: 'pqx-location-selected-tag-remove',
+            overflowClass: 'pqx-location-selected-tag is-overflow',
+          });
         });
         renderLocationMapPicker();
         setConditionalWrapVisibility(fullRegionScopeFieldWrap, false, 'redundant_full_region_scope');
@@ -4594,7 +5117,7 @@
     const evidenceLayerCards = (candidate) => {
       const facts = evidenceFactsForCandidate(candidate);
       const visualRows = [
-        candidate?.tour?.url ? { source_label: candidate?.tour?.provider_label || 'Hosted 3D tour', url: candidate.tour.url, freshness_label: 'ready' } : null,
+        candidate?.tour?.url ? { source_label: candidate?.tour?.provider_label || '3D tour', url: candidate.tour.url, freshness_label: 'ready' } : null,
         candidate?.flythrough?.url ? { source_label: candidate?.flythrough?.provider_label || 'Rendered walkthrough', url: candidate.flythrough.url, freshness_label: 'ready' } : null,
       ].filter(Boolean);
       const environmentRows = officialRiskSourcesForCandidate(candidate, ['air_quality_risk', 'noise_risk', 'heat_risk', 'flood_risk']);
@@ -4614,10 +5137,10 @@
           key: 'visual',
           label: 'Visuals',
           state: visualRows.length ? 'verified' : 'unavailable',
-          title: visualRows.length ? 'Tour media ready' : 'Tour media not verified yet',
+          title: visualRows.length ? 'Tour media ready' : 'Tour media not ready yet',
           summary: visualRows.length
-            ? 'This property already has hosted visual evidence attached. Open the provider control instead of a fake fallback.'
-            : 'No verified Matterport, 3DVista, Pano2VR/krpano, or rendered walkthrough evidence is attached to this candidate yet.',
+            ? 'This property already has visual evidence attached. Open the live tour or walkthrough here.'
+            : 'No 3D tour or rendered walkthrough is attached to this candidate yet.',
           rows: visualRows,
           source: sourceChip(visualRows, 'Visual control verifier'),
           freshness: freshness(visualRows),
@@ -4650,9 +5173,9 @@
           key: 'schools',
           label: 'Schools',
           state: schoolRows.length || facts.school_atlas_progression_summary ? 'verified' : 'unavailable',
-          title: schoolRows.length || facts.school_atlas_progression_summary ? 'School context available' : 'School flow data not verified',
+          title: schoolRows.length || facts.school_atlas_progression_summary ? 'School context available' : 'School flow data not ready',
           summary: String(facts.school_atlas_progression_summary || facts.school_context_summary || '').trim()
-            || 'Pupil origin and continuation arrows require a verified Schulatlas/statistical source before rendering.',
+            || 'Pupil origin and continuation arrows require a Schulatlas/statistical source before rendering.',
           rows: schoolRows,
           source: sourceChip(schoolRows, 'Teable school-context rollup missing'),
           freshness: freshness(schoolRows),
@@ -4685,7 +5208,7 @@
           key: 'fiber',
           label: 'Fiber',
           state: fiberRows.length ? 'verified' : 'unavailable',
-          title: fiberRows.length ? 'Broadband coverage evidence attached' : 'Fiber coverage not verified',
+          title: fiberRows.length ? 'Broadband coverage evidence attached' : 'Fiber coverage not ready',
           summary: fiberRows.length
             ? 'Official broadband/fiber evidence is attached. Provider address checks remain secondary receipts.'
             : 'Fiber coverage must use official broadband atlas/provider receipts from cache; OSM is only a weak hint.',
@@ -4696,15 +5219,22 @@
       ];
     };
     const renderEvidenceCard = (card) => {
+      const evidenceStateLabel = (state) => {
+        const normalized = String(state || '').trim().toLowerCase();
+        if (normalized === 'verified') return 'Available';
+        if (normalized === 'unavailable') return 'Not ready';
+        return normalized ? normalized.replaceAll('_', ' ') : 'Not ready';
+      };
       const url = firstEvidenceUrl(card.rows || []);
+      const stateLabel = evidenceStateLabel(card.state);
       const sourceLink = url
         ? `<a class="pqx-evidence-source-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open source</a>`
-        : '<span class="pqx-evidence-source-chip">Source unavailable</span>';
+        : '<span class="pqx-evidence-source-chip">No source link</span>';
       return `
         <article class="pqx-evidence-card" data-state="${escapeHtml(card.state)}" data-pqx-evidence-card="${escapeHtml(card.key)}">
           <div class="pqx-evidence-card-head">
             <strong>${escapeHtml(card.title)}</strong>
-            <span class="pqx-evidence-state">${escapeHtml(card.state)}</span>
+            <span class="pqx-evidence-state">${escapeHtml(stateLabel)}</span>
           </div>
           <p>${escapeHtml(card.summary)}</p>
           <div class="pqx-evidence-card-foot">
@@ -4880,10 +5410,11 @@
     root.addEventListener('click', handleFilteredOpenClick);
     document.addEventListener('click', handleFilteredOpenClick);
     root.querySelectorAll('[data-pqx-filter-slider]').forEach((slider) => {
-      const card = slider.closest('.pqx-filtered-dialog-rule');
+      const card = slider.closest('.pqx-filtered-dialog-rule, .pqx-suppression-item');
       const valueLabel = card?.querySelector('[data-pqx-filter-slider-value]');
       const impactLabel = card?.querySelector('[data-pqx-filter-impact]');
       const estimateLabel = card?.querySelector('[data-pqx-filter-estimate]');
+      const actionButton = card?.querySelector('[data-pqx-counterfactual]');
       const maxImpact = Math.max(0, Number(slider.getAttribute('data-pqx-filter-max') || '0') || 0);
       const minValue = Number(slider.getAttribute('data-pqx-filter-base') || slider.min || '0') || 0;
       const maxValue = Number(slider.getAttribute('data-pqx-filter-max-value') || slider.max || '0') || 0;
@@ -4898,9 +5429,25 @@
         const formatted = Math.round(amount).toLocaleString(undefined, { maximumFractionDigits: 0 });
         return unit ? `${formatted} ${unit}` : formatted;
       };
+      const counterfactualActionLabel = (value) => {
+        const amount = Math.max(0, Number(value || 0) || 0);
+        const fallbackLabel = String(actionButton?.getAttribute('data-pqx-counterfactual-action-default') || actionButton?.textContent || '').trim();
+        if (kind === 'ranking_bar') {
+          return amount <= 0 ? 'Turn bar off' : `Use ${Math.round(amount)}/100`;
+        }
+        if (kind === 'radius') {
+          return `Use ${Math.round(amount).toLocaleString(undefined, { maximumFractionDigits: 0 })} m radius`;
+        }
+        if (kind === 'budget') {
+          const formatted = Math.round(amount).toLocaleString(undefined, { maximumFractionDigits: 0 });
+          return unit ? `Raise to ${unit} ${formatted}` : `Raise to ${formatted}`;
+        }
+        return fallbackLabel || 'Apply change';
+      };
       const updateSliderPreview = () => {
         const selectedValue = Number(slider.value || minValue) || minValue;
         if (valueLabel) valueLabel.textContent = formatSliderValue(selectedValue);
+        if (actionButton) actionButton.textContent = counterfactualActionLabel(selectedValue);
         if (maxImpact) {
           const span = Math.max(1, maxValue - minValue);
           const ratio = Math.min(1, Math.max(0.08, (selectedValue - minValue) / span));
@@ -4924,7 +5471,7 @@
           adjustments = {};
         }
         if (!adjustments || typeof adjustments !== 'object' || Array.isArray(adjustments)) adjustments = {};
-        const slider = button.closest('.pqx-filtered-dialog-rule')?.querySelector('[data-pqx-filter-slider]');
+        const slider = button.closest('.pqx-filtered-dialog-rule, .pqx-suppression-item')?.querySelector('[data-pqx-filter-slider]');
         if (slider) {
           const fieldName = String(slider.getAttribute('data-pqx-filter-field') || '').trim();
           if (fieldName) adjustments[fieldName] = Math.max(0, Number(slider.value || '0') || 0);

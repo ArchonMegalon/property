@@ -546,7 +546,7 @@
         public_housing: ['Public housing', 'Municipal and public-housing-adjacent sources.'],
         developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
         distressed_sales: ['Court and auction', 'Court-published and auction-style listings that need extra legal review.'],
-        community_signals: ['Community signals', 'Facebook, Telegram, and other weakly verified off-market hints.'],
+        community_signals: ['Community signals', 'Facebook, Telegram, and other lightly sourced off-market hints.'],
         community_meta: ['Watch-tier meta', 'Long-tail meta or watch-tier sources with lower trust.'],
       };
       const renderOption = (option) => {
@@ -665,7 +665,7 @@
           return;
         }
         button.textContent = `Select ${normalizedMax} of ${total}`;
-        const title = `Your current plan allows up to ${normalizedMax} of ${total} available sources at once.`;
+        const title = `Your current plan lets you include up to ${normalizedMax} of ${total} available providers in one search.`;
         button.setAttribute('title', title);
         button.setAttribute('aria-label', title);
       });

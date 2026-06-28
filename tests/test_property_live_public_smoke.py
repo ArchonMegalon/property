@@ -42,14 +42,6 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
             "You choose what is shared Account data stays editable"
         ),
         "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Create account Open account, then activate from billing.",
-        "https://propertyquarry.com/directory": (
-            'PropertyQuarry directory <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '
-            "Directory is temporarily unavailable"
-        ),
-        "https://propertyquarry.com/directory/profile/sample": (
-            'PropertyQuarry <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '
-            "Profile details stay on PropertyQuarry Reviewed public profile details are not available right now. Back to directory Contact support."
-        ),
         "https://propertyquarry.com/privacy": "PropertyQuarry Privacy Public tours should use a narrow public manifest",
         "https://propertyquarry.com/terms": "PropertyQuarry Terms Generated or embedded tours help screening",
         "https://propertyquarry.com/support": "PropertyQuarry Support wrong-area matches",

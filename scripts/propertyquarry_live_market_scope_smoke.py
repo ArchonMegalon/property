@@ -15,10 +15,46 @@ from typing import Callable
 ALLOWED_COUNTRIES = ("AT", "DE", "CR")
 BLOCKED_COUNTRIES = ("UK", "AU", "PL")
 MAX_RESPONSE_BODY_BYTES = 900_000
+DOTENV_PATHS = (Path(__file__).resolve().parents[1] / ".env",)
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _env_value(name: str) -> str:
+    return str(os.getenv(name) or "").strip()
+
+
+def _dotenv_value(name: str, *, dotenv_paths: tuple[Path, ...] = DOTENV_PATHS) -> str:
+    normalized_name = str(name or "").strip()
+    if not normalized_name:
+        return ""
+    for path in dotenv_paths:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for raw_line in lines:
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            if key.strip() != normalized_name:
+                continue
+            normalized_value = value.strip().strip('"').strip("'")
+            if normalized_value:
+                return normalized_value
+    return ""
+
+
+def _default_api_token(*, dotenv_paths: tuple[Path, ...] = DOTENV_PATHS) -> str:
+    return (
+        _env_value("PROPERTYQUARRY_LIVE_API_TOKEN")
+        or _env_value("EA_API_TOKEN")
+        or _dotenv_value("PROPERTYQUARRY_LIVE_API_TOKEN", dotenv_paths=dotenv_paths)
+        or _dotenv_value("EA_API_TOKEN", dotenv_paths=dotenv_paths)
+    )
 
 
 def _decode_json(body: bytes) -> dict[str, object]:
@@ -149,13 +185,16 @@ def build_live_market_scope_receipt(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify live PropertyQuarry customer market scope.")
-    parser.add_argument("--base-url", default=os.getenv("PROPERTYQUARRY_LIVE_SMOKE_BASE_URL", "http://localhost:8097"))
-    parser.add_argument("--host-header", default=os.getenv("PROPERTYQUARRY_LIVE_HOST_HEADER", "propertyquarry.com"))
-    parser.add_argument("--api-token", default=os.getenv("EA_API_TOKEN", ""))
-    parser.add_argument("--principal-id", default=os.getenv("EA_PRINCIPAL_ID", "cf-email:tibor.girschele@gmail.com"))
-    parser.add_argument("--timeout-seconds", type=float, default=float(os.getenv("PROPERTYQUARRY_LIVE_MARKET_SCOPE_TIMEOUT_SECONDS", "8")))
+    parser.add_argument("--base-url", default=_env_value("PROPERTYQUARRY_LIVE_SMOKE_BASE_URL") or "http://localhost:8097")
+    parser.add_argument("--host-header", default=_env_value("PROPERTYQUARRY_LIVE_HOST_HEADER") or "propertyquarry.com")
+    parser.add_argument("--api-token", default=_default_api_token())
+    parser.add_argument("--principal-id", default=_env_value("EA_PRINCIPAL_ID") or "cf-email:tibor.girschele@gmail.com")
+    parser.add_argument("--timeout-seconds", type=float, default=float(_env_value("PROPERTYQUARRY_LIVE_MARKET_SCOPE_TIMEOUT_SECONDS") or "8"))
     parser.add_argument("--write", default="_completion/smoke/property-live-market-scope-latest.json")
     args = parser.parse_args()
+
+    if not str(args.api_token or "").strip():
+        raise SystemExit("EA_API_TOKEN or PROPERTYQUARRY_LIVE_API_TOKEN is required for live market scope smoke.")
 
     receipt = build_live_market_scope_receipt(
         base_url=str(args.base_url),

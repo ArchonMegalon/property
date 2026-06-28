@@ -4329,9 +4329,11 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Use your current session, secure email link, or connected identity." in sign_in.text
-    assert "Identity only" in sign_in.text
-    assert "Create account" in sign_in.text
+    assert "Use a saved session, email link, or connected identity." in sign_in.text
+    assert "Any provider below reopens the same account or creates it automatically on first use." in sign_in.text
+    assert "Identity only" not in sign_in.text
+    assert 'href="/app/search"' in sign_in.text
+    assert 'action="/app/actions/sign-out"' in sign_in.text
     assert "Email me a fresh access link" not in sign_in.text
     assert "Email link" in sign_in.text
 
@@ -4342,7 +4344,8 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     privacy = owner.get("/security")
     assert privacy.status_code == 200
     _assert_no_product_drift(privacy.text)
-    assert "See what PropertyQuarry can do before you let it act." in privacy.text
+    assert "Score guide" in privacy.text
+    assert "Hard filters decide eligibility. Optional preferences tune the score." in privacy.text
 
     for path in ("/product", "/integrations", "/pricing", "/docs"):
         page = owner.get(path)
@@ -9135,8 +9138,8 @@ def test_public_tour_routes_refuse_generated_fallback_tours(
     payload = client.get(f"/tours/{slug}.json")
 
     assert page.status_code == 404
-    assert "Fallback listing-summary tours are disabled." in page.text
-    assert "Request a real 360 tour" in page.text
+    assert "older generated preview" in page.text
+    assert "Request a fresh 3D tour" in page.text
     assert payload.status_code == 404
     assert payload.json()["error"]["code"] == "tour_disabled_fallback"
 

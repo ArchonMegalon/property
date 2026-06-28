@@ -215,7 +215,7 @@
     const topRow = document.createElement('div');
     topRow.className = 'object-row';
     const topBody = document.createElement('div');
-    appendTextNode(topBody, 'strong', body?.name || 'Clippy');
+    appendTextNode(topBody, 'strong', body?.name || 'Question helper');
     appendTextNode(topBody, 'small', body?.answer || 'No answer returned.');
     topRow.appendChild(topBody);
     appendTextNode(topRow, 'div', 'Grounded').className = 'object-tag';
@@ -298,7 +298,7 @@
   clippyToggle?.addEventListener('click', () => {
     const open = Boolean(clippyPanel?.hidden);
     if (clippyPanel) clippyPanel.hidden = !open;
-    clippyToggle.textContent = open ? 'Hide question helper' : 'Open question helper';
+    clippyToggle.textContent = open ? 'Hide questions' : 'Ask about this home';
   });
   magicFitToggle?.addEventListener('click', () => {
     const open = Boolean(magicFitPanel?.hidden);
@@ -466,7 +466,7 @@
       if (clippyStatus) clippyStatus.textContent = 'Ask a specific question about this property first.';
       return;
     }
-    if (clippyStatus) clippyStatus.textContent = 'Clippy is reviewing the packet context...';
+    if (clippyStatus) clippyStatus.textContent = 'Checking this page...';
     try {
       const response = await fetch(String(payload.clippy_endpoint || '/app/api/property/decision-copilot'), {
         method: 'POST',
@@ -483,11 +483,11 @@
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(body.detail || 'Clippy could not answer right now.'));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not answer right now.'));
       renderClippy(body);
-      if (clippyStatus) clippyStatus.textContent = 'Clippy answered from the current property context.';
+      if (clippyStatus) clippyStatus.textContent = 'Answered from this page.';
     } catch (error) {
-      if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Clippy could not answer right now.';
+      if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Could not answer right now.';
     }
   });
   root.querySelectorAll('[data-object-feedback-reaction]').forEach((button) => {
@@ -562,9 +562,9 @@
   }
   if (shouldOpenClippy) {
     if (clippyPanel) clippyPanel.hidden = false;
-    if (clippyToggle) clippyToggle.textContent = 'Hide question helper';
+    if (clippyToggle) clippyToggle.textContent = 'Hide questions';
     if (clippyQuestion && presetPrompt) clippyQuestion.value = presetPrompt;
-    if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Clippy prompt loaded from the email or shared link.';
+    if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Question loaded from the email or shared link.';
   }
 })();
 </script>

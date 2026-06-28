@@ -83,7 +83,7 @@ def test_packet_dashboard_republishes_variant_in_real_browser(
         assert page.locator("body", has_text="Family Review Packet").is_visible()
         assert page.locator("body", has_text="Republish page").is_visible()
         assert page.locator("body", has_text="Household reactions").is_visible()
-        assert page.locator("body", has_text="Risk signals").is_visible()
+        assert page.locator("body", has_text="Watch-outs").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         with page.expect_response("**/app/api/properties/packets/*/republish") as republish_response_info:
             page.locator(f'[data-republish-publication][data-publication-id="{publication_id}"]').click()

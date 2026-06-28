@@ -37,6 +37,11 @@
     box-shadow: var(--shadow);
     padding: 18px;
   }
+  .object-panel-stack {
+    display: grid;
+    align-content: start;
+    gap: 14px;
+  }
   .object-kicker {
     color: var(--text-dim);
     font-size: 12px;
@@ -558,6 +563,19 @@
     .object-grid.is-settings-surface .object-form-disclosure .object-copy {
       margin: 0 0 4px;
     }
+    .object-grid.is-settings-surface .object-media-toolbar {
+      margin-top: 6px;
+      padding: 0;
+    }
+    .object-grid.is-settings-surface .object-panel-stack {
+      gap: 10px;
+    }
+    .object-grid.is-settings-surface .object-list {
+      gap: 8px;
+    }
+    .object-grid.is-settings-surface .object-row:last-child {
+      margin-bottom: 0;
+    }
   }
   @media (max-width: 520px) {
     .object-meta {
@@ -568,6 +586,12 @@
     }
     .object-grid.is-settings-surface .object-meta-card:last-child:nth-child(odd) {
       grid-column: 1 / -1;
+    }
+    .object-grid.is-settings-surface .object-media-frame-inner {
+      min-height: 300px;
+    }
+    .object-grid.is-settings-surface .object-media-grid.is-compact .object-media-frame-inner {
+      min-height: 0;
     }
     .object-media-frame-inner {
       min-height: 320px;
@@ -618,7 +642,7 @@
     {% if object_summary %}<p class="object-copy">{{ object_summary }}</p>{% endif %}
     {% if object_ooda_rows %}
     <section class="object-section" style="margin-top:14px;">
-      <div class="object-kicker">Current read</div>
+      <div class="object-kicker">Quick take</div>
       <h2>{{ object_ooda_title or 'Decision summary' }}</h2>
       {% if object_ooda_copy %}<p class="object-copy">{{ object_ooda_copy }}</p>{% endif %}
       <div class="object-list">
@@ -652,7 +676,7 @@
     </div>
   </section>
 
-  <aside class="object-panel">
+  <aside class="{% if settings_surface %}object-panel-stack{% else %}object-panel{% endif %}">
     {% set sidebar_link_state = namespace(has_links=false) %}
     {% for item in object_sidebar_rows %}
       {% if item.get('href') or item.get('action_href') or item.get('secondary_action_href') or item.get('tertiary_action_href') or item.get('quaternary_action_href') %}
@@ -660,10 +684,24 @@
       {% endif %}
     {% endfor %}
     {% if sidebar_link_state.has_links %}
+    {% if settings_surface %}
+    <details class="object-section object-disclosure object-sidebar-disclosure" open data-object-mobile-default="{{ 'open' if object_sidebar_default_open else 'closed' }}">
+      <summary class="object-disclosure-summary">
+        <span class="object-disclosure-copy">
+          <span class="object-kicker">{{ object_sidebar_kicker or 'Quick actions' }}</span>
+          <strong>{{ object_sidebar_title }}</strong>
+        </span>
+        <span class="object-tag">{{ (object_sidebar_rows or [])|length }} item{% if ((object_sidebar_rows or [])|length) != 1 %}s{% endif %}</span>
+      </summary>
+      <div class="object-disclosure-body">
+      {% if object_sidebar_copy %}<p class="object-copy object-sidebar-copy">{{ object_sidebar_copy }}</p>{% endif %}
+      <div class="object-list">
+    {% else %}
     <div class="object-kicker">{{ object_sidebar_kicker or 'Open this home' }}</div>
     <h2>{{ object_sidebar_title }}</h2>
     {% if object_sidebar_copy %}<p class="object-copy object-sidebar-copy">{{ object_sidebar_copy }}</p>{% endif %}
     <div class="object-list">
+    {% endif %}
       {% for item in object_sidebar_rows %}
       {% set href = item.get('href') or '' %}
       {% set action_href = item.get('action_href') or '' %}
@@ -735,10 +773,14 @@
       </div>
       {% endfor %}
     </div>
+    {% if settings_surface %}
+      </div>
+    </details>
+    {% endif %}
     {% endif %}
     {% if object_sidebar_form %}
     {% if settings_surface %}
-    <details class="object-section object-disclosure object-form-disclosure"{% if object_sidebar_form.get('open') %} open{% endif %}>
+    <details class="object-section object-disclosure object-form-disclosure"{% if object_sidebar_form.get('open') %} open{% endif %} data-object-mobile-default="{{ 'open' if object_sidebar_form.get('open') else 'closed' }}">
       <summary class="object-disclosure-summary">
         <span class="object-disclosure-copy">
           <span class="object-kicker">{{ object_sidebar_form.get('eyebrow') or 'Update' }}</span>
@@ -837,7 +879,7 @@
 	        <button class="console-action" type="button" data-object-decision-state="archived">Archived</button>
 	      </div>
 	      <p class="object-copy" data-object-decision-state-status></p>
-	      <p class="object-copy"><strong>What drove that?</strong> Select the clearest reasons first. If you reject the property, those reasons become the strongest future filters.</p>
+	      <p class="object-copy"><strong>Why?</strong> Select the clearest reasons first. If you reject the property, those reasons become the strongest future filters.</p>
 	      <div class="object-feedback-reasons" data-object-feedback-reasons>
 	        {% for row in (object_feedback.get('suggestions') or {}).get('negative') or [] %}
 	        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
@@ -847,7 +889,7 @@
 	        {% endfor %}
 	      </div>
 	      {% if (object_feedback.get('suggestions') or {}).get('agent_questions') %}
-	      <div class="object-copy"><strong>Next question to send</strong></div>
+	      <div class="object-copy"><strong>Ask next</strong></div>
 	      <div class="object-list">
 	        {% for row in (object_feedback.get('suggestions') or {}).get('agent_questions') or [] %}
 	        <div class="object-row">
@@ -893,25 +935,25 @@
 	      </div>
 	      <p class="object-copy" data-object-feedback-status></p>
 	      <div class="object-actions" style="margin-top: 12px;">
-	        <button class="console-action" type="button" data-object-clippy-toggle>Open guided questions</button>
+	        <button class="console-action" type="button" data-object-clippy-toggle>Ask about this home</button>
 	      </div>
 	      <div class="object-list" data-object-clippy-panel hidden>
 	        <div class="object-row">
 	          <div>
-	            <strong>Guided questions</strong>
+	            <strong>Question helper</strong>
 	            <small>Ask one grounded question about this property. It only answers from the facts, timeline, stakeholder feedback, and investment context already on this page.</small>
 	          </div>
 	          <div class="object-tag">Opt-in</div>
 	        </div>
 	        <div class="object-actions">
 	          <button class="console-action" type="button" data-object-clippy-prompt="Why is this only Maybe?">Why is this only Maybe?</button>
-	          <button class="console-action" type="button" data-object-clippy-prompt="What should I ask the agent next?">Next question</button>
+	          <button class="console-action" type="button" data-object-clippy-prompt="What should I ask next?">Ask next</button>
 	          <button class="console-action" type="button" data-object-clippy-prompt="What changed since last time?">What changed?</button>
 	          <button class="console-action" type="button" data-object-clippy-prompt="What is the biggest investment risk here?">Investment risk</button>
 	        </div>
 	        <textarea data-object-clippy-question rows="3" placeholder="Ask about blockers, household disagreement, underwriting risk, or the next agent follow-up."></textarea>
 	        <div class="object-actions">
-	          <button class="console-action" type="button" data-object-clippy-ask>Ask guided question</button>
+	          <button class="console-action" type="button" data-object-clippy-ask>Ask</button>
 	        </div>
 	        <div class="object-copy" data-object-clippy-status></div>
 	        <div class="object-list" data-object-clippy-answer></div>
@@ -1004,7 +1046,7 @@
 <section class="object-sections{% if settings_surface %} is-settings-surface{% endif %}">
   {% for section in object_sections %}
   {% if settings_surface %}
-  <details class="object-section object-disclosure"{% if section.get('open') or loop.first %} open{% endif %}>
+  <details class="object-section object-disclosure"{% if section.get('open') or loop.first %} open{% endif %} data-object-mobile-default="{{ 'open' if section.get('open') or loop.first else 'closed' }}">
     <summary class="object-disclosure-summary">
       <span class="object-disclosure-copy">
         <span class="object-kicker">{{ section["eyebrow"] }}</span>
@@ -1135,6 +1177,37 @@
     {% endif %}
   {% endfor %}
 </section>
+{% if settings_surface %}
+<script>
+(() => {
+  if (!window.matchMedia('(max-width: 760px)').matches) return;
+  const settingsSurfaceDisclosures = [...document.querySelectorAll('.is-settings-surface details.object-disclosure')];
+  const preferredOpenDisclosure = settingsSurfaceDisclosures.find((detailsNode) => (
+    String(detailsNode.dataset.objectMobileDefault || '').trim() === 'open'
+  )) || settingsSurfaceDisclosures[0] || null;
+  const closeOtherDisclosures = (activeNode) => {
+    settingsSurfaceDisclosures.forEach((candidate) => {
+      if (candidate !== activeNode) {
+        candidate.open = false;
+      }
+    });
+  };
+  settingsSurfaceDisclosures.forEach((detailsNode) => {
+    detailsNode.open = detailsNode === preferredOpenDisclosure;
+    detailsNode.addEventListener('toggle', () => {
+      if (!detailsNode.open) return;
+      closeOtherDisclosures(detailsNode);
+    });
+    const summary = detailsNode.querySelector('summary');
+    if (summary instanceof HTMLElement) {
+      summary.addEventListener('click', () => {
+        closeOtherDisclosures(detailsNode);
+      });
+    }
+  });
+})();
+</script>
+{% endif %}
 {% if object_feedback %}
 <script>
 (() => {
@@ -1246,7 +1319,7 @@
     const safeRows = Array.isArray(rows) ? rows : [];
     const rowsToRender = safeRows.length
       ? safeRows
-      : [{ title: 'No tracked question yet', detail: 'Use guided questions or the suggested next question to start a tracked follow-up.', tag: 'Waiting' }];
+      : [{ title: 'No tracked question yet', detail: 'Use the question helper or the suggested next question to start a tracked follow-up.', tag: 'Waiting' }];
     rowsToRender.forEach((row) => {
       const feedbackId = String(row?.feedback_id || '').trim();
       const container = document.createElement('div');
@@ -1339,7 +1412,7 @@
     const summaryRow = document.createElement('div');
     summaryRow.className = 'object-row';
     const summaryWrap = document.createElement('div');
-    appendTextNode(summaryWrap, 'strong', body?.name || 'Guided questions');
+    appendTextNode(summaryWrap, 'strong', body?.name || 'Question helper');
     appendTextNode(summaryWrap, 'small', body?.answer || 'No answer returned.');
     summaryRow.appendChild(summaryWrap);
     appendTextNode(summaryRow, 'div', 'Grounded').className = 'object-tag';
@@ -1387,7 +1460,7 @@
             selectedReasons.add(String(row.reason_key || ''));
             reasonButton.classList.add('active');
           }
-          if (status) status.textContent = `Guided questions marked ${String(row.detail || 'a reason').trim()} as the current reason. Save your answer when ready.`;
+          if (status) status.textContent = `Question helper marked ${String(row.detail || 'a reason').trim()} as the current reason. Save your answer when ready.`;
           return;
         }
         if (action === 'ask_agent' && row.question) {
@@ -1422,7 +1495,7 @@
   clippyToggle?.addEventListener('click', () => {
     const open = Boolean(clippyPanel?.hidden);
     if (clippyPanel) clippyPanel.hidden = !open;
-    clippyToggle.textContent = open ? 'Hide guided questions' : 'Open guided questions';
+    clippyToggle.textContent = open ? 'Hide questions' : 'Ask about this home';
   });
   magicFitToggle?.addEventListener('click', () => {
     const open = Boolean(magicFitPanel?.hidden);
@@ -1590,7 +1663,7 @@
       if (clippyStatus) clippyStatus.textContent = 'Ask a specific property question first.';
       return;
     }
-    if (clippyStatus) clippyStatus.textContent = 'Guided questions are reviewing the property context...';
+    if (clippyStatus) clippyStatus.textContent = 'Checking this page...';
     try {
       const response = await fetch(String(payload.clippy_endpoint || '/app/api/property/decision-copilot'), {
         method: 'POST',
@@ -1607,11 +1680,11 @@
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(body.detail || 'Guided questions could not answer right now.'));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not answer right now.'));
       renderClippy(body);
-      if (clippyStatus) clippyStatus.textContent = 'Guided questions answered from the current property context.';
+      if (clippyStatus) clippyStatus.textContent = 'Answered from this page.';
     } catch (error) {
-      if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Guided questions could not answer right now.';
+      if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Could not answer right now.';
     }
   });
   root.querySelectorAll('[data-object-feedback-reaction]').forEach((button) => {
@@ -1679,9 +1752,9 @@
   }
   if (shouldOpenClippy) {
     if (clippyPanel) clippyPanel.hidden = false;
-    if (clippyToggle) clippyToggle.textContent = 'Hide guided questions';
+    if (clippyToggle) clippyToggle.textContent = 'Hide questions';
     if (clippyQuestion && presetPrompt) clippyQuestion.value = presetPrompt;
-    if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Guided question prompt loaded from the email or shared link.';
+    if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Question loaded from the email or shared link.';
   }
 })();
 </script>

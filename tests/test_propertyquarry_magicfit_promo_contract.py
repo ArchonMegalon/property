@@ -80,6 +80,7 @@ def test_propertyquarry_magicfit_renderer_receipt_binds_to_property_slug() -> No
 
 def test_propertyquarry_magicfit_helpers_do_not_read_chummer_credentials() -> None:
     helper_paths = [
+        ROOT / "scripts" / "property_magicfit_env.py",
         ROOT / "scripts" / "render_magicfit_property_flythrough.py",
         ROOT / "scripts" / "diagnose_magicfit_video_ui.py",
         ROOT / "scripts" / "inspect_magicfit_session_assets.py",
@@ -93,6 +94,26 @@ def test_propertyquarry_magicfit_helpers_do_not_read_chummer_credentials() -> No
         body = path.read_text(encoding="utf-8")
         assert "CHUMMER_EA_MAGICFIT" not in body, str(path)
         assert "chummer.run-services/.env" not in body, str(path)
+
+
+def test_propertyquarry_magicfit_helpers_do_not_default_to_real_account_emails() -> None:
+    helper_paths = [
+        ROOT / "scripts" / "property_magicfit_env.py",
+        ROOT / "scripts" / "render_magicfit_property_flythrough.py",
+        ROOT / "scripts" / "diagnose_magicfit_video_ui.py",
+        ROOT / "scripts" / "inspect_magicfit_session_assets.py",
+        ROOT / "scripts" / "diagnose_magicfit_extend_ui.py",
+        ROOT / "scripts" / "materialize_magicfit_provider_completion.py",
+        ROOT / "scripts" / "verify_magicfit_provider.py",
+    ]
+    forbidden = (
+        "tibor.girschele@gmail.com",
+        "the.girscheles@gmail.com",
+    )
+    for path in helper_paths:
+        body = path.read_text(encoding="utf-8")
+        for account in forbidden:
+            assert account not in body, str(path)
 
 
 def test_propertyquarry_release_gates_include_magicfit_promo_contract() -> None:

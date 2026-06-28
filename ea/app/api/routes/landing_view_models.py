@@ -446,10 +446,21 @@ def _sanitize_platform_catalog_for_client(platform_catalog: dict[str, object]) -
                 "label": str(option.get("label") or option.get("value") or "").strip(),
                 "family": str(option.get("family") or "").strip(),
             }
+            option_country_code = str(option.get("country_code") or country_key).strip().upper()
+            if option_country_code:
+                row["country_code"] = option_country_code
             detail = str(option.get("detail") or option.get("description") or "").strip()
             normalized_detail = detail.lower()
             if detail and "floorplans " not in normalized_detail and "filters " not in normalized_detail:
                 row["detail"] = detail
+            homepage_url = str(option.get("homepage_url") or "").strip()
+            if homepage_url:
+                row["homepage_url"] = homepage_url
+            availability_note = str(option.get("availability_note") or "").strip()
+            if availability_note:
+                row["availability_note"] = availability_note
+            if option.get("search_ready") is False:
+                row["search_ready"] = False
             rows.append(row)
         sanitized[country_key] = rows
     return sanitized
@@ -2181,7 +2192,7 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
         {"value": "pharmacy nearby", "label": "Pharmacy", "detail": "Healthcare basics"},
         {"value": "underground nearby", "label": "Underground", "detail": "Fast transit access"},
         {"value": "good air quality", "label": "Good air quality", "detail": "Treat air burden as a real quality signal"},
-        {"value": "klimaerwaermungsfit", "label": "Klimaerwärmungsfit", "detail": "Kann die Wohnung auch bei längeren Hitzeperioden kühl bleiben? Malus für Dachgeschoss, große südseitige Fenster und heiße Stadtlagen; Bonus für Klimaanlage, Altbau, Bäume vor den Fenstern und Außenjalousien."},
+        {"value": "klimaerwaermungsfit", "label": "Stays cool in summer", "detail": "Can the home stay cool during longer heat waves?"},
         {"value": "avoid noise-risk area", "label": "Avoid noise-risk area", "detail": "Treat official noise burden as a genuine location risk"},
         {"value": "high-speed internet", "label": "High-speed internet evidence", "detail": "Broadband evidence matters for the final call"},
         {"value": "low crime area", "label": "Low crime area", "detail": "Treat quarter-level safety burden as a real signal"},
@@ -2198,6 +2209,75 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
         {"value": "bright", "label": "Bright", "detail": "Good natural light"},
         ]
     )
+
+
+def _localized_property_ui_text(localized: object, language_code: object, fallback: object) -> str:
+    text = str(fallback or "").strip()
+    if not isinstance(localized, dict) or not localized:
+        return text
+    normalized = str(language_code or "").strip().lower().replace("_", "-")
+    candidates: list[str] = []
+    if normalized:
+        candidates.append(normalized)
+        if "-" in normalized:
+            candidates.append(normalized.split("-", 1)[0])
+    for candidate in (*candidates, "de", "en"):
+        value = str(localized.get(candidate) or "").strip()
+        if value:
+            return value
+    for value in localized.values():
+        value = str(value or "").strip()
+        if value:
+            return value
+    return text
+
+
+def _property_heat_resilience_copy(language_code: object) -> dict[str, object]:
+    labels = {
+        "de": "Bleibt im Sommer kühl",
+        "en": "Stays cool in summer",
+        "es": "Se mantiene fresca en verano",
+        "fr": "Reste frais en ete",
+        "it": "Resta fresca in estate",
+        "nl": "Blijft koel in de zomer",
+        "pt": "Mantem-se fresca no verao",
+        "pl": "Pozostaje chlodne latem",
+        "sv": "Haller sig sval pa sommaren",
+    }
+    details = {
+        "de": "Kann die Wohnung auch bei längeren Hitzeperioden kühl bleiben?",
+        "en": "Can the home stay cool during longer heat waves?",
+        "es": "Puede mantenerse fresca la vivienda durante olas de calor largas?",
+        "fr": "Le logement peut-il rester frais pendant de longues periodes de chaleur?",
+        "it": "La casa resta fresca durante lunghe ondate di caldo?",
+        "nl": "Kan de woning koel blijven tijdens langere hitteperiodes?",
+        "pt": "A casa consegue manter-se fresca em ondas de calor prolongadas?",
+        "pl": "Czy mieszkanie pozostaje chlodne podczas dlugich fal upalu?",
+        "sv": "Kan bostaden halla sig sval under langre varmeperioder?",
+    }
+    tooltips = {
+        "de": "Prueft Sommerhitze, Dachgeschoss, grosse suedseitige Fenster, heisse Stadtlagen, Klimaanlage, Altbau, Schatten, Baeume und Aussenjalousien als Score-Signal.",
+        "en": "Checks heat waves, top-floor risk, large south-facing windows, hotter city areas, cooling, old-building thermal mass, shade, trees, and external blinds.",
+        "es": "Comprueba olas de calor, riesgo de atico, grandes ventanas al sur, zonas urbanas mas calientes, aire acondicionado, muros gruesos, sombra y persianas exteriores.",
+        "fr": "Verifie chaleur estivale, risque de dernier etage, grandes fenetres au sud, secteurs urbains plus chauds, climatisation, murs epais, ombre et stores exterieurs.",
+        "it": "Controlla ondate di calore, rischio ultimo piano, grandi finestre a sud, zone urbane piu calde, climatizzazione, muri spessi, ombra e schermature esterne.",
+        "nl": "Controleert hittegolven, risico van bovenste verdieping, grote zuidramen, warmere stadsdelen, koeling, dikke muren, schaduw en buitenzonwering.",
+        "pt": "Verifica ondas de calor, risco de ultimo andar, grandes janelas a sul, zonas urbanas mais quentes, ar condicionado, paredes espessas, sombra e estores exteriores.",
+        "pl": "Sprawdza fale upalow, ryzyko ostatniego pietra, duze okna od poludnia, gorace dzielnice, klimatyzacje, grube sciany, cien i rolety zewnetrzne.",
+        "sv": "Kontrollerar varmeboljor, risk pa oversta vaningen, stora sodervanda fonster, varmare stadsdelar, kylning, tjocka vaggar, skugga och utvandiga solskydd.",
+    }
+    return {
+        "label": _localized_property_ui_text(labels, language_code, "Stays cool in summer"),
+        "detail": _localized_property_ui_text(details, language_code, "Can the home stay cool during longer heat waves?"),
+        "tooltip": _localized_property_ui_text(
+            tooltips,
+            language_code,
+            "Checks heat waves, top-floor risk, large south-facing windows, hotter city areas, cooling, old-building thermal mass, shade, trees, and external blinds.",
+        ),
+        "label_i18n": labels,
+        "detail_i18n": details,
+        "tooltip_i18n": tooltips,
+    }
 
 
 def _property_keyword_options() -> list[dict[str, str]]:
@@ -2399,18 +2479,15 @@ def _property_keyword_options() -> list[dict[str, str]]:
         "flaniermeile nearby": long_distance_options,
         "theatre nearby": long_distance_options,
     }
+    heat_resilience_copy = _property_heat_resilience_copy("de")
     localized_details = {
-        "klimaerwaermungsfit": {
-            "de": "Kann die Wohnung auch bei längeren Hitzeperioden kühl bleiben? Malus für Dachgeschoss, große südseitige Fenster und heiße Stadtlagen; Bonus für Klimaanlage, Altbau, Bäume vor den Fenstern und Außenjalousien.",
-            "en": "Can the home stay cool during longer heat waves? Penalizes top-floor homes, large south-facing windows, and hotter city areas; rewards air conditioning, thick old-building walls, tree shade, and external blinds.",
-            "es": "Puede mantenerse fresca la vivienda durante olas de calor largas? Penaliza aticos, grandes ventanas al sur y zonas urbanas calientes; premia aire acondicionado, muros gruesos, sombra de arboles y persianas exteriores.",
-            "fr": "Le logement peut-il rester frais pendant de longues periodes de chaleur? Penalise dernier etage, grandes fenetres plein sud et secteurs urbains chauds; valorise climatisation, murs epais, ombre d'arbres et stores exterieurs.",
-            "it": "La casa resta fresca durante lunghe ondate di caldo? Penalizza ultimo piano, grandi finestre a sud e zone urbane calde; premia climatizzazione, muri spessi, ombra degli alberi e schermature esterne.",
-            "nl": "Kan de woning koel blijven tijdens langere hitteperiodes? Straft bovenste verdieping, grote zuidramen en warmere stadsdelen; beloont airco, dikke muren, boomschaduw en buitenzonwering.",
-            "pt": "A casa consegue manter-se fresca em ondas de calor prolongadas? Penaliza ultimo andar, grandes janelas viradas a sul e zonas urbanas quentes; valoriza ar condicionado, paredes espessas, sombra de arvores e estores exteriores.",
-            "pl": "Czy mieszkanie pozostaje chlodne podczas dlugich fal upalu? Karze najwyzsze pietro, duze okna od poludnia i gorace obszary miejskie; nagradza klimatyzacje, grube sciany, cien drzew i zewnetrzne rolety.",
-            "sv": "Kan bostaden halla sig sval under langre varmeperioder? Straffar hogsta vaning, stora soderfonster och varmare stadsdelar; premierar AC, tjocka vaggar, tradskugga och utvandiga solskydd.",
-        }
+        "klimaerwaermungsfit": dict(heat_resilience_copy.get("detail_i18n") or {}),
+    }
+    localized_labels = {
+        "klimaerwaermungsfit": dict(heat_resilience_copy.get("label_i18n") or {}),
+    }
+    localized_tooltips = {
+        "klimaerwaermungsfit": dict(heat_resilience_copy.get("tooltip_i18n") or {}),
     }
     return [
         {
@@ -2418,7 +2495,9 @@ def _property_keyword_options() -> list[dict[str, str]]:
             "label": label,
             "display_key": re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-"),
             "detail": detail,
+            **({"label_i18n": localized_labels[value]} if value in localized_labels else {}),
             **({"detail_i18n": localized_details[value]} if value in localized_details else {}),
+            **({"tooltip_i18n": localized_tooltips[value]} if value in localized_tooltips else {}),
             "group": "daily_life" if value in daily_life_keywords else ("risk_evidence" if value in risk_evidence_keywords else "home_basics"),
             **({"preference_options": preference_options[value]} if value in preference_options else {}),
             **({"distance_options": distance_options.get(value, default_distance_options)} if value in {"playground nearby", "library nearby", "zoo nearby", "public pool nearby", "medical care nearby", "supermarket nearby", "market nearby", "Baumarkt nearby", "shopping center nearby", "flaniermeile nearby", "theatre nearby", "pharmacy nearby", "underground nearby"} else {}),
@@ -2807,7 +2886,7 @@ def app_section_payload(
     ]
     first_brief = list_rows(
         preview.get("first_brief_preview") or preview.get("first_brief"),
-        ("Connect Google sign-in if you want a faster return path and verified account access.",),
+        ("Connect Google sign-in if you want a faster return path and account access without another sign-up.",),
     )
     suggested = list_rows(preview.get("suggested_actions"), ("Finish onboarding and create the first saved search.",))
     trust_notes = list_rows(preview.get("trust_notes"), ("Keep retention and sharing settings explicit.",))
@@ -3108,7 +3187,31 @@ def app_section_payload(
         str(property_preferences.get("country_code") or "AT"),
         selected_region_code,
     )
-    keyword_options = _property_keyword_options()
+    selected_language_code = str(property_preferences.get("language_code") or "de").strip().lower() or "de"
+    keyword_options = []
+    for option in _property_keyword_options():
+        localized_option = dict(option)
+        localized_option["label"] = _localized_property_ui_text(
+            localized_option.get("label_i18n"),
+            selected_language_code,
+            localized_option.get("label"),
+        )
+        localized_option["detail"] = _localized_property_ui_text(
+            localized_option.get("detail_i18n"),
+            selected_language_code,
+            localized_option.get("detail"),
+        )
+        has_explicit_tooltip = bool(localized_option.get("tooltip_i18n")) or bool(
+            str(localized_option.get("tooltip") or "").strip()
+        )
+        localized_tooltip = _localized_property_ui_text(
+            localized_option.get("tooltip_i18n"),
+            selected_language_code,
+            localized_option.get("tooltip") or "",
+        )
+        if has_explicit_tooltip and localized_tooltip:
+            localized_option["tooltip"] = localized_tooltip
+        keyword_options.append(localized_option)
     school_preference_options = _property_school_preference_options(
         selected_school_stage_preferences=selected_school_stage_preferences,
         require_school_evidence=bool(property_preferences.get("require_school_evidence")),
@@ -3618,14 +3721,20 @@ def app_section_payload(
     )
     if property_search_mode == "strict" and property_run_status_for_defaults in {"processed", "completed"} and property_ranked_total_for_defaults < 6:
         property_search_mode = "discovery"
+    raw_property_min_match_score = property_preferences.get("min_match_score")
     try:
-        property_min_match_score_value = int(property_preferences.get("min_match_score") or min(property_visible_max_match_score, property_plan_max_match_score))
+        property_min_match_score_value = (
+            int(raw_property_min_match_score)
+            if raw_property_min_match_score not in (None, "")
+            else 0
+        )
     except Exception:
-        property_min_match_score_value = min(property_visible_max_match_score, property_plan_max_match_score)
-    property_min_match_score_value = max(1, min(property_min_match_score_value, property_plan_max_match_score))
+        property_min_match_score_value = 0
+    property_min_match_score_value = max(0, min(property_min_match_score_value, property_plan_max_match_score))
     property_min_match_tooltip = (
-        "Minimum personal fit score a listing must beat before it can enter the shortlist. "
-        "Raising it usually improves precision, but can make searches much slower and increases backend crawl and scoring load."
+        "Use this bar to separate stronger personal matches from weaker ones inside the ranking. "
+        "It does not remove homes from the run. "
+        "Set it to Off when you want one broad ranked list."
     )
     property_min_match_upgrade_hint = _property_upgrade_hint(
         "max_match_score",
@@ -3993,7 +4102,7 @@ def app_section_payload(
                 "label": "Manual validation for Facebook / Telegram leads",
                 "value": "true",
                 "checked": bool(property_preferences.get("require_manual_validation_for_community")),
-                "tooltip": "Community-sourced hits should be treated as unverified until a human confirms identity, freshness, and legitimacy.",
+                "tooltip": "Community-sourced hits should stay separate until a human confirms identity, freshness, and legitimacy.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
                 "hidden": not show_community_validation_controls,
@@ -4815,10 +4924,10 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "prefer_heat_resilient_home",
-                "label": "Klimaerwärmungsfit",
+                "label": _property_heat_resilience_copy(selected_language_code)["label"],
                 "value": "true",
                 "checked": bool(property_preferences.get("prefer_heat_resilient_home")),
-                "tooltip": "Kann die Wohnung auch bei längeren Hitzeperioden kühl bleiben? Nutzt offizielle Klimadaten, Lage, Dachgeschoss-/Fenster-Hinweise, Klimaanlage, Altbau, Schatten, Bäume und Außenjalousien als Score-Signal.",
+                "tooltip": _property_heat_resilience_copy(selected_language_code)["tooltip"],
                 "step": "children",
             },
             {
@@ -4994,20 +5103,21 @@ def app_section_payload(
                     property_plan_max_results,
                     property_visible_max_results_per_source,
                 ),
-                "tooltip": "How many strong matches each provider may return. Higher values increase review depth and processing work.",
+                "tooltip": "How many ranked homes each provider may return. Higher values increase review depth and processing work.",
                 "step": "providers",
             },
             {
                 "type": "range",
                 "name": "min_match_score",
-                "label": "Match score",
+                "label": "Ranking bar",
                 "value": str(property_min_match_score_value),
-                "min": "1",
+                "min": "0",
                 "max": str(property_visible_max_match_score),
                 "selectable_max": str(property_plan_max_match_score),
                 "visual_max": str(property_visible_max_match_score),
                 "range_step": "1",
                 "suffix": f"/{property_visible_max_match_score}",
+                "empty_label": "Off",
                 "upgrade_hint": property_min_match_upgrade_hint,
                 "tooltip": property_min_match_tooltip,
                 "step": "providers",
@@ -5323,7 +5433,7 @@ def app_section_payload(
             "title": "Properties",
             "summary": (
                 str(property_run.get("message") or "").strip()
-                or "Run a dedicated cross-platform property crawl, keep the progress visible, and surface hosted 3D-tour matches instead of raw listing noise."
+                or "Run a dedicated cross-platform property crawl, keep the progress visible, and surface live 3D-tour matches instead of raw listing noise."
             ),
             "cards": [
                 {
@@ -5374,7 +5484,7 @@ def app_section_payload(
                     or [
                         row_item(
                             "First shortlist still pending",
-                            "Launch the first sweep to generate a ranked candidate lane with property pages, hosted tours, and visible fit reasons.",
+                            "Launch the first sweep to generate a ranked candidate lane with property pages, live tours, and visible fit reasons.",
                             "First run",
                         )
                     ],
@@ -5382,7 +5492,7 @@ def app_section_payload(
                 {
                     "eyebrow": "Run status",
                     "title": "Current crawl",
-                    "body": str(property_run.get("message") or "Start a crawl to see source-by-source progress, shortlisted hosted tours, and what actually got sent."),
+                    "body": str(property_run.get("message") or "Start a crawl to see source-by-source progress, shortlisted 3D tours, and what actually got sent."),
                     "items": property_source_rows
                     or property_event_rows
                     or [

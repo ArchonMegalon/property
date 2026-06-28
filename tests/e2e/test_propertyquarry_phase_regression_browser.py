@@ -22,7 +22,7 @@ def test_core_propertyquarry_pages_still_render(monkeypatch, tmp_path: Path) -> 
 
     packets = client.get("/app/properties/packets")
     assert packets.status_code == 200
-    assert "Share polished property pages and track the replies." in packets.text
+    assert "Share property pages and keep the replies together." in packets.text
 
     settings = client.get("/app/settings")
     assert settings.status_code == 200

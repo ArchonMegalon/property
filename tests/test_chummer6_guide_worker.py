@@ -213,6 +213,154 @@ def test_ea_json_retries_writer_skill_after_bootstrap(monkeypatch) -> None:
     assert bootstrap_calls == [True]
 
 
+def test_ea_task_json_executes_shared_scene_video_skill_with_custom_input(monkeypatch) -> None:
+    worker = _load_worker_module()
+    captured: dict[str, object] = {}
+
+    class _Artifact:
+        structured_output_json = {
+            "deliverable_type": "scene_video_packet",
+            "provider_key": "mootion",
+            "render_status": "completed",
+            "video_url": "https://example.com/runsite.mp4",
+        }
+        content = ""
+
+    class _Orchestrator:
+        def execute_task_artifact(self, request):
+            captured["request"] = request
+            return _Artifact()
+
+    monkeypatch.setattr(worker, "_ea_orchestrator", lambda: _Orchestrator())
+
+    result = worker.ea_task_json(
+        skill_key=worker.SCENE_VIDEO_SKILL_KEY,
+        goal="Generate a runsite fight scene packet.",
+        input_json={
+            "provider_key": "mootion",
+            "context_kind": "scene_briefing",
+            "title": "Runsite fight scene",
+            "script_text": "Create a grounded Shadowrun fight-scene briefing video.",
+        },
+    )
+    request = captured["request"]
+
+    assert result["deliverable_type"] == "scene_video_packet"
+    assert request.skill_key == "scene_video_generate"
+    assert request.goal == "Generate a runsite fight scene packet."
+    assert request.text == "Create a grounded Shadowrun fight-scene briefing video."
+    assert request.input_json["provider_key"] == "mootion"
+
+
+def test_build_runsite_scene_video_request_normalizes_provider_and_binding_id(monkeypatch) -> None:
+    monkeypatch.setenv("CHUMMER6_RUNSITE_VIDEO_PROVIDER", "magic")
+    monkeypatch.setenv("CHUMMER6_RUNSITE_VIDEO_BINDING_ID", "binding-runsite-77")
+    worker = _load_worker_module()
+
+    packet = worker.build_runsite_scene_video_request(
+        horizon_id="runsite",
+        item={"title": "Runsite"},
+        copy_row={
+            "table_scene": "The table reads the dock threshold before the firefight.",
+            "problem": "The briefing fails if the room geometry disappears.",
+            "hook": "Know the choke point before it knows you.",
+            "pitch_line": "Field clarity before bravado.",
+        },
+        media_row={
+            "scene_contract": {
+                "overlays": ["ingress cones", "threat silhouettes"],
+                "props": ["chain rails", "dock bumpers"],
+            }
+        },
+    )
+
+    assert packet["skill_key"] == "scene_video_generate"
+    assert packet["task_key"] == "scene_video_generate"
+    assert packet["input_json"]["provider_key"] == "omagic"
+    assert packet["input_json"]["binding_id"] == "binding-runsite-77"
+    assert packet["input_json"]["context_kind"] == "scene_briefing"
+    assert "ingress cones" in packet["input_json"]["script_text"]
+    assert "dock bumpers" in packet["input_json"]["script_text"]
+
+
+def test_runsite_scene_video_execution_enabled_defaults_true(monkeypatch) -> None:
+    monkeypatch.delenv("CHUMMER6_RUNSITE_VIDEO_EXECUTE", raising=False)
+    worker = _load_worker_module()
+
+    assert worker._runsite_scene_video_execution_enabled() is True
+
+
+def test_runsite_scene_video_execution_enabled_accepts_explicit_disable(monkeypatch) -> None:
+    monkeypatch.setenv("CHUMMER6_RUNSITE_VIDEO_EXECUTE", "off")
+    worker = _load_worker_module()
+
+    assert worker._runsite_scene_video_execution_enabled() is False
+
+
+def test_normalize_scene_video_backend_provider_key_maps_runtime_aliases() -> None:
+    worker = _load_worker_module()
+
+    assert worker._normalize_scene_video_backend_provider_key("mootion") == "mootion"
+    assert worker._normalize_scene_video_backend_provider_key("magicfit") == "magicfit"
+    assert worker._normalize_scene_video_backend_provider_key("magic") == "onemin_i2v"
+    assert worker._normalize_scene_video_backend_provider_key("omagic") == "onemin_i2v"
+    assert worker._normalize_scene_video_backend_provider_key("onemin") == "onemin_i2v"
+    assert worker._normalize_scene_video_backend_provider_key("onemin_i2v") == "onemin_i2v"
+
+
+def test_scene_video_status_packet_normalizes_provider_and_backend_key() -> None:
+    worker = _load_worker_module()
+
+    packet = worker._scene_video_status_packet(
+        provider_key="magic",
+        render_status="skipped",
+        reason="scene_video_execution_disabled",
+    )
+
+    assert packet == {
+        "deliverable_type": "scene_video_packet",
+        "provider_key": "omagic",
+        "provider_backend_key": "onemin_i2v",
+        "render_status": "skipped",
+        "reason": "scene_video_execution_disabled",
+    }
+
+
+def test_execute_scene_video_request_routes_through_ea_task_json(monkeypatch) -> None:
+    worker = _load_worker_module()
+    captured: dict[str, object] = {}
+
+    def _fake_ea_task_json(**kwargs):
+        captured.update(kwargs)
+        return {
+            "deliverable_type": "scene_video_packet",
+            "provider_key": "magicfit",
+            "render_status": "completed",
+            "video_url": "https://example.com/magicfit-runsite.mp4",
+        }
+
+    monkeypatch.setattr(worker, "ea_task_json", _fake_ea_task_json)
+
+    result = worker.execute_scene_video_request(
+        {
+            "skill_key": worker.SCENE_VIDEO_SKILL_KEY,
+            "goal": "Generate a shared scene video packet for runsite.",
+            "input_json": {
+                "provider_key": "magicfit",
+                "context_kind": "scene_briefing",
+                "title": "Runsite fight scene",
+                "script_text": "Render the runsite fight-scene briefing.",
+            },
+        }
+    )
+
+    assert result["provider_key"] == "magicfit"
+    assert captured["skill_key"] == "scene_video_generate"
+    assert captured["text"] == "Render the runsite fight-scene briefing."
+    assert captured["principal_id"] == "ea-scene_video_generate-runsite-worker"
+    assert captured["input_json"]["title"] == "Runsite fight scene"
+
+
 def test_humanize_text_falls_back_to_brain_when_external_humanizer_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     worker = _load_worker_module()
     source = (

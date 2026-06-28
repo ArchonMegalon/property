@@ -85,6 +85,7 @@ from app.api.routes.landing_property_research import (
     _property_packet_provenance_rows,
     _property_packet_risk_fit_rows,
     _property_packet_score_rows,
+    _property_normalized_mismatch_reasons,
     _property_research_gallery_items,
     _property_research_money_display,
     _property_review_detail_line,
@@ -174,6 +175,13 @@ _PROPERTY_BILLING_HANDOFF_CACHE: dict[str, object] = {
     "expires_at": 0.0,
     "future": None,
 }
+_PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE_LOCK = threading.Lock()
+_PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE: dict[str, object] = {
+    "cache_key": "",
+    "receipt": {},
+    "expires_at": 0.0,
+    "future": None,
+}
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
@@ -218,28 +226,69 @@ def _normalize_public_directory_profile_id(profile_id: str) -> str:
     return normalized
 
 
-def _property_brilliant_directories_billing_handoff() -> dict[str, object]:
-    try:
-        config = brilliant_directories_service.load_brilliant_directories_config()
-        hosted_urls = brilliant_directories_service.brilliant_directories_billing_handoff_urls(config)
-    except brilliant_directories_service.BrilliantDirectoriesApiError:
-        return {"available": False, "status": "unavailable"}
+def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_handoff: bool = False) -> dict[str, object]:
+    bridge_receipt = brilliant_directories_service.build_brilliant_directories_billing_sso_bridge_receipt()
+    bridge_ready = bool(bridge_receipt.get("ready"))
+    member_token_receipt = brilliant_directories_service.build_brilliant_directories_member_login_token_receipt()
+    member_token_ready = bool(member_token_receipt.get("ready"))
+    verification_receipt = _property_cached_direct_billing_verification_receipt() if allow_verified_direct_handoff else {}
+    verified_billing_handoff = dict(verification_receipt.get("billing_handoff") or {})
+    verified_handoff_url = str(verified_billing_handoff.get("url") or "").strip()
+    verified_direct_handoff_ready = bool(
+        allow_verified_direct_handoff
+        and verified_handoff_url
+        and verified_billing_handoff.get("configured") is True
+        and verified_billing_handoff.get("host_resolves") is True
+        and verified_billing_handoff.get("account_handoff_usable") is not False
+    )
+    bridge_href = "/app/api/property/billing/bridge-launch" if bridge_ready else ""
+    launch_href = "/app/api/property/billing/bridge-launch" if (bridge_ready or member_token_ready) else ""
+    hosted_urls = brilliant_directories_service.brilliant_directories_billing_handoff_urls()
     if not hosted_urls:
-        return {"available": False, "status": "disabled"}
+        if verified_direct_handoff_ready:
+            return {
+                "available": True,
+                "status": "ready",
+                "hosted_href": verified_handoff_url,
+                "open_href": verified_handoff_url,
+                "bridge_href": bridge_href,
+                "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+                "member_token_status": "ready" if member_token_ready else str(member_token_receipt.get("error") or "").strip(),
+            }
+        if bridge_ready:
+            return {
+                "available": True,
+                "status": "bridge_ready",
+                "open_href": launch_href,
+                "bridge_href": bridge_href,
+                "bridge_status": "ready",
+            }
+        return {
+            "available": False,
+            "status": "disabled",
+            "bridge_href": bridge_href,
+            "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+        }
     primary_hosted_url = hosted_urls[0]
+    if verified_direct_handoff_ready:
+        return {
+            "available": True,
+            "status": "ready",
+            "hosted_href": verified_handoff_url,
+            "open_href": verified_handoff_url,
+            "bridge_href": bridge_href,
+            "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+            "member_token_status": "ready" if member_token_ready else str(member_token_receipt.get("error") or "").strip(),
+        }
     runtime_dns_check = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_RUNTIME_DNS_CHECK") or "1").strip().lower()
     if runtime_dns_check not in {"0", "false", "no", "off", "disabled"}:
         first_blocked_state: dict[str, object] | None = None
+        primary_verification_pending = False
         for index, hosted_url in enumerate(hosted_urls):
             handoff_receipt = _property_cached_billing_handoff_receipt(hosted_url=hosted_url)
             if not handoff_receipt:
                 if index == 0:
-                    return {
-                        "available": False,
-                        "status": "verifying",
-                        "hosted_href": hosted_url,
-                        "error": "billing_handoff_verification_pending",
-                    }
+                    primary_verification_pending = True
                 continue
             if bool(handoff_receipt.get("host_resolves")) and handoff_receipt.get("account_handoff_usable") is not False:
                 response = {
@@ -247,6 +296,8 @@ def _property_brilliant_directories_billing_handoff() -> dict[str, object]:
                     "status": "ready",
                     "hosted_href": hosted_url,
                     "open_href": hosted_url,
+                    "bridge_href": bridge_href,
+                    "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
                 }
                 if index > 0:
                     response["preferred_href"] = primary_hosted_url
@@ -259,17 +310,50 @@ def _property_brilliant_directories_billing_handoff() -> dict[str, object]:
                         "status": "unresolved",
                         "hosted_href": hosted_url,
                         "error": str(handoff_receipt.get("error") or "billing_handoff_host_unresolved"),
+                        "bridge_href": bridge_href,
+                        "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+                        "member_token_status": "ready" if member_token_ready else str(member_token_receipt.get("error") or "").strip(),
                     }
-                else:
+                elif member_token_ready:
                     first_blocked_state = {
-                        "available": False,
-                        "status": "login_required",
+                        "available": True,
+                        "status": "member_token_ready",
                         "hosted_href": hosted_url,
+                        "open_href": launch_href,
+                        "bridge_href": bridge_href,
+                        "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+                        "member_token_status": "ready",
                         "error": str(
                             handoff_receipt.get("account_handoff_error")
                             or "billing_handoff_requires_separate_login"
                         ),
                     }
+                else:
+                    first_blocked_state = {
+                        "available": bridge_ready,
+                        "status": "bridge_ready" if bridge_ready else "login_required",
+                        "hosted_href": hosted_url,
+                        "open_href": launch_href if bridge_ready else "",
+                        "bridge_href": bridge_href,
+                        "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+                        "member_token_status": str(member_token_receipt.get("error") or "").strip(),
+                        "error": str(
+                            handoff_receipt.get("account_handoff_error")
+                            or "billing_handoff_requires_separate_login"
+                        ),
+                    }
+        if primary_verification_pending:
+            return {
+                "available": member_token_ready or bridge_ready,
+                "status": "member_token_ready" if member_token_ready else ("bridge_ready" if bridge_ready else "verifying"),
+                "hosted_href": primary_hosted_url,
+                "open_href": launch_href if (member_token_ready or bridge_ready) else "",
+                "bridge_href": bridge_href,
+                "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+                "member_token_status": "ready" if member_token_ready else str(member_token_receipt.get("error") or "").strip(),
+                "verification_pending": True,
+                "error": "billing_handoff_verification_pending",
+            }
         if first_blocked_state is not None:
             return first_blocked_state
     return {
@@ -277,6 +361,8 @@ def _property_brilliant_directories_billing_handoff() -> dict[str, object]:
         "status": "ready",
         "hosted_href": primary_hosted_url,
         "open_href": primary_hosted_url,
+        "bridge_href": bridge_href,
+        "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
     }
 
 
@@ -417,7 +503,7 @@ def _property_billing_handoff_timeout_seconds() -> float:
         timeout_seconds = 0.75
     if timeout_seconds <= 0:
         return 0.0
-    return max(0.05, timeout_seconds)
+    return max(0.01, timeout_seconds)
 
 
 def _property_billing_handoff_verification_receipt(hosted_url: str) -> dict[str, object]:
@@ -468,12 +554,7 @@ def _property_cached_billing_handoff_receipt(*, hosted_url: str) -> dict[str, ob
     try:
         resolved_receipt = dict(cached_future.result(timeout=timeout_seconds) or {})
     except concurrent.futures.TimeoutError:
-        if cached_receipt:
-            return cached_receipt
-        try:
-            resolved_receipt = _property_billing_handoff_verification_receipt(hosted_url)
-        except Exception:
-            return {}
+        return cached_receipt if cached_receipt else {}
     except Exception:
         with _PROPERTY_BILLING_HANDOFF_CACHE_LOCK:
             current_future = _PROPERTY_BILLING_HANDOFF_CACHE.get("future")
@@ -487,6 +568,55 @@ def _property_cached_billing_handoff_receipt(*, hosted_url: str) -> dict[str, ob
             _PROPERTY_BILLING_HANDOFF_CACHE["future"] = None
         _PROPERTY_BILLING_HANDOFF_CACHE["receipt"] = dict(resolved_receipt)
         _PROPERTY_BILLING_HANDOFF_CACHE["expires_at"] = now + ttl_seconds if ttl_seconds > 0 else 0.0
+    return resolved_receipt
+
+
+def _property_cached_direct_billing_verification_receipt() -> dict[str, object]:
+    cache_key = str(os.getenv("PYTEST_CURRENT_TEST") or "").strip() or "global"
+    now = time.monotonic()
+    cached_receipt: dict[str, object] = {}
+    cached_future: concurrent.futures.Future[dict[str, object]] | None = None
+    with _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE_LOCK:
+        current_key = str(_PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE.get("cache_key") or "").strip()
+        if current_key != cache_key:
+            _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE["cache_key"] = cache_key
+            _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE["receipt"] = {}
+            _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE["expires_at"] = 0.0
+            _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE["future"] = None
+        cached_receipt = dict(_PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE.get("receipt") or {})
+        expires_at = float(_PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE.get("expires_at") or 0.0)
+        if cached_receipt and expires_at > now:
+            return cached_receipt
+        cached_future = _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE.get("future")  # type: ignore[assignment]
+        if cached_future is None:
+            cached_future = _PROPERTY_BILLING_HANDOFF_VERIFICATION_EXECUTOR.submit(
+                brilliant_directories_service.build_brilliant_directories_verification_receipt,
+            )
+            _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE["future"] = cached_future
+        elif cached_future.done():
+            _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE["future"] = None
+    if cached_receipt:
+        return cached_receipt
+    timeout_seconds = _property_billing_handoff_timeout_seconds()
+    if timeout_seconds <= 0 or cached_future is None:
+        return {}
+    try:
+        resolved_receipt = dict(cached_future.result(timeout=timeout_seconds) or {})
+    except concurrent.futures.TimeoutError:
+        return cached_receipt if cached_receipt else {}
+    except Exception:
+        with _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE_LOCK:
+            current_future = _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE.get("future")
+            if current_future is cached_future:
+                _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE["future"] = None
+        return {}
+    ttl_seconds = _property_billing_handoff_cache_ttl_seconds()
+    with _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE_LOCK:
+        current_future = _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE.get("future")
+        if current_future is cached_future:
+            _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE["future"] = None
+        _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE["receipt"] = dict(resolved_receipt)
+        _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE["expires_at"] = now + ttl_seconds if ttl_seconds > 0 else 0.0
     return resolved_receipt
 
 
@@ -1029,11 +1159,6 @@ def robots_txt() -> PlainTextResponse:
 def sitemap_xml(request: Request) -> Response:
     brand = request_brand(request)
     base_url = str(brand.get("public_base_url") or "https://propertyquarry.com").strip().rstrip("/")
-    directory_sitemap_enabled = False
-    try:
-        directory_sitemap_enabled = brilliant_directories_service.load_brilliant_directories_config().configured
-    except brilliant_directories_service.BrilliantDirectoriesApiError:
-        directory_sitemap_enabled = False
     urls = [
         "/",
         "/pricing",
@@ -1052,8 +1177,6 @@ def sitemap_xml(request: Request) -> Response:
         "/markets/vienna",
         "/sign-in",
     ]
-    if directory_sitemap_enabled:
-        urls.insert(2, "/directory")
     body = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for path in urls:
         if path == "/sign-in":
@@ -1765,7 +1888,15 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
         )
 
     if request_brand(request)["key"] == "propertyquarry":
-        if run_id:
+        billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
+        billing_open_href = str(
+            billing_handoff.get("open_href")
+            or billing_handoff.get("hosted_href")
+            or ""
+        ).strip()
+        if billing_handoff.get("available") and billing_open_href:
+            billing_target = billing_open_href
+        elif run_id:
             billing_target = "/app/billing"
         else:
             billing_target = "/app/account#delivery"
@@ -1774,12 +1905,16 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
         if request.url.path == "/app/search":
             billing_target = "/app/account#delivery"
 
+    billing_href = billing_target
+    if not re.match(r"^https?://", billing_target, flags=re.IGNORECASE):
+        billing_href = _with_run_suffix(billing_target)
+
     return {
         "label": account_label,
         "menu_label": menu_label,
         "profile_href": _with_run_suffix("/app/account#search-defaults"),
         "profile_label": "Search defaults",
-        "billing_href": _with_run_suffix(billing_target),
+        "billing_href": billing_href,
         "settings_href": _with_run_suffix("/app/account#connected-services"),
         "sign_out_action": "/app/actions/sign-out",
         "sign_out_return_to": sign_out_return_to,
@@ -2453,66 +2588,8 @@ def property_directory_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
-    directory_status = "disabled"
-    directory_error = ""
-    directory_profiles: list[dict[str, object]] = []
-    directory_query = {
-        "keyword": str(keyword or "").strip(),
-        "category": str(category or "").strip(),
-        "city": str(city or "").strip(),
-        "country_code": str(country_code or "").strip().upper(),
-        "page": int(page or 1),
-        "limit": int(limit or 12),
-    }
-    try:
-        config = brilliant_directories_service.load_brilliant_directories_config()
-        if config.configured:
-            packet = brilliant_directories_service.fetch_brilliant_directories_member_projection_packet(
-                config,
-                purpose="PropertyQuarry public directory landing",
-                keyword=str(directory_query["keyword"]),
-                category=str(directory_query["category"]),
-                city=str(directory_query["city"]),
-                country_code=str(directory_query["country_code"]),
-                page=int(directory_query["page"]),
-                limit=int(directory_query["limit"]),
-            )
-            packet_payload = packet.as_dict()
-            directory_profiles = _brilliant_directories_public_profile_rows(
-                list(packet_payload.get("profiles") or []),
-            )
-            directory_status = "ready"
-    except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
-        directory_status = "unavailable"
-        directory_error = str(exc)
-    directory_robots_directive = (
-        "index, follow, max-image-preview:large"
-        if directory_status == "ready" and directory_profiles
-        else "noindex, follow, noarchive, nosnippet"
-    )
-
-    return _render_public_template(
-        request,
-        "property_directory.html",
-        **_public_context(
-            request=request,
-            current_nav="directory",
-            page_title="PropertyQuarry Directory",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "directory_status": directory_status,
-                "directory_error": directory_error,
-                "directory_profiles": directory_profiles,
-                "directory_query": directory_query,
-                "meta_description": "PropertyQuarry directory for reviewed public advisors, relocation support, and local services around a property decision.",
-                "robots_directive": directory_robots_directive,
-                "canonical_path": "/directory",
-            },
-        ),
-    )
+    del request, keyword, category, city, country_code, page, limit, container, access_identity
+    raise HTTPException(status_code=404, detail="directory_unavailable")
 
 
 @router.get("/directory/profile/{profile_id}", response_class=HTMLResponse)
@@ -2522,72 +2599,8 @@ def property_directory_profile_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    normalized_profile_id = _normalize_public_directory_profile_id(profile_id)
-    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
-    directory_profile_status = "disabled"
-    directory_profile_error = ""
-    directory_profile: dict[str, object] = {}
-    try:
-        config = brilliant_directories_service.load_brilliant_directories_config()
-        if config.configured:
-            packet = brilliant_directories_service.fetch_brilliant_directories_member_profile_projection_packet(
-                config,
-                profile_id=normalized_profile_id,
-                purpose="PropertyQuarry public directory profile",
-            )
-            packet_payload = packet.as_dict()
-            directory_profile = _brilliant_directories_public_profile_row(
-                list(packet_payload.get("profiles") or []),
-                profile_id=normalized_profile_id,
-            )
-            directory_profile_status = "ready" if directory_profile else "unavailable"
-    except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
-        directory_profile_status = "unavailable"
-        directory_profile_error = str(exc)
-    profile_title = "PropertyQuarry Directory Profile"
-    profile_meta_description = (
-        "PropertyQuarry directory profile details stay on PropertyQuarry with only reviewed public information shown."
-    )
-    profile_robots_directive = "noindex, follow, noarchive, nosnippet"
-    if directory_profile:
-        display_name = str(directory_profile.get("display_name") or "").strip()
-        category = str(directory_profile.get("category") or "").strip()
-        city = str(directory_profile.get("city") or "").strip()
-        country_code = str(directory_profile.get("country_code") or "").strip()
-        summary = str(directory_profile.get("summary") or "").strip()
-        profile_robots_directive = "index, follow, max-image-preview:large"
-        if display_name:
-            profile_title = f"{display_name} | PropertyQuarry Directory"
-        if summary:
-            profile_meta_description = summary[:500]
-        else:
-            location_bits = [bit for bit in (city, country_code) if bit]
-            profile_meta_description = (
-                f"{display_name} is listed in the PropertyQuarry directory"
-                f"{' for ' + category if category else ''}"
-                f"{' in ' + ', '.join(location_bits) if location_bits else ''}."
-            )
-    return _render_public_template(
-        request,
-        "property_directory_profile.html",
-        **_public_context(
-            request=request,
-            current_nav="directory",
-            page_title=profile_title,
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "directory_profile_id": normalized_profile_id,
-                "directory_profile": directory_profile,
-                "directory_profile_status": directory_profile_status,
-                "directory_profile_error": directory_profile_error,
-                "meta_description": profile_meta_description,
-                "robots_directive": profile_robots_directive,
-                "canonical_path": f"/directory/profile/{urllib.parse.quote(normalized_profile_id, safe='')}",
-            },
-        ),
-    )
+    del profile_id, request, container, access_identity
+    raise HTTPException(status_code=404, detail="directory_unavailable")
 
 
 @router.get("/product", response_class=HTMLResponse)
@@ -2619,11 +2632,43 @@ def propertyquarry_landing_handoff(
 
 @router.get("/app/api/property/billing/commercial-lane", include_in_schema=False, response_class=HTMLResponse)
 def property_billing_commercial_lane() -> HTMLResponse:
-    handoff = _property_brilliant_directories_billing_handoff()
+    handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
     if not handoff.get("available"):
         return RedirectResponse("/app/billing", status_code=307)
-    hosted_url = str(handoff.get("hosted_href") or "").strip()
-    return RedirectResponse(hosted_url or "/app/billing", status_code=307)
+    open_href = str(handoff.get("open_href") or "").strip()
+    return RedirectResponse(open_href or "/app/billing", status_code=307)
+
+
+@router.get("/app/api/property/billing/bridge-launch", include_in_schema=False, response_class=HTMLResponse)
+def property_billing_bridge_launch(
+    request: Request,
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    if not (context.authenticated or context.principal_id):
+        return RedirectResponse("/sign-in?current_session=missing", status_code=303)
+    member_token_receipt = brilliant_directories_service.build_brilliant_directories_member_login_token_receipt()
+    if member_token_receipt.get("ready"):
+        try:
+            login_url = brilliant_directories_service.build_brilliant_directories_member_login_token_handoff_url(
+                principal_id=context.principal_id,
+                access_email=context.access_email,
+            )
+        except RuntimeError:
+            login_url = ""
+        if login_url:
+            return RedirectResponse(login_url, status_code=303)
+    handoff = _property_brilliant_directories_billing_handoff()
+    if str(handoff.get("status") or "").strip().lower() != "bridge_ready":
+        return RedirectResponse("/app/billing", status_code=303)
+    try:
+        bridge_url = brilliant_directories_service.build_brilliant_directories_billing_sso_bridge_launch_url(
+            principal_id=context.principal_id,
+            access_email=context.access_email,
+            return_to=str(request.query_params.get("return_to") or "/app/account").strip() or "/app/account",
+        )
+    except RuntimeError:
+        return RedirectResponse("/app/billing", status_code=303)
+    return RedirectResponse(bridge_url, status_code=303)
 
 
 def _render_property_billing_handoff_page(
@@ -2713,7 +2758,7 @@ def integration_detail(
             "body_points": (
                 "Ask first whether this is a personal Telegram setup or a bot rollout.",
                 "Record where PropertyQuarry should operate: DM, groups, or channels.",
-                "Treat the bot as the durable operating surface once installed and verified.",
+                "Treat the bot as the durable operating surface once installed and ready.",
             ),
         },
         "whatsapp": {
@@ -2901,7 +2946,7 @@ def pricing_page(
     account_nav = _account_nav_context(request=request, context=context)
     pricing_signed_in_billing_href = str(account_nav.get("billing_href") or "/app/account#delivery").strip() or "/app/account#delivery"
     if checkout_session_ready and request_brand(request)["key"] == "propertyquarry":
-        billing_handoff = _property_brilliant_directories_billing_handoff()
+        billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
         pricing_signed_in_billing_href = (
             str(billing_handoff.get("open_href") or "").strip()
             or pricing_signed_in_billing_href
@@ -3806,12 +3851,12 @@ def property_research_packet(
     effective_run_id = str(resolved_run_id or "").strip()
     research_route_recovery = (
         {
-            "title": "Opened from a newer run",
-            "detail": "The original run link is no longer current, so PropertyQuarry opened the latest matching packet instead.",
+            "title": "Moved to the latest run",
+            "detail": "The original run link expired, so PropertyQuarry opened the latest matching property page.",
             "requested_run_id": requested_run_id,
             "run_id": effective_run_id,
             "action_href": f"/app/shortlist?run_id={urllib.parse.quote(effective_run_id, safe='')}",
-            "action_label": "Open current shortlist",
+            "action_label": "Open latest shortlist",
         }
         if requested_run_id and effective_run_id and effective_run_id != requested_run_id
         else {}
@@ -3827,10 +3872,14 @@ def property_research_packet(
     workspace = dict(status.get("workspace") or {})
     assessment = dict(candidate.get("assessment") or {})
     facts = _property_enriched_candidate_facts(candidate=candidate)
-    match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
-    mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
     preferences = dict(property_context.get("preferences") or {})
     commercial = dict(property_context.get("commercial") or {})
+    match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
+    mismatch_reasons = _property_normalized_mismatch_reasons(
+        [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()],
+        facts=facts,
+        preferences=preferences,
+    )
     fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "No fit summary captured.").strip()
     review_url = str(candidate.get("review_url") or "").strip()
     tour_url = str(candidate.get("tour_url") or "").strip()
@@ -3887,9 +3936,9 @@ def property_research_packet(
         requested=bool(int(investment or 0)),
     )
     ooda_summary_rows = [
-        _object_detail_row("Why this was selected", _clean_property_candidate_copy(match_reasons[0]), "Match")
+        _object_detail_row("Why it ranks", _clean_property_candidate_copy(match_reasons[0]), "Match")
         if match_reasons
-        else _object_detail_row("Why this was selected", _clean_property_candidate_copy(fit_summary) or "This candidate survived the shortlist ranking.", "Match"),
+        else _object_detail_row("Why it ranks", _clean_property_candidate_copy(fit_summary) or "This candidate survived the shortlist ranking.", "Match"),
         _object_detail_row(
             "Best reason to act",
             _clean_property_candidate_copy(str(decision_rows[0].get("detail") or fit_summary).strip())
@@ -4025,7 +4074,7 @@ def property_research_packet(
             {
                 "feedback_id": "",
                 "title": "No tracked question yet",
-                "detail": "Use guided questions or the suggested next question to start a tracked follow-up.",
+                "detail": "Use the question helper or the suggested next question to start a tracked follow-up.",
                 "tag": "Waiting",
             }
         ]
@@ -4178,7 +4227,7 @@ def property_research_packet(
             }
         )
         if property_url:
-            hero_actions.append({"kind": "tour", "label": "Build verified 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Generate a provider-verified Matterport, 3DVista, Pano2VR, or licensed krpano control."})
+            hero_actions.append({"kind": "tour", "label": "Build 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Create a Matterport, 3DVista, or Pano2VR tour."})
     elif tour_url and not hosted_tour_ready and property_url:
         hero_actions.append({"kind": "tour", "label": "Rebuild 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Hosted viewer unavailable. Rebuild it here."})
     elif tour_status in {"queued", "pending"} and property_url:
@@ -4186,7 +4235,7 @@ def property_research_packet(
     elif tour_status in {"processing", "running", "in_progress", "started"} and property_url:
         hero_actions.append({"kind": "tour", "label": "3D tour rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(tour_progress_pct, 58), "eta_label": tour_eta_label, "status_detail": "Still rendering. Taking longer than usual." if tour_eta_label.startswith("delayed") else f"Rendering{f' · about {eta_raw} min' if eta_raw else ''}."})
     elif tour_status in {"blocked", "failed", "skipped", "not_applicable"} and property_url:
-        hero_actions.append({"kind": "tour", "label": "3D tour unavailable", "property_url": property_url, "state": tour_status, "progress_pct": 0, "eta_label": "", "status_detail": _property_visual_unavailable_detail(request_kind="tour", reason=str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip())})
+        hero_actions.append({"kind": "tour", "label": "Tour not ready", "property_url": property_url, "state": tour_status, "progress_pct": 0, "eta_label": "", "status_detail": _property_visual_unavailable_detail(request_kind="tour", reason=str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip())})
     elif property_url:
         hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if flythrough_url:
@@ -4199,7 +4248,7 @@ def property_research_packet(
                 "label": "Open generated walkthrough",
                 "external": False,
                 "state": "ready",
-                "status_detail": "Generated walkthrough is playable, but not a receipt-backed MagicFit render.",
+                "status_detail": "Walkthrough is playable here. The final MagicFit render is still pending.",
             }
         )
     elif flythrough_status in {"queued", "pending"} and property_url:
@@ -4207,7 +4256,7 @@ def property_research_packet(
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:
         hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": flythrough_eta_label, "status_detail": "Still rendering. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Rendering now. Opens here when ready."})
     elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Walkthrough unavailable", "property_url": property_url, "state": flythrough_status, "progress_pct": 0, "eta_label": "", "status_detail": _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason)})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough not ready", "property_url": property_url, "state": flythrough_status, "progress_pct": 0, "eta_label": "", "status_detail": _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason)})
     elif property_url:
         hero_actions.append({"kind": "flythrough", "label": "Request walkthrough", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if str(candidate.get("packet_url") or review_url or "").strip():
@@ -4885,10 +4934,10 @@ def app_shell(
                 payload["summary"] = "Build the brief, run the sweep, review the ranking, and open the property that deserves a decision."
             elif current_nav == "account":
                 payload["title"] = "Account"
-                payload["summary"] = "Identity, plan, delivery, and editable defaults."
+                payload["summary"] = "Saved defaults, notifications, billing, and access."
             elif current_nav == "billing":
                 payload["title"] = "Billing"
-                payload["summary"] = "Plan, checkout, and current allowance."
+                payload["summary"] = "Current access and billing account."
         else:
             payload = _app_section_payload(
                 resolved_section,
@@ -4899,16 +4948,34 @@ def app_shell(
     workspace = dict(status.get("workspace") or {})
     if property_brand and resolved_section in property_sections:
         billing_handoff = dict((property_context or {}).get("billing_handoff") or {}) if property_context else {}
-        billing_iframe_src = str(billing_handoff.get("hosted_href") or "").strip()
+        billing_open_href = str(
+            billing_handoff.get("open_href")
+            or billing_handoff.get("hosted_href")
+            or ""
+        ).strip()
         if current_nav == "billing":
-            if billing_handoff.get("available") and billing_iframe_src:
-                return RedirectResponse(billing_iframe_src, status_code=303)
+            billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
+            billing_open_href = str(
+                billing_handoff.get("open_href")
+                or billing_handoff.get("hosted_href")
+                or ""
+            ).strip()
+            if billing_handoff.get("available") and billing_open_href:
+                return RedirectResponse(billing_open_href, status_code=303)
+            billing_handoff_status = str(billing_handoff.get("status") or "").strip().lower()
+            billing_summary = "The billing portal is still being connected. Your PropertyQuarry access stays active from the account page."
+            if billing_handoff_status == "login_required":
+                billing_summary = "This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now. Your PropertyQuarry access stays active from the account page."
+            elif billing_handoff_status == "bridge_ready":
+                billing_summary = "The billing bridge is ready, but this launch still needs a signed session. Open billing again from your signed-in account if you want to continue."
+            elif billing_handoff_status == "unresolved":
+                billing_summary = "The billing account host is not ready yet. Your PropertyQuarry access stays active from the account page."
             return HTMLResponse(
                 (
                     "<!doctype html><html><head><meta charset=\"utf-8\">"
                     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
                     "<meta name=\"robots\" content=\"noindex, nofollow\">"
-                    "<title>Billing handoff unavailable</title>"
+                    "<title>Billing portal unavailable</title>"
                     "<style>"
                     ":root{color-scheme:light dark;--pq-bg:#f6f2ea;--pq-card:#fffaf0;--pq-ink:#201a12;--pq-muted:#6d6254;--pq-border:#e0d5c4;--pq-accent:#9a5a22}"
                     "@media(prefers-color-scheme:dark){:root{--pq-bg:#15120e;--pq-card:#201a13;--pq-ink:#fff7ea;--pq-muted:#cbbda8;--pq-border:#3a3025;--pq-accent:#e3aa62}}"
@@ -4921,9 +4988,8 @@ def app_shell(
                     "</style></head>"
                     "<body><main aria-labelledby=\"billing-handoff-title\">"
                     "<p class=\"eyebrow\">PropertyQuarry account</p>"
-                    "<h1 id=\"billing-handoff-title\">Billing handoff unavailable</h1>"
-                    "<p>Billing opens in the external account lane once the account handoff is connected. "
-                    "Your PropertyQuarry access remains active from the account page.</p>"
+                    "<h1 id=\"billing-handoff-title\">Billing portal unavailable</h1>"
+                    f"<p>{html.escape(billing_summary)}</p>"
                     "<a href=\"/app/account\">Back to account</a>"
                     "</main></body></html>"
                 ),

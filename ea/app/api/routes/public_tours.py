@@ -596,9 +596,14 @@ def _merged_facts_with_listing_research(payload: dict[str, object], facts: dict[
 
 def _tour_payload_is_disabled_fallback(payload: dict[str, object]) -> bool:
     normalized = dict(payload or {})
-    if str(normalized.get("scene_strategy") or "").strip() == "generated_listing_summary":
+    scene_strategy = str(normalized.get("scene_strategy") or "").strip().lower()
+    creation_mode = str(normalized.get("creation_mode") or "").strip().lower()
+    control_mode = str(normalized.get("control_mode") or "").strip().lower()
+    if scene_strategy in {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}:
         return True
-    if str(normalized.get("creation_mode") or "").strip() == "hosted_listing_fallback":
+    if creation_mode == "hosted_listing_fallback":
+        return True
+    if control_mode in {"walkable_3d", "internal_walkable_3d"}:
         return True
     scenes = [dict(row) for row in (normalized.get("scenes") or []) if isinstance(row, dict)]
     if any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes):
@@ -1667,8 +1672,8 @@ def _tour_spatial_review_experience(
         return {
             "mode": "spatial",
             "provider": "matterport",
-            "provenance": "Verified Spatial Capture",
-            "summary": "Matterport is available as a verified provider control. PropertyQuarry keeps the decision frame around the source tour.",
+            "provenance": "Live Spatial Tour",
+            "summary": "Matterport is ready inside the PropertyQuarry tour shell.",
             "primary_label": "Open Matterport",
             "primary_href": matterport_url,
         }
@@ -1676,8 +1681,8 @@ def _tour_spatial_review_experience(
         return {
             "mode": "panorama",
             "provider": "3dvista",
-            "provenance": "Verified Virtual Tour",
-            "summary": "3DVista is available as a verified hosted or self-hosted virtual-tour export.",
+            "provenance": "Hosted Virtual Tour",
+            "summary": "3DVista is ready inside the PropertyQuarry tour shell.",
             "primary_label": "Open 3DVista",
             "primary_href": three_d_vista_url,
         }
@@ -1690,21 +1695,12 @@ def _tour_spatial_review_experience(
             "primary_label": "Open Pano2VR",
             "primary_href": pano2vr_url,
         }
-    if _krpano_license_runtime_config() and _walkable_scene_has_real_360_asset(payload):
-        return {
-            "mode": "panorama",
-            "provider": "krpano",
-            "provenance": "Prepared Panorama Tour",
-            "summary": "krpano is configured as the licensed branded viewer shell for this PropertyQuarry-hosted walkthrough.",
-            "primary_label": "Open krpano",
-            "primary_href": f"/tours/{html.escape(slug)}/control/krpano",
-        }
     if video_url and video_provider:
         return {
             "mode": "walkthrough",
             "provider": video_provider,
-            "provenance": "Rendered Walkthrough",
-            "summary": "This is a rendered walkthrough asset. It supports remote review, but it is not a verified navigable 3D capture.",
+            "provenance": "Walkthrough Video",
+            "summary": "This walkthrough is ready for remote review, but it is not a live 3D tour.",
             "primary_label": "Open Fly-through",
             "primary_href": video_url,
         }
@@ -1712,8 +1708,8 @@ def _tour_spatial_review_experience(
         "mode": "pending",
         "provider": "propertyquarry",
         "provenance": "Tour Pending",
-        "summary": "No verified 3D, prepared panorama, or approved rendered walkthrough is available yet.",
-        "primary_label": "Request real 3D tour",
+        "summary": "No 3D tour or walkthrough is ready yet.",
+        "primary_label": "Request 3D tour",
         "primary_href": "#",
     }
 
@@ -2593,37 +2589,25 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         )
         comparison_positive = (personalized_positive or good_fit_reasons or highlight_lines)[:3]
         comparison_conflicts = (personalized_caution or bad_fit_reasons or concern_lines)[:3]
-        comparison_panel = (
+        ranking_read_panel = (
             '<section class="panel">'
-            '<div class="eyebrow">Fit Pattern</div>'
-            '<h2>How this property fits the current brief</h2>'
+            '<div class="eyebrow">Quick read</div>'
+            '<h2>Why this property ranks here</h2>'
             '<div class="summary-grid" style="margin-top:0;">'
-            '<div class="summary-card"><h3>Supports the brief</h3><ul>'
-            f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_positive) or "<li>No strong positive pattern match is clear yet.</li>"}'
+            '<div class="summary-card"><h3>Best signals</h3><ul>'
+            f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_positive) or "<li>No best signal saved yet.</li>"}'
             '</ul></div>'
-            '<div class="summary-card"><h3>Needs caution</h3><ul>'
-            f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_conflicts) or "<li>No strong learned conflict is visible yet.</li>"}'
+            '<div class="summary-card"><h3>Main caution</h3><ul>'
+            f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_conflicts) or "<li>No main caution saved yet.</li>"}'
             '</ul></div>'
-            '<div class="summary-card"><h3>Open questions</h3><ul>'
-            f'{"".join(f"<li>{html.escape(item)}</li>" for item in (unknown_lines[:3] or ["No critical open question is stored yet."]))}'
+            '<div class="summary-card"><h3>Open checks</h3><ul>'
+            f'{"".join(f"<li>{html.escape(item)}</li>" for item in (unknown_lines[:3] or ["No open check saved yet."]))}'
             '</ul></div>'
             '</div>'
             '</section>'
         )
         shortlist_items = [dict(row) for row in list(shortlist_compare.get("items") or []) if isinstance(row, dict)]
         shortlist_current = dict(shortlist_compare.get("current") or {}) if isinstance(shortlist_compare.get("current"), dict) else {}
-        shortlist_metric_specs = shortlist_compare.get("metric_specs")
-        shortlist_columns: list[tuple[str, str, str]] = [
-            (str(key).strip(), str(label).strip(), str(direction).strip())
-            for key, label, direction in (
-                tuple(shortlist_metric_specs)
-                if isinstance(shortlist_metric_specs, tuple)
-                else list(shortlist_metric_specs) if isinstance(shortlist_metric_specs, list) else []
-            )
-            if isinstance(key, str) and isinstance(label, str) and isinstance(direction, str)
-        ]
-        if not shortlist_columns:
-            shortlist_columns = list(_shortlist_metric_labels())
         shortlist_rows: list[dict[str, object]] = []
         if shortlist_current:
             shortlist_rows.append(shortlist_current)
@@ -2638,65 +2622,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                     f'<div class="subtle">{html.escape(str(card.get("score_label") or "Fit").strip())} '
                     f'{int(round(float(card.get("score") or 0.0))):d}/100</div>'
                     f'<p class="sub">{html.escape(str(card.get("why_now") or "No ranking note stored.").strip())}</p>'
-                    f'<a class="chip compare-chip" href="{html.escape(str(card.get("listing_url") or "#").strip())}"'
+                    f'<a class="chip rank-chip" href="{html.escape(str(card.get("listing_url") or "#").strip())}"'
                     f'{"" if str(card.get("listing_url") or "").strip() else " aria-disabled=\"true\""}>{html.escape(_public_shortlist_action_label(card.get("recommended_action")))}</a>'
                     '</div>'
                 )
                 for card in shortlist_rows[:3]
             )
-
-        shortlist_matrix_rows: list[str] = []
-        if shortlist_rows and len(shortlist_rows) > 1:
-            baseline = dict(shortlist_rows[0].get("metrics") or {})
-            header_cells = [
-                "<th>Metric</th>",
-                f'<th>{html.escape(str(shortlist_rows[0].get("title") or "Current property"))}</th>',
-            ]
-            for candidate in shortlist_rows[1:]:
-                candidate_title = str(candidate.get("title") or "Shortlist property").strip() or "Shortlist property"
-                candidate_url = str(candidate.get("listing_url") or "").strip()
-                if candidate_url:
-                    header_cells.append(
-                        f'<th><a class="shortlist-header-link" href="{html.escape(candidate_url)}" '
-                        f'target="_blank" rel="noreferrer">{html.escape(candidate_title)}</a></th>'
-                    )
-                else:
-                    header_cells.append(f"<th>{html.escape(candidate_title)}</th>")
-            shortlist_matrix_rows.append(f"<tr>{''.join(header_cells)}</tr>")
-            for metric_key, metric_label, _metric_direction in shortlist_columns:
-                row_cells: list[str] = [f"<th class=\"shortlist-metric-label\">{html.escape(metric_label)}</th>"]
-                for index, row in enumerate(shortlist_rows):
-                    metrics = dict(row.get("metrics") or {})
-                    row_facts = dict(row.get("facts") or {}) if isinstance(row.get("facts"), dict) else facts
-                    row_currency_code = _public_tour_currency_code(row_facts)
-                    value = _shortlist_metric_display(metric_key, metrics.get(metric_key), currency_code=row_currency_code)
-                    if index == 0:
-                        row_cells.append(f"<td><span class=\"shortlist-value\">{html.escape(value)}</span></td>")
-                        continue
-                    delta_text, delta_tone = _shortlist_metric_delta(
-                        metric_key,
-                        baseline=baseline.get(metric_key),
-                        candidate=metrics.get(metric_key),
-                        currency_code=row_currency_code,
-                    )
-                    row_cells.append(
-                        "<td>"
-                        f"<span class=\"shortlist-value\">{html.escape(value)}</span>"
-                        f"<span class=\"shortlist-delta shortlist-delta-{html.escape(delta_tone)}\">{html.escape(str(delta_text))}</span>"
-                        "</td>"
-                    )
-                shortlist_matrix_rows.append(f"<tr>{''.join(row_cells)}</tr>")
-
-        shortlist_matrix = (
-            '<div class="shortlist-matrix-wrap">'
-            '<table class="shortlist-table">'
-            f'<tbody>{"".join(shortlist_matrix_rows)}</tbody>'
-            "</table>"
-            "</div>"
-        ) if shortlist_matrix_rows else (
-            '<div class="summary-card shortlist-empty">No shortlist ranking matrix is available yet.</div>'
-        )
-
         shortlist_panel = (
             '<section class="panel">'
             '<div class="eyebrow">Shortlist Ranking</div>'
@@ -2704,7 +2635,6 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             '<div class="summary-grid" style="margin-top:0;">'
             f'{shortlist_cards or "<div class=\"summary-card\"><h3>No shortlist loaded</h3><p class=\"sub\">No other active shortlist property is currently available in this run ranking.</p></div>"}'
             '</div>'
-            f'{shortlist_matrix}'
             '</section>'
         )
         detail_request_button = (
@@ -2855,7 +2785,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       .filter-summary-grid {{ grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr); }}
       .summary-card ul, .panel ul {{ margin: 0; padding-left: 18px; }}
       .summary-card li + li, .panel li + li {{ margin-top: 8px; }}
-      .compare-chip {{ margin-top: 12px; }}
+      .rank-chip {{ margin-top: 12px; }}
       .stat-grid {{
         display: grid;
         gap: 10px;
@@ -3268,7 +3198,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           {filters_panel}
           {feedback_panel}
           <section id="tour" class="live-shell">
-            <div class="eyebrow">{brand_html} <span>•</span> 3D Evidence</div>
+            <div class="eyebrow">{brand_html} <span>•</span> 3D tour</div>
             <h2>Inspect layout, light, and finish quality</h2>
             <p class="sub">Use the original interactive 360 experience as evidence after reviewing the decision brief, not as the decision brief itself.</p>
             <div class="live-frame-wrap">
@@ -3285,12 +3215,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         </div>
         <div class="tour-detail-stack">
           <section id="risks" class="panel">
-            <div class="eyebrow">Risk Register</div>
+            <div class="eyebrow">Watch-outs</div>
             <h2>What can still break the decision</h2>
             <ul>{risks_html}</ul>
           </section>
           {shortlist_panel}
-          {comparison_panel}
+          {ranking_read_panel}
           <section id="research" class="panel">
             <div class="eyebrow">Research Log</div>
             <h2>Confirmed, inferred, and open</h2>
@@ -3299,7 +3229,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
               <p class="sub">{html.escape(completed_research_line) if completed_research_line else 'No completed enrichment checks are stored yet.'}</p>
             </details>
             <details class="research-card">
-              <summary>Evidence and provenance</summary>
+              <summary>Facts and sources</summary>
               <div class="evidence-stack" style="margin-top:12px;">{evidence_html}</div>
             </details>
             <details class="research-card">
@@ -3405,7 +3335,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         f'<div class="stat"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>'
         for label, value in decision_rows
     )
-    pure_reasons_html = "".join(f"<li>{html.escape(item)}</li>" for item in (highlight_lines or ["No strong positive pattern match is clear yet."]))
+    pure_reasons_html = "".join(f"<li>{html.escape(item)}</li>" for item in (highlight_lines or ["No best signal saved yet."]))
     pure_risks_html = "".join(f"<li>{html.escape(item)}</li>" for item in (concern_lines or ["No concrete downside has been stored yet."]))
     pure_unknowns_html = "".join(f"<li>{html.escape(item)}</li>" for item in (unknown_lines or ["No explicit follow-up question is stored yet."]))
     pure_feedback_panel = ""
@@ -4354,7 +4284,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         f'<div class="kv"><b>{html.escape(label)}</b>{html.escape(value)}</div>'
         for label, value in decision_rows
     )
-    legacy_reasons_html = "".join(f"<li>{html.escape(item)}</li>" for item in (highlight_lines or ["No strong positive pattern match is clear yet."]))
+    legacy_reasons_html = "".join(f"<li>{html.escape(item)}</li>" for item in (highlight_lines or ["No best signal saved yet."]))
     legacy_risks_html = "".join(f"<li>{html.escape(item)}</li>" for item in (concern_lines or ["No concrete downside has been stored yet."]))
     legacy_unknowns_html = "".join(f"<li>{html.escape(item)}</li>" for item in (unknown_lines or ["No explicit follow-up question is stored yet."]))
     feedback_negative = [dict(row) for row in list(feedback_suggestions.get("negative") or []) if isinstance(row, dict)]
@@ -5042,7 +4972,12 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> 
             raise HTTPException(status_code=404, detail="tour_control_krpano_license_missing")
         if not _walkable_scene_has_real_360_asset(payload):
             raise HTTPException(status_code=404, detail="tour_control_krpano_asset_missing")
-        return _tour_control_walkable_html(payload, provider_label="krpano Licensed Viewer", license_config=license_config)
+        return _tour_control_walkable_html(
+            payload,
+            provider_label="Panorama Viewer",
+            license_config=license_config,
+            viewer_name="krpano",
+        )
     control_mode = str(payload.get("control_mode") or "").strip().lower()
     if control_mode == "marzipano":
         raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
@@ -5052,12 +4987,10 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> 
         return _tour_control_pano2vr_html(payload)
     if _pano2vr_entry_relpath(payload):
         return _tour_control_pano2vr_html(payload)
-    if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
-        if str(os.getenv("PROPERTYQUARRY_ENABLE_INTERNAL_WALKABLE_CONTROL") or "").strip() == "1":
-            return _tour_control_walkable_html(payload)
-        raise HTTPException(status_code=404, detail="tour_control_provider_export_missing")
     if control_mode == "internal_walkable_3d":
-        return _tour_control_walkable_html(payload)
+        raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
+    if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
+        raise HTTPException(status_code=404, detail="tour_control_provider_export_missing")
     if str(payload.get("scene_strategy") or "").strip() == "pure_360_cube":
         raise HTTPException(status_code=404, detail="tour_control_cube_viewer_removed")
     raise HTTPException(status_code=404, detail="tour_control_provider_export_missing")
@@ -5380,9 +5313,9 @@ def _tour_control_external_iframe_html(
           </div>
           <iframe src="about:blank" data-src="{html.escape(iframe_src)}" class="provider-frame" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
         </section>
-        <aside class="panel evidence" aria-label="Verified visual evidence">
+        <aside class="panel evidence" aria-label="Visual evidence">
           <div>
-            <h2>Verified evidence</h2>
+            <h2>Tour details</h2>
             <p class="hint">Provider tour, floorplan, and walkthrough stay together so the spatial check does not split across tabs.</p>
           </div>
           {video_html}
@@ -5609,6 +5542,7 @@ def _tour_control_walkable_html(
     *,
     provider_label: str = "Interactive Viewing",
     license_config: dict[str, str] | None = None,
+    viewer_name: str = "",
 ) -> str:
     title = html.escape(str(payload.get("display_title") or payload.get("title") or "3D walk control").strip())
     safe_provider_label = html.escape(str(provider_label or "Interactive Viewing").strip())
@@ -5617,13 +5551,15 @@ def _tour_control_walkable_html(
         raise HTTPException(status_code=404, detail="tour_control_walkable_scene_missing")
     normalized_license = license_config or {}
     license_enabled = bool(str(normalized_license.get("domain") or "").strip() and str(normalized_license.get("key") or "").strip())
-    if license_enabled and "krpano" in safe_provider_label.lower() and not _walkable_scene_has_real_360_asset(payload):
+    if license_enabled and ((viewer_name or "").strip().lower() == "krpano" or "krpano" in safe_provider_label.lower()) and not _walkable_scene_has_real_360_asset(payload):
         raise HTTPException(status_code=404, detail="tour_control_krpano_asset_missing")
     data_json = html.escape(json.dumps(walkable_scene, ensure_ascii=False), quote=False)
     license_domain = html.escape(str(normalized_license.get("domain") or "").strip())
     license_json = html.escape(json.dumps({"domain": str(normalized_license.get("domain") or "").strip()}, ensure_ascii=False), quote=False) if license_enabled else ""
-    license_badge = f'<div class="panel license"><strong>krpano license</strong><span>Registered for {license_domain}</span></div>' if license_enabled else ""
-    viewer_name = "krpano" if license_enabled and "krpano" in safe_provider_label.lower() else "walkable"
+    license_badge = f'<div class="panel license"><strong>Viewer license</strong><span>Registered for {license_domain}</span></div>' if license_enabled else ""
+    resolved_viewer_name = str(viewer_name or "").strip().lower() or (
+        "krpano" if license_enabled and "krpano" in safe_provider_label.lower() else "walkable"
+    )
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -5652,7 +5588,7 @@ def _tour_control_walkable_html(
       }}
     </style>
   </head>
-  <body data-viewer="{viewer_name}">
+  <body data-viewer="{resolved_viewer_name}">
     <div id="viewer"></div>
     <img id="magicfit-view" alt="">
     <div class="hud"><div class="panel"><strong>{safe_provider_label}</strong><span>Walk with WASD or arrows. Drag to look around. Room buttons jump inside rooms.</span></div>{license_badge}</div>
@@ -5974,18 +5910,18 @@ def public_tour_page(
                 request,
                 status_code=404,
                 title="This tour link is no longer available.",
-                summary="Fallback listing-summary tours are disabled. Ask the sender for a real 360 tour or a fresh live-tour link.",
+                summary="This link points to an older generated preview, not a real 3D tour. Ask the sender for a fresh live-tour link.",
                 status_label="Tour unavailable",
                 rows=[
                     {
                         "label": "Tour state",
-                        "value": "Disabled fallback",
-                        "detail": "This link pointed to a generated fallback page rather than a real tour.",
+                        "value": "Generated preview removed",
+                        "detail": "This link pointed to an older generated preview instead of a real tour.",
                     },
                     {
                         "label": "Next step",
-                        "value": "Request a real 360 tour",
-                        "detail": "Only hosted pure-360 or live panorama tours remain available on this surface.",
+                        "value": "Request a fresh 3D tour",
+                        "detail": "Only live provider tours and licensed panorama tours remain available on this surface.",
                     },
                 ],
             )

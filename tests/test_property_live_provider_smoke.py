@@ -145,6 +145,30 @@ def test_live_provider_smoke_dry_run_proves_at_and_cr_catalogs(monkeypatch) -> N
     assert summary["soft_filters_present_ok"] is True
 
 
+def test_live_provider_smoke_can_limit_targeted_matrix_to_selected_provider_scope(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "1")
+
+    receipt = build_live_provider_smoke_receipt(
+        countries=("AT",),
+        provider_keys=("willhaben",),
+        max_providers=1,
+    )
+
+    assert receipt["status"] == "dry_run"
+    assert receipt["targeted_search_matrix_count"] == 2
+    matrix = receipt["targeted_search_matrix"]
+    assert {row["provider"] for row in matrix} == {"willhaben"}
+    summary = receipt["targeted_search_matrix_summary"]
+    assert summary["provider_scope_filtered"] is True
+    assert summary["selected_provider_keys"] == ["willhaben"]
+    assert summary["max_providers"] == 1
+    assert summary["selected_provider_scope_count_by_country"] == {"AT": 1}
+    assert summary["full_search_ready_provider_count_by_country"]["AT"] > 1
+    assert summary["all_search_ready_providers_covered"] is False
+    assert summary["selected_provider_scope_covered"] is True
+
+
 def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
     monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
@@ -391,6 +415,61 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     assert sanitization_row["status"] == "pass"
     assert sanitization_row["foreign_provider"] not in sanitization_row["sanitized_platforms"]
     assert sanitization_row["foreign_provider"] in sanitization_row["removed_platforms"]
+
+
+def test_live_provider_smoke_executes_filtered_provider_scope(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E", "1")
+
+    catalog_payload = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "property_type": "apartment",
+        "default_platforms": [
+            "willhaben",
+            "derstandard_at",
+            "immoscout_at",
+            "public_housing_at",
+            "genossenschaften_at",
+            "immmo",
+        ],
+        "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
+    }
+    observed_payloads: list[dict[str, object]] = []
+
+    def _search_executor(payload: dict[str, object], _timeout: float) -> dict[str, object]:
+        selected_platforms = list(payload.get("selected_platforms") or [])
+        if len(selected_platforms) > 1:
+            return _sanitized_cross_country_response(payload)
+        observed_payloads.append(dict(payload))
+        provider = str(selected_platforms[0])
+        mode = str(dict(payload.get("property_preferences") or {}).get("search_mode") or "strict")
+        return {
+            "run_id": f"run-{provider}-{mode}",
+            "status_url": f"/app/api/property/search-runs/run-{provider}-{mode}",
+            "status": "queued",
+        }
+
+    receipt = build_live_provider_smoke_receipt(
+        countries=("AT",),
+        provider_keys=("willhaben",),
+        max_providers=1,
+        fetcher=lambda _country, _timeout: catalog_payload,
+        search_executor=_search_executor,
+        status_fetcher=lambda run_id, status_url, _timeout: {"run_id": run_id, "status_url": status_url, "status": "queued"},
+    )
+
+    assert receipt["status"] == "pass"
+    assert len(observed_payloads) == 2
+    assert {tuple(payload.get("selected_platforms") or []) for payload in observed_payloads} == {("willhaben",)}
+    summary = receipt["targeted_search_matrix_summary"]
+    assert summary["executed"] is True
+    assert summary["executed_case_count"] == 2
+    assert summary["passed_case_count"] == 2
+    assert summary["provider_scope_filtered"] is True
+    assert summary["all_search_ready_providers_covered"] is False
+    assert summary["selected_provider_scope_covered"] is True
 
 
 def test_live_provider_smoke_fails_when_cross_country_sanitization_does_not_remove_foreign_provider(monkeypatch) -> None:

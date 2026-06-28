@@ -545,16 +545,6 @@
     min-height: 38px;
     padding: 7px 12px;
   }
-  .pqx-walkthrough-provider {
-    min-height: 38px;
-    min-width: 152px;
-    padding: 0 12px;
-    border: 1px solid color-mix(in srgb, var(--line) 82%, var(--prd-gold) 18%);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--panel) 96%, transparent);
-    color: var(--text);
-    font: inherit;
-  }
   .prd-headline-panel .prd-actions .console-action,
   .prd-headline-panel .prd-actions .pqx-button {
     min-width: 0;
@@ -2359,12 +2349,12 @@
   </nav>
   <div class="prd-top-context">
     {% if research_run_id %}
-    <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}" title="Run {{ research_run_id }}">Open run</a>
+    <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}" title="Run {{ research_run_id }}">Back to run</a>
     {% endif %}
   </div>
   <div class="prd-top-actions">
     {% if research_run_id %}
-    <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}" title="Run {{ research_run_id }}">Open run</a>
+    <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}" title="Run {{ research_run_id }}">Back to run</a>
     {% endif %}
     {% if account_nav %}
     <details class="account-menu">
@@ -2377,9 +2367,9 @@
           <strong>{{ account_nav.label }}</strong>
         </div>
         <div class="account-menu-links">
-          <a class="btn" href="{{ account_nav.billing_href }}">Upgrade</a>
-          <a class="btn" href="{{ account_nav.profile_href }}">{{ account_nav.profile_label or 'Profile' }}</a>
-          <a class="btn ghost" href="{{ account_nav.settings_href }}">Connections</a>
+          <a class="btn" href="{{ account_nav.profile_href }}">Saved defaults</a>
+          <a class="btn" href="{{ account_nav.billing_href }}">Billing account</a>
+          <a class="btn ghost" href="{{ account_nav.settings_href }}">Access</a>
           <form class="account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
             <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
             <button class="btn ghost" type="submit">Log out</button>
@@ -2401,8 +2391,8 @@
 {% if research_route_recovery %}
 <aside class="prd-route-recovery" data-prd-route-recovery role="status">
   <div class="prd-route-recovery-copy">
-    <strong>{{ research_route_recovery.get('title') or 'Opened from a newer run' }}</strong>
-    <span>{{ research_route_recovery.get('detail') or 'PropertyQuarry opened the latest matching packet instead of the expired run link.' }}</span>
+    <strong>{{ research_route_recovery.get('title') or 'Moved to the latest run' }}</strong>
+    <span>{{ research_route_recovery.get('detail') or 'The original run link expired, so PropertyQuarry opened the latest matching property page.' }}</span>
   </div>
   <div class="prd-route-recovery-meta">
     {% if research_route_recovery.get('requested_run_id') %}
@@ -2411,7 +2401,7 @@
     {% if research_route_recovery.get('run_id') %}
     <span class="prd-route-recovery-pill">{{ research_route_recovery.get('run_id') }}</span>
     {% endif %}
-    <a class="prd-run-chip" href="{{ research_route_recovery.get('action_href') or ('/app/shortlist' ~ research_query_suffix) }}">{{ research_route_recovery.get('action_label') or 'Open current shortlist' }}</a>
+    <a class="prd-run-chip" href="{{ research_route_recovery.get('action_href') or ('/app/shortlist' ~ research_query_suffix) }}">{{ research_route_recovery.get('action_label') or 'Open latest shortlist' }}</a>
   </div>
 </aside>
 {% endif %}
@@ -2447,7 +2437,7 @@
         </div>
       </section>
       <section class="prd-band prd-current-read">
-        <div class="prd-kicker">Current read</div>
+        <div class="prd-kicker">Quick take</div>
         <div class="prd-summary-grid">
           {% for row in research_overview_rows[:4] %}
           <div class="prd-summary-box">
@@ -2461,19 +2451,19 @@
     {% set visual_actions = namespace(items=[]) %}
     {% for action in research_actions %}
       {% set action_label = (action.get('label') or '')|lower %}
-      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough', 'open generated model', 'open generated walkthrough'] or 'matterport' in action_label or '3dvista' in action_label or 'source 360' in action_label %}
+      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough', 'open generated model', 'open generated walkthrough', 'open original tour'] or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
         {% set visual_actions.items = visual_actions.items + [action] %}
       {% endif %}
     {% endfor %}
     {% set primary_visual_actions = namespace(items=[]) %}
     {% for action in visual_actions.items %}
       {% set action_label = (action.get('label') or '')|lower %}
-      {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'source 360' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': research_media.get('provider_label') or ('Verified 3D tour' if action.get('href') else 'Verified 3D tour pending'), 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open the verified tour or rebuild it from this page.', 'action': action}] %}
+      {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': research_media.get('provider_label') or ('3D tour' if action.get('href') else '3D tour pending'), 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open the tour or rebuild it from this page.', 'action': action}] %}
       {% elif action.get('kind') == 'generated_reconstruction' or 'generated model' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'generated_reconstruction', 'eyebrow': 'Generated model', 'title': 'Generated reconstruction', 'copy': action.get('status_detail') or research_media.get('generated_reconstruction_status_detail') or 'Open the generated reconstruction while the verified provider tour is still missing.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'generated_reconstruction', 'eyebrow': 'Generated model', 'title': 'Generated reconstruction', 'copy': action.get('status_detail') or research_media.get('generated_reconstruction_status_detail') or 'Open the generated reconstruction while the live tour is still missing.', 'action': action}] %}
       {% elif action.get('kind') == 'flythrough' or 'walkthrough' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': research_media.get('walkthrough_provider_label') or ('Generated walkthrough' if action.get('kind') == 'generated_reconstruction_walkthrough' else ('MagicFit walkthrough' if action.get('href') else 'MagicFit walkthrough pending')), 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': ('Generated walkthrough' if action.get('kind') == 'generated_reconstruction_walkthrough' else ('MagicFit walkthrough' if action.get('href') else 'MagicFit walkthrough pending')), 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
       {% endif %}
     {% endfor %}
     {% set visual_status = namespace(active=None) %}
@@ -2601,7 +2591,7 @@
         <div class="prd-visual-toolbar">
         <div class="prd-visual-heading">
           <div class="prd-kicker">3D and walkthrough</div>
-          <p class="prd-copy">Open verified media here, or request it when the source proof is still missing.</p>
+          <p class="prd-copy">Open the tour here, or ask for one if this listing still needs it.</p>
         </div>
         {% if research_media.get('show_status_line') %}
         <span class="prd-status-badge">{{ research_media.get('status_label') or 'Review ready' }}</span>
@@ -2620,35 +2610,24 @@
           {% if visual_card.get('key') == 'tour' %}
           <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
             {% set verified_provider_label = research_media.get('provider_label') or '' %}
-            {% set verified_provider_lower = verified_provider_label|lower %}
             {% if action.get('href') %}
-              {% if 'matterport' in verified_provider_lower %}
-            Evidence: verified Matterport control.
-              {% elif '3dvista' in verified_provider_lower %}
-            Evidence: verified 3DVista control.
-              {% elif 'pano2vr' in verified_provider_lower %}
-            Evidence: verified Pano2VR control.
-              {% elif 'krpano' in verified_provider_lower %}
-            Evidence: verified krpano control.
-              {% else %}
-            Evidence: verified {{ verified_provider_label or 'hosted 3D' }} control.
-              {% endif %}
+            Tour: {{ verified_provider_label or '3D tour' }}.
             {% else %}
-            No verified 3D tour is published yet. A Matterport, 3DVista, Pano2VR, or licensed krpano capture is still needed.
+            No 3D tour is published yet.
             {% endif %}
           </p>
           {% elif visual_card.get('key') == 'generated_reconstruction' %}
           <p class="prd-visual-evidence" data-prd-visual-evidence="generated-reconstruction">
-            Evidence: generated from listing photos or floorplan inputs, not a verified provider capture.
+            Built from listing photos or floorplans, not from a live tour.
           </p>
           {% elif visual_card.get('key') == 'walkthrough' %}
           <p class="prd-visual-evidence" data-prd-visual-evidence="walkthrough">
             {% if action.get('kind') == 'generated_reconstruction_walkthrough' %}
-            Evidence: playable generated walkthrough, not a receipt-backed MagicFit render.
+            Generated from the current listing, not published by the provider.
             {% elif action.get('href') %}
-            Evidence: playable {{ research_media.get('walkthrough_provider_label') or 'rendered' }} walkthrough video.
+            Walkthrough ready on this page.
             {% else %}
-            Evidence needed: playable MagicFit rendered walkthrough video.
+            No playable walkthrough is published yet.
             {% endif %}
           </p>
           {% endif %}
@@ -2892,16 +2871,16 @@
       <details class="prd-collapse">
         <summary>
           <span>
-            <span class="prd-kicker">Evidence and documents</span>
-            <strong>External evidence, provenance, and follow-up history</strong>
+            <span class="prd-kicker">Area context</span>
+            <strong>Area context</strong>
           </span>
           <span class="prd-tag">Optional</span>
         </summary>
         <div class="prd-collapse-body">
           {% if research_evidence_overlay_rows or research_official_evidence_rows or research_official_posture_rows or research_future_research_rows or research_provenance_rows %}
           <section class="prd-stack">
-            <h2 class="prd-section-title">What the wider evidence says</h2>
-            <p class="prd-section-copy">Evidence added from cached area overlays and source-backed records beyond the listing. Missing layers stay unavailable until verified data is indexed.</p>
+            <h2 class="prd-section-title">Area context</h2>
+            <p class="prd-section-copy">Saved map layers and public sources appear here when they are available for this address.</p>
             <div class="object-list">
               {% for row in research_evidence_overlay_rows[:8] %}
               <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
@@ -2983,7 +2962,7 @@
             {% endfor %}
             {% if research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings')) %}
             <div class="prd-key-point">
-              <strong>Next question</strong>
+              <strong>Ask next</strong>
               <span>
                 {% if research_neuronwriter.get('questions') %}
                 {{ (research_neuronwriter.get('questions') or [])[:3]|join(' · ') }}
@@ -3011,7 +2990,7 @@
       <div class="prd-decision-savebar">
         <div class="object-actions prd-decision-save-actions">
           <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
-          <button class="console-action" type="button" data-object-feedback-open-advanced>Fine-tune my preferences</button>
+          <button class="console-action" type="button" data-object-feedback-open-advanced>Adjust my search</button>
           <a class="console-action" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Open active search</a>
         </div>
         <p class="object-copy" data-object-feedback-status></p>
@@ -3038,7 +3017,7 @@
       </section>
       {% if research_feedback_suggestions.get('negative') or research_feedback_suggestions.get('positive') or research_agent_questions or research_followup_rows %}
       <details class="prd-feedback-details prd-decision-inline-details">
-        <summary>Signals and follow-up</summary>
+        <summary>Reasons and next steps</summary>
         <div class="prd-feedback-body">
       <section class="prd-decision-card">
       <h3>Reason chips</h3>
@@ -3052,7 +3031,7 @@
       </div>
       </section>
       {% if research_agent_questions %}
-      <div class="object-copy"><strong>Next question to send</strong></div>
+      <div class="object-copy"><strong>Ask next</strong></div>
       <div class="object-list">
         {% for row in research_agent_questions[:2] %}
         <div class="object-row">
@@ -3089,22 +3068,22 @@
         </summary>
         <div class="prd-feedback-body">
           <div class="object-actions">
-            <button class="console-action" type="button" data-object-clippy-toggle>Open guided questions</button>
+            <button class="console-action" type="button" data-object-clippy-toggle>Ask about this home</button>
             <button class="console-action" type="button" data-object-magicfit-toggle>Lifestyle preview</button>
           </div>
           <div class="object-list" data-object-clippy-panel hidden>
             <div class="object-row">
-              <div><strong>Questions worth asking next</strong><small>Ask one grounded question about this home. It only answers from what is already on this page.</small></div>
+              <div><strong>Question helper</strong><small>Ask one grounded question about this home. It only answers from what is already on this page.</small></div>
               <div class="object-tag">Opt-in</div>
             </div>
             <div class="object-actions">
               <button class="console-action" type="button" data-object-clippy-prompt="Why is this only Maybe?">Why maybe?</button>
-              <button class="console-action" type="button" data-object-clippy-prompt="What should I ask the agent next?">Next question</button>
+              <button class="console-action" type="button" data-object-clippy-prompt="What should I ask next?">Ask next</button>
               <button class="console-action" type="button" data-object-clippy-prompt="What changed since last time?">What changed?</button>
               <button class="console-action" type="button" data-object-clippy-prompt="What is the biggest investment risk here?">Risk</button>
             </div>
             <textarea data-object-clippy-question rows="3" placeholder="Ask about blockers, disagreements, or the next follow-up."></textarea>
-            <div class="object-actions"><button class="console-action" type="button" data-object-clippy-ask>Ask guided question</button></div>
+            <div class="object-actions"><button class="console-action" type="button" data-object-clippy-ask>Ask</button></div>
             <div class="object-copy" data-object-clippy-status></div>
             <div class="object-list" data-object-clippy-answer></div>
           </div>
@@ -3182,7 +3161,7 @@
           {% endif %}
           {% if research_risk_signal_rows %}
           <section class="prd-stack">
-            <h2 class="prd-section-title">Risk signals</h2>
+            <h2 class="prd-section-title">Shared watch-outs</h2>
             <div class="object-list">
               {% for item in research_risk_signal_rows %}
               <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ item.get('tag') }}</span></div>
@@ -3225,11 +3204,7 @@
   const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];
   const visualTerminalStates = ['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'];
   let visualPollTimer = 0;
-  const normalizeWalkthroughProvider = (value) => {
-    const normalized = String(value || '').trim().toLowerCase();
-    if (['magicfit', 'magic'].includes(normalized)) return 'magicfit';
-    return 'magicfit';
-  };
+  const normalizeWalkthroughProvider = (_value) => 'magicfit';
   const getWalkthroughProviderFromButton = (button) => {
     if (!button) return 'magicfit';
     const directProvider = normalizeWalkthroughProvider(button.getAttribute?.('data-pw-walkthrough-provider') || '');
@@ -3426,7 +3401,7 @@
       }
       if (visualTerminalStates.includes(currentState)) {
         if (visualRequestStatusNode) {
-          visualRequestStatusNode.textContent = String(button.getAttribute('data-pw-visual-detail') || button.getAttribute('title') || 'Verified visual evidence is still needed before this can open.').trim();
+          visualRequestStatusNode.textContent = String(button.getAttribute('data-pw-visual-detail') || button.getAttribute('title') || 'Tour media is still missing here.').trim();
         }
         return;
       }

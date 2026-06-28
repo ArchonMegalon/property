@@ -11,6 +11,7 @@ from app.api.routes.landing import (
     _console_shell_context,
     _form_value,
     _normalize_browser_return_to,
+    _property_brilliant_directories_billing_handoff,
     _render_public_template,
     _request_is_austrian_ip,
     app_shell as _app_shell,
@@ -58,7 +59,7 @@ def _google_connect_action(sync: dict[str, object], *, return_to: str = "/app/se
         }
     if not workspace_sync_supported:
         return {
-            "detail": "Google is linked for sign-in and verified return access only.",
+            "detail": "Google is linked for sign-in and return access only.",
             "label": "Manage Google",
             "href": return_to,
             "method": "get",
@@ -342,6 +343,21 @@ def _google_account_status_detail(raw_status: str, *, is_property_brand: bool = 
     return normalized.replace("_", " ") if normalized else "Not recorded"
 
 
+def _property_google_sign_in_status_label(token_status: str, *, connected: bool) -> str:
+    normalized = str(token_status or "").strip().lower()
+    if not connected:
+        return "Ready to connect"
+    if normalized in {"", "unknown"}:
+        return "Connected"
+    if normalized == "active":
+        return "Ready"
+    if normalized == "revoked":
+        return "Access removed"
+    if normalized in {"expired", "missing", "refresh_failed", "refresh_required", "invalid"}:
+        return "Needs reconnect"
+    return normalized.replace("_", " ").title()
+
+
 def _google_scope_label(consent_stage: str) -> str:
     details = google_oauth_service.google_scope_bundle_details(consent_stage)
     return str(details.get("label") or "Google").strip() or "Google"
@@ -584,7 +600,11 @@ def _google_account_row(
     detail_parts = [
         role_detail,
         scope_label,
-        f"token {token_status.replace('_', ' ')}",
+        (
+            _property_google_sign_in_status_label(token_status, connected=enabled and token_status != "revoked")
+            if is_property_brand
+            else f"token {token_status.replace('_', ' ')}"
+        ),
     ]
     if account.google_hosted_domain:
         detail_parts.append(account.google_hosted_domain)
@@ -767,6 +787,8 @@ def settings_usage_detail(
     if is_property_brand:
         property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
         property_billing, property_commercial = _property_settings_commercial(status)
+        billing_handoff = _property_brilliant_directories_billing_handoff()
+        billing_href = "/app/billing" if bool(billing_handoff.get("available")) else ""
         current_plan = (
             str(property_commercial.get("current_plan_key") or property_commercial.get("active_plan_key") or "").strip()
             or str(property_billing.get("current_plan_key") or property_billing.get("active_plan_key") or "free").strip()
@@ -793,14 +815,14 @@ def settings_usage_detail(
             research_output_items.append(_object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"))
         research_output_items.extend(
             [
-                _object_detail_row("Current plan", current_plan.replace("_", " ").title(), "Plan", href="/app/billing"),
+                _object_detail_row("Current plan", current_plan.replace("_", " ").title(), "Plan", href=billing_href),
                 _object_detail_row("Support", "Account help and Google sign-in stay in settings.", "Support", href="/app/settings/support"),
             ]
         )
         reliability_items = [
-            _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+            _object_detail_row("Recovery", str(property_usage["repair_status"]), "Repair"),
             _object_detail_row(
-                "Source status",
+                "Source health",
                 "Waiting for first search" if int(property_usage["run_total"] or 0) <= 0 else "Derived from recent runs",
                 "Sources",
             ),
@@ -829,40 +851,42 @@ def settings_usage_detail(
             usage_sidebar_rows.append(_object_detail_row("Active searches", str(property_usage["active_total"]), "Search"))
         usage_sidebar_rows.extend(
             [
-                _object_detail_row("Current plan", current_plan.replace("_", " ").title(), "Plan", href="/app/billing"),
-                _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+                _object_detail_row("Current plan", current_plan.replace("_", " ").title(), "Plan", href=billing_href),
+                _object_detail_row("Recovery", str(property_usage["repair_status"]), "Repair"),
             ]
         )
+        run_outcomes_items = latest_run_rows or [
+            _object_detail_row(
+                "No searches yet",
+                "Launch a search to create the first usage record.",
+                "Search",
+                href="/app/properties",
+            )
+        ]
         usage_sections = [
             {
                 "eyebrow": "Search runs",
                 "title": "Recent run outcomes",
-                "items": latest_run_rows
-                or [
-                    _object_detail_row(
-                        "No searches yet",
-                        "Launch a search to create the first usage record.",
-                        "Search",
-                        href="/app/properties",
-                    )
-                ],
+                "items": run_outcomes_items,
                 "open": True,
             },
         ]
-        usage_sections.append(
-            {
-                "eyebrow": "Results",
-                "title": "Shortlist and filtering volume",
-                "items": results_items,
-            }
-        )
-        usage_sections.append(
-            {
-                "eyebrow": "Research output",
-                "title": "Dossiers, pages, and 360 tours",
-                "items": research_output_items,
-            }
-        )
+        if int(property_usage["ranked_total"] or 0) + int(property_usage["filtered_total"] or 0) + int(property_usage["listing_total"] or 0) > 0:
+            usage_sections.append(
+                {
+                    "eyebrow": "Results",
+                    "title": "Shortlist and filtering volume",
+                    "items": results_items,
+                }
+            )
+        if research_output_items:
+            usage_sections.append(
+                {
+                    "eyebrow": "Research output",
+                    "title": "Dossiers, pages, and 360 tours",
+                    "items": research_output_items,
+                }
+            )
         if reliability_items:
             usage_sections.append(
                 {
@@ -877,7 +901,7 @@ def settings_usage_detail(
             workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
             page_title="PropertyQuarry usage",
             current_nav="settings",
-            console_title="Usage and activation",
+            console_title="Usage",
             console_summary="Search runs, ranked homes, filtered homes, property pages, and tours stay visible in one account view.",
             object_kind="Property usage",
             object_title=f"{property_usage['run_total']} recent search runs",
@@ -890,10 +914,11 @@ def settings_usage_detail(
                 {"label": "Search runs", "value": str(property_usage["run_total"])},
                 {"label": "Ranked homes", "value": str(property_usage["ranked_total"])},
                 {"label": "Filtered homes", "value": str(property_usage["filtered_total"])},
-                {"label": "Repair status", "value": str(property_usage["repair_status"])},
+                {"label": "Sources used", "value": str(property_usage["source_total"])},
+                {"label": "Recovery", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What usage means here",
-            object_sidebar_copy="PropertyQuarry usage is measured by searches completed, homes ranked, pages prepared, and whether repair work is still open.",
+            object_sidebar_copy="Usage is driven by completed searches, ranked homes, and whether repair work is still open.",
             object_sidebar_rows=usage_sidebar_rows,
             object_sections=usage_sections,
         )
@@ -912,7 +937,7 @@ def settings_usage_detail(
         workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
         page_title="PropertyQuarry usage",
         current_nav="settings",
-        console_title="Usage and activation",
+        console_title="Usage",
         console_summary="Searches, decisions, and follow-up activity stay visible without exposing internal work queues.",
         object_kind="Usage",
         object_title="Account activity",
@@ -930,7 +955,7 @@ def settings_usage_detail(
             _object_detail_row("Time to first value", str(analytics.get("time_to_first_value_seconds") or "pending"), "Analytics"),
             _object_detail_row("Churn risk", str(analytics.get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
             _object_detail_row("Account status", str(readiness.get("detail") or "Status not recorded."), "Account"),
-            _object_detail_row("Source status", str(providers.get("risk_state") or "unknown").replace("_", " "), "Sources"),
+            _object_detail_row("Source health", str(providers.get("risk_state") or "unknown").replace("_", " "), "Sources"),
         ],
         object_sections=[
             {
@@ -1037,7 +1062,7 @@ def settings_support_detail(
                 {"label": "Partial runs", "value": str(property_usage["partial_total"])},
                 {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
             ],
-            object_sidebar_title="What support answers",
+            object_sidebar_title="Support at a glance",
             object_sidebar_copy="This view answers what failed, what is already usable, and what to do next.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
@@ -1051,7 +1076,7 @@ def settings_support_detail(
                     "eyebrow": "Repair",
                     "title": "Repair and run health",
                     "items": [
-                        _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+                        _object_detail_row("Recovery", str(property_usage["repair_status"]), "Repair"),
                         _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
                         _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
                         _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), "Search"),
@@ -1125,7 +1150,7 @@ def settings_support_detail(
                 {"label": "Partial runs", "value": str(property_usage["partial_total"])},
                 {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
             ],
-            object_sidebar_title="What support answers",
+            object_sidebar_title="Support at a glance",
             object_sidebar_copy="This view answers what failed, what is already usable, and what to do next.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
@@ -1146,7 +1171,7 @@ def settings_support_detail(
                     "eyebrow": "Repair",
                     "title": "Repair and run health",
                     "items": [
-                        _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+                        _object_detail_row("Recovery", str(property_usage["repair_status"]), "Repair"),
                         _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
                         _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
                         _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), "Search"),
@@ -1201,7 +1226,7 @@ def settings_support_detail(
             _object_detail_row("Plan status", str(billing.get("billing_state") or "unknown").replace("_", " "), "Billing"),
             _object_detail_row("Invoice status", str(billing.get("invoice_status") or "unknown").replace("_", " "), "Billing"),
             _object_detail_row("Churn risk", str(bundle.get("analytics", {}).get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
-            _object_detail_row("Source status", str(providers.get("risk_state") or "unknown").replace("_", " "), "Sources"),
+            _object_detail_row("Source health", str(providers.get("risk_state") or "unknown").replace("_", " "), "Sources"),
             _object_detail_row("Latest issue", str(memo_loop.get("last_issue_reason") or "No current blocker"), "Support"),
             _object_detail_row("Search setup", str(journey_gate.get("state") or "missing").replace("_", " "), "Product"),
             _object_detail_row("Support note", str(support_fallout.get("detail") or "No support note."), "Support"),
@@ -1274,7 +1299,7 @@ def settings_support_detail(
                     [
                         _object_detail_row(
                             "Summary",
-                            str(support_grounding.get("summary") or "Support stays connected to the latest account and source status."),
+                            str(support_grounding.get("summary") or "Support stays connected to the latest account and source health."),
                             "Support",
                         )
                     ]
@@ -1318,7 +1343,7 @@ def settings_support_detail(
                     _object_detail_row("Route default", str(route_stewardship.get("default_status") or "No route default note."), "Route"),
                     _object_detail_row("Route status", str(route_stewardship.get("canary_status") or "No route note."), "Route"),
                     _object_detail_row("Review due", str(route_stewardship.get("review_due") or "No review date published."), "Route"),
-                    _object_detail_row("Next question", str(product_control.get("next_checkpoint_question") or "No next question."), "Product"),
+                    _object_detail_row("Ask next", str(product_control.get("next_checkpoint_question") or "No next question."), "Product"),
                     _object_detail_row("Guide freshness", str(public_guide_freshness.get("detail") or "No guide note."), "Guide"),
                 ],
             },
@@ -1478,7 +1503,7 @@ def settings_outcomes_detail(
                 {"label": "Ranked homes", "value": str(property_usage["ranked_total"])},
                 {"label": "Completed searches", "value": str(property_usage["completed_total"])},
                 {"label": "Partial searches", "value": str(property_usage["partial_total"])},
-                {"label": "Repair status", "value": str(property_usage["repair_status"])},
+                {"label": "Recovery", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What a healthy search shows",
             object_sidebar_copy="A healthy PropertyQuarry loop returns ranked homes quickly, keeps hard filters explainable, preserves usable partial results, and makes missing evidence visible.",
@@ -1487,7 +1512,7 @@ def settings_outcomes_detail(
                 _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                 _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
                 _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
-                _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+                _object_detail_row("Recovery", str(property_usage["repair_status"]), "Repair"),
                 _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Account"),
             ],
             object_sections=[
@@ -1800,10 +1825,14 @@ def settings_google_detail(
     )
     accounts_section_title = "Connected Google accounts" if is_property_brand else "Connected inboxes and send defaults"
     if is_property_brand:
-        sync_summary = (
-            f"{connected_account_total} connected · "
-            f"{str(sync.get('token_status') or 'missing').replace('_', ' ')} token"
+        property_google_sign_in_status = _property_google_sign_in_status_label(
+            str(sync.get("token_status") or "missing"),
+            connected=connected_account_total > 0,
         )
+        if connected_account_total > 0:
+            sync_summary = f"{connected_account_total} connected · {property_google_sign_in_status.lower()}"
+        else:
+            sync_summary = "Sign in with Google on this device. First-time Google sign-in still creates the same PropertyQuarry account automatically."
     else:
         sync_summary = (
             f"{connected_account_total} connected inbox{'es' if connected_account_total != 1 else ''} · "
@@ -1829,7 +1858,7 @@ def settings_google_detail(
     object_meta = [
         {"label": "Connected", "value": "Yes" if connected_account_total else "No"},
         {"label": primary_account_label, "value": primary_email or "Not connected"},
-        {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
+        {"label": "Sign-in status", "value": _property_google_sign_in_status_label(str(sync.get("token_status") or "missing"), connected=connected_account_total > 0) if is_property_brand else str(sync.get("token_status") or "missing").replace("_", " ")},
     ]
     if not is_property_brand:
         object_meta.extend([
@@ -1841,15 +1870,15 @@ def settings_google_detail(
     if is_property_brand:
         object_sidebar_rows = [
             _object_detail_row(
-                "Connect another Google account",
-                "Google sign-in creates or opens the same PropertyQuarry account automatically.",
+                "Google sign-in",
+                "Google creates or opens your PropertyQuarry account with one secure action.",
                 "Google",
                 action_href=connect_another_href,
                 action_label=add_account_label,
                 action_method="get",
             ),
             _object_detail_row(
-                "Next action",
+                "Account action",
                 action["detail"],
                 "Action",
                 href="/app/settings/google",
@@ -1858,7 +1887,6 @@ def settings_google_detail(
                 action_method=action["method"],
                 return_to="/app/settings/google",
             ),
-            _object_detail_row("Reauth", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
         ]
         if connected_account_total > 0:
             object_sections = [
@@ -1891,11 +1919,40 @@ def settings_google_detail(
             ]
         else:
             object_meta = [
-                {"label": "Connected", "value": "No"},
+                {"label": "Google sign-in", "value": "Not connected"},
                 {"label": "Connected Google accounts", "value": "0"},
-                {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
+                {"label": "Sign-in status", "value": "Ready to connect"},
             ]
-            object_sections = []
+            object_sidebar_rows = [
+                _object_detail_row(
+                    "Google sign-in",
+                    "Connect Google on this device. First-time Google sign-in still creates the same PropertyQuarry account automatically.",
+                    "Action",
+                    href="/app/settings/google",
+                    action_href=connect_another_href,
+                    action_label="Connect Google",
+                    action_method="get",
+                ),
+            ]
+            object_sections = [
+                {
+                    "eyebrow": "What happens next",
+                    "title": "Sign in with the same account",
+                    "items": [
+                        _object_detail_row(
+                            "First-time sign-in",
+                            "Google sign-in still creates the same PropertyQuarry account automatically.",
+                            "Account",
+                        ),
+                        _object_detail_row(
+                            "Scope",
+                            "No extra inbox scope is required on this screen.",
+                            "Privacy",
+                        ),
+                    ],
+                    "open": True,
+                },
+            ]
     else:
         object_sidebar_rows = [
             _object_detail_row(
@@ -2010,7 +2067,7 @@ def settings_google_detail(
         current_nav="settings",
         console_title="Google connection",
         console_summary=(
-            "Google should stay narrowly scoped on PropertyQuarry: sign-in, the connected account, token health, and whether reauth is needed."
+            "Use Google to sign in with the same PropertyQuarry account, see which Google account is connected, and reconnect it if needed."
             if is_property_brand
             else "Google signal sync is visible in product language: primary sender, additional inboxes, freshness, staged work, and whether the office needs reauth before the next loop."
         ),
@@ -2025,6 +2082,7 @@ def settings_google_detail(
             else "This view shows which inbox is primary, what additional Google inboxes are attached to the same workspace, when the last sync completed, and whether the office needs reauth before the next loop."
         ),
         object_sidebar_rows=object_sidebar_rows,
+        object_sidebar_default_open=bool(is_property_brand and connected_account_total <= 0),
         object_sections=object_sections,
     )
 
@@ -2050,16 +2108,16 @@ def settings_trust_detail(
         billing, commercial = _property_settings_commercial(status)
         readiness_status_label = "Ready"
         readiness_detail_label = "Core account, search, support, and access surfaces are available."
-        workspace_summary = "Review the latest search, saved results, and repair status before the next decision."
+        workspace_summary = "Review the latest run, saved homes, and source health before the next decision."
         return _render_console_object_detail(
             request=request,
             context=context,
             workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
-            page_title="PropertyQuarry trust",
+            page_title="PropertyQuarry reliability",
             current_nav="settings",
-            console_title="Trust",
-            console_summary="Evidence, rules, source status, and recent activity explain why a result is trustworthy.",
-            object_kind="Trust",
+            console_title="Reliability",
+            console_summary="Evidence, rules, source health, and recent activity explain why a result is trustworthy.",
+            object_kind="Reliability",
             object_title=workspace_summary,
             object_summary=(
                 f"{property_usage['ranked_total']} ranked homes · "
@@ -2072,13 +2130,13 @@ def settings_trust_detail(
                 {"label": "360 tours", "value": str(property_usage["tour_ready_total"])},
                 {"label": "Plan", "value": str(billing.get("current_plan_label") or billing.get("current_plan_key") or "Free").replace("_", " ").title()},
             ],
-            object_sidebar_title="Why this can be trusted",
-            object_sidebar_copy="Trust comes from visible ranking evidence, provider health, source repair state, and account controls.",
+            object_sidebar_title="Why this is reliable",
+            object_sidebar_copy="Reliability comes from visible ranking evidence, provider health, source repair state, and account controls.",
             object_sidebar_rows=[
                 _object_detail_row("Summary", workspace_summary, "Summary"),
                 _object_detail_row("Account", readiness_detail_label, "Account"),
-                _object_detail_row("Source status", str(property_usage["repair_status"]), "Sources"),
-                _object_detail_row("Repair", str(property_usage["repair_status"]), "Sources"),
+                _object_detail_row("Source health", str(property_usage["repair_status"]), "Sources"),
+                _object_detail_row("Recovery", str(property_usage["repair_status"]), "Sources"),
                 _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Sources"),
                 _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
                 _object_detail_row("Blocked actions", ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:4]) or "No blocked actions", "Rules"),
@@ -2086,13 +2144,13 @@ def settings_trust_detail(
             object_sections=[
                 {
                     "eyebrow": "Status",
-                    "title": "Account and source status",
+                    "title": "Account and source health",
                     "items": [
                         _object_detail_row("Account", readiness_status_label, "Account"),
                         _object_detail_row("Details", readiness_detail_label, "Account"),
-                        _object_detail_row("Source status", str(property_usage.get("repair_status") or "unknown"), "Sources"),
+                        _object_detail_row("Source health", str(property_usage.get("repair_status") or "unknown"), "Sources"),
                         _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
-                        _object_detail_row("Repair status", str(property_usage["repair_status"]), "Sources"),
+                        _object_detail_row("Recovery", str(property_usage["repair_status"]), "Sources"),
                         _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Sources"),
                     ],
                 },
@@ -2130,7 +2188,7 @@ def settings_trust_detail(
     recent_events = [dict(item) for item in (trust.get("recent_events") or [])]
     workspace_summary = str(trust.get("workspace_summary") or "Trust")
     if is_property_brand and any(token in workspace_summary.lower() for token in ("office loop", "memo", "memory")):
-        workspace_summary = "Review the latest search, saved results, and repair status before the next decision."
+        workspace_summary = "Review the latest run, saved homes, and source health before the next decision."
     readiness_status_label = str(readiness.get("status") or "unknown").replace("_", " ")
     readiness_detail_label = str(readiness.get("detail") or "No readiness detail recorded.")
     if is_property_brand:
@@ -2140,15 +2198,15 @@ def settings_trust_detail(
         request=request,
         context=context,
         workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
-        page_title="PropertyQuarry trust",
+        page_title="PropertyQuarry reliability",
         current_nav="settings",
-        console_title="Trust",
+        console_title="Reliability",
         console_summary=(
-            "Evidence, rules, source status, and recent activity explain why a result is trustworthy."
+            "Evidence, rules, source health, and recent activity explain why a result is trustworthy."
             if is_property_brand
             else "Evidence, rules, readiness, provider state, and recent product events make the assistant legible when the office asks why something happened."
         ),
-        object_kind="Trust",
+        object_kind="Reliability",
         object_title=workspace_summary,
         object_summary=f"{trust.get('evidence_count') or 0} evidence items · {trust.get('rule_count') or 0} rules",
         object_meta=[
@@ -2156,12 +2214,12 @@ def settings_trust_detail(
             {"label": "Rules", "value": str(trust.get("rule_count") or 0)},
             {"label": "Data retention", "value": str(trust.get("audit_retention") or "standard")},
         ],
-        object_sidebar_title="Why this can be trusted",
-        object_sidebar_copy="Trust comes from visible evidence, clear rules, source health, and recent account activity.",
+        object_sidebar_title="Why this is reliable",
+        object_sidebar_copy="Reliability comes from visible evidence, clear rules, source health, and recent account activity.",
         object_sidebar_rows=[
             _object_detail_row("Summary", workspace_summary if workspace_summary != "Trust" else "No trust summary yet.", "Summary"),
             _object_detail_row("Account", readiness_detail_label, "Account"),
-            _object_detail_row("Source status", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
+            _object_detail_row("Source health", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
             _object_detail_row("Sources", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
             _object_detail_row("Delivery", str(reliability.get("delivery") or "watch"), "Delivery"),
             _object_detail_row("Access", str(reliability.get("access") or "watch"), "Access"),
@@ -2170,11 +2228,11 @@ def settings_trust_detail(
             object_sections=[
                 {
                     "eyebrow": "Status",
-                    "title": "Account and source status",
+                    "title": "Account and source health",
                     "items": [
                         _object_detail_row("Account", readiness_status_label, "Account"),
                         _object_detail_row("Details", readiness_detail_label, "Account"),
-                        _object_detail_row("Source status", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
+                        _object_detail_row("Source health", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
                         _object_detail_row("Source detail", str(provider_posture.get("risk_detail") or "No source issue recorded."), "Sources"),
                         _object_detail_row("Fallback sources", str(provider_posture.get("lanes_with_fallback") or 0), "Sources"),
                     ],
@@ -2416,7 +2474,7 @@ def settings_access_detail(
             "eyebrow": "Issue access",
             "title": "Create an access link",
             "copy": "Issue a direct account or collaborator access link without dropping into the API.",
-            "open": bool(issue_status or issue_error),
+            "open": bool(issue_status or issue_error or not active_sessions),
             "submit_label": "Issue access link",
             "fields": [
                 {"type": "hidden", "name": "return_to", "value": "/app/settings/access"},
@@ -2609,6 +2667,7 @@ def settings_invitations_detail(
                 if is_property_brand
                 else "Create a principal or operator invitation without leaving the product surface."
             ),
+            "open": bool(invite_error or (not pending and not accepted and not revoked)),
             "submit_label": "Create invitation",
             "fields": [
                 {"type": "hidden", "name": "return_to", "value": "/app/settings/invitations"},

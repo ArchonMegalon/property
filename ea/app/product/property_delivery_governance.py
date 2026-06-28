@@ -70,21 +70,21 @@ def property_delivery_governance_rows(selected_channels: object) -> list[dict[st
     rows: list[dict[str, object]] = []
     for policy in PROPERTY_DELIVERY_CHANNEL_POLICIES:
         enabled = policy.channel_key in selected
-        controls = ["verified destination", "delivery receipt"]
+        controls = ["address confirmed", "delivery history"]
         if policy.opt_in_required:
             controls.append("opt-in")
         if policy.stop_start_supported:
-            controls.append("STOP/START")
+            controls.append("pause or resume")
         if policy.quiet_hours_supported:
             controls.append("quiet hours")
         if policy.suppression_required:
-            controls.append("suppression")
+            controls.append("duplicate guard")
         rows.append(
             {
                 "channel_key": policy.channel_key,
                 "title": policy.label,
                 "detail": ", ".join(controls),
-                "tag": "Enabled" if enabled else "Off",
+                "tag": "On" if enabled else "Off",
                 "enabled": enabled,
                 "customer_control_label": policy.customer_control_label,
             }

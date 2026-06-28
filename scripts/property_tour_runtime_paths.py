@@ -21,16 +21,35 @@ def manifest_count(root: Path) -> int:
         return 0
 
 
+def latest_manifest_mtime(root: Path) -> float:
+    try:
+        resolved = root.expanduser().resolve()
+    except OSError:
+        return 0.0
+    if not resolved.is_dir():
+        return 0.0
+    latest = 0.0
+    try:
+        for path in resolved.glob("*/tour.json"):
+            try:
+                latest = max(latest, float(path.stat().st_mtime))
+            except OSError:
+                continue
+    except OSError:
+        return 0.0
+    return latest
+
+
 def best_tour_root(candidates: Iterable[Path]) -> Path | None:
-    scored: list[tuple[int, int, Path]] = []
+    scored: list[tuple[float, int, int, Path]] = []
     for index, root in enumerate(candidates):
         candidate = Path(root).expanduser()
         if not candidate.exists():
             continue
-        scored.append((manifest_count(candidate), -index, candidate))
+        scored.append((latest_manifest_mtime(candidate), -index, manifest_count(candidate), candidate))
     if not scored:
         return None
-    return max(scored)[2]
+    return max(scored)[3]
 
 
 def running_container_public_tour_dir(container_name: str = "") -> Path | None:

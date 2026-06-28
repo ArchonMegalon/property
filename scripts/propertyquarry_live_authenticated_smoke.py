@@ -6,12 +6,25 @@ import json
 import os
 import re
 import socket
+import sys
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from time import sleep
 from typing import Callable
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.propertyquarry_billing_handoff_probe import (
+    NoRedirectHandler as _NoRedirectHandler,
+    header_value as _header_value,
+    https_handoff_url_usable as _shared_https_handoff_url_usable,
+    https_redirect_host_resolves as _https_redirect_host_resolves,
+    no_proxy_opener as _no_proxy_opener,
+)
 
 
 DEFAULT_ROUTES = (
@@ -32,9 +45,13 @@ FORBIDDEN_CUSTOMER_NOISE = (
     "best next move",
 )
 BILLING_FAIL_CLOSED_MARKERS = (
-    "billing handoff unavailable",
-    "external account lane",
-    "propertyquarry access remains active",
+    "billing portal unavailable",
+    "propertyquarry access stays active",
+)
+BILLING_FAIL_CLOSED_STATE_MARKERS = (
+    "billing portal is still being connected",
+    "still opens another sign-in",
+    "billing account host is not ready yet",
 )
 BILLING_LOCAL_BOARD_MARKERS = (
     "open pricing",
@@ -44,19 +61,6 @@ BILLING_LOCAL_BOARD_MARKERS = (
     "current commercial state",
     "plan posture",
 )
-BILLING_DNS_OVER_HTTPS_ENDPOINTS = (
-    "https://cloudflare-dns.com/dns-query",
-    "https://dns.google/resolve",
-)
-
-
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
-        return None
-
-
-def _no_proxy_opener(*handlers: object) -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}), *handlers)
 
 
 def _env_value(name: str) -> str:
@@ -71,133 +75,33 @@ def _decode_body(body: bytes) -> str:
     return body.decode("utf-8", errors="replace")
 
 
+def _json_safe(value: object) -> object:
+    if isinstance(value, bytes):
+        return _decode_body(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def _visible_text(text: str) -> str:
     without_hidden = re.sub(r"<script.*?</script>|<style.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     without_tags = re.sub(r"<[^>]+>", " ", without_hidden)
     return re.sub(r"\s+", " ", without_tags).strip()
 
 
-def _header_value(headers: dict[str, object], name: str) -> str:
-    normalized_name = str(name or "").strip().lower()
-    for key, value in headers.items():
-        if str(key or "").strip().lower() == normalized_name:
-            return str(value or "").strip()
-    return ""
-
-
-def _public_dns_host_resolves(host: str, expected_target: str) -> bool:
-    normalized_host = str(host or "").strip().lower().rstrip(".")
-    normalized_target = str(expected_target or "").strip().lower().rstrip(".")
-    if not normalized_host:
-        return False
-    matched_cname_answer = False
-    matched_address_answer = False
-    for endpoint in BILLING_DNS_OVER_HTTPS_ENDPOINTS:
-        for record_type in ("CNAME", "A", "AAAA"):
-            query = urllib.parse.urlencode({"name": normalized_host, "type": record_type})
-            request = urllib.request.Request(
-                f"{endpoint}?{query}",
-                headers={
-                    "Accept": "application/dns-json",
-                    "User-Agent": "PropertyQuarry-live-authenticated-smoke/1.0",
-                },
-            )
-            try:
-                with urllib.request.urlopen(request, timeout=8) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
-            except Exception:
-                continue
-            for row in payload.get("Answer") or []:
-                if not isinstance(row, dict):
-                    continue
-                answer_name = str(row.get("name") or "").strip().lower().rstrip(".")
-                answer_data = str(row.get("data") or "").strip().lower().rstrip(".")
-                if answer_name != normalized_host or not answer_data:
-                    continue
-                row_type = int(row.get("type") or 0)
-                if row_type == 5:
-                    matched_cname_answer = True
-                    if normalized_target and answer_data == normalized_target:
-                        return True
-                elif row_type in {1, 28}:
-                    matched_address_answer = True
-    # Cloudflare-proxied CNAMEs intentionally publish edge A/AAAA records. A
-    # public address answer is enough to prove the HTTPS handoff host resolves.
-    if matched_address_answer:
-        return True
-    return matched_cname_answer if not normalized_target else False
-
-
-def _https_redirect_host_resolves(
+def _https_handoff_url_usable(
     location: str,
-    resolver: Callable[[str, int], object],
     *,
-    expected_cname_target: str = "",
-) -> bool:
-    parsed = urllib.parse.urlparse(str(location or "").strip())
-    if parsed.scheme != "https":
-        return False
-    host = str(parsed.hostname or "").strip().lower()
-    if not host:
-        return False
-    try:
-        resolver(host, 443)
-    except OSError:
-        return _public_dns_host_resolves(host, expected_cname_target)
-    return True
-
-
-def _https_handoff_url_usable(location: str, *, timeout_seconds: float = 8.0) -> dict[str, object]:
-    parsed = urllib.parse.urlparse(str(location or "").strip())
-    if parsed.scheme != "https" or not parsed.hostname:
-        return {"ok": False, "status_code": 0, "error": "handoff_url_not_https"}
-    request = urllib.request.Request(
-        str(location),
-        headers={
-            "User-Agent": "PropertyQuarry-live-authenticated-smoke/1.0",
-            "Accept": "text/html,application/json,*/*",
-        },
+    timeout_seconds: float = 8.0,
+    _visited_urls: tuple[str, ...] = (),
+) -> dict[str, object]:
+    return _shared_https_handoff_url_usable(
+        location,
+        timeout_seconds=timeout_seconds,
+        visited_urls=_visited_urls,
     )
-    opener = _no_proxy_opener(_NoRedirectHandler)
-    response_headers: dict[str, object] = {}
-    try:
-        with opener.open(request, timeout=timeout_seconds) as response:
-            status_code = int(response.status)
-            response_headers = dict(response.headers.items())
-            redirect_location = ""
-            body = response.read(16_384).decode("utf-8", errors="replace").lower()
-    except urllib.error.HTTPError as exc:
-        status_code = int(exc.code)
-        response_headers = dict(exc.headers.items())
-        redirect_location = _header_value(dict(exc.headers or {}), "Location")
-        body = exc.read(16_384).decode("utf-8", errors="replace").lower()
-    except Exception as exc:
-        return {"ok": False, "status_code": 0, "error": f"{type(exc).__name__}: {exc}"}
-    login_target = str(redirect_location or urllib.parse.urlparse(str(location or "")).path or "").lower()
-    body_is_login = "<title" in body and "login" in body and ("email" in body or "password" in body)
-    requires_login = "/login" in login_target or "login_direct_url" in login_target or body_is_login
-    server_header = str(response_headers.get("server") or response_headers.get("Server") or "").strip().lower()
-    cloudflare_error_code_match = (
-        re.search(r"error code:\s*(\d{3,4})", body, flags=re.IGNORECASE)
-        if status_code == 403 and "cloudflare" in server_header and not requires_login
-        else None
-    )
-    cloudflare_error_code = str(cloudflare_error_code_match.group(1) or "").strip() if cloudflare_error_code_match else ""
-    usable = 200 <= status_code < 400 and not requires_login and not cloudflare_error_code
-    return {
-        "ok": usable,
-        "status_code": status_code,
-        "redirect_location": redirect_location,
-        "error": (
-            ""
-            if usable
-            else (
-                "handoff_url_requires_separate_login"
-                if requires_login
-                else (f"handoff_url_cloudflare_error_{cloudflare_error_code}" if cloudflare_error_code else f"handoff_url_http_{status_code}")
-            )
-        ),
-    }
 
 
 def _security_header_checks(*, headers: dict[str, object]) -> list[tuple[str, bool]]:
@@ -209,6 +113,54 @@ def _security_header_checks(*, headers: dict[str, object]) -> list[tuple[str, bo
         ("security_referrer_policy", _header_value(headers, "Referrer-Policy") == "strict-origin-when-cross-origin"),
         ("security_permissions_policy", "camera=()" in permissions and "microphone=()" in permissions),
     ]
+
+
+def _resolve_billing_external_handoff(
+    *,
+    base_url: str,
+    location: str,
+    fetcher: Callable[[str, float], dict[str, object]],
+    timeout_seconds: float,
+) -> dict[str, object]:
+    normalized_location = str(location or "").strip()
+    if not normalized_location:
+        return {
+            "external_location": "",
+            "bridge_launch_used": False,
+            "bridge_launch_url": "",
+            "bridge_launch_status_code": 0,
+            "bridge_launch_error": "",
+        }
+    parsed = urllib.parse.urlparse(normalized_location)
+    if parsed.scheme == "https":
+        return {
+            "external_location": normalized_location,
+            "bridge_launch_used": False,
+            "bridge_launch_url": "",
+            "bridge_launch_status_code": 0,
+            "bridge_launch_error": "",
+        }
+    normalized_path = parsed.path or ""
+    if not normalized_path.startswith("/app/api/property/billing/bridge-launch"):
+        return {
+            "external_location": normalized_location,
+            "bridge_launch_used": False,
+            "bridge_launch_url": "",
+            "bridge_launch_status_code": 0,
+            "bridge_launch_error": "",
+        }
+    bridge_launch_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", normalized_location.lstrip("/"))
+    bridge_result = fetcher(bridge_launch_url, timeout_seconds)
+    bridge_headers = dict(bridge_result.get("headers") or {})
+    bridge_location = _header_value(bridge_headers, "Location")
+    return {
+        "external_location": str(bridge_location or "").strip(),
+        "bridge_launch_used": True,
+        "bridge_launch_url": bridge_launch_url,
+        "bridge_launch_status_code": int(bridge_result.get("status_code") or 0),
+        "bridge_launch_error": str(bridge_result.get("error") or "").strip(),
+        "bridge_launch_result": bridge_result,
+    }
 
 
 def fetch_url(
@@ -291,7 +243,8 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
             (
                 (
                     "billing_fail_closed_recovery",
-                    all(marker in lowered_visible for marker in BILLING_FAIL_CLOSED_MARKERS),
+                    all(marker in lowered_visible for marker in BILLING_FAIL_CLOSED_MARKERS)
+                    and any(marker in lowered_visible for marker in BILLING_FAIL_CLOSED_STATE_MARKERS),
                 ),
                 ("billing_no_self_link", 'href="/app/billing"' not in text),
                 (
@@ -379,15 +332,32 @@ def build_live_authenticated_smoke_receipt(
         text = _decode_body(body)
         if path == "/app/billing" and status_code in {303, 307}:
             location = _header_value(headers, "Location")
-            billing_handoff_probe = effective_billing_handoff_checker(location, timeout_seconds)
+            billing_handoff_resolution = _resolve_billing_external_handoff(
+                base_url=base_url,
+                location=location,
+                fetcher=effective_fetcher,
+                timeout_seconds=timeout_seconds,
+            )
+            external_location = str(billing_handoff_resolution.get("external_location") or "").strip()
+            billing_handoff_probe = effective_billing_handoff_checker(external_location, timeout_seconds)
             route_checks = [
                 ("status_ok", True),
                 *_security_header_checks(headers=headers),
-                ("billing_external_handoff", location.startswith("https://") and "/app/billing" not in location),
+                (
+                    "billing_bridge_launch",
+                    (
+                        not billing_handoff_resolution.get("bridge_launch_used")
+                        or (
+                            int(billing_handoff_resolution.get("bridge_launch_status_code") or 0) in {303, 307}
+                            and not str(billing_handoff_resolution.get("bridge_launch_error") or "").strip()
+                        )
+                    ),
+                ),
+                ("billing_external_handoff", external_location.startswith("https://") and "/app/billing" not in external_location),
                 (
                     "billing_external_handoff_resolves",
                     _https_redirect_host_resolves(
-                        location,
+                        external_location,
                         billing_handoff_resolver,
                         expected_cname_target=billing_handoff_dns_target,
                     ),
@@ -428,13 +398,17 @@ def build_live_authenticated_smoke_receipt(
                 "snippet": _compact_snippet(text),
                 "error": str(result.get("error") or ""),
                 **(
-                    {"billing_handoff_probe": billing_handoff_probe}
+                    {
+                        "billing_handoff_probe": billing_handoff_probe,
+                        "billing_handoff_resolution": billing_handoff_resolution,
+                    }
                     if path == "/app/billing" and status_code in {303, 307}
                     else {}
                 ),
             }
         )
-    return {
+    return _json_safe(
+        {
         "base_url": base_url,
         "principal_id": principal_id,
         "expected_plan_label": expected_plan_label,
@@ -448,7 +422,8 @@ def build_live_authenticated_smoke_receipt(
             "This smoke is authenticated and read-only.",
             "It verifies paid customer surfaces: account, billing, and sign-in state.",
         ],
-    }
+        }
+    )
 
 
 def main() -> int:

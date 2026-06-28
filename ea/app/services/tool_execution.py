@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Callable
 
 from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocationResult
@@ -95,6 +96,7 @@ class ToolExecutionService:
             ("onemin", "image_generate"): self._register_builtin_onemin_image_generate,
             ("onemin", "media_transform"): self._register_builtin_onemin_media_transform,
             ("onemin", "property_walkthrough_video"): self._register_builtin_onemin_property_walkthrough_video,
+            ("ea", "scene_video_generate"): self._register_builtin_scene_video_generate,
             ("teable", "table_sync"): self._register_builtin_teable_table_sync,
         }
         for ui_service in browseract_ui_service_definitions():
@@ -149,7 +151,62 @@ class ToolExecutionService:
                 context_json=context_json,
             )
         result = handler(request, definition)
+        if tool_name == "ea.scene_video_generate":
+            result = self._normalize_scene_video_result(result)
         return self._maybe_send_generated_video_to_telegram(request=request, result=result)
+
+    @staticmethod
+    def _normalize_scene_video_result(result: ToolInvocationResult) -> ToolInvocationResult:
+        from app.services.scene_video_contract import (
+            normalize_scene_video_backend_provider,
+            normalize_scene_video_contract_provider,
+        )
+
+        output_json = dict(result.output_json or {})
+        receipt_json = dict(result.receipt_json or {})
+        structured = dict(output_json.get("structured_output_json") or {})
+        nested_structured = dict(structured.get("structured_output_json") or {})
+        provider_backend_key = normalize_scene_video_backend_provider(
+            output_json.get("provider_backend_key")
+            or structured.get("provider_backend_key")
+            or nested_structured.get("provider_backend_key")
+            or receipt_json.get("provider_backend_key")
+            or output_json.get("provider_key")
+            or structured.get("provider_key")
+            or nested_structured.get("provider_key")
+            or receipt_json.get("provider_key"),
+            default="mootion",
+        )
+        provider_key = normalize_scene_video_contract_provider(
+            output_json.get("provider_key")
+            or structured.get("provider_key")
+            or nested_structured.get("provider_key")
+            or receipt_json.get("provider_key")
+            or provider_backend_key,
+            default=provider_backend_key,
+        )
+        structured["provider_key"] = provider_key
+        structured["provider_backend_key"] = provider_backend_key
+        if nested_structured:
+            nested_structured.setdefault("provider_backend_key", provider_backend_key)
+            structured["structured_output_json"] = nested_structured
+        output_json["structured_output_json"] = structured
+        output_json["provider_key"] = provider_key
+        output_json["provider_backend_key"] = provider_backend_key
+        receipt_json.setdefault("provider_key", provider_key)
+        receipt_json.setdefault("provider_backend_key", provider_backend_key)
+        return ToolInvocationResult(
+            tool_name=result.tool_name,
+            action_kind=result.action_kind,
+            target_ref=result.target_ref,
+            output_json=output_json,
+            receipt_json=receipt_json,
+            artifacts=tuple(result.artifacts or ()),
+            model_name=result.model_name,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            cost_usd=result.cost_usd,
+        )
 
     @staticmethod
     def _looks_like_successful_video_output(output_json: dict[str, object]) -> bool:
@@ -396,6 +453,592 @@ class ToolExecutionService:
 
     def _register_builtin_onemin_property_walkthrough_video(self) -> None:
         self._onemin_module.register_property_walkthrough_video(self.register_handler)
+
+    def _register_builtin_scene_video_generate(self) -> None:
+        tool_name = "ea.scene_video_generate"
+        if self._tool_runtime.get_tool(tool_name) is None:
+            self._tool_runtime.upsert_tool(
+                tool_name=tool_name,
+                version="v1",
+                input_schema_json={
+                    "type": "object",
+                    "required": ["provider_key", "context_kind", "title"],
+                    "properties": {
+                        "provider_key": {"type": "string"},
+                        "context_kind": {"type": "string"},
+                        "title": {"type": "string"},
+                        "script_text": {"type": "string"},
+                        "visual_style": {"type": "string"},
+                        "camera_style": {"type": "string"},
+                        "aspect_ratio": {"type": "string"},
+                        "duration_seconds": {"type": "integer"},
+                        "scene_count": {"type": "integer"},
+                        "shot_pacing": {"type": "string"},
+                        "audience": {"type": "string"},
+                        "hook_line": {"type": "string"},
+                        "closing_line": {"type": "string"},
+                        "platform_target": {"type": "string"},
+                        "cta": {"type": "string"},
+                        "binding_id": {"type": "string"},
+                        "run_url": {"type": "string"},
+                        "workflow_id": {"type": "string"},
+                        "timeout_seconds": {"type": "integer"},
+                        "image_url": {"type": "string"},
+                        "first_frame_path": {"type": "string"},
+                        "model": {"type": "string"},
+                        "tour_url": {"type": "string"},
+                        "tour_context_json": {"type": "object"},
+                        "property_facts_json": {"type": "object"},
+                        "birthday_party_request": {"type": "boolean"},
+                        "person_motion_hint": {"type": "string"},
+                        "diorama_style_hint": {"type": "string"},
+                    },
+                },
+                output_schema_json={"type": "object"},
+                policy_json={"builtin": True, "action_kind": "video.generate", "capability": "scene_video_generate"},
+                approval_default="none",
+                enabled=True,
+            )
+
+        def _normalize_provider(value: object) -> str:
+            from app.services.scene_video_contract import normalize_scene_video_backend_provider
+
+            return normalize_scene_video_backend_provider(value, default="mootion")
+
+        def _candidate_urls(value: object) -> list[str]:
+            found: list[str] = []
+            if isinstance(value, str):
+                candidate = value.strip()
+                lowered = candidate.lower().split("?", 1)[0]
+                if lowered.endswith((".mp4", ".webm", ".mov", ".m4v", ".avi", ".mkv")):
+                    found.append(candidate)
+            elif isinstance(value, dict):
+                for nested in value.values():
+                    found.extend(_candidate_urls(nested))
+            elif isinstance(value, (list, tuple, set)):
+                for nested in value:
+                    found.extend(_candidate_urls(nested))
+            deduped: list[str] = []
+            seen: set[str] = set()
+            for candidate in found:
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                deduped.append(candidate)
+            return deduped
+
+        def _contract_provider_key(value: object) -> str:
+            from app.services.scene_video_contract import normalize_scene_video_contract_provider
+
+            return normalize_scene_video_contract_provider(value, default="mootion")
+
+        def _scene_seed_prompt(payload: dict[str, object], *, title: str) -> str:
+            prompt = str(payload.get("seed_image_prompt") or "").strip()
+            if prompt:
+                return prompt
+            prompt_parts = [
+                f"Create one cinematic first-frame still for the motion scene titled {title or 'Scene video'}.",
+                str(payload.get("script_text") or payload.get("prompt") or payload.get("source_text") or "").strip(),
+            ]
+            visual_style = str(payload.get("visual_style") or "").strip()
+            camera_style = str(payload.get("camera_style") or "").strip()
+            if visual_style:
+                prompt_parts.append(f"Visual style: {visual_style}.")
+            if camera_style:
+                prompt_parts.append(f"Camera style: {camera_style}.")
+            prompt_parts.append(
+                "Single coherent still frame only. No text, no watermark, no split panels, no storyboard grid, and no collage."
+            )
+            return " ".join(part for part in prompt_parts if part).strip()
+
+        def _ensure_scene_reference(
+            *,
+            request: ToolInvocationRequest,
+            payload: dict[str, object],
+            title: str,
+            nested_context: dict[str, object],
+        ) -> dict[str, object]:
+            image_url = str(payload.get("image_url") or "").strip()
+            first_frame_path = str(payload.get("first_frame_path") or "").strip()
+            if image_url or first_frame_path:
+                return {
+                    "image_url": image_url,
+                    "first_frame_path": first_frame_path,
+                    "seed_image_generated": False,
+                    "seed_image_url": image_url,
+                    "seed_tool_name": "",
+                    "seed_structured_output_json": {},
+                    "seed_artifacts": (),
+                    "seed_model_name": "",
+                    "seed_tokens_in": 0,
+                    "seed_tokens_out": 0,
+                    "seed_cost_usd": 0.0,
+                }
+            seed_prompt = _scene_seed_prompt(payload, title=title)
+            if not seed_prompt:
+                raise ToolExecutionError("scene_video_seed_prompt_missing")
+            seed = self.execute_invocation(
+                ToolInvocationRequest(
+                    session_id=request.session_id,
+                    step_id=request.step_id,
+                    tool_name="provider.onemin.image_generate",
+                    action_kind="image.generate",
+                    payload_json={
+                        "prompt": seed_prompt,
+                        "aspect_ratio": str(payload.get("aspect_ratio") or "16:9").strip() or "16:9",
+                        "output_format": "png",
+                        "quality": "low",
+                    },
+                    context_json=nested_context,
+                )
+            )
+            seed_output = dict(seed.output_json or {})
+            seed_structured = dict(seed_output.get("structured_output_json") or {})
+            seed_asset_urls = seed_output.get("asset_urls") or seed_structured.get("asset_urls") or ()
+            seed_image_url = ""
+            if isinstance(seed_asset_urls, (list, tuple)):
+                for candidate in seed_asset_urls:
+                    candidate_url = str(candidate or "").strip()
+                    if candidate_url:
+                        seed_image_url = candidate_url
+                        break
+            if not seed_image_url:
+                raise ToolExecutionError("scene_video_seed_image_missing")
+            return {
+                "image_url": seed_image_url,
+                "first_frame_path": "",
+                "seed_image_generated": True,
+                "seed_image_url": seed_image_url,
+                "seed_tool_name": seed.tool_name,
+                "seed_structured_output_json": seed_structured,
+                "seed_artifacts": tuple(seed.artifacts or ()),
+                "seed_model_name": str(seed.model_name or "").strip(),
+                "seed_tokens_in": int(seed.tokens_in or 0),
+                "seed_tokens_out": int(seed.tokens_out or 0),
+                "seed_cost_usd": float(seed.cost_usd or 0.0),
+            }
+
+        def _magicfit_aspect_label(value: object) -> str:
+            normalized = str(value or "").strip().lower()
+            if normalized in {"9:16", "portrait", "portrait (9:16)"}:
+                return "Portrait (9:16)"
+            if normalized in {"1:1", "square"}:
+                return "1:1"
+            if normalized == "4:3":
+                return "4:3"
+            if normalized == "3:4":
+                return "3:4"
+            if normalized == "21:9":
+                return "21:9"
+            return "Landscape (16:9)"
+
+        def _materialize_first_frame_path(*, image_url: str, first_frame_path: str, work_dir: object) -> str:
+            from pathlib import Path
+            from urllib.parse import urlparse
+            from urllib.request import urlopen
+
+            if first_frame_path:
+                return first_frame_path
+            candidate = str(image_url or "").strip()
+            if not candidate:
+                return ""
+            candidate_path = Path(candidate).expanduser()
+            if candidate_path.exists():
+                return str(candidate_path.resolve())
+            parsed = urlparse(candidate)
+            suffix = Path(parsed.path).suffix.lower() or ".png"
+            target_path = Path(work_dir) / f"scene-first-frame{suffix}"
+            with urlopen(candidate, timeout=120) as response:
+                target_path.write_bytes(response.read())
+            return str(target_path)
+
+        def handler(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+            payload = dict(request.payload_json or {})
+            provider_key = _normalize_provider(payload.get("provider_key") or payload.get("walkthrough_provider_key") or "")
+            context_kind = str(
+                payload.get("context_kind")
+                or ("property_walkthrough" if str(payload.get("tour_url") or "").strip() else "scene_briefing")
+            ).strip().lower() or "scene_briefing"
+            title = str(payload.get("title") or "Scene video").strip() or "Scene video"
+            if context_kind == "property_walkthrough":
+                from app.product.service import _hosted_property_tour_video_delivery, _render_property_flythrough_into_hosted_tour
+
+                tour_url = str(payload.get("tour_url") or "").strip()
+                if not tour_url:
+                    raise ToolExecutionError("scene_video_tour_url_missing")
+                tour_context_json = (
+                    dict(payload.get("tour_context_json") or {})
+                    if isinstance(payload.get("tour_context_json"), dict)
+                    else {}
+                )
+                rendered = _render_property_flythrough_into_hosted_tour(
+                    tour_url=tour_url,
+                    title=title,
+                    property_facts=dict(payload.get("property_facts_json") or {}),
+                    actor=str(payload.get("actor") or "scene_video_skill").strip(),
+                    birthday_party_request=bool(payload.get("birthday_party_request")),
+                    person_motion_hint=str(payload.get("person_motion_hint") or "").strip(),
+                    diorama_style_hint=str(payload.get("diorama_style_hint") or "").strip(),
+                    preferred_provider_key=provider_key,
+                    tour_context_json=tour_context_json,
+                )
+                delivery = _hosted_property_tour_video_delivery(tour_url)
+                video_url = str(delivery.get("video_url") or rendered.get("video_url") or "").strip()
+                flythrough_url = str(delivery.get("flythrough_url") or rendered.get("flythrough_url") or "").strip()
+                provider_backend_key = str(
+                    rendered.get("media_route_provider_key")
+                    or delivery.get("provider_key")
+                    or rendered.get("provider_key")
+                    or provider_key
+                ).strip()
+                normalized = {
+                    "deliverable_type": "scene_video_packet",
+                    "provider_key": _contract_provider_key(provider_backend_key),
+                    "provider_backend_key": provider_backend_key,
+                    "render_status": str(rendered.get("status") or "").strip().lower() or "unknown",
+                    "video_url": video_url,
+                    "asset_url": video_url,
+                    "download_url": video_url,
+                    "flythrough_url": flythrough_url,
+                    "editor_url": str(rendered.get("editor_url") or "").strip(),
+                    "reason": str(rendered.get("reason") or "").strip(),
+                    "tour_url": tour_url,
+                    "tour_context_json": tour_context_json,
+                    "structured_output_json": {
+                        **dict(rendered or {}),
+                        "provider_backend_key": provider_backend_key,
+                        "tour_context_json": tour_context_json,
+                    },
+                }
+                normalized_text = json.dumps(normalized, ensure_ascii=False)
+                return ToolInvocationResult(
+                    tool_name=definition.tool_name,
+                    action_kind="video.generate",
+                    target_ref=flythrough_url or video_url or tour_url,
+                    output_json={
+                        "normalized_text": normalized_text,
+                        "preview_text": normalized_text[:280],
+                        "mime_type": "application/json",
+                        "structured_output_json": normalized,
+                        "provider_key": normalized["provider_key"],
+                        "provider_backend_key": normalized["provider_backend_key"],
+                        "render_status": normalized["render_status"],
+                        "video_url": video_url,
+                        "asset_url": video_url,
+                        "download_url": video_url,
+                        "flythrough_url": flythrough_url,
+                        "editor_url": normalized["editor_url"],
+                        "tour_context_json": tour_context_json,
+                    },
+                    receipt_json={
+                        "provider_key": normalized["provider_key"],
+                        "provider_backend_key": normalized["provider_backend_key"],
+                        "context_kind": context_kind,
+                        "reason": normalized["reason"],
+                        "tour_context_present": bool(tour_context_json),
+                    },
+                )
+            nested_context = dict(request.context_json or {})
+            nested_context.pop("telegram_delivery", None)
+            if provider_key == "mootion":
+                nested = self.execute_invocation(
+                    ToolInvocationRequest(
+                        session_id=request.session_id,
+                        step_id=request.step_id,
+                        tool_name="browseract.mootion_movie",
+                        action_kind="movie.render",
+                        payload_json={
+                            "script_text": str(payload.get("script_text") or payload.get("source_text") or "").strip(),
+                            "visual_style": str(payload.get("visual_style") or "").strip(),
+                            "camera_style": str(payload.get("camera_style") or "").strip(),
+                            "aspect_ratio": str(payload.get("aspect_ratio") or "").strip(),
+                            "duration_seconds": payload.get("duration_seconds"),
+                            "scene_count": payload.get("scene_count"),
+                            "shot_pacing": payload.get("shot_pacing"),
+                            "title": title,
+                            "audience": payload.get("audience"),
+                            "hook_line": payload.get("hook_line"),
+                            "closing_line": payload.get("closing_line"),
+                            "platform_target": payload.get("platform_target"),
+                            "cta": payload.get("cta"),
+                            "binding_id": payload.get("binding_id"),
+                            "run_url": payload.get("run_url"),
+                            "workflow_id": payload.get("workflow_id"),
+                            "timeout_seconds": payload.get("timeout_seconds"),
+                        },
+                        context_json=nested_context,
+                    )
+                )
+                nested_output = dict(nested.output_json or {})
+                nested_structured = dict(nested_output.get("structured_output_json") or {})
+                asset_url = str(
+                    nested_output.get("asset_url")
+                    or nested_output.get("download_url")
+                    or nested_structured.get("asset_url")
+                    or nested_structured.get("download_url")
+                    or nested.target_ref
+                    or ""
+                ).strip()
+                normalized = {
+                    "deliverable_type": "scene_video_packet",
+                    "provider_key": "mootion",
+                    "provider_backend_key": "mootion",
+                    "render_status": str(nested_output.get("render_status") or nested_structured.get("render_status") or "").strip().lower() or "unknown",
+                    "video_url": asset_url,
+                    "asset_url": asset_url,
+                    "download_url": asset_url,
+                    "flythrough_url": "",
+                    "editor_url": str(nested_output.get("editor_url") or nested_structured.get("editor_url") or "").strip(),
+                    "reason": "",
+                    "structured_output_json": {
+                        **nested_structured,
+                        "provider_backend_key": "mootion",
+                    },
+                }
+                normalized_text = json.dumps(normalized, ensure_ascii=False)
+                return ToolInvocationResult(
+                    tool_name=definition.tool_name,
+                    action_kind="video.generate",
+                    target_ref=asset_url or nested.target_ref,
+                    output_json={
+                        "normalized_text": normalized_text,
+                        "preview_text": normalized_text[:280],
+                        "mime_type": "application/json",
+                        "structured_output_json": normalized,
+                        "provider_key": normalized["provider_key"],
+                        "provider_backend_key": normalized["provider_backend_key"],
+                        "render_status": normalized["render_status"],
+                        "video_url": asset_url,
+                        "asset_url": asset_url,
+                        "download_url": asset_url,
+                        "editor_url": normalized["editor_url"],
+                    },
+                    receipt_json={
+                        "provider_key": "mootion",
+                        "provider_backend_key": "mootion",
+                        "delegate_tool_name": nested.tool_name,
+                        "context_kind": context_kind,
+                    },
+                    artifacts=nested.artifacts,
+                    model_name=nested.model_name,
+                    tokens_in=nested.tokens_in,
+                    tokens_out=nested.tokens_out,
+                    cost_usd=nested.cost_usd,
+                )
+            prompt = str(payload.get("script_text") or payload.get("prompt") or payload.get("source_text") or "").strip()
+            if not prompt:
+                raise ToolExecutionError(f"scene_video_prompt_missing:{provider_key or 'scene'}")
+            scene_reference = _ensure_scene_reference(
+                request=request,
+                payload=payload,
+                title=title,
+                nested_context=nested_context,
+            )
+            image_url = str(scene_reference.get("image_url") or "").strip()
+            first_frame_path = str(scene_reference.get("first_frame_path") or "").strip()
+            if provider_key == "magicfit":
+                import math
+                import subprocess
+                import sys
+                import tempfile
+                from pathlib import Path
+
+                script_path = Path("/docker/property/scripts/render_magicfit_property_flythrough.py").resolve()
+                if not script_path.exists():
+                    raise ToolExecutionError("scene_video_magicfit_script_missing")
+                timeout_seconds = int(payload.get("timeout_seconds") or 0)
+                work_dir = Path(tempfile.mkdtemp(prefix="ea-scene-video-magicfit-")).resolve()
+                out_path = (work_dir / "scene-video.mp4").resolve()
+                state_path = (work_dir / "scene-video.json").resolve()
+                local_first_frame = _materialize_first_frame_path(
+                    image_url=image_url,
+                    first_frame_path=first_frame_path,
+                    work_dir=work_dir,
+                )
+                if not local_first_frame:
+                    raise ToolExecutionError("scene_video_reference_image_required:magicfit")
+                command = [
+                    str(sys.executable or "python3"),
+                    str(script_path),
+                    "--prompt",
+                    prompt,
+                    "--out",
+                    str(out_path),
+                    "--duration",
+                    str(int(payload.get("duration_seconds") or 10)),
+                    "--aspect-label",
+                    _magicfit_aspect_label(payload.get("aspect_ratio")),
+                    "--timeout-minutes",
+                    str(max(3, int(math.ceil(timeout_seconds / 60.0))) if timeout_seconds else 18),
+                    "--state-json",
+                    str(state_path),
+                    "--first-frame",
+                    local_first_frame,
+                ]
+                model_label = str(payload.get("model") or "").strip()
+                if model_label:
+                    command.extend(["--model-label", model_label])
+                try:
+                    completed = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        timeout=max(timeout_seconds + 90, 300) if timeout_seconds else 1500,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise ToolExecutionError("scene_video_magicfit_timeout") from exc
+                if completed.returncode != 0:
+                    tail = str(completed.stderr or completed.stdout or "").strip().replace("\n", " ")
+                    raise ToolExecutionError(f"scene_video_magicfit_failed:{tail[-400:] or 'subprocess_failed'}")
+                magicfit_state: dict[str, object] = {}
+                try:
+                    if state_path.exists():
+                        loaded_state = json.loads(state_path.read_text(encoding="utf-8"))
+                        if isinstance(loaded_state, dict):
+                            magicfit_state = dict(loaded_state)
+                except Exception:
+                    magicfit_state = {}
+                if not magicfit_state:
+                    for raw_line in reversed(str(completed.stdout or "").splitlines()):
+                        candidate_line = raw_line.strip()
+                        if not candidate_line.startswith("{"):
+                            continue
+                        try:
+                            loaded_state = json.loads(candidate_line)
+                        except Exception:
+                            continue
+                        if isinstance(loaded_state, dict):
+                            magicfit_state = dict(loaded_state)
+                            break
+                asset_url = str(magicfit_state.get("video_output_url") or "").strip() or str(out_path)
+                magicfit_structured = {
+                    **magicfit_state,
+                    "provider_key": "magicfit",
+                    "provider_backend_key": "magicfit",
+                    "seed_image_generated": bool(scene_reference.get("seed_image_generated")),
+                    "seed_image_url": str(scene_reference.get("seed_image_url") or "").strip(),
+                    "seed_tool_name": str(scene_reference.get("seed_tool_name") or "").strip(),
+                    "local_first_frame_path": local_first_frame,
+                }
+                normalized = {
+                    "deliverable_type": "scene_video_packet",
+                    "provider_key": "magicfit",
+                    "provider_backend_key": "magicfit",
+                    "render_status": "completed",
+                    "video_url": asset_url,
+                    "asset_url": asset_url,
+                    "download_url": asset_url,
+                    "flythrough_url": "",
+                    "editor_url": str(magicfit_state.get("page_url") or "").strip(),
+                    "reason": "",
+                    "structured_output_json": magicfit_structured,
+                }
+                normalized_text = json.dumps(normalized, ensure_ascii=False)
+                return ToolInvocationResult(
+                    tool_name=definition.tool_name,
+                    action_kind="video.generate",
+                    target_ref=asset_url,
+                    output_json={
+                        "normalized_text": normalized_text,
+                        "preview_text": normalized_text[:280],
+                        "mime_type": "application/json",
+                        "structured_output_json": normalized,
+                        "provider_key": normalized["provider_key"],
+                        "provider_backend_key": normalized["provider_backend_key"],
+                        "render_status": normalized["render_status"],
+                        "video_url": asset_url,
+                        "asset_url": asset_url,
+                        "download_url": asset_url,
+                        "editor_url": normalized["editor_url"],
+                    },
+                    receipt_json={
+                        "provider_key": "magicfit",
+                        "context_kind": context_kind,
+                        "seed_image_generated": bool(scene_reference.get("seed_image_generated")),
+                        "seed_tool_name": str(scene_reference.get("seed_tool_name") or "").strip(),
+                    },
+                    artifacts=tuple(scene_reference.get("seed_artifacts") or ()),
+                    model_name=str(scene_reference.get("seed_model_name") or "").strip() or None,
+                    tokens_in=int(scene_reference.get("seed_tokens_in") or 0),
+                    tokens_out=int(scene_reference.get("seed_tokens_out") or 0),
+                    cost_usd=float(scene_reference.get("seed_cost_usd") or 0.0),
+                )
+            nested = self.execute_invocation(
+                ToolInvocationRequest(
+                    session_id=request.session_id,
+                    step_id=request.step_id,
+                    tool_name="provider.onemin.property_walkthrough_video",
+                    action_kind="video.generate",
+                    payload_json={
+                        "prompt": prompt,
+                        "source_text": prompt,
+                        "image_url": image_url,
+                        "first_frame_path": first_frame_path,
+                        "model": payload.get("model"),
+                        "duration": payload.get("duration_seconds"),
+                        "timeout_seconds": payload.get("timeout_seconds"),
+                    },
+                    context_json=nested_context,
+                )
+            )
+            nested_output = dict(nested.output_json or {})
+            nested_structured = dict(nested_output.get("structured_output_json") or {})
+            candidate_urls = _candidate_urls(nested_output) or _candidate_urls(nested_structured)
+            asset_url = str(candidate_urls[0] if candidate_urls else nested.target_ref).strip()
+            normalized = {
+                "deliverable_type": "scene_video_packet",
+                "provider_key": "omagic",
+                "provider_backend_key": "onemin_i2v",
+                "render_status": str(nested_output.get("render_status") or nested_structured.get("render_status") or "completed").strip().lower(),
+                "video_url": asset_url,
+                "asset_url": asset_url,
+                "download_url": asset_url,
+                "flythrough_url": "",
+                "editor_url": str(nested_output.get("editor_url") or nested_structured.get("editor_url") or "").strip(),
+                "reason": "",
+                "structured_output_json": {
+                    **nested_structured,
+                    "provider_backend_key": "onemin_i2v",
+                    "seed_image_generated": bool(scene_reference.get("seed_image_generated")),
+                    "seed_image_url": str(scene_reference.get("seed_image_url") or "").strip(),
+                    "seed_tool_name": str(scene_reference.get("seed_tool_name") or "").strip(),
+                },
+            }
+            normalized_text = json.dumps(normalized, ensure_ascii=False)
+            return ToolInvocationResult(
+                tool_name=definition.tool_name,
+                action_kind="video.generate",
+                target_ref=asset_url or nested.target_ref,
+                output_json={
+                    "normalized_text": normalized_text,
+                    "preview_text": normalized_text[:280],
+                    "mime_type": "application/json",
+                    "structured_output_json": normalized,
+                    "provider_key": normalized["provider_key"],
+                    "provider_backend_key": normalized["provider_backend_key"],
+                    "render_status": normalized["render_status"],
+                    "video_url": asset_url,
+                    "asset_url": asset_url,
+                    "download_url": asset_url,
+                    "editor_url": normalized["editor_url"],
+                },
+                receipt_json={
+                    "provider_key": "omagic",
+                    "provider_backend_key": "onemin_i2v",
+                    "delegate_tool_name": nested.tool_name,
+                    "context_kind": context_kind,
+                    "seed_image_generated": bool(scene_reference.get("seed_image_generated")),
+                    "seed_tool_name": str(scene_reference.get("seed_tool_name") or "").strip(),
+                },
+                artifacts=tuple(scene_reference.get("seed_artifacts") or ()) + tuple(nested.artifacts or ()),
+                model_name=nested.model_name or str(scene_reference.get("seed_model_name") or "").strip() or None,
+                tokens_in=int(scene_reference.get("seed_tokens_in") or 0) + int(nested.tokens_in or 0),
+                tokens_out=int(scene_reference.get("seed_tokens_out") or 0) + int(nested.tokens_out or 0),
+                cost_usd=float(scene_reference.get("seed_cost_usd") or 0.0) + float(nested.cost_usd or 0.0),
+            )
+
+        self.register_handler(tool_name, handler)
 
     def _register_builtin_teable_table_sync(self) -> None:
         self._teable_module.register_table_sync(self.register_handler)

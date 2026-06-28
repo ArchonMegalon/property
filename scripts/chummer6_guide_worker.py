@@ -51,6 +51,8 @@ EA_ORCHESTRATOR = None
 EA_CONTAINER = None
 PUBLIC_WRITER_SKILL_KEY = "chummer6_public_writer"
 VISUAL_DIRECTOR_SKILL_KEY = "chummer6_visual_director"
+SCENE_VIDEO_SKILL_KEY = "scene_video_generate"
+RUNSITE_SCENE_VIDEO_ALLOWED_PROVIDERS: tuple[str, ...] = ("mootion", "magicfit", "omagic")
 PUBLIC_AUDITOR_SKILL_KEY = "chummer6_public_auditor"
 USER_AUDITOR_SKILL_KEY = "chummer6_user_auditor"
 SCENE_AUDITOR_SKILL_KEY = "chummer6_scene_auditor"
@@ -2219,6 +2221,240 @@ def ea_json(
                 return structured
             return extract_json(artifact.content)
         raise
+
+
+def ea_task_json(
+    *,
+    skill_key: str,
+    goal: str,
+    text: str = "",
+    input_json: dict[str, object] | None = None,
+    principal_id: str = "",
+) -> dict[str, object]:
+    app_root = str(EA_ROOT / "ea")
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+    from app.domain.models import TaskExecutionRequest
+    from app.services.orchestrator import AsyncExecutionQueuedError
+
+    request_input = dict(input_json or {})
+    request_text = str(
+        text
+        or request_input.get("script_text")
+        or request_input.get("tour_url")
+        or request_input.get("title")
+        or goal
+    ).strip()
+    request_principal = str(principal_id or f"ea-{skill_key}-worker").strip() or f"ea-{skill_key}-worker"
+
+    def execute_request():
+        return _ea_orchestrator().execute_task_artifact(
+            TaskExecutionRequest(
+                skill_key=skill_key,
+                text=request_text,
+                principal_id=request_principal,
+                goal=goal,
+                input_json=request_input,
+            )
+        )
+
+    def drain_queued_session(session_id: str) -> dict[str, object]:
+        orchestrator = _ea_orchestrator()
+        deadline = time.time() + 300.0
+        last_artifact = None
+        while time.time() < deadline:
+            snapshot = orchestrator.fetch_session(session_id)
+            if snapshot is not None:
+                session_row = getattr(snapshot, "session", None)
+                session_status = str(getattr(session_row, "status", "") or "").strip().lower()
+                snapshot_artifacts = list(getattr(snapshot, "artifacts", []) or [])
+                if session_status == "completed":
+                    artifact = snapshot_artifacts[-1] if snapshot_artifacts else last_artifact
+                    if artifact is None:
+                        raise RuntimeError(f"queued_task_completed_without_artifact:{session_id}")
+                    structured = dict(getattr(artifact, "structured_output_json", {}) or {})
+                    if structured:
+                        if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
+                            return dict(structured.get("result") or {})
+                        return structured
+                    return extract_json(artifact.content)
+                if session_status in {"failed", "denied", "awaiting_human", "waiting_human", "awaiting_approval", "waiting_approval"}:
+                    raise RuntimeError(f"queued_task_stopped:{session_status}:{session_id}")
+                queue_rows = [
+                    row
+                    for row in list(getattr(snapshot, "queue_items", []) or [])
+                    if str(getattr(row, "state", "") or "").strip().lower() == "queued"
+                ]
+                for row in queue_rows:
+                    artifact = orchestrator.run_queue_item(str(getattr(row, "queue_id", "") or ""), lease_owner="inline")
+                    if artifact is not None:
+                        last_artifact = artifact
+            time.sleep(0.25)
+        raise RuntimeError(f"queued_task_timeout:{session_id}")
+
+    try:
+        artifact = execute_request()
+        structured = dict(getattr(artifact, "structured_output_json", {}) or {})
+        if structured:
+            if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
+                return dict(structured.get("result") or {})
+            return structured
+        return extract_json(artifact.content)
+    except AsyncExecutionQueuedError as exc:
+        return drain_queued_session(exc.session_id)
+    except ValueError as exc:
+        if str(exc).startswith("skill_not_found:"):
+            ensure_required_chummer6_skills(force=True)
+            try:
+                artifact = execute_request()
+            except AsyncExecutionQueuedError as queued_exc:
+                return drain_queued_session(queued_exc.session_id)
+            structured = dict(getattr(artifact, "structured_output_json", {}) or {})
+            if structured:
+                if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
+                    return dict(structured.get("result") or {})
+                return structured
+            return extract_json(artifact.content)
+        raise
+
+
+def _normalize_scene_video_provider(value: object) -> str:
+    app_root = str(EA_ROOT / "ea")
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+    from app.services.scene_video_contract import normalize_scene_video_contract_provider
+
+    return normalize_scene_video_contract_provider(value, default="mootion")
+
+
+def _normalize_scene_video_backend_provider_key(value: object) -> str:
+    app_root = str(EA_ROOT / "ea")
+    if app_root not in sys.path:
+        sys.path.insert(0, app_root)
+    from app.services.scene_video_contract import normalize_scene_video_backend_provider
+
+    return normalize_scene_video_backend_provider(value, default="mootion")
+
+
+def _normalize_runsite_scene_video_provider(value: object) -> str:
+    normalized = _normalize_scene_video_provider(value)
+    if normalized in RUNSITE_SCENE_VIDEO_ALLOWED_PROVIDERS:
+        return normalized
+    trace(f"runsite scene video provider normalized from unsupported input: {str(value or '').strip()} -> {normalized}")
+    return "mootion"
+
+
+def _runsite_scene_video_principal_id() -> str:
+    for candidate in (
+        str(os.environ.get("CHUMMER6_RUNSITE_VIDEO_PRINCIPAL_ID") or LOCAL_ENV.get("CHUMMER6_RUNSITE_VIDEO_PRINCIPAL_ID") or "").strip(),
+        str(os.environ.get("EA_RUNSITE_VIDEO_PRINCIPAL_ID") or LOCAL_ENV.get("EA_RUNSITE_VIDEO_PRINCIPAL_ID") or "").strip(),
+        str(os.environ.get("EA_PRINCIPAL_ID") or LOCAL_ENV.get("EA_PRINCIPAL_ID") or "").strip(),
+    ):
+        if candidate:
+            return candidate
+    return f"ea-{SCENE_VIDEO_SKILL_KEY}-runsite-worker"
+
+
+def _scene_video_status_packet(*, provider_key: object, render_status: str, reason: str) -> dict[str, str]:
+    normalized_provider_key = _normalize_scene_video_provider(provider_key)
+    return {
+        "deliverable_type": "scene_video_packet",
+        "provider_key": normalized_provider_key,
+        "provider_backend_key": _normalize_scene_video_backend_provider_key(normalized_provider_key),
+        "render_status": str(render_status or "").strip() or "failed",
+        "reason": str(reason or "").strip() or "scene_video_request_failed",
+    }
+
+
+def build_runsite_scene_video_request(
+    *,
+    horizon_id: str,
+    item: dict[str, object],
+    copy_row: dict[str, object],
+    media_row: dict[str, object],
+) -> dict[str, object]:
+    provider_key = _normalize_runsite_scene_video_provider(
+        os.environ.get("CHUMMER6_RUNSITE_VIDEO_PROVIDER")
+        or LOCAL_ENV.get("CHUMMER6_RUNSITE_VIDEO_PROVIDER")
+        or "mootion"
+    )
+    scene_contract = dict(media_row.get("scene_contract") or {}) if isinstance(media_row.get("scene_contract"), dict) else {}
+    route_cues = ", ".join(
+        str(entry).strip()
+        for entry in list(scene_contract.get("overlays") or [])[:4]
+        if str(entry).strip()
+    )
+    prop_cues = ", ".join(
+        str(entry).strip()
+        for entry in list(scene_contract.get("props") or [])[:5]
+        if str(entry).strip()
+    )
+    script_lines = [
+        f"Create a grounded Shadowrun fight-scene briefing video for the {str(item.get('title') or horizon_id).strip() or horizon_id} horizon.",
+        str(copy_row.get("table_scene") or "").strip(),
+        str(copy_row.get("problem") or "").strip(),
+    ]
+    if route_cues:
+        script_lines.append(f"Keep route and threat cues legible: {route_cues}.")
+    if prop_cues:
+        script_lines.append(f"Visible field props: {prop_cues}.")
+    script_lines.append(
+        "Tone: dangerous, playable, field-briefing clarity before the firefight. No fake telemetry walls and no clean sci-fi control-room polish."
+    )
+    return {
+        "skill_key": SCENE_VIDEO_SKILL_KEY,
+        "task_key": SCENE_VIDEO_SKILL_KEY,
+        "goal": f"Generate a shared scene video packet for the {horizon_id} horizon.",
+        "input_json": {
+            "provider_key": provider_key,
+            "context_kind": "scene_briefing",
+            "title": f"{str(item.get('title') or horizon_id).strip() or horizon_id} fight scene",
+            "script_text": "\n\n".join(line for line in script_lines if line),
+            "visual_style": "grounded Shadowrun tactical-briefing realism",
+            "camera_style": "continuous field-briefing motion with playable space clarity",
+            "aspect_ratio": "16:9",
+            "duration_seconds": 18,
+            "scene_count": 4,
+            "shot_pacing": "steady",
+            "audience": "players and GMs",
+            "hook_line": str(copy_row.get("hook") or "").strip(),
+            "closing_line": str(copy_row.get("pitch_line") or "").strip(),
+            "platform_target": "guide_horizon_detail",
+            "cta": "Track the horizon, then verify the receipts.",
+            "binding_id": str(
+                os.environ.get("CHUMMER6_RUNSITE_VIDEO_BINDING_ID")
+                or LOCAL_ENV.get("CHUMMER6_RUNSITE_VIDEO_BINDING_ID")
+                or ""
+            ).strip(),
+        },
+    }
+
+
+def _runsite_scene_video_execution_enabled() -> bool:
+    raw = str(
+        os.environ.get("CHUMMER6_RUNSITE_VIDEO_EXECUTE")
+        or LOCAL_ENV.get("CHUMMER6_RUNSITE_VIDEO_EXECUTE")
+        or "1"
+    ).strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def execute_scene_video_request(packet: dict[str, object], *, principal_id: str = "") -> dict[str, object]:
+    request = dict(packet or {})
+    input_json = dict(request.get("input_json") or {}) if isinstance(request.get("input_json"), dict) else {}
+    skill_key = str(request.get("skill_key") or request.get("task_key") or SCENE_VIDEO_SKILL_KEY).strip() or SCENE_VIDEO_SKILL_KEY
+    title = str(input_json.get("title") or "scene").strip() or "scene"
+    request_principal_id = str(
+        principal_id or request.get("principal_id") or _runsite_scene_video_principal_id()
+    ).strip() or _runsite_scene_video_principal_id()
+    return ea_task_json(
+        skill_key=skill_key,
+        goal=str(request.get("goal") or f"Generate a shared scene video packet for {title}.").strip()
+        or f"Generate a shared scene video packet for {title}.",
+        text=str(input_json.get("script_text") or input_json.get("tour_url") or title).strip(),
+        input_json=input_json,
+        principal_id=request_principal_id,
+    )
 
 
 def default_text_model() -> str:
@@ -7786,6 +8022,42 @@ def generate_overrides(
             except Exception as exc:
                 trace(f"horizon humanize fallback ({horizon_id}): {exc}")
                 horizon_copy_rows[horizon_id] = fallback_horizon_copy(horizon_id, dict(selected_horizons.get(horizon_id) or {}))
+        if "runsite" in horizon_media_rows and "runsite" in horizon_copy_rows:
+            runsite_media = dict(horizon_media_rows.get("runsite") or {})
+            scene_video_request = build_runsite_scene_video_request(
+                horizon_id="runsite",
+                item=dict(selected_horizons.get("runsite") or {}),
+                copy_row=dict(horizon_copy_rows.get("runsite") or {}),
+                media_row=runsite_media,
+            )
+            runsite_media["scene_video_request"] = scene_video_request
+            if _runsite_scene_video_execution_enabled():
+                try:
+                    runsite_media["scene_video_packet"] = execute_scene_video_request(scene_video_request)
+                except Exception as exc:
+                    trace(f"runsite scene video skill failed: {exc}")
+                    request_input = (
+                        dict(scene_video_request.get("input_json") or {})
+                        if isinstance(scene_video_request.get("input_json"), dict)
+                        else {}
+                    )
+                    runsite_media["scene_video_packet"] = _scene_video_status_packet(
+                        provider_key=request_input.get("provider_key") or "",
+                        render_status="failed",
+                        reason=str(exc).strip() or "scene_video_request_failed",
+                    )
+            else:
+                request_input = (
+                    dict(scene_video_request.get("input_json") or {})
+                    if isinstance(scene_video_request.get("input_json"), dict)
+                    else {}
+                )
+                runsite_media["scene_video_packet"] = _scene_video_status_packet(
+                    provider_key=request_input.get("provider_key") or "",
+                    render_status="skipped",
+                    reason="scene_video_execution_disabled",
+                )
+            horizon_media_rows["runsite"] = runsite_media
         overrides["horizons"] = horizon_copy_rows
         overrides["media"]["horizons"] = horizon_media_rows
     apply_visual_overrides_to_media(overrides)

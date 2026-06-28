@@ -195,6 +195,31 @@ def test_provider_registry_routes_crezlo_property_tour_with_alias_hints() -> Non
     assert route.executable is True
 
 
+def test_provider_registry_routes_scene_video_generate_with_alias_hints() -> None:
+    registry = ProviderRegistryService()
+    route = registry.route_tool_by_capability(
+        capability_key="scene_video_generate",
+        provider_hints=("Mootion", "MagicFit", "OMagic"),
+        allowed_tools=("ea.scene_video_generate", "artifact_repository"),
+    )
+    assert route.provider_key == "ea"
+    assert route.capability_key == "scene_video_generate"
+    assert route.tool_name == "ea.scene_video_generate"
+    assert route.executable is True
+
+
+def test_provider_registry_routes_scene_video_generate_directly_without_provider_record() -> None:
+    registry = ProviderRegistryService()
+    route = registry.route_tool_with_context(
+        "ea.scene_video_generate",
+        principal_id="exec-1",
+    )
+    assert route.provider_key == "ea"
+    assert route.capability_key == "scene_video_generate"
+    assert route.tool_name == "ea.scene_video_generate"
+    assert route.executable is True
+
+
 @pytest.mark.parametrize(
     ("capability_key", "provider_hints", "allowed_tool", "expected_tool"),
     [

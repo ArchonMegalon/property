@@ -21,15 +21,18 @@ from uuid import uuid4
 import pytest
 
 import app.api.routes.channels as channel_routes
+import app.api.routes.landing as landing_routes
 import app.api.routes.product_api_delivery as product_api_delivery_routes
 import app.product.property_tour_hosting as property_tour_hosting
 import app.product.service as product_service
+from app.api.dependencies import RequestContext
 from app.api.routes.workspace_sections import workspace_section_payload
 from app.domain.models import HumanTask
 from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
 from app.services.fliplink import build_fliplink_packet_service
 from app.services.heyy_whatsapp_service import redact_phone_number
+from starlette.requests import Request
 from tests.product_test_helpers import build_operator_product_client, build_product_client, build_property_client, seed_product_state, start_workspace
 
 
@@ -430,9 +433,65 @@ def test_paid_property_plan_survives_console_context_projection() -> None:
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
     assert billing.status_code == 503
-    assert "Billing handoff unavailable" in billing.text
+    assert "Billing portal unavailable" in billing.text
     assert "Your plan" not in billing.text
     assert ">Agent<" not in billing.text
+
+
+def test_property_account_nav_prefers_available_external_billing_handoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_brilliant_directories_billing_handoff",
+        lambda allow_verified_direct_handoff=False: {
+            "available": True,
+            "status": "ready",
+            "open_href": "https://billing.propertyquarry.com/account",
+            "hosted_href": "https://billing.propertyquarry.com/account",
+        },
+    )
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/pricing",
+            "headers": [(b"host", b"propertyquarry.com")],
+            "client": ("127.0.0.1", 49152),
+            "query_string": b"run_id=run-123",
+        }
+    )
+    context = RequestContext(
+        principal_id="exec-property-nav-billing",
+        authenticated=True,
+        auth_source="workspace_access_session",
+        access_email="user@example.com",
+    )
+
+    nav = landing_routes._account_nav_context(request=request, context=context)
+
+    assert nav["billing_href"] == "https://billing.propertyquarry.com/account"
+
+
+def test_property_pricing_prefers_external_billing_handoff_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-pricing-billing-handoff"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Pricing Billing Handoff")
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_brilliant_directories_billing_handoff",
+        lambda allow_verified_direct_handoff=False: {
+            "available": True,
+            "status": "ready",
+            "open_href": "https://billing.propertyquarry.com/account",
+            "hosted_href": "https://billing.propertyquarry.com/account",
+        },
+    )
+
+    response = client.get("/pricing", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200, response.text
+    assert response.text.count('href="https://billing.propertyquarry.com/account"') >= 2
+    assert 'href="/app/account#delivery"' not in response.text
 
 
 def test_automation_history_placeholder_is_not_a_self_link() -> None:
@@ -4421,7 +4480,7 @@ def test_property_scout_scans_beyond_result_limit_until_high_fit_matches(monkeyp
     titles = [row["title"] for row in result["sources"][0]["top_candidates"]]
     assert result["listing_total"] == 2
     assert result["sources"][0]["filtered_property_type_total"] == 1
-    assert result["sources"][0]["filtered_low_fit_total"] == 1
+    assert result["sources"][0]["filtered_low_fit_total"] == 0
     assert result["sources"][0]["high_match_min_score"] == 45.0
     assert result["sources"][0]["max_match_score"] == 45
     assert "Garagenplatz" not in " ".join(titles)
@@ -7327,13 +7386,15 @@ def test_property_scout_clamps_requested_match_score_to_free_plan_cap(monkeypatc
         force_refresh=True,
     )
 
-    assert result["listing_total"] == 1
+    assert result["listing_total"] == 2
     assert result["high_match_min_score"] == 35.0
     assert result["max_match_score"] == 35
-    assert result["sources"][0]["filtered_low_fit_total"] == 1
+    assert result["sources"][0]["filtered_low_fit_total"] == 0
     assert result["sources"][0]["high_match_min_score"] == 35.0
     assert result["sources"][0]["max_match_score"] == 35
     assert result["sources"][0]["top_candidates"][0]["title"] == "Apartment just above free threshold"
+    assert result["sources"][0]["top_candidates"][1]["title"] == "Apartment below free threshold"
+    assert result["sources"][0]["top_candidates"][1]["below_match_threshold"] is True
 
 
 def test_property_scout_keeps_provider_fallback_when_all_personal_scores_are_zero(monkeypatch) -> None:
@@ -7906,7 +7967,7 @@ def test_property_alert_review_handoff_page_renders_research_packet() -> None:
     assert "Heating type needs research." in page.text
     assert "https://myexternalbrain.com/tours/watch-fit-1" in page.text
     assert "https://www.immobilienscout24.at/expose/watch-fit-1" in page.text
-    assert "Next question" in page.text
+    assert "Ask next" in page.text
     assert "Review actions" not in page.text
     assert "Raw portals" not in page.text
     assert "NeuronWriter" not in page.text
@@ -8009,8 +8070,8 @@ def test_property_alert_review_handoff_keeps_vendor_360_as_external_action() -> 
     assert page.status_code == 200
     assert 'class="object-media-grid is-compact"' in page.text
     assert 'title="Property 360 review"' not in page.text
-    assert "Source 360 available" in page.text
-    assert "Open source 360" in page.text
+    assert "Matterport available" in page.text
+    assert "Open Matterport" in page.text
 
 
 def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch) -> None:
@@ -9569,9 +9630,9 @@ def test_property_tour_delivery_message_includes_decision_reasoning() -> None:
     assert "Neighborhood snapshot:" in body
     assert "Transit: about 280 m" in body
     assert "Bicycle parking: about 110 m" in body
-    assert "Why it could fit:" in body
-    assert "Why it may not fit:" in body
-    assert "What still needs checking:" in body
+    assert "Why it stands out:" in body
+    assert "Main caution:" in body
+    assert "Open checks:" in body
 
 
 def test_property_tour_delivery_message_accepts_personal_fit_assessment_shape() -> None:
@@ -9591,9 +9652,9 @@ def test_property_tour_delivery_message_accepts_personal_fit_assessment_shape() 
     assert "Apartment tour ready: Strong Waehring apartment" in subject
     assert "Personal fit score: 96/100" in body
     assert "Recommendation: shortlist" in body
-    assert "Why it could fit:" in body
-    assert "Why it may not fit:" in body
-    assert "What still needs checking:" in body
+    assert "Why it stands out:" in body
+    assert "Main caution:" in body
+    assert "Open checks:" in body
 
 
 def test_property_alert_review_telegram_text_includes_top_candidate_summary() -> None:
@@ -11157,6 +11218,9 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
                 "has_floorplan": True,
                 "lift": False,
                 "nearest_subway_m": 920.0,
+                "nearest_subway_name": "U6 Waehringer Strasse",
+                "nearest_supermarket_m": 960.0,
+                "nearest_supermarket_name": "BILLA Waehring",
                 "nearest_playground_m": 180.0,
             },
             "assessment": assessment.json(),
@@ -11165,8 +11229,11 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert suggestions.status_code == 200
     suggestion_body = suggestions.json()
     assert any(item["key"] == "gas_heating" for item in suggestion_body["negative"])
+    assert any(item["key"] == "supermarket_too_far" for item in suggestion_body["negative"])
     assert any(item["key"] == "floorplan_good" for item in suggestion_body["positive"])
     assert any("heating source" in item["question"].lower() for item in suggestion_body["agent_questions"])
+    assert any("u6 waehringer strasse" in item["question"].lower() and "920 m" in item["question"].lower() for item in suggestion_body["agent_questions"])
+    assert any("billa waehring" in item["question"].lower() and "960 m" in item["question"].lower() for item in suggestion_body["agent_questions"])
     assert "Update your future ranking" in suggestion_body["decision_consequences"]
 
     feedback = client.post(
@@ -13934,7 +14001,7 @@ def test_property_visual_status_queues_background_repair_when_stale_repair_is_sl
     }
     assert response["status"] == "repairing"
     assert response["flythrough_status"] == "repairing"
-    assert response["status_label"] == "Walkthrough repair running"
+    assert response["status_label"] == "Walkthrough in progress"
     assert response["poll_after_seconds"] == 10
     assert response["progress_pct"] >= 72
 
@@ -14355,7 +14422,7 @@ def test_property_visual_status_prefers_latest_followup_resolution_over_stale_sn
     )
 
     assert response["status"] == "blocked"
-    assert response["status_label"] == "3D tour unavailable"
+    assert response["status_label"] == "3D tour not ready"
     assert response["blocked_reason"] == "crezlo_property_tour_not_configured"
     assert response["poll_after_seconds"] == 0
 
@@ -14439,8 +14506,8 @@ def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monke
     )
 
     assert response["status"] == "skipped"
-    assert response["status_label"] == "Walkthrough unavailable"
-    assert response["status_detail"] == "No playable walkthrough is published yet. A verified rendered video is still needed."
+    assert response["status_label"] == "Walkthrough not ready"
+    assert response["status_detail"] == "Walkthrough not available yet."
     assert response["blocked_reason"] == ""
     assert persisted_visual_states
     assert persisted_visual_states[-1]["flythrough_status"] == "skipped"
@@ -14528,8 +14595,8 @@ def test_property_visual_status_terminal_resolution_clears_stale_repair_markers(
     )
 
     assert response["status"] == "blocked"
-    assert response["status_label"] == "3D tour unavailable"
-    assert response["status_detail"] == "No verified 3D tour is published yet. A Matterport, 3DVista, Pano2VR, or licensed krpano capture is still needed."
+    assert response["status_label"] == "3D tour not ready"
+    assert response["status_detail"] == "Tour not available yet."
     assert persisted_visual_states
     terminal_state = persisted_visual_states[-1]
     assert terminal_state["tour_status"] == "blocked"
@@ -23153,6 +23220,42 @@ def test_property_search_run_filters_cross_country_provider_mismatches(
     assert preferences["provider_country_filter_removed"] == ["realestate_au"]
 
 
+def test_property_platform_catalog_sanitizer_preserves_country_and_availability_metadata() -> None:
+    from app.api.routes import landing_view_models
+
+    sanitized = landing_view_models._sanitize_platform_catalog_for_client(
+        {
+            "AT": [
+                {
+                    "value": "willhaben",
+                    "label": "Willhaben",
+                    "family": "marketplace",
+                    "country_code": "AT",
+                    "detail": "Primary Austrian marketplace.",
+                    "homepage_url": "https://www.willhaben.at/",
+                    "availability_note": "Needs login for some detail pages.",
+                    "search_ready": False,
+                }
+            ]
+        }
+    )
+
+    assert sanitized == {
+        "AT": [
+            {
+                "value": "willhaben",
+                "label": "Willhaben",
+                "family": "marketplace",
+                "country_code": "AT",
+                "detail": "Primary Austrian marketplace.",
+                "homepage_url": "https://www.willhaben.at/",
+                "availability_note": "Needs login for some detail pages.",
+                "search_ready": False,
+            }
+        ]
+    }
+
+
 def test_property_paypal_checkout_and_capture_updates_property_commercial_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -23810,7 +23913,7 @@ def test_property_billing_surface_is_not_local_payment_state() -> None:
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
 
     assert billing.status_code == 503
-    assert "Billing handoff unavailable" in billing.text
+    assert "Billing portal unavailable" in billing.text
     assert 'name="viewport"' in billing.text
     assert "PropertyQuarry account" in billing.text
     assert 'href="/app/account"' in billing.text
@@ -25099,7 +25202,8 @@ def test_public_tour_control_krpano_embeds_license_marker(monkeypatch: pytest.Mo
     )
 
     assert 'data-viewer="krpano"' in html
-    assert "krpano Licensed Viewer" in html
+    assert "Panorama Viewer" in html
+    assert "Viewer license" in html
     assert "Registered for propertyquarry.com" in html
     assert 'id="krpano-license"' in html
     assert 'window.__PROPERTYQUARRY_KRPANO_LICENSE__' in html
@@ -25258,8 +25362,6 @@ def test_public_tour_shortlist_comparison_uses_listing_currency() -> None:
 def test_public_tour_control_rejects_internal_walkable_by_default(monkeypatch) -> None:
     from app.api.routes import public_tours
 
-    monkeypatch.delenv("PROPERTYQUARRY_ENABLE_INTERNAL_WALKABLE_CONTROL", raising=False)
-
     with pytest.raises(public_tours.HTTPException) as exc_info:
         public_tours._tour_control_html(
             {
@@ -25272,6 +25374,79 @@ def test_public_tour_control_rejects_internal_walkable_by_default(monkeypatch) -
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "tour_control_provider_export_missing"
+
+
+def test_public_tour_control_route_blocks_walkable_fallback_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    slug = "walkable-fallback-route"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "control_mode": "walkable_3d",
+                "walkable_scene": {"rooms": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-walkable-fallback")
+    response = client.get(f"/tours/{slug}/control")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "tour_disabled_fallback"
+
+
+def test_public_tour_control_route_blocks_internal_walkable_legacy_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    slug = "internal-walkable-legacy-route"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "control_mode": "internal_walkable_3d",
+                "walkable_scene": {"rooms": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-internal-walkable-legacy")
+    response = client.get(f"/tours/{slug}/control")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "tour_disabled_fallback"
+
+
+def test_public_tour_page_blocks_photo_gallery_fallback_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    slug = "photo-gallery-fallback-page"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "scene_strategy": "photo_gallery_hosted",
+                "scenes": [{"name": "Living", "role": "photo", "asset_relpath": "living.jpg"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-photo-gallery-fallback")
+    response = client.get(f"/tours/{slug}")
+
+    assert response.status_code == 404
+    assert "This tour link is no longer available." in response.text
+    assert "older generated preview" in response.text
 
 
 def test_public_tour_control_krpano_route_requires_license(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -25324,7 +25499,8 @@ def test_public_tour_control_krpano_route_renders_licensed_viewer(monkeypatch: p
 
     assert response.status_code == 200
     assert 'data-viewer="krpano"' in response.text
-    assert "krpano Licensed Viewer" in response.text
+    assert "Panorama Viewer" in response.text
+    assert "Viewer license" in response.text
     assert "Registered for propertyquarry.com" in response.text
 
 
@@ -25816,7 +25992,7 @@ def test_property_tour_compare_links_omit_placeholder_pano2vr_entry(monkeypatch,
     assert property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) == ""
 
 
-def test_property_tour_compare_links_offer_krpano_only_for_licensed_walkable_scene(monkeypatch, tmp_path: Path) -> None:
+def test_property_tour_compare_links_do_not_surface_krpano_walkable_scene(monkeypatch, tmp_path: Path) -> None:
     ready_slug = "krpano-ready-tour"
     ready_dir = tmp_path / ready_slug
     ready_dir.mkdir(parents=True)
@@ -25854,14 +26030,10 @@ def test_property_tour_compare_links_offer_krpano_only_for_licensed_walkable_sce
     monkeypatch.setenv("KRPANO_LICENSE_KEY", "test-license-key")
 
     assert product_service._property_tour_compare_links(f"https://propertyquarry.com/tours/{no_scene_slug}") == {}
-    assert product_service._property_tour_compare_links(ready_tour_url) == {
-        "krpano": f"https://propertyquarry.com/tours/{ready_slug}/control/krpano",
-    }
-    assert product_service._hosted_property_tour_provider_export_keys(ready_tour_url) == ("krpano",)
-    assert property_tour_hosting._hosted_property_tour_verified_provider(ready_tour_url) == "krpano"
-    assert property_tour_hosting._hosted_property_tour_verified_open_url(ready_tour_url) == (
-        f"https://propertyquarry.com/tours/{ready_slug}/control/krpano"
-    )
+    assert product_service._property_tour_compare_links(ready_tour_url) == {}
+    assert product_service._hosted_property_tour_provider_export_keys(ready_tour_url) == ()
+    assert property_tour_hosting._hosted_property_tour_verified_provider(ready_tour_url) == ""
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(ready_tour_url) == ""
 
 
 def test_property_tour_compare_links_omits_fake_provider_exports(monkeypatch, tmp_path: Path) -> None:

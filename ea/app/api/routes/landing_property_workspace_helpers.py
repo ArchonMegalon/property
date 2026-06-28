@@ -379,19 +379,26 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
     normalized_plan = str(plan_key or "free").strip().lower() or "free"
     slot_cap = {"free": 1, "plus": 2, "agent": 4}.get(normalized_plan, 1)
     provider_workers = dict(run_summary.get("provider_workers") or {}) if isinstance(run_summary.get("provider_workers"), dict) else {}
-    configured_workers = max(1, int(provider_workers.get("worker_concurrency") or slot_cap or 1))
+    configured_workers = max(0, int(provider_workers.get("worker_concurrency") or 0))
     source_rows = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
+    source_total = max(len(source_rows), int(run_summary.get("source_variant_total") or run_summary.get("sources_total") or 0))
     run_progress = max(0, min(100, int(run_summary.get("progress") or 0)))
     run_status = str(run_summary.get("status") or "").strip().lower()
     run_active = bool(run_progress > 0 or run_status in {"queued", "starting", "in_progress", "running", "processing", "scanning"})
 
     def _source_provider_group(source_row: dict[str, object]) -> str:
-        provider_family = str(source_row.get("provider_family") or "").strip().lower()
-        if provider_family:
-            return provider_family
-        platform = str(source_row.get("platform") or "").strip().lower()
-        if platform:
-            return platform
+        for raw_key in (
+            "provider_source_key",
+            "source_provider_key",
+            "provider_key",
+            "platform",
+            "provider_group",
+            "provider_channel",
+            "provider_family",
+        ):
+            value = str(source_row.get(raw_key) or "").strip().lower()
+            if value:
+                return value
         label = str(source_row.get("source_label") or source_row.get("label") or "").strip()
         if "|" in label:
             label = label.split("|", 1)[0].strip()
@@ -415,9 +422,13 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
             explicit = 0
         if explicit > 0:
             return max(0, min(explicit, 100))
-        if raw_status in {"running", "processing", "in_progress", "working", "warming"}:
+        if raw_status == "warming":
+            return 42
+        if raw_status == "starting":
+            return 26
+        if raw_status in {"running", "processing", "in_progress", "working"}:
             return 58
-        if raw_status in {"queued", "pending", "starting"}:
+        if raw_status in {"queued", "pending"}:
             return 18
         return 10
 
@@ -433,25 +444,33 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
             return "Done"
         if raw_status in {"failed", "error"} or source_row.get("error"):
             return "Fetch failed"
-        if raw_status in {"running", "processing", "in_progress", "working", "warming"}:
+        if raw_status == "warming":
+            return "Preparing"
+        if raw_status == "starting":
+            return "Starting"
+        if raw_status in {"running", "processing", "in_progress", "working"}:
             return "Running"
-        if raw_status in {"queued", "pending", "starting"}:
+        if raw_status in {"queued", "pending"}:
             return "Up next"
         return "Waiting"
 
-    active_sources = [
+    running_sources = [
         row for row in source_rows
-        if str(row.get("status") or row.get("state") or "").strip().lower() not in {"completed", "processed", "done", "success", "failed", "error", "skipped"}
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"running", "processing", "in_progress", "working", "warming", "starting", "repairing"}
+    ]
+    queued_sources = [
+        row for row in source_rows
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"queued", "pending"}
     ]
     completed_sources = [
         row for row in source_rows
-        if str(row.get("status") or row.get("state") or "").strip().lower() in {"completed", "processed", "done", "success"}
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"completed", "processed", "done", "success", "repaired"}
     ]
     failed_sources = [
         row for row in source_rows
         if str(row.get("status") or row.get("state") or "").strip().lower() in {"failed", "error", "skipped"} or row.get("error")
     ]
-    queue = active_sources + failed_sources + completed_sources
+    queue = running_sources + queued_sources + failed_sources + completed_sources
 
     diversified_queue: list[dict[str, object]] = []
     seen_groups: set[str] = set()
@@ -470,9 +489,15 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
                 continue
         diversified_queue.append(source_row)
     queue = diversified_queue
+    effective_worker_cap = max(1, min(4, max(configured_workers or slot_cap, len(queue) if run_active else 0)))
 
-    actual_visible_workers = min(slot_cap, len(queue))
+    actual_visible_workers = min(effective_worker_cap, len(queue))
     visible_workers = actual_visible_workers if actual_visible_workers > 0 else (1 if run_active else 0)
+    active_provider_total = len(running_sources)
+    checked_provider_total = len(completed_sources) + len(failed_sources)
+    queued_provider_total = len(queued_sources)
+    remaining_provider_total = max(0, source_total - active_provider_total - queued_provider_total - checked_provider_total)
+    queued_provider_total += remaining_provider_total
 
     worker_rows: list[dict[str, object]] = []
     for index in range(visible_workers):
@@ -494,14 +519,47 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
             }
         )
 
+    live_worker_total = sum(
+        1
+        for row in worker_rows
+        if str(row.get("status_label") or "") in {"Running", "Starting", "Preparing", "Repairing"}
+    )
+    queued_worker_total = sum(1 for row in worker_rows if str(row.get("status_label") or "") == "Up next")
+    display_active_total = active_provider_total
+    display_includes_queued_lanes = run_active and live_worker_total <= 1 and queued_worker_total > 0
+    if display_includes_queued_lanes:
+        display_active_total = min(visible_workers, live_worker_total + queued_worker_total)
+
+    if display_active_total > 0:
+        headline = f"{display_active_total} provider{'s' if display_active_total != 1 else ''} active"
+    elif run_active and not source_rows:
+        headline = "Preparing providers"
+    elif queued_provider_total > 0:
+        headline = "Preparing providers"
+    elif checked_provider_total > 0:
+        headline = f"{checked_provider_total} provider{'s' if checked_provider_total != 1 else ''} checked"
+    else:
+        headline = "Providers ready"
+
+    detail_parts: list[str] = []
+    if display_includes_queued_lanes and live_worker_total > 0:
+        detail_parts.append(f"{live_worker_total} live")
+    if queued_provider_total > 0:
+        detail_parts.append(f"{queued_provider_total} queued")
+    if checked_provider_total > 0 and display_active_total > 0:
+        detail_parts.append(f"{checked_provider_total} checked")
+    detail = " · ".join(detail_parts)
+
     return {
         "plan_key": normalized_plan,
         "visible_workers": visible_workers,
         "slot_cap": slot_cap,
         "configured_workers": configured_workers,
+        "headline": headline,
+        "detail": detail,
         "workers": worker_rows,
         "upgrade_copy": "",
-        "tooltip": "Selected sources keep moving in parallel. Saved searches are separate.",
+        "tooltip": "This strip shows the provider trail inside this search. Visible lanes reflect running, queued, repaired, and failed provider checks. Separate saved searches use their own run slots.",
     }
 
 
@@ -998,7 +1056,7 @@ def _group_property_provider_options(options: list[dict[str, object]]) -> list[d
         "public_housing": ("Public housing", "Municipal and public-housing-adjacent sources."),
         "developer_projects": ("Developer projects", "New-build and launch pipeline sources."),
         "distressed_sales": ("Court and auction", "Court-published and auction-style listings that need extra legal review."),
-        "community_signals": ("Community signals", "Facebook, Telegram, and other weakly verified off-market hints."),
+        "community_signals": ("Community signals", "Facebook, Telegram, and other lightly sourced off-market hints."),
         "community_meta": ("Watch-tier meta", "Long-tail meta or watch-tier sources with lower trust."),
     }
     grouped: dict[str, list[dict[str, object]]] = {}
@@ -1166,8 +1224,6 @@ def _property_suppression_rows(
         "Availability mismatch": 0,
         "Alert budget": 0,
     }
-    if include_soft:
-        counters["Below fit threshold"] = 0
     source_labels: dict[str, set[str]] = {key: set() for key in counters}
     field_map = (
         ("Outside selected area", "location_mismatch_candidate_total"),
@@ -1179,18 +1235,6 @@ def _property_suppression_rows(
         ("Availability mismatch", "filtered_availability_total"),
         ("Alert budget", "notification_budget_suppressed_total"),
     )
-    if include_soft:
-        field_map = (
-            ("Outside selected area", "location_mismatch_candidate_total"),
-            ("Property type mismatch", "filtered_property_type_total"),
-            ("Wrong transaction type", "filtered_listing_mode_total"),
-            ("Provider overview page", "filtered_generic_page_total"),
-            ("Missing floorplan evidence", "filtered_floorplan_total"),
-            ("Below fit threshold", "filtered_low_fit_total"),
-            ("Outside area/size rule", "filtered_area_total"),
-            ("Availability mismatch", "filtered_availability_total"),
-            ("Alert budget", "notification_budget_suppressed_total"),
-        )
     for source in source_rows:
         source_label = str(source.get("source_label") or source.get("platform") or "Provider").strip() or "Provider"
         for label, field_name in field_map:
@@ -1216,8 +1260,6 @@ def _property_suppression_rows(
         ("Outside area/size rule", "filtered_area_total"),
         ("Availability mismatch", "filtered_availability_total"),
     )
-    if include_soft:
-        summary_field_map = summary_field_map + (("Below fit threshold", "filtered_low_fit_total"),)
     for label, field_name in summary_field_map:
         if counters[label] > 0:
             continue
@@ -1231,7 +1273,6 @@ def _property_suppression_rows(
         "Wrong transaction type": "Keep this strict. Rent and buy are hard rules, so mismatched listings are sent for provider repair.",
         "Provider overview page": "Keep this strict. Provider overview, news, or competition pages are sent for extractor repair.",
         "Missing floorplan evidence": "These homes are still being checked for a floorplan in photos, PDFs, downloads, and 360 media.",
-        "Below fit threshold": "Lower the match bar a little if you want to see more borderline homes.",
         "Outside area/size rule": "Stretch the size or area rule only if the shortlist feels too thin.",
         "Availability mismatch": "Loosen the move-in timing if the date is flexible.",
         "Alert budget": "Raise the daily alert limit if you want more saved-search notifications.",
@@ -1244,8 +1285,6 @@ def _property_suppression_rows(
         "Availability mismatch": "Loosen move-in timing",
         "Alert budget": "Raise the alert limit",
     }
-    if include_soft:
-        title_map["Below fit threshold"] = "Lower the match bar"
     action_label_map = {
         "Outside selected area": "Set nearby radius",
         "Property type mismatch": "Relax property type",
@@ -1254,8 +1293,6 @@ def _property_suppression_rows(
         "Availability mismatch": "Edit move-in timing",
         "Alert budget": "Raise alerts",
     }
-    if include_soft:
-        action_label_map["Below fit threshold"] = "See lower-fit homes"
 
     def _positive_int(value: object) -> int:
         try:
@@ -1263,7 +1300,6 @@ def _property_suppression_rows(
         except Exception:
             return 0
 
-    min_match_score = _positive_int(effective_preferences.get("min_match_score"))
     min_area_m2 = _positive_int(effective_preferences.get("min_area_m2"))
     max_area_m2 = _positive_int(effective_preferences.get("max_area_m2"))
     available_within_years = _positive_int(effective_preferences.get("available_within_years"))
@@ -1276,9 +1312,7 @@ def _property_suppression_rows(
             continue
         providers = ", ".join(sorted(source_labels[label])[:3])
         rule_detail = ""
-        if label == "Below fit threshold" and min_match_score > 0:
-            rule_detail = f" Current match bar: {min_match_score}."
-        elif label == "Outside area/size rule":
+        if label == "Outside area/size rule":
             size_parts: list[str] = []
             if min_area_m2 > 0:
                 size_parts.append(f"min {min_area_m2} m²")
@@ -1296,8 +1330,6 @@ def _property_suppression_rows(
                 area_parts.append(f"{adjacent_radius_m} m spillover")
             if area_parts:
                 rule_detail = f" Current area rule: {' · '.join(area_parts)}."
-        elif label == "Below fit threshold":
-            rule_detail = " This affects ranking score only."
         rows.append(
             {
                 "title": title_map.get(label, label),
@@ -1429,20 +1461,20 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
         if confidence == "low":
             low_conf_total += 1
     if gap_total:
-        headline = "Manual clearance required"
-        headline_detail = f"{gap_total} risk lane(s) still depend on municipality-specific or missing official evidence."
+        headline = "Public sources still missing"
+        headline_detail = f"{gap_total} risk lane(s) still depend on municipality-specific or missing public data."
         headline_tag = "Source gap"
     elif flagged_total:
-        headline = "Official sources attached, risks still flagged"
-        headline_detail = f"{flagged_total} lane(s) remain flagged and still need manual clearance before this read is trustworthy."
-        headline_tag = "Flagged"
+        headline = "Public sources attached, checks still open"
+        headline_detail = f"{flagged_total} lane(s) still need a final check before this page is fully reliable."
+        headline_tag = "Review"
     elif review_total:
-        headline = "Authority coverage attached, review still open"
-        headline_detail = f"{review_total} lane(s) still need a manual confirmation pass even though official sources are already attached."
+        headline = "Public sources attached, one more check"
+        headline_detail = f"{review_total} lane(s) still need a confirmation pass even though public sources are already attached."
         headline_tag = "Review"
     else:
-        headline = "Authority coverage in place"
-        headline_detail = "All active risk lanes already have attached authority coverage and no unresolved source-gap blockers."
+        headline = "Public sources ready"
+        headline_detail = "All active risk lanes already have public-source coverage and no open source gaps."
         headline_tag = "Ready"
     next_steps: list[str] = []
     for row in rows:
@@ -1454,16 +1486,16 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
         if required_next_step and required_next_step not in next_steps:
             next_steps.append(required_next_step)
     coverage_parts = [f"{total} lanes attached", f"{official_total} official", f"{partial_total} partial", f"{gap_total} gaps"]
-    verification_parts = [f"{verified_total} verified", f"{flagged_total} flagged", f"{review_total} still open"]
+    verification_parts = [f"{verified_total} checked", f"{flagged_total} flagged", f"{review_total} still open"]
     response = [
         {"title": headline, "detail": headline_detail, "tag": headline_tag},
         {"title": "Coverage", "detail": " | ".join(coverage_parts), "tag": str(official.get("country_code") or "").strip() or "Market"},
-        {"title": "Verification", "detail": " | ".join(verification_parts), "tag": f"{low_conf_total} low confidence" if low_conf_total else "Confidence ok"},
+        {"title": "Checked", "detail": " | ".join(verification_parts), "tag": f"{low_conf_total} low confidence" if low_conf_total else "Confidence ok"},
     ]
     if next_steps:
         response.append(
             {
-                "title": "Next authority step",
+                "title": "Next check",
                 "detail": " | ".join(next_steps[:2]),
                 "tag": "Manual review",
             }
@@ -1472,7 +1504,7 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
     if updated_at:
         response.append(
             {
-                "title": "Evidence snapshot",
+                "title": "Source snapshot",
                 "detail": updated_at.replace("T", " ").replace("+00:00", " UTC"),
                 "tag": "Attached",
             }
@@ -1545,20 +1577,34 @@ def _property_counterfactual_rows(
                 continue
         return total
 
-    current_score = _positive_int(preferences.get("min_match_score"), 0)
-    low_fit_total = _sum_source_total("filtered_low_fit_total")
     outside_area_or_size_total = _sum_source_total("filtered_area_total")
     outside_selected_area_total = _sum_source_total("location_mismatch_candidate_total")
-    if current_score > 35:
-        next_score = 35 if current_score <= 45 else max(35, current_score - 10)
+
+    current_min_match_score = _positive_int(preferences.get("min_match_score"), 0)
+    if current_min_match_score > 0:
+        suggested_min_match_score = 0 if current_min_match_score <= 20 else max(0, current_min_match_score - 20)
         rows.append(
             {
-                "title": f"Lower the match threshold to {next_score}",
-                "detail": "Keep more watch-tier candidates in the next sweep instead of filtering them out at the current score gate.",
-                "tag": "Threshold",
-                "action_label": f"Apply {next_score}/60",
-                "adjustments": {"min_match_score": next_score},
-                "affected_total": low_fit_total,
+                "title": "Show every home in one ranking",
+                "detail": (
+                    f"The current ranking bar is {current_min_match_score}/100. "
+                    "Lower it or turn it off if you want one broad ranked list. "
+                    "This changes the ordering only; it does not widen districts or relax the other hard rules."
+                ),
+                "tag": "Ranking",
+                "action_label": "Turn bar off" if suggested_min_match_score == 0 else f"Use {suggested_min_match_score}/100",
+                "adjustments": {"min_match_score": suggested_min_match_score},
+                "slider": {
+                    "kind": "ranking_bar",
+                    "field": "min_match_score",
+                    "label": "Ranking bar",
+                    "min": 0,
+                    "max": current_min_match_score,
+                    "step": 5 if current_min_match_score >= 20 else 1,
+                    "value": suggested_min_match_score,
+                    "unit": "/100",
+                },
+                "affected_total": _positive_int(run_summary.get("listing_total"), 0),
             }
         )
 
@@ -1696,7 +1742,7 @@ def _property_counterfactual_rows(
         deduped.append(
             {
                 "title": "Reopen the brief with broader constraints",
-                "detail": "Keep the same market, but reopen the brief so you can lower the score gate, widen providers, or relax one hard filter before the next sweep.",
+                "detail": "Keep the same market, but reopen the brief so you can widen providers or relax one hard filter before the next sweep.",
                 "tag": "Reset",
                 "action_label": "Reopen brief",
                 "adjustments": {},

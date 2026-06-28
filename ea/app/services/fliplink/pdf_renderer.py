@@ -1451,11 +1451,11 @@ def _visual_pdf(
         _draw_wrapped(ops, str(score_methodology.get("neutral_note") or ""), x=MARGIN_X + 16, y=550, width_chars=32, size=8.2, leading=9.8)
         _draw_rect(ops, MARGIN_X + 228, 528, CARD_WIDTH - 228, 100, fill=(1.0, 0.995, 0.97))
         _draw_rect(ops, MARGIN_X + 228, 528, 6, 100, fill=(0.74, 0.55, 0.18))
-        _draw_text(ops, str(score_methodology.get("positive_label") or "Signals lifting the score"), x=MARGIN_X + 244, y=606, size=9.6, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, str(score_methodology.get("positive_label") or "Best signals"), x=MARGIN_X + 244, y=606, size=9.6, font="F2", fill=(0.15, 0.38, 0.30))
         py = 588
         for row in positive_signals[:2]:
             py = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 244, y=py, width_chars=40, size=8.1, leading=9.6)
-        _draw_text(ops, str(score_methodology.get("negative_label") or "Signals reducing confidence or score"), x=MARGIN_X + 244, y=548, size=9.6, font="F2", fill=(0.62, 0.29, 0.26))
+        _draw_text(ops, str(score_methodology.get("negative_label") or "Main caution"), x=MARGIN_X + 244, y=548, size=9.6, font="F2", fill=(0.62, 0.29, 0.26))
         ny = 530
         for row in negative_signals[:2]:
             ny = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 244, y=ny, width_chars=40, size=8.1, leading=9.6)
@@ -1776,11 +1776,11 @@ def _visual_pdf(
         _draw_wrapped(ops, str(score_methodology.get("neutral_note") or ""), x=MARGIN_X + 18, y=454, width_chars=32, size=8.8, leading=10.8)
         _draw_rect(ops, MARGIN_X + 268, 406, CARD_WIDTH - 268, 128, fill=(1.0, 0.995, 0.97))
         _draw_rect(ops, MARGIN_X + 268, 406, 7, 128, fill=(0.74, 0.55, 0.18))
-        _draw_text(ops, str(score_methodology.get("positive_label") or "Signals lifting the score"), x=MARGIN_X + 286, y=510, size=10.4, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, str(score_methodology.get("positive_label") or "Best signals"), x=MARGIN_X + 286, y=510, size=10.4, font="F2", fill=(0.15, 0.38, 0.30))
         py = 490
         for row in positive_signals[:3]:
             py = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 286, y=py, width_chars=38, size=8.8, leading=10.8)
-        _draw_text(ops, str(score_methodology.get("negative_label") or "Signals reducing confidence or score"), x=MARGIN_X + 286, y=440, size=10.4, font="F2", fill=(0.62, 0.29, 0.26))
+        _draw_text(ops, str(score_methodology.get("negative_label") or "Main caution"), x=MARGIN_X + 286, y=440, size=10.4, font="F2", fill=(0.62, 0.29, 0.26))
         ny = 420
         for row in negative_signals[:3]:
             ny = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 286, y=ny, width_chars=38, size=8.8, leading=10.8)

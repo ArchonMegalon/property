@@ -549,6 +549,14 @@ class PlannerService:
                 tool_name=route.tool_name,
                 route=route,
             )
+        if capability == "scene_video_generate":
+            return self._build_scene_video_generate_step(
+                contract=contract,
+                principal_id=principal_id,
+                depends_on=depends_on,
+                tool_name=route.tool_name,
+                route=route,
+            )
         if capability == "reasoned_patch_review":
             return self._build_reasoned_patch_review_step(
                 contract=contract,
@@ -573,6 +581,7 @@ class PlannerService:
             "code_generate",
             "image_generate",
             "media_transform",
+            "scene_video_generate",
             "structured_generate",
             "reasoned_patch_review",
         }:
@@ -905,6 +914,56 @@ class PlannerService:
             **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
+    def _build_scene_video_generate_step(
+        self,
+        *,
+        contract: TaskContract,
+        principal_id: str,
+        depends_on: tuple[str, ...],
+        tool_name: str,
+        route: CapabilityRoute | None = None,
+    ) -> PlanStepSpec:
+        failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
+            contract,
+            prefix="artifact",
+        )
+        return PlanStepSpec(
+            step_key="step_scene_video_generate",
+            step_kind="tool_call",
+            tool_name=tool_name,
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact="scene_video_packet",
+            fallback="request_human_intervention",
+            owner="tool",
+            authority_class=_tool_authority_class(tool_name),
+            review_class="none",
+            failure_strategy=failure_strategy,
+            timeout_budget_seconds=300,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            depends_on=depends_on,
+            input_keys=self._prepare_input_keys_for_contract(
+                contract,
+                default_input_keys=(
+                    "provider_key",
+                    "context_kind",
+                    "title",
+                ),
+            ),
+            output_keys=(
+                "normalized_text",
+                "structured_output_json",
+                "preview_text",
+                "mime_type",
+                "provider_key",
+                "provider_backend_key",
+                "render_status",
+            ),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
+        )
+
     def _build_reasoned_patch_review_step(
         self,
         *,
@@ -1035,6 +1094,19 @@ class PlannerService:
             return ("binding_id", "tour_title", "property_url")
         return default_input_keys
 
+    def _prepare_input_keys_for_contract(
+        self,
+        contract: TaskContract,
+        *,
+        default_input_keys: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        raw_required = contract.runtime_policy().skill_catalog.input_schema_json.get("required")
+        if isinstance(raw_required, (list, tuple)):
+            values = tuple(str(value or "").strip() for value in raw_required if str(value or "").strip())
+            if values:
+                return values
+        return default_input_keys
+
     def _build_pre_artifact_tool_then_artifact_steps(
         self,
         intent: IntentSpecV3,
@@ -1056,9 +1128,13 @@ class PlannerService:
             route=route,
             depends_on=("step_input_prepare",),
         )
-        prepare_input_keys = self._prepare_input_keys_for_pre_artifact_capability(
+        capability_prepare_input_keys = self._prepare_input_keys_for_pre_artifact_capability(
             route.capability_key,
             default_input_keys=tuple(tool_step.input_keys or ("source_text",)),
+        )
+        prepare_input_keys = self._prepare_input_keys_for_contract(
+            contract,
+            default_input_keys=capability_prepare_input_keys,
         )
         prepare_output_keys, prepare_desired_output_json = self._prepare_step_artifact_envelope(contract)
         prepare_step = self._build_prepare_step(

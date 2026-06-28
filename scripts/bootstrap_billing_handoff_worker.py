@@ -104,17 +104,312 @@ def _discover_zone_id(*, account_id: str, headers: dict[str, str], zone_name: st
     return str(zones[0].get("id") or "").strip()
 
 
-def _worker_source(*, target_base_url: str) -> str:
+def _worker_source(
+    *,
+    target_base_url: str,
+    pricing_url: str,
+    property_origin: str = "https://propertyquarry.com",
+    bridge_path: str = "/sso/propertyquarry",
+) -> str:
     normalized_target = str(target_base_url or "").strip().rstrip("/")
     if not normalized_target.startswith("https://"):
         raise SystemExit("target_base_url must be an https:// URL")
+    parsed_target = requests.utils.urlparse(normalized_target)
+    target_host = str(parsed_target.hostname or "").strip().lower()
+    if not target_host:
+        raise SystemExit("target_base_url must include a host")
+    normalized_pricing_url = str(pricing_url or "").strip()
+    parsed_pricing = requests.utils.urlparse(normalized_pricing_url)
+    if parsed_pricing.scheme != "https" or not parsed_pricing.hostname:
+        raise SystemExit("pricing_url must be an https:// URL with a host")
+    normalized_property_origin = str(property_origin or "").strip().rstrip("/")
+    parsed_property = requests.utils.urlparse(normalized_property_origin)
+    if parsed_property.scheme != "https" or not parsed_property.hostname:
+        raise SystemExit("property_origin must be an https:// URL with a host")
+    normalized_bridge_path = "/" + str(bridge_path or "").strip().lstrip("/")
+    if not normalized_bridge_path or normalized_bridge_path == "/" or "?" in normalized_bridge_path or "#" in normalized_bridge_path:
+        raise SystemExit("bridge_path must be a non-root path without query or fragment")
     return (
         "export default {\n"
-        "  async fetch(request) {\n"
-        f"    const targetBase = {json.dumps(normalized_target)};\n"
+        "  async fetch(request, env) {\n"
+        f"    const targetOrigin = {json.dumps(normalized_target)};\n"
+        f"    const targetHost = {json.dumps(target_host)};\n"
+        f"    const pricingUrl = {json.dumps(normalized_pricing_url)};\n"
+        f"    const propertyOrigin = {json.dumps(normalized_property_origin)};\n"
+        f"    const bridgePath = {json.dumps(normalized_bridge_path)};\n"
+        "    const bridgeCookieName = 'pq_bridge';\n"
+        "    const bridgeCookieMaxAge = 300;\n"
+        "    const bridgeSecret = String((env && env.PQ_BRIDGE_SECRET) || '');\n"
         "    const incoming = new URL(request.url);\n"
-        "    const destination = new URL(incoming.pathname + incoming.search, targetBase + '/');\n"
-        "    return Response.redirect(destination.toString(), 302);\n"
+        "    const htmlEscape = (value) => String(value || '')\n"
+        "      .replaceAll('&', '&amp;')\n"
+        "      .replaceAll('<', '&lt;')\n"
+        "      .replaceAll('>', '&gt;')\n"
+        "      .replaceAll('\"', '&quot;');\n"
+        "    const normalizePropertyOrigin = (value) => {\n"
+        "      try {\n"
+        "        const parsed = new URL(String(value || propertyOrigin));\n"
+        "        if (parsed.protocol !== 'https:') return propertyOrigin;\n"
+        "        return `${parsed.protocol}//${parsed.host}`;\n"
+        "      } catch {\n"
+        "        return propertyOrigin;\n"
+        "      }\n"
+        "    };\n"
+        "    const safeReturnPath = (value) => {\n"
+        "      const raw = String(value || '').trim();\n"
+        "      if (!raw) return '/app/account';\n"
+        "      try {\n"
+        "        const absolute = new URL(raw);\n"
+        "        const allowedOrigin = normalizePropertyOrigin(propertyOrigin);\n"
+        "        if (absolute.protocol !== 'https:' || `${absolute.protocol}//${absolute.host}` !== allowedOrigin) return '/app/account';\n"
+        "        return absolute.pathname.startsWith('/') ? `${absolute.pathname}${absolute.search}` : '/app/account';\n"
+        "      } catch {\n"
+        "        if (!raw.startsWith('/') || raw.startsWith('//')) return '/app/account';\n"
+        "        const parsed = new URL(raw, 'https://propertyquarry.invalid');\n"
+        "        return `${parsed.pathname}${parsed.search}`;\n"
+        "      }\n"
+        "    };\n"
+        "    const readCookie = (name) => {\n"
+        "      const source = String(request.headers.get('cookie') || '');\n"
+        "      const parts = source.split(/;\\s*/);\n"
+        "      for (const part of parts) {\n"
+        "        const [cookieName, ...rest] = part.split('=');\n"
+        "        if (cookieName === name) return decodeURIComponent(rest.join('='));\n"
+        "      }\n"
+        "      return '';\n"
+        "    };\n"
+        "    const toBase64 = (bytes) => {\n"
+        "      let binary = '';\n"
+        "      for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);\n"
+        "      return btoa(binary).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/g, '');\n"
+        "    };\n"
+        "    const fromBase64 = (value) => {\n"
+        "      const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');\n"
+        "      const padding = normalized.length % 4 ? '='.repeat(4 - (normalized.length % 4)) : '';\n"
+        "      const binary = atob(normalized + padding);\n"
+        "      return Uint8Array.from(binary, (char) => char.charCodeAt(0));\n"
+        "    };\n"
+        "    const signBridgeToken = async (encoded) => {\n"
+        "      const secretKey = await crypto.subtle.importKey(\n"
+        "        'raw',\n"
+        "        new TextEncoder().encode(bridgeSecret),\n"
+        "        { name: 'HMAC', hash: 'SHA-256' },\n"
+        "        false,\n"
+        "        ['sign']\n"
+        "      );\n"
+        "      const signature = await crypto.subtle.sign('HMAC', secretKey, new TextEncoder().encode(encoded));\n"
+        "      return toBase64(new Uint8Array(signature));\n"
+        "    };\n"
+        "    const verifyBridgeToken = async (token) => {\n"
+        "      const raw = String(token || '').trim();\n"
+        "      if (!bridgeSecret || !raw || !raw.includes('.')) return null;\n"
+        "      const [encoded, signature] = raw.split('.', 2);\n"
+        "      if (!encoded || !signature) return null;\n"
+        "      const expected = await signBridgeToken(encoded);\n"
+        "      if (expected !== signature) return null;\n"
+        "      let payload = null;\n"
+        "      try {\n"
+        "        payload = JSON.parse(new TextDecoder().decode(fromBase64(encoded)));\n"
+        "      } catch {\n"
+        "        return null;\n"
+        "      }\n"
+        "      if (!payload || payload.aud !== 'propertyquarry.billing_sso_bridge') return null;\n"
+        "      const now = Math.floor(Date.now() / 1000);\n"
+        "      if (Number(payload.expires_at || 0) <= now) return null;\n"
+        "      return {\n"
+        "        principalId: String(payload.principal_id || '').trim(),\n"
+        "        accessEmail: String(payload.access_email || '').trim().toLowerCase(),\n"
+        "        returnTo: safeReturnPath(payload.return_to),\n"
+        "        returnToOrigin: normalizePropertyOrigin(payload.return_to_origin || propertyOrigin),\n"
+        "        token: raw,\n"
+        "      };\n"
+        "    };\n"
+        "    const bridgeContextFromRequest = async () => verifyBridgeToken(readCookie(bridgeCookieName));\n"
+        "    const bridgeCardHtml = ({ title, detail, primaryHref, primaryLabel, secondaryHref, secondaryLabel, email }) => `<section class=\"pq-bridge-card\"><p class=\"pq-bridge-eyebrow\">PropertyQuarry billing</p><h1>${htmlEscape(title)}</h1>${email ? `<p class=\"pq-bridge-email\">${htmlEscape(email)}</p>` : ''}<p>${htmlEscape(detail)}</p><div class=\"pq-bridge-actions\"><a class=\"pq-bridge-primary\" href=\"${htmlEscape(primaryHref)}\">${htmlEscape(primaryLabel)}</a>${secondaryHref ? `<a class=\"pq-bridge-secondary\" href=\"${htmlEscape(secondaryHref)}\">${htmlEscape(secondaryLabel || 'Open pricing')}</a>` : ''}</div></section>`;\n"
+        "    const bridgeStyles = '<style>:root{color-scheme:light dark;--pq-bg:#f6f2ea;--pq-card:#fffaf0;--pq-ink:#201a12;--pq-muted:#6d6254;--pq-border:#e0d5c4;--pq-accent:#9a5a22}@media(prefers-color-scheme:dark){:root{--pq-bg:#15120e;--pq-card:#201a13;--pq-ink:#fff7ea;--pq-muted:#cbbda8;--pq-border:#3a3025;--pq-accent:#e3aa62}}.pq-bridge-card{width:min(100%,560px);margin:24px auto;padding:28px;border:1px solid var(--pq-border);border-radius:28px;background:color-mix(in srgb,var(--pq-card) 92%,transparent);box-shadow:0 24px 60px rgba(32,26,18,.12);font:16px/1.5 ui-serif,Georgia,serif;color:var(--pq-ink)}.pq-bridge-eyebrow{margin:0 0 10px;color:var(--pq-accent);font:700 12px/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}.pq-bridge-card h1{margin:0 0 12px;font-size:clamp(30px,8vw,44px);line-height:.96;letter-spacing:-.04em}.pq-bridge-card p{margin:0 0 18px;color:var(--pq-muted)}.pq-bridge-actions{display:flex;flex-wrap:wrap;gap:12px}.pq-bridge-primary,.pq-bridge-secondary{display:inline-flex;min-height:48px;align-items:center;justify-content:center;border-radius:999px;padding:0 18px;font:700 14px/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none}.pq-bridge-primary{background:var(--pq-ink);color:var(--pq-card)}.pq-bridge-secondary{border:1px solid var(--pq-border);color:var(--pq-ink)}.pq-bridge-email{margin:0 0 18px;font:600 14px/1.4 ui-sans-serif,system-ui,sans-serif;color:var(--pq-ink)}</style>';\n"
+        "    const bridgeStandaloneHtml = (payload) => `<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"robots\" content=\"noindex, nofollow\">${bridgeStyles}<title>${htmlEscape(payload.title)}</title></head><body style=\"margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 20% 0%,rgba(154,90,34,.16),transparent 34%),var(--pq-bg);\">${bridgeCardHtml(payload)}</body></html>`;\n"
+        "    if (incoming.pathname === bridgePath) {\n"
+        "      const bridgeContext = await verifyBridgeToken(incoming.searchParams.get('pq_bridge'));\n"
+        "      if (!bridgeContext) {\n"
+        "        const detail = bridgeSecret\n"
+        "          ? 'This billing bridge link is no longer valid. Start again from your PropertyQuarry account.'\n"
+        "          : 'This billing bridge is not configured yet. Start again from your PropertyQuarry account.';\n"
+        "        const html = bridgeStandaloneHtml({\n"
+        "          title: 'Billing bridge unavailable',\n"
+        "          detail,\n"
+        "          primaryHref: `${propertyOrigin}/app/account`,\n"
+        "          primaryLabel: 'Back to account',\n"
+        "          secondaryHref: pricingUrl,\n"
+        "          secondaryLabel: 'Open pricing',\n"
+        "          email: '',\n"
+        "        });\n"
+        "        return new Response(html, {\n"
+        "          status: bridgeSecret ? 400 : 503,\n"
+        "          headers: {\n"
+        "            'cache-control': 'no-store',\n"
+        "            'content-type': 'text/html; charset=utf-8',\n"
+        "            'x-pq-billing-worker': 'propertyquarry-billing-handoff',\n"
+        "            'x-pq-billing-worker-branch': 'bridge-unavailable',\n"
+        "            'x-robots-tag': 'noindex, nofollow',\n"
+        "          },\n"
+        "        });\n"
+        "      }\n"
+        "      const returnHref = `${bridgeContext.returnToOrigin}${bridgeContext.returnTo}`;\n"
+        "      const detail = bridgeContext.accessEmail\n"
+        "        ? `Continue with ${bridgeContext.accessEmail}. Pricing stays inside the PropertyQuarry lane and your plan remains managed from your account.`\n"
+        "        : 'Continue from your PropertyQuarry account. Pricing stays inside the PropertyQuarry lane and your plan remains managed from your account.';\n"
+        "      const html = bridgeStandaloneHtml({\n"
+        "        title: 'Billing ready',\n"
+        "        detail,\n"
+        "        primaryHref: pricingUrl,\n"
+        "        primaryLabel: 'Open pricing',\n"
+        "        secondaryHref: returnHref,\n"
+        "        secondaryLabel: 'Back to PropertyQuarry',\n"
+        "        email: bridgeContext.accessEmail,\n"
+        "      });\n"
+        "      return new Response(html, {\n"
+        "        status: 200,\n"
+        "        headers: {\n"
+        "          'cache-control': 'no-store',\n"
+        "          'content-type': 'text/html; charset=utf-8',\n"
+        "          'x-pq-billing-worker': 'propertyquarry-billing-handoff',\n"
+        "          'x-pq-billing-worker-branch': 'bridge-ready',\n"
+        "          'x-robots-tag': 'noindex, nofollow',\n"
+        "        },\n"
+        "      });\n"
+        "    }\n"
+        "    if (incoming.pathname === '/join' || incoming.pathname === '/join/') {\n"
+        "      return new Response(null, {\n"
+        "        status: 302,\n"
+        "        headers: {\n"
+        "          'location': pricingUrl,\n"
+        "          'cache-control': 'no-store',\n"
+        "          'x-robots-tag': 'noindex, nofollow',\n"
+        "          'x-pq-billing-worker': 'propertyquarry-billing-handoff',\n"
+        "          'x-pq-billing-worker-branch': 'pricing-redirect',\n"
+        "        },\n"
+        "      });\n"
+        "    }\n"
+        "    const publicOrigin = incoming.origin;\n"
+        "    const publicHost = incoming.hostname;\n"
+        "    const rewriteToTargetText = (value) => {\n"
+        "      if (!value) return value;\n"
+        "      return String(value)\n"
+        "        .replaceAll(publicOrigin, targetOrigin)\n"
+        "        .replaceAll(`//${publicHost}`, `//${targetHost}`)\n"
+        "        .replaceAll(publicHost, targetHost);\n"
+        "    };\n"
+        "    const upstreamUrl = new URL(incoming.pathname + incoming.search, targetOrigin + '/');\n"
+        "    const upstreamHeaders = new Headers(request.headers);\n"
+        "    upstreamHeaders.set('origin', targetOrigin);\n"
+        "    const incomingReferer = request.headers.get('referer');\n"
+        "    upstreamHeaders.set('referer', incomingReferer ? rewriteToTargetText(incomingReferer) : targetOrigin + '/');\n"
+        "    const upstreamRequest = new Request(upstreamUrl.toString(), {\n"
+        "      method: request.method,\n"
+        "      headers: upstreamHeaders,\n"
+        "      body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,\n"
+        "    });\n"
+        "    const upstreamResponse = await fetch(upstreamRequest, { redirect: 'manual' });\n"
+        "\n"
+        "    const escapePattern = (value) => value.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n"
+        "    const rewriteOriginText = (value) => {\n"
+        "      if (!value) return value;\n"
+        "      return String(value)\n"
+        "        .replaceAll(targetOrigin, publicOrigin)\n"
+        "        .replaceAll(`//${targetHost}`, `//${publicHost}`)\n"
+        "        .replaceAll(targetHost, publicHost);\n"
+        "    };\n"
+        "    const rewriteLocation = (value) => {\n"
+        "      if (!value) return value;\n"
+        "      try {\n"
+        "        const nextUrl = new URL(String(value), targetOrigin + '/');\n"
+        "        if ((nextUrl.pathname === '/join' || nextUrl.pathname === '/join/') && nextUrl.hostname === targetHost) {\n"
+        "          return pricingUrl;\n"
+        "        }\n"
+        "        if (nextUrl.hostname === targetHost) {\n"
+        "          nextUrl.protocol = incoming.protocol;\n"
+        "          nextUrl.host = publicHost;\n"
+        "        }\n"
+        "        return nextUrl.toString();\n"
+        "      } catch {\n"
+        "        return rewriteOriginText(value);\n"
+        "      }\n"
+        "    };\n"
+        "    const rewriteSetCookie = (value) => {\n"
+        "      if (!value) return value;\n"
+        "      const domainPattern = new RegExp(`Domain=${escapePattern(targetHost)}`, 'ig');\n"
+        "      return String(value).replace(domainPattern, `Domain=${publicHost}`);\n"
+        "    };\n"
+        "    const getSetCookies = (headers) => {\n"
+        "      if (headers && typeof headers.getAll === 'function') {\n"
+        "        try {\n"
+        "          const values = headers.getAll('Set-Cookie');\n"
+        "          if (Array.isArray(values) && values.length) {\n"
+        "            return values;\n"
+        "          }\n"
+        "        } catch {\n"
+        "        }\n"
+        "      }\n"
+        "      const single = headers.get('set-cookie');\n"
+        "      return single ? [single] : [];\n"
+        "    };\n"
+        "\n"
+        "    const responseHeaders = new Headers(upstreamResponse.headers);\n"
+        "    responseHeaders.set('x-pq-billing-worker', 'propertyquarry-billing-handoff');\n"
+        "    responseHeaders.set('x-pq-billing-worker-branch', 'proxy');\n"
+        "    responseHeaders.set('x-robots-tag', 'noindex, nofollow');\n"
+        "    responseHeaders.delete('content-length');\n"
+        "    const redirectLocation = responseHeaders.get('location');\n"
+        "    if (redirectLocation) {\n"
+        "      responseHeaders.set('location', rewriteLocation(redirectLocation));\n"
+        "    }\n"
+        "    const setCookies = getSetCookies(upstreamResponse.headers);\n"
+        "    if (setCookies.length) {\n"
+        "      responseHeaders.delete('set-cookie');\n"
+        "      for (const cookie of setCookies) {\n"
+        "        responseHeaders.append('set-cookie', rewriteSetCookie(cookie));\n"
+        "      }\n"
+        "    }\n"
+        "\n"
+        "    const contentType = String(responseHeaders.get('content-type') || '').toLowerCase();\n"
+        "    if (!contentType.includes('text/html')) {\n"
+        "      return new Response(upstreamResponse.body, {\n"
+        "        status: upstreamResponse.status,\n"
+        "        statusText: upstreamResponse.statusText,\n"
+        "        headers: responseHeaders,\n"
+        "      });\n"
+        "    }\n"
+        "\n"
+        "    const bridgeContext = await bridgeContextFromRequest();\n"
+        "    let html = rewriteOriginText(await upstreamResponse.text());\n"
+        "    if (bridgeContext && (incoming.pathname === '/login' || incoming.pathname === '/account')) {\n"
+        "      const detail = bridgeContext.accessEmail\n"
+        "        ? `Use ${bridgeContext.accessEmail} for the billing lane. Pricing stays on PropertyQuarry.`\n"
+        "        : 'Use the same email as your PropertyQuarry account for the billing lane. Pricing stays on PropertyQuarry.';\n"
+        "      const banner = `${bridgeStyles}${bridgeCardHtml({\n"
+        "        title: 'Continue billing',\n"
+        "        detail,\n"
+        "        primaryHref: `${bridgeContext.returnToOrigin}${bridgeContext.returnTo}`,\n"
+        "        primaryLabel: 'Back to PropertyQuarry',\n"
+        "        secondaryHref: pricingUrl,\n"
+        "        secondaryLabel: 'Open pricing',\n"
+        "        email: bridgeContext.accessEmail,\n"
+        "      })}`;\n"
+        "      if (/<body[^>]*>/i.test(html)) {\n"
+        "        html = html.replace(/<body[^>]*>/i, (match) => `${match}${banner}`);\n"
+        "      } else {\n"
+        "        html = `${banner}${html}`;\n"
+        "      }\n"
+        "      const emailJson = JSON.stringify(bridgeContext.accessEmail || '');\n"
+        "      const pricingUrlJson = JSON.stringify(pricingUrl);\n"
+        "      const assistScript = `<script>(function(){var email=${emailJson};if(email){var inputs=document.querySelectorAll('input[name=\"email\"], input[type=\"email\"]');for(var i=0;i<inputs.length;i+=1){if(!inputs[i].value){inputs[i].value=email;}}var password=document.querySelector('input[name=\"pass\"], input[name=\"password\"], input[type=\"password\"]');if(password){password.focus();}}var joinLinks=document.querySelectorAll('a[href*=\"/join\"], a[href*=\"join\"]');for(var j=0;j<joinLinks.length;j+=1){joinLinks[j].setAttribute('href', ${pricingUrlJson});}})();</script>`;\n"
+        "      html = /<\\/body>/i.test(html) ? html.replace(/<\\/body>/i, `${assistScript}</body>`) : `${html}${assistScript}`;\n"
+        "    }\n"
+        "    return new Response(html, {\n"
+        "      status: upstreamResponse.status,\n"
+        "      statusText: upstreamResponse.statusText,\n"
+        "      headers: responseHeaders,\n"
+        "    });\n"
         "  },\n"
         "};\n"
     )
@@ -126,15 +421,25 @@ def _upsert_worker_script(
     headers: dict[str, str],
     script_name: str,
     source: str,
+    bindings: list[dict[str, Any]] | None,
     dry_run: bool,
 ) -> dict[str, Any]:
     if dry_run:
-        return {"action": "deploy_script", "script_name": script_name, "dry_run": True}
+        return {
+            "action": "deploy_script",
+            "script_name": script_name,
+            "binding_count": len(bindings or []),
+            "dry_run": True,
+        }
     response = requests.put(
         f"{API_BASE}/accounts/{account_id}/workers/scripts/{script_name}",
         headers={key: value for key, value in headers.items() if key.lower() != "content-type"},
         files={
-            "metadata": (None, json.dumps({"main_module": "worker.mjs"}), "application/json"),
+            "metadata": (
+                None,
+                json.dumps({"main_module": "worker.mjs", "bindings": list(bindings or [])}),
+                "application/json",
+            ),
             "worker.mjs": ("worker.mjs", source, "application/javascript+module"),
         },
         timeout=30,
@@ -242,12 +547,15 @@ def _ensure_dns_record_proxied(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Front billing.propertyquarry.com with a Cloudflare Worker that redirects to the external Brilliant Directories account lane."
+        description="Front billing.propertyquarry.com with a Cloudflare Worker that reverse-proxies the external Brilliant Directories account lane."
     )
     parser.add_argument("--zone-name", default="propertyquarry.com", help="Cloudflare zone to update (default: propertyquarry.com).")
     parser.add_argument("--host", default="billing.propertyquarry.com", help="Billing host to front with the worker.")
     parser.add_argument("--target-host", default="propertyquarry.directoryup.com", help="Current Brilliant Directories host to receive the redirect.")
     parser.add_argument("--script-name", default="propertyquarry-billing-handoff", help="Cloudflare Worker script name.")
+    parser.add_argument("--pricing-url", default="https://propertyquarry.com/pricing", help="PropertyQuarry-owned pricing URL to serve instead of the stock Brilliant Directories /join page.")
+    parser.add_argument("--property-origin", default="", help="PropertyQuarry public origin used for bridge returns (defaults to PROPERTYQUARRY_PUBLIC_BASE_URL or the pricing origin).")
+    parser.add_argument("--bridge-path", default="/sso/propertyquarry", help="Bridge entry path on the billing host.")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing Cloudflare state.")
     args = parser.parse_args()
 
@@ -257,18 +565,37 @@ def main() -> int:
         raise SystemExit("Both --host and --target-host are required.")
     route_pattern = f"{host}/*"
     target_base_url = f"https://{target_host}"
+    pricing_url = str(args.pricing_url or "").strip()
 
     env = _effective_env()
+    property_origin = str(args.property_origin or env.get("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip()
+    if not property_origin:
+        parsed_pricing_origin = requests.utils.urlparse(pricing_url)
+        property_origin = f"{parsed_pricing_origin.scheme}://{parsed_pricing_origin.netloc}"
+    bridge_secret = str(
+        env.get("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET")
+        or env.get("BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET")
+        or ""
+    ).strip()
+    bindings: list[dict[str, Any]] = []
+    if bridge_secret:
+        bindings.append({"type": "plain_text", "name": "PQ_BRIDGE_SECRET", "text": bridge_secret})
     headers = _cf_headers(env)
     account_id = _discover_account_id(headers=headers, env=env)
     zone_id = _discover_zone_id(account_id=account_id, headers=headers, zone_name=str(args.zone_name or "").strip())
-    source = _worker_source(target_base_url=target_base_url)
+    source = _worker_source(
+        target_base_url=target_base_url,
+        pricing_url=pricing_url,
+        property_origin=property_origin,
+        bridge_path=str(args.bridge_path or "").strip() or "/sso/propertyquarry",
+    )
 
     script_result = _upsert_worker_script(
         account_id=account_id,
         headers=headers,
         script_name=str(args.script_name or "").strip(),
         source=source,
+        bindings=bindings,
         dry_run=args.dry_run,
     )
     route_result = _upsert_worker_route(
@@ -295,6 +622,10 @@ def main() -> int:
                 "host": host,
                 "route_pattern": route_pattern,
                 "target_base_url": target_base_url,
+                "pricing_url": pricing_url,
+                "property_origin": property_origin,
+                "bridge_path": str(args.bridge_path or "").strip() or "/sso/propertyquarry",
+                "bridge_secret_present": bool(bridge_secret),
                 "script_result": script_result,
                 "route_result": route_result,
                 "dns_result": dns_result,

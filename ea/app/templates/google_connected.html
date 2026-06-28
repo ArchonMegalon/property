@@ -36,6 +36,21 @@
     border-radius: 12px;
     background: rgba(255,255,255,0.02);
   }
+  .google-hero h1 {
+    margin: 4px 0 10px;
+    font-size: clamp(2rem, 5vw, 3rem);
+    line-height: 0.96;
+    max-width: 10ch;
+  }
+  .google-hero .lead {
+    margin: 0;
+  }
+  .google-actions .cta-row {
+    margin-top: 0;
+  }
+  .google-actions .btn {
+    min-height: 42px;
+  }
   details.scope-details {
     margin-top: 14px;
     border: 1px solid var(--line);
@@ -56,12 +71,33 @@
       grid-template-columns: 1fr;
     }
   }
+  @media (max-width: 760px) {
+    .google-hero,
+    .google-card,
+    .google-actions,
+    .google-capability,
+    .google-step {
+      padding: 15px;
+    }
+    .google-hero h1 {
+      max-width: none;
+      font-size: clamp(1.95rem, 8.5vw, 2.6rem);
+    }
+    .google-actions .cta-row {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+    .google-actions .btn,
+    .google-actions .cta-row form {
+      width: 100%;
+    }
+  }
 </style>
 
 <section class="section panel google-hero">
   <div class="kicker">Google connected</div>
   <h1>Google account linked.</h1>
-  <p class="lead">PropertyQuarry keeps this connection narrow by default. Google can now act as a verified sign-in path without pulling extra account data.</p>
+  <p class="lead">PropertyQuarry keeps this connection narrow by default. Google can now be used to sign in without pulling extra account data.</p>
 </section>
 
 <section class="section google-step-grid">

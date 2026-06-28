@@ -1765,7 +1765,7 @@ def test_property_search_results_email_serializes_emailit_meta(monkeypatch: pyte
     assert "BG Leopoldstadt" in payload["text"]
     html = str(payload["html"])
     assert "PropertyQuarry research brief" in html
-    assert "Current read" in html
+    assert "Quick take" in html
     assert "<table" in html
     assert 'href="https://propertyquarry.com/app/research/prop-1?run_id=run-1"' in html
     assert "BG Leopoldstadt, 082 25 E 89/25g" in html

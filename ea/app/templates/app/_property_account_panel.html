@@ -18,7 +18,7 @@
 {% set plan_items = plan_card.value.get('items') or [] %}
 {% set plan_item = plan_items[0] if plan_items else {} %}
 {% set plan_value = (plan_item.get('detail') or '').split('|')[0].strip() or 'Free' %}
-{% set plan_detail = (plan_item.get('detail') or '').split('|', 1)[1].strip() if '|' in (plan_item.get('detail') or '') else 'Plan access.' %}
+{% set plan_detail = (plan_item.get('detail') or '').split('|', 1)[1].strip() if '|' in (plan_item.get('detail') or '') else 'Billing access.' %}
 {% set rendered_account_status = account_status if account_status is defined and account_status else (status if status is defined and status else {}) %}
 {% set delivery_preferences = rendered_account_status.get('delivery_preferences') or {} %}
 {% set property_notifications = delivery_preferences.get('property_notifications') or {} %}
@@ -46,7 +46,7 @@
     <div>
       <div class="pqx-small">Account</div>
       <h2>Account</h2>
-      <div class="pqx-note">Settings, search defaults, notifications, trust controls, and shared access stay in one controlled lane.</div>
+      <div class="pqx-note">Saved defaults, notifications, billing, and access.</div>
     </div>
   </div>
 
@@ -55,7 +55,7 @@
     <div>
       <span class="pqx-small">Session · Signed in</span>
       <strong>{{ account_nav.label or account_nav.menu_label or 'PropertyQuarry account' }}</strong>
-      <small>Use this when you want this phone or browser out of the account.</small>
+      <small>Sign out on this device.</small>
     </div>
     <form class="pqx-account-logout-strip-form" method="post" action="{{ account_nav.sign_out_action }}" data-account-page-sign-out>
       <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
@@ -70,7 +70,7 @@
       <div>
         <span class="pqx-small">Saved defaults</span>
         <h2>{{ profile_card.value.get('title') or 'Search defaults' }}</h2>
-        <p>Keep the next brief tight and ready for a faster rerun.</p>
+        <p>Keep the next search ready.</p>
         {% if profile_items %}
         <div class="pqx-pref-list" style="margin-top:10px; gap:6px;">
           {% for item in profile_items[:3] %}
@@ -93,7 +93,7 @@
         <span class="pqx-mobile-fold-copy">
           <span class="pqx-small">Alerts</span>
           <h2>Notifications</h2>
-          <span class="pqx-note">Choose where strong matches arrive first.</span>
+          <span class="pqx-note">Choose where updates arrive.</span>
         </span>
         <span class="pqx-mobile-fold-meta">
           <span class="pqx-pill">{{ (selected_notification_channels|length) if selected_notification_channels else 1 }} active</span>
@@ -120,7 +120,7 @@
         <form class="pqx-account-channel-form" action="/app/api/property/account/notifications" method="post">
           <div class="pqx-account-channel-detail">
             <strong>Channels</strong>
-            <span>Strong matches can land in more than one place.</span>
+            <span>Strong matches can arrive in more than one place.</span>
           </div>
           <div class="pqx-account-channel-options" role="group" aria-label="Property alert destinations">
             <label class="pqx-account-channel-option">
@@ -138,7 +138,7 @@
           </div>
           <div class="pqx-account-channel-detail">
             <strong>Primary route</strong>
-            <span>Used first for direct follow-up.</span>
+            <span>Used first for follow-up.</span>
           </div>
           <div class="pqx-account-channel-options" role="radiogroup" aria-label="Primary PropertyQuarry alert channel">
             <label class="pqx-account-channel-option">
@@ -157,7 +157,7 @@
           <div class="pqx-account-channel-detail">
             <strong>Rules</strong>
             <span>Strong matches go to every selected channel.</span>
-            <span>Near-miss follow-up stays Telegram-only when Telegram is primary.</span>
+            <span>Near misses stay quieter when Telegram is primary.</span>
           </div>
           <div class="pqx-account-channel-detail" data-channel-detail="email">
             <strong>Email</strong>
@@ -166,14 +166,14 @@
           <div class="pqx-account-channel-detail" data-channel-detail="telegram">
             <strong>Telegram</strong>
             <span>{{ telegram_bot_status }}</span>
-            <span>Supports strong matches and Telegram-first follow-up.</span>
+            <span>Supports strong matches and follow-up.</span>
             {% if telegram_bot_handle %}<span>{{ telegram_bot_handle }}</span>{% endif %}
             {% if telegram_bot_connect_url %}<a href="{{ telegram_bot_connect_url }}" target="_blank" rel="noopener">Open bot</a>{% endif %}
           </div>
           <div class="pqx-account-channel-detail" data-channel-detail="whatsapp">
             <label for="whatsappAiSupportPhone">WhatsApp number</label>
             <input id="whatsappAiSupportPhone" type="tel" inputmode="tel" autocomplete="tel" name="whatsapp_ai_support_phone" value="{{ whatsapp_ai_support_phone }}" placeholder="+436641234567" aria-describedby="whatsappAiSupportCopy">
-            <span id="whatsappAiSupportCopy">Needed when WhatsApp is selected for strong matches, operator handoff notices, or AI support.</span>
+            <span id="whatsappAiSupportCopy">Used for WhatsApp alerts, handoff, and support.</span>
           </div>
           <button class="pqx-link-button primary" type="submit">Save notification routing</button>
         </form>
@@ -184,8 +184,8 @@
       <div>
         <span class="pqx-small">Plan</span>
         <h2>{{ plan_value }}</h2>
-        <p>{{ plan_detail or 'Plan access.' }}</p>
-        <div class="pqx-note">Billing opens in the external account lane.</div>
+        <p>{{ plan_detail or 'Billing access.' }}</p>
+        <div class="pqx-note">Open billing in your billing account.</div>
       </div>
       <a class="pqx-link-button" href="{{ account_nav.billing_href if account_nav else '/app/account#delivery' }}">Billing account</a>
     </section>
@@ -195,8 +195,8 @@
       <summary>
         <span class="pqx-mobile-fold-copy">
           <span class="pqx-small">Access</span>
-          <h2>Access and trust</h2>
-          <span class="pqx-note">Shared pages, sign-in connections, and privacy.</span>
+          <h2>Access</h2>
+          <span class="pqx-note">Sign-in, links, and privacy.</span>
         </span>
         <span class="pqx-mobile-fold-meta">
           <span class="pqx-pill">Links</span>
@@ -208,7 +208,7 @@
         <div class="pqx-pref-row">
           <div>
             <strong>Access and shared pages</strong>
-            <small>Access links, packets, and tours.</small>
+            <small>Access links and shared pages.</small>
           </div>
           <div class="pqx-actions">
             <a class="pqx-link-button" href="/app/settings/access">Access links</a>
@@ -217,8 +217,8 @@
         </div>
         <div class="pqx-pref-row">
           <div>
-            <strong>Connections and privacy</strong>
-            <small>Google, sign-in connections, and privacy.</small>
+            <strong>Sign-in and privacy</strong>
+            <small>Google, sign-in providers, and privacy.</small>
           </div>
           <div class="pqx-actions">
             <a class="pqx-link-button" href="/app/settings/google">Google</a>
@@ -241,7 +241,7 @@
         <span class="pqx-mobile-fold-copy">
           <span class="pqx-small">Data</span>
           <h2>Data and history</h2>
-          <span class="pqx-note">Exports, search history, and deletion controls.</span>
+          <span class="pqx-note">Exports, history, and deletion.</span>
         </span>
         <span class="pqx-mobile-fold-meta">
           <span class="pqx-pill">Export</span>

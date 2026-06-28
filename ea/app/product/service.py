@@ -143,9 +143,11 @@ from app.product.property_tour_hosting import (
     _hosted_property_tour_has_pano2vr_export as _hosting_has_pano2vr_export,
     _hosted_property_tour_payload_for_url,
     _hosted_property_tour_direct_360_url,
+    _hosted_property_tour_generated_reconstruction_asset_url,
     _hosted_property_tour_preview_image_url,
     _hosted_property_tour_public_base_url,
     _hosted_property_tour_slug,
+    _hosted_property_tour_verified_provider,
     _hosted_property_tour_verified_open_url,
     _hosted_property_tour_walkthrough_asset_url,
     _published_walkthrough_asset_url,
@@ -654,11 +656,11 @@ _PROPERTY_SCHOOLATLAS_SOURCE_URL = "https://www.statistik.at/atlas/schulen/"
 def _property_search_run_worker_concurrency() -> int:
     raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_RUN_WORKER_CONCURRENCY") or "").strip()
     if not raw_value:
-        return 2
+        return 4
     try:
         parsed = int(raw_value)
     except Exception:
-        return 2
+        return 4
     return max(1, min(parsed, 8))
 
 
@@ -777,6 +779,56 @@ def _property_search_platforms_for_country(
         listing_mode=listing_mode,
         include_distressed_sale_signals=include_distressed_sale_signals,
     )
+
+
+def _property_search_execution_platforms(
+    selected_platforms: tuple[str, ...],
+    preferences: dict[str, object] | None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    payload = dict(preferences or {})
+    country_code = normalize_country_code(resolve_country_code(payload.get("country_code")) or payload.get("country_code"))
+    listing_mode = normalize_listing_mode(payload.get("listing_mode"))
+    normalized_platforms = _normalize_property_search_platform_inputs(selected_platforms)
+    if not normalized_platforms:
+        normalized_platforms = _normalize_property_search_platform_inputs(payload.get("selected_platforms"))
+    if not normalized_platforms:
+        normalized_platforms = tuple(
+            default_platforms_for_country_listing_mode(
+                country_code,
+                listing_mode,
+                property_type=payload.get("property_type"),
+            )
+        )
+    normalized_platforms = _property_search_platforms_with_family_toggles(
+        normalized_platforms,
+        payload,
+    )
+    normalized_platforms, removed_platforms = _property_search_platforms_for_country(
+        normalized_platforms,
+        country_code,
+        listing_mode=listing_mode,
+        include_distressed_sale_signals=payload.get("include_distressed_sale_signals"),
+    )
+    if normalized_platforms:
+        return normalized_platforms, removed_platforms
+    fallback_platforms = _property_search_platforms_with_family_toggles(
+        tuple(
+            default_platforms_for_country_listing_mode(
+                country_code,
+                listing_mode,
+                property_type=payload.get("property_type"),
+            )
+        ),
+        payload,
+    )
+    normalized_platforms, fallback_removed = _property_search_platforms_for_country(
+        fallback_platforms,
+        country_code,
+        listing_mode=listing_mode,
+        include_distressed_sale_signals=payload.get("include_distressed_sale_signals"),
+    )
+    removed_platforms = tuple(dict.fromkeys((*removed_platforms, *fallback_removed)))
+    return normalized_platforms, removed_platforms
 
 
 def _property_search_single_country_for_platforms(selected_platforms: tuple[str, ...]) -> str:
@@ -931,17 +983,15 @@ def _property_search_mode(preferences: dict[str, object] | None) -> str:
 
 
 def _property_search_effective_min_match_score(preferences: dict[str, object] | None) -> float:
-    if _property_search_mode(preferences) == "discovery":
-        return 1.0
     cap = _property_search_match_score_cap(preferences)
-    default_score = min(_PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE, float(cap))
+    raw_requested_score = dict(preferences or {}).get("min_match_score")
+    if _property_search_pref_value_missing(raw_requested_score):
+        return 0.0
     try:
-        requested_score = float(str(dict(preferences or {}).get("min_match_score") or "").strip())
+        requested_score = float(str(raw_requested_score).strip())
     except Exception:
         requested_score = 0.0
-    if requested_score <= 0.0:
-        requested_score = default_score
-    return float(max(1.0, min(requested_score, float(cap))))
+    return float(max(0.0, min(requested_score, float(cap))))
 
 
 def _property_search_resolve_max_results_per_source(
@@ -957,6 +1007,19 @@ def _property_search_resolve_max_results_per_source(
         return max(1, min(plan_result_cap or 10, int(requested_value))) if requested_value else None
     except Exception:
         return None
+
+
+def _property_search_defined_max_results_value(
+    preferences: dict[str, object] | None,
+    summary: dict[str, object] | None,
+) -> object:
+    preference_payload = dict(preferences or {})
+    if "max_results_per_source" in preference_payload:
+        return preference_payload.get("max_results_per_source")
+    summary_payload = dict(summary or {})
+    if "max_results_per_source" in summary_payload:
+        return summary_payload.get("max_results_per_source")
+    return None
 
 
 def _property_candidate_effective_fit_score(*, assessment_fit_score: object, ranked_fit_score: object) -> float:
@@ -1166,12 +1229,56 @@ def _property_search_run_backfill_response_timestamps(snapshot: dict[str, object
 
 
 def _property_search_run_default_summary(property_preferences: dict[str, object] | None = None) -> dict[str, object]:
-    return _state_property_search_run_default_summary(
+    summary = _state_property_search_run_default_summary(
         property_preferences,
         now_iso=_now_iso,
         effective_min_match_score=_property_search_effective_min_match_score,
         match_score_cap=_property_search_match_score_cap,
     )
+    entitlement_summary = _property_search_run_entitlement_summary(property_preferences)
+    summary.update(
+        {
+            key: value
+            for key, value in entitlement_summary.items()
+            if key != "provider_workers"
+        }
+    )
+    provider_workers = dict(summary.get("provider_workers") or {}) if isinstance(summary.get("provider_workers"), dict) else {}
+    derived_provider_workers = dict(entitlement_summary.get("provider_workers") or {})
+    if derived_provider_workers:
+        provider_workers.setdefault("worker_concurrency", int(derived_provider_workers.get("worker_concurrency") or 1))
+    if provider_workers:
+        summary["provider_workers"] = provider_workers
+    return summary
+
+
+def _property_plan_label(plan_key: object) -> str:
+    normalized_plan_key = normalize_property_plan_key(plan_key or "free")
+    return {
+        "free": "Free",
+        "plus": "Plus",
+        "agent": "Agent",
+    }.get(normalized_plan_key, normalized_plan_key.replace("_", " ").title() or "Free")
+
+
+def _property_search_run_entitlement_summary(property_preferences: dict[str, object] | None) -> dict[str, object]:
+    try:
+        commercial = property_commercial_snapshot(dict(property_preferences or {}))
+    except Exception:
+        commercial = {}
+    plan_key = normalize_property_plan_key(commercial.get("current_plan_key") or "free")
+    try:
+        max_results_per_source = max(0, int(commercial.get("max_results_per_source") or 0))
+    except Exception:
+        max_results_per_source = 0
+    worker_concurrency = max(1, min(4, int(property_worker_cap(plan_key) or 1)))
+    return {
+        "current_plan_key": plan_key,
+        "current_plan_label": str(commercial.get("current_plan_label") or "").strip() or _property_plan_label(plan_key),
+        "research_depth": str(commercial.get("research_depth") or "").strip() or ("standard" if plan_key == "free" else "deep"),
+        "max_results_per_source": max_results_per_source,
+        "provider_workers": {"worker_concurrency": worker_concurrency},
+    }
 
 
 def _property_search_run_step_source_fraction(step: str) -> float:
@@ -2272,6 +2379,8 @@ def _property_search_prefetch_listing_urls(
     *,
     specs: list[dict[str, object]],
     force_refresh: bool,
+    on_source_started: callable | None = None,
+    on_source_finished: callable | None = None,
 ) -> dict[tuple[str, str], dict[str, object]]:
     if not specs:
         return {}
@@ -2319,14 +2428,45 @@ def _property_search_prefetch_listing_urls(
                 )
 
     prefetched: dict[tuple[str, str], dict[str, object]] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=overall_cap, thread_name_prefix="property-source-fetch") as executor:
-        futures = [executor.submit(_task, dict(spec)) for spec in ordered_specs]
-        for future in concurrent.futures.as_completed(futures):
+    queued_specs = iter(ordered_specs)
+
+    def _submit(executor: concurrent.futures.ThreadPoolExecutor, active: dict[concurrent.futures.Future, dict[str, object]]) -> bool:
+        try:
+            source_spec = dict(next(queued_specs))
+        except StopIteration:
+            return False
+        if callable(on_source_started):
             try:
-                key, payload = future.result()
+                on_source_started(dict(source_spec))
             except Exception:
-                continue
-            prefetched[key] = payload
+                pass
+        active[executor.submit(_task, source_spec)] = source_spec
+        return True
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=overall_cap, thread_name_prefix="property-source-fetch") as executor:
+        active: dict[concurrent.futures.Future, dict[str, object]] = {}
+        for _ in range(overall_cap):
+            if not _submit(executor, active):
+                break
+        while active:
+            done, _ = concurrent.futures.wait(
+                tuple(active.keys()),
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            for future in done:
+                source_spec = active.pop(future)
+                try:
+                    key, payload = future.result()
+                except Exception:
+                    _submit(executor, active)
+                    continue
+                prefetched[key] = payload
+                if callable(on_source_finished):
+                    try:
+                        on_source_finished(dict(source_spec), dict(payload or {}))
+                    except Exception:
+                        pass
+                _submit(executor, active)
     return prefetched
 
 
@@ -8383,11 +8523,34 @@ def _property_distance_preference_score_adjustment(
         if importance_mode in {"", "any", "neutral", "no_preference", "no-preference"}:
             continue
         fact_value = None
+        observed_fact_key = ""
         for fact_key in fact_keys:
             candidate_value = facts.get(fact_key)
             if candidate_value not in (None, "", 0, 0.0):
                 fact_value = candidate_value
+                observed_fact_key = str(fact_key)
                 break
+
+        def _distance_preference_note(*, keep_farther_than: bool = False) -> str:
+            observed = _float_or_none(fact_value)
+            if not isinstance(observed, float) or observed <= 0:
+                return ""
+            place_name = ""
+            if observed_fact_key:
+                place_name = compact_text(
+                    str(facts.get(f"{observed_fact_key.removesuffix('_m')}_name") or "").strip(),
+                    fallback="",
+                    limit=80,
+                )
+            subject = f"Nearest {label}"
+            if place_name:
+                subject = f"{subject}: {place_name}"
+            if keep_farther_than and limit_m > 0:
+                return f"{subject} is {int(observed)} m away; you asked to keep it farther than {int(limit_m)} m."
+            if limit_m > 0:
+                return f"{subject} is {int(observed)} m away; your limit was {int(limit_m)} m."
+            return f"{subject} is {int(observed)} m away."
+
         if _property_distance_is_avoid_mode(importance_mode):
             try:
                 actual_m = float(fact_value or 0.0)
@@ -8397,7 +8560,7 @@ def _property_distance_preference_score_adjustment(
                 _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
             elif actual_m <= float(limit_m):
                 adjustment -= 6.0
-                notes.append(f"{label} too close for avoid preference")
+                notes.append(_distance_preference_note(keep_farther_than=True) or f"{label} too close for avoid preference")
             else:
                 adjustment += 1.0
                 notes.append(f"{label} avoided")
@@ -8428,7 +8591,7 @@ def _property_distance_preference_score_adjustment(
                 _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
             elif not distance_ok:
                 adjustment -= 6.0
-                notes.append(f"{label} farther away than wished")
+                notes.append(_distance_preference_note() or f"{label} farther away than wished")
             continue
         if _property_distance_is_nice_mode(importance_mode):
             if distance_mode == "strict":
@@ -8441,7 +8604,7 @@ def _property_distance_preference_score_adjustment(
                 _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
             elif not distance_ok:
                 adjustment -= 3.0
-                notes.append(f"{label} less convenient")
+                notes.append(_distance_preference_note() or f"{label} less convenient")
     return adjustment, tuple(notes[:8])
 
 
@@ -10540,23 +10703,148 @@ def _property_feedback_reason_detail(reason_key: str) -> dict[str, object]:
     return dict(_property_feedback_reason_map().get(str(reason_key or "").strip(), {}))
 
 
+def _property_feedback_distance_fact_question(
+    *,
+    property_facts: dict[str, object],
+    amenity_label: str,
+    distance_keys: tuple[str, ...],
+    name_keys: tuple[str, ...],
+    follow_up: str,
+    fallback_prompt: str,
+) -> str:
+    facts = dict(property_facts or {})
+    distance_m: float | None = None
+    for key in distance_keys:
+        candidate = _float_or_none(facts.get(key))
+        if isinstance(candidate, float):
+            distance_m = candidate
+            break
+    place_name = ""
+    for key in name_keys:
+        candidate = compact_text(str(facts.get(key) or "").strip(), fallback="", limit=100)
+        if candidate:
+            place_name = candidate
+            break
+    if distance_m is None and not place_name:
+        return fallback_prompt
+    if place_name and distance_m is not None:
+        intro = f"The nearest {amenity_label} looks like {place_name} at about {int(round(distance_m))} m."
+    elif place_name:
+        intro = f"The nearest {amenity_label} looks like {place_name}."
+    else:
+        intro = f"The nearest {amenity_label} looks to be about {int(round(distance_m or 0.0))} m away."
+    return f"{intro} {follow_up}".strip()
+
+
 def _property_feedback_reason_agent_question(reason_key: str, *, property_facts: dict[str, object]) -> str:
     normalized = str(reason_key or "").strip().lower()
     facts = dict(property_facts or {})
+    distance_question_map: dict[str, dict[str, object]] = {
+        "underground_too_far": {
+            "amenity_label": "underground or frequent transit stop",
+            "distance_keys": ("nearest_subway_m", "distance_underground_m", "nearest_transit_m", "nearest_tram_bus_m"),
+            "name_keys": ("nearest_subway_name", "nearest_transit_name", "nearest_tram_bus_name"),
+            "follow_up": "Is that the realistic daily walk or is there a better frequent-transit stop locals actually use?",
+            "fallback_prompt": "What is the realistic walking time to the nearest underground or frequent transit stop?",
+        },
+        "supermarket_too_far": {
+            "amenity_label": "supermarket",
+            "distance_keys": ("nearest_supermarket_m", "distance_supermarket_m"),
+            "name_keys": ("nearest_supermarket_name", "supermarket_name"),
+            "follow_up": "Is that the practical daily option or is there a closer grocery choice locals actually use?",
+            "fallback_prompt": "Which grocery options are realistically walkable from the property?",
+        },
+        "pharmacy_too_far": {
+            "amenity_label": "pharmacy",
+            "distance_keys": ("nearest_pharmacy_m", "distance_pharmacy_m"),
+            "name_keys": ("nearest_pharmacy_name", "pharmacy_name"),
+            "follow_up": "Is that the pharmacy people here realistically use on foot?",
+            "fallback_prompt": "Which pharmacy is the nearest practical option and how long is the walk?",
+        },
+        "playground_too_far": {
+            "amenity_label": "playground",
+            "distance_keys": ("nearest_playground_m", "distance_playground_m"),
+            "name_keys": ("nearest_playground_name", "playground_name"),
+            "follow_up": "Is that the playground households here actually use most days?",
+            "fallback_prompt": "Which playgrounds or family amenities are the nearest everyday options?",
+        },
+        "library_too_far": {
+            "amenity_label": "library",
+            "distance_keys": ("nearest_library_m",),
+            "name_keys": ("nearest_library_name", "library_name"),
+            "follow_up": "Is that the practical library for children, study, or errands?",
+            "fallback_prompt": "Which library or Bücherei is the nearest practical option for children, study, or errands?",
+        },
+        "zoo_too_far": {
+            "amenity_label": "zoo or animal park",
+            "distance_keys": ("nearest_zoo_m",),
+            "name_keys": ("nearest_zoo_name", "zoo_name"),
+            "follow_up": "Is that the realistic family option from this address, or is another park used more often?",
+            "fallback_prompt": "Which zoo, Tiergarten, or comparable animal park is the nearest realistic family option from this address?",
+        },
+        "medical_care_too_far": {
+            "amenity_label": "doctor, clinic, or hospital",
+            "distance_keys": ("nearest_medical_care_m",),
+            "name_keys": ("nearest_medical_care_name", "medical_care_name"),
+            "follow_up": "Is that the practical care option for day-to-day needs?",
+            "fallback_prompt": "Which doctors, clinics, or hospitals are the nearest realistic care options from this address?",
+        },
+        "market_too_far": {
+            "amenity_label": "market",
+            "distance_keys": ("nearest_market_m",),
+            "name_keys": ("nearest_market_name", "market_name"),
+            "follow_up": "Is that the market people here realistically use on foot?",
+            "fallback_prompt": "Which market is realistically used from this address and how often is it practical on foot?",
+        },
+        "hardware_store_too_far": {
+            "amenity_label": "Baumarkt or DIY store",
+            "distance_keys": ("nearest_hardware_store_m",),
+            "name_keys": ("nearest_hardware_store_name", "hardware_store_name"),
+            "follow_up": "Is that the practical DIY stop, or does the area rely on a different store?",
+            "fallback_prompt": "Which Baumarkt or DIY store is the nearest practical option and how easy is the trip?",
+        },
+        "shopping_street_too_far": {
+            "amenity_label": "shopping street or promenade",
+            "distance_keys": ("nearest_shopping_street_m",),
+            "name_keys": ("nearest_shopping_street_name", "shopping_street_name"),
+            "follow_up": "Is that the promenade people here realistically use?",
+            "fallback_prompt": "Which pedestrian shopping street or promenade is realistically used from this address?",
+        },
+        "shopping_center_too_far": {
+            "amenity_label": "shopping center",
+            "distance_keys": ("nearest_shopping_center_m",),
+            "name_keys": ("nearest_shopping_center_name", "shopping_center_name"),
+            "follow_up": "Is that the bad-weather fallback people here actually use?",
+            "fallback_prompt": "Which shopping center is the nearest bad-weather fallback for everyday errands?",
+        },
+        "public_pool_too_far": {
+            "amenity_label": "public pool",
+            "distance_keys": ("nearest_public_pool_m",),
+            "name_keys": ("nearest_public_pool_name", "public_pool_name"),
+            "follow_up": "Is that the pool families here realistically use?",
+            "fallback_prompt": "Which public pool is the nearest practical option from this address?",
+        },
+        "theatre_too_far": {
+            "amenity_label": "theatre",
+            "distance_keys": ("nearest_theatre_m",),
+            "name_keys": ("nearest_theatre_name", "theatre_name"),
+            "follow_up": "Is that the venue people here would realistically use from this address?",
+            "fallback_prompt": "Which theatre is the nearest practical option from this address?",
+        },
+    }
+    distance_question = distance_question_map.get(normalized)
+    if distance_question:
+        return _property_feedback_distance_fact_question(
+            property_facts=facts,
+            amenity_label=str(distance_question.get("amenity_label") or "").strip(),
+            distance_keys=tuple(distance_question.get("distance_keys") or ()),
+            name_keys=tuple(distance_question.get("name_keys") or ()),
+            follow_up=str(distance_question.get("follow_up") or "").strip(),
+            fallback_prompt=str(distance_question.get("fallback_prompt") or "").strip(),
+        )
     question_map = {
         "price_too_high": "Is there flexibility on price or are there recent comparable sales supporting the ask?",
         "location_weak": "Can you clarify the exact micro-location tradeoff, including street exposure and daily errand radius?",
-        "underground_too_far": "What is the realistic walking time to the nearest underground or frequent transit stop?",
-        "supermarket_too_far": "Which grocery options are realistically walkable from the property?",
-        "pharmacy_too_far": "Which pharmacy is the nearest practical option and how long is the walk?",
-        "playground_too_far": "Which playgrounds or family amenities are the nearest everyday options?",
-        "library_too_far": "Which library or Bücherei is the nearest practical option for children, study, or errands?",
-        "zoo_too_far": "Which zoo, Tiergarten, or comparable animal park is the nearest realistic family option from this address?",
-        "medical_care_too_far": "Which doctors, clinics, or hospitals are the nearest realistic care options from this address?",
-        "market_too_far": "Which market is realistically used from this address and how often is it practical on foot?",
-        "hardware_store_too_far": "Which Baumarkt or DIY store is the nearest practical option and how easy is the trip?",
-        "shopping_street_too_far": "Which pedestrian shopping street or promenade is realistically used from this address?",
-        "shopping_center_too_far": "Which shopping center is the nearest bad-weather fallback for everyday errands?",
         "gas_heating": "Can you confirm the heating source and share the latest energy certificate?",
         "no_lift": "Can you confirm the exact floor, lift access, and whether there are any planned accessibility upgrades?",
         "weak_floorplan": "Can you send the floorplan with room dimensions and indicate the room orientation?",
@@ -11795,11 +12083,11 @@ def _property_tour_delivery_message(
     if livability_lines:
         body.extend(["", "Neighborhood snapshot:", *livability_lines[:5]])
     if good_fit_reasons:
-        body.extend(["", "Why it could fit:", *[f"- {entry}" for entry in good_fit_reasons[:3]]])
+        body.extend(["", "Why it stands out:", *[f"- {entry}" for entry in good_fit_reasons[:3]]])
     if bad_fit_reasons:
-        body.extend(["", "Why it may not fit:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
+        body.extend(["", "Main caution:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
     if unknowns:
-        body.extend(["", "What still needs checking:", *[f"- {entry}" for entry in unknowns[:3]]])
+        body.extend(["", "Open checks:", *[f"- {entry}" for entry in unknowns[:3]]])
     body.extend(["", "Open the 360 review first, then continue into the property page if needed."])
     return subject[:220], "\n".join(body).strip() + "\n"
 
@@ -11913,8 +12201,8 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
         "crezlo_property_tour_not_configured",
     }:
         if normalized_kind == "flythrough":
-            return "No playable walkthrough is published yet. A verified rendered video is still needed."
-        return "No verified 3D tour is published yet. A Matterport, 3DVista, Pano2VR, or licensed krpano capture is still needed."
+            return "Walkthrough not available yet."
+        return "Tour not available yet."
     return str(reason or "").strip()
 
 
@@ -13532,8 +13820,9 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
             except Exception:
                 sidecar_payload = {}
     coverage_proof = ""
-    if str(sidecar_payload.get("composition") or "").strip() == "boundary_verified_frame_continuation":
-        coverage_proof = "boundary_verified_frame_continuation"
+    composition = str(sidecar_payload.get("composition") or payload.get("video_coverage_proof") or "").strip()
+    if composition in {"boundary_verified_frame_continuation", "continuous_first_person_walkthrough"}:
+        coverage_proof = composition
     route_labels: list[str] = []
     route_sources = [sidecar_payload] if coverage_proof else []
     for source_payload in route_sources:
@@ -13663,6 +13952,7 @@ def _update_hosted_property_tour_video_manifest(
     sidecar_relpath: str,
     provider_key: str,
     route_labels: list[str] | tuple[str, ...] = (),
+    coverage_proof: str = "boundary_verified_frame_continuation",
 ) -> dict[str, object]:
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
@@ -13679,6 +13969,7 @@ def _update_hosted_property_tour_video_manifest(
     normalized_video_relpath = str(video_relpath or "").strip().lstrip("/")
     normalized_sidecar_relpath = str(sidecar_relpath or "").strip().lstrip("/")
     normalized_provider = str(provider_key or "").strip().lower() or "unknown"
+    normalized_coverage_proof = str(coverage_proof or "").strip() or "boundary_verified_frame_continuation"
     if not normalized_video_relpath:
         raise RuntimeError("hosted_property_tour_video_relpath_missing")
     payload["video_relpath"] = normalized_video_relpath
@@ -13697,7 +13988,7 @@ def _update_hosted_property_tour_video_manifest(
     if normalized_route_labels:
         payload["covered_route_labels"] = normalized_route_labels
         payload["room_visit_plan"] = normalized_route_labels
-        payload["video_coverage_proof"] = "boundary_verified_frame_continuation"
+        payload["video_coverage_proof"] = normalized_coverage_proof
     payload["flythrough_url"] = _hosted_public_tour_asset_url(tour_url, slug=slug, asset_relpath=normalized_video_relpath)
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
@@ -14249,6 +14540,7 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
     birthday_party_request: bool = False,
     person_motion_hint: str = "",
     diorama_style_hint: str = "",
+    tour_context_json: dict[str, object] | None = None,
 ) -> dict[str, object]:
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
@@ -14263,7 +14555,16 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
     bundle_sidecar_path = (bundle_dir / sidecar_relpath).resolve()
     room_count = 1
     room_visit_plan: list[str] = []
-    enriched_property_facts = dict(property_facts or {}) if isinstance(property_facts, dict) else {}
+    resolved_tour_context = (
+        dict(tour_context_json or {})
+        if isinstance(tour_context_json, dict) and tour_context_json
+        else _property_walkthrough_scene_video_context(tour_url)
+    )
+    enriched_property_facts = _property_walkthrough_enrich_facts_with_context(
+        property_facts,
+        tour_context_json=resolved_tour_context,
+    )
+    scene_reference_text = _property_walkthrough_context_reference_text(resolved_tour_context)
     with contextlib.suppress(Exception):
         tour_payload_path = bundle_dir / "tour.json"
         if tour_payload_path.is_file():
@@ -14306,6 +14607,8 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         diorama_style_hint=diorama_style_hint,
         include_final_turn_directive=False,
     )
+    if scene_reference_text:
+        prompt = f"{prompt} {scene_reference_text}"
     render_log: dict[str, object] = {
         "status": "pending",
         "tour_url": str(tour_url or "").strip(),
@@ -14591,12 +14894,14 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
             json.dumps(
                 {
                     "provider": "MagicFit",
+                    "provider_key": "magicfit",
                     "composition": "boundary_verified_frame_continuation",
                     "segment_count": len(segment_paths),
                     "duration_seconds": combined_duration_seconds,
                     "required_duration_seconds": required_duration_seconds,
                     "route_labels": route_labels,
                     "covered_route_labels": route_labels,
+                    "tour_context_json": resolved_tour_context,
                     "segments": segment_sidecars,
                 },
                 ensure_ascii=False,
@@ -14632,6 +14937,7 @@ def _render_onemin_property_flythrough_into_hosted_tour(
     birthday_party_request: bool = False,
     person_motion_hint: str = "",
     diorama_style_hint: str = "",
+    tour_context_json: dict[str, object] | None = None,
 ) -> dict[str, object]:
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
@@ -14644,7 +14950,16 @@ def _render_onemin_property_flythrough_into_hosted_tour(
     seed_image = _hosted_property_tour_seed_image_path(tour_url)
     if seed_image is None:
         return {"status": "failed", "reason": "flythrough_seed_image_missing", "provider_key": "onemin_i2v"}
-    enriched_property_facts = dict(property_facts or {})
+    resolved_tour_context = (
+        dict(tour_context_json or {})
+        if isinstance(tour_context_json, dict) and tour_context_json
+        else _property_walkthrough_scene_video_context(tour_url)
+    )
+    enriched_property_facts = _property_walkthrough_enrich_facts_with_context(
+        property_facts,
+        tour_context_json=resolved_tour_context,
+    )
+    scene_reference_text = _property_walkthrough_context_reference_text(resolved_tour_context)
     hosted_scene_count = _hosted_property_tour_scene_count(tour_url)
     if hosted_scene_count > 0 and not enriched_property_facts.get("tour_scene_count"):
         enriched_property_facts["tour_scene_count"] = hosted_scene_count
@@ -14670,6 +14985,8 @@ def _render_onemin_property_flythrough_into_hosted_tour(
         person_motion_hint=person_motion_hint,
         diorama_style_hint=diorama_style_hint,
     )
+    if scene_reference_text:
+        prompt = f"{prompt} {scene_reference_text}"
     render_log: dict[str, object] = {
         "status": "pending",
         "tour_url": str(tour_url or "").strip(),
@@ -14868,6 +15185,7 @@ def _render_onemin_property_flythrough_into_hosted_tour(
                     "required_duration_seconds": required_duration_seconds,
                     "route_labels": route_labels,
                     "covered_route_labels": route_labels,
+                    "tour_context_json": resolved_tour_context,
                     "segments": segment_sidecars,
                 },
                 ensure_ascii=False,
@@ -14894,6 +15212,271 @@ def _render_onemin_property_flythrough_into_hosted_tour(
     return render_log
 
 
+def _render_mootion_property_flythrough_into_hosted_tour(
+    *,
+    tour_url: str,
+    title: str,
+    property_facts: dict[str, object] | None = None,
+    actor: str = "",
+    birthday_party_request: bool = False,
+    person_motion_hint: str = "",
+    diorama_style_hint: str = "",
+    tour_context_json: dict[str, object] | None = None,
+) -> dict[str, object]:
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    if not slug or bundle_dir is None:
+        return {"status": "missing", "reason": "hosted_tour_bundle_missing", "provider_key": "mootion"}
+    script_path = (_repo_root() / "scripts" / "mootion_movie_worker.py").resolve()
+    if not script_path.exists():
+        return {"status": "missing", "reason": "mootion_render_script_missing", "provider_key": "mootion"}
+    resolved_tour_context = (
+        dict(tour_context_json or {})
+        if isinstance(tour_context_json, dict) and tour_context_json
+        else _property_walkthrough_scene_video_context(tour_url)
+    )
+    enriched_property_facts = _property_walkthrough_enrich_facts_with_context(
+        property_facts,
+        tour_context_json=resolved_tour_context,
+    )
+    scene_reference_text = _property_walkthrough_context_reference_text(resolved_tour_context)
+    hosted_scene_count = _hosted_property_tour_scene_count(tour_url)
+    if hosted_scene_count > 0 and not enriched_property_facts.get("tour_scene_count"):
+        enriched_property_facts["tour_scene_count"] = hosted_scene_count
+    room_count = 1
+    room_visit_plan: list[str] = []
+    if isinstance(enriched_property_facts, dict):
+        room_count, room_visit_plan = _magicfit_property_room_visit_plan(title=title, property_facts=enriched_property_facts)
+    room_count = max(1, min(25, int(room_count or 1)))
+    required_duration_seconds = _magicfit_flythrough_minimum_duration_seconds(title=title, property_facts=enriched_property_facts)
+    route_labels = [str(item or "").strip() for item in room_visit_plan if str(item or "").strip()] or [
+        "entry/hall",
+        "kitchen/living",
+        "bath/toilet",
+        "bedrooms",
+        "balcony/terrace",
+    ]
+    prompt = _default_magicfit_property_flythrough_prompt(
+        title=title,
+        property_facts=enriched_property_facts,
+        room_count=room_count,
+        room_visit_plan=room_visit_plan,
+        birthday_party_request=bool(birthday_party_request),
+        person_motion_hint=person_motion_hint,
+        diorama_style_hint=diorama_style_hint,
+    )
+    result_title = compact_text(f"{title or 'Property'} walkthrough", fallback="Property walkthrough", limit=140)
+    script_text = " ".join(
+        part
+        for part in (
+            f"Create one continuous first-person walkthrough for {title or 'the property'}.",
+            "Start at the entrance and move through the home in a single believable pass.",
+            f"Follow this route in order: {', '.join(route_labels)}.",
+            "Keep geometry, lens, daylight, camera height, and pace stable.",
+            "No cuts, no transitions, no teleports, no speed ramps, and no fantasy flyovers.",
+            "Make each doorway, room connection, and turn legible before moving on.",
+            scene_reference_text,
+            prompt,
+        )
+        if str(part or "").strip()
+    )
+    render_token = f"{int(time.time())}-{uuid4().hex[:10]}"
+    render_log: dict[str, object] = {
+        "status": "pending",
+        "tour_url": str(tour_url or "").strip(),
+        "slug": slug,
+        "actor": str(actor or "").strip(),
+        "provider_key": "mootion",
+        "required_duration_seconds": required_duration_seconds,
+        "route_labels": route_labels,
+    }
+    with tempfile.TemporaryDirectory(prefix="mootion-property-tour-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        packet_path = tmp_path / "packet.json"
+        packet_path.write_text(
+            json.dumps(
+                {
+                    "title": result_title,
+                    "result_title": result_title,
+                    "script_text": script_text,
+                    "visual_style": compact_text(
+                        str(diorama_style_hint or "photoreal real-estate walkthrough").strip(),
+                        fallback="photoreal real-estate walkthrough",
+                        limit=120,
+                    ),
+                    "camera_style": "continuous first-person real-estate walkthrough",
+                    "aspect_ratio": "16:9",
+                    "duration_seconds": max(12, min(90, int(math.ceil(required_duration_seconds)))),
+                    "scene_count": max(3, min(12, len(route_labels) + 1)),
+                    "shot_pacing": "steady",
+                    "caption_mode": "none",
+                    "music_mood": "none",
+                    "language": "en",
+                    "timeout_seconds": max(360, int(os.getenv("PROPERTYQUARRY_MOOTION_TIMEOUT_SECONDS") or "600")),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        command = [
+            _runtime_python_executable(),
+            str(script_path),
+            "--packet-path",
+            str(packet_path),
+        ]
+        timeout_seconds = max(360, int(os.getenv("PROPERTYQUARRY_MOOTION_SUBPROCESS_TIMEOUT_SECONDS") or "900"))
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=str(_repo_root()),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            render_log.update(
+                {
+                    "status": "failed",
+                    "reason": "mootion_subprocess_timeout",
+                    "stdout_tail": compact_text(str(exc.stdout or "").strip(), fallback="", limit=1200),
+                    "stderr_tail": compact_text(str(exc.stderr or "").strip(), fallback="", limit=1200),
+                    "timeout_seconds": timeout_seconds,
+                }
+            )
+            return render_log
+        stdout_text = str(completed.stdout or "").strip()
+        stderr_text = compact_text(str(completed.stderr or "").strip(), fallback="", limit=1200)
+        if completed.returncode != 0 or not stdout_text:
+            render_log.update(
+                {
+                    "status": "failed",
+                    "reason": "mootion_worker_failed",
+                    "stdout_tail": compact_text(stdout_text, fallback="", limit=1200),
+                    "stderr_tail": stderr_text,
+                    "returncode": int(completed.returncode),
+                }
+            )
+            return render_log
+        try:
+            worker_payload = json.loads(stdout_text)
+        except Exception:
+            last_line = str(stdout_text.splitlines()[-1] if stdout_text else "").strip()
+            try:
+                worker_payload = json.loads(last_line)
+            except Exception:
+                render_log.update(
+                    {
+                        "status": "failed",
+                        "reason": "mootion_worker_output_invalid",
+                        "stdout_tail": compact_text(stdout_text, fallback="", limit=1200),
+                        "stderr_tail": stderr_text,
+                    }
+                )
+                return render_log
+        if not isinstance(worker_payload, dict):
+            render_log.update(
+                {
+                    "status": "failed",
+                    "reason": "mootion_worker_output_invalid",
+                    "stdout_tail": compact_text(stdout_text, fallback="", limit=1200),
+                    "stderr_tail": stderr_text,
+                }
+            )
+            return render_log
+        render_status = str(worker_payload.get("render_status") or "").strip().lower()
+        asset_path_text = str(worker_payload.get("asset_path") or "").strip()
+        if render_status != "completed" or not asset_path_text:
+            render_log.update(
+                {
+                    "status": "failed",
+                    "reason": "mootion_video_missing",
+                    "render_status": render_status,
+                    "editor_url": str(worker_payload.get("editor_url") or "").strip(),
+                    "stdout_tail": compact_text(stdout_text, fallback="", limit=1200),
+                    "stderr_tail": stderr_text,
+                }
+            )
+            return render_log
+        asset_path = Path(asset_path_text).resolve()
+        if not asset_path.exists() or not asset_path.is_file():
+            render_log.update(
+                {
+                    "status": "failed",
+                    "reason": "mootion_video_missing",
+                    "render_status": render_status,
+                    "asset_path": asset_path_text,
+                    "editor_url": str(worker_payload.get("editor_url") or "").strip(),
+                }
+            )
+            return render_log
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        video_relpath = f"tour-mootion-{render_token}{asset_path.suffix.lower() or '.webm'}"
+        sidecar_relpath = "tour.mootion.json"
+        bundle_video_path = (bundle_dir / video_relpath).resolve()
+        bundle_sidecar_path = (bundle_dir / sidecar_relpath).resolve()
+        if bundle_dir.resolve() not in bundle_video_path.parents or bundle_dir.resolve() not in bundle_sidecar_path.parents:
+            return {"status": "missing", "reason": "hosted_tour_bundle_invalid", "provider_key": "mootion"}
+        shutil.copy2(asset_path, bundle_video_path)
+        duration_seconds = _video_duration_seconds(str(bundle_video_path))
+        render_log["duration_seconds"] = duration_seconds
+        if duration_seconds + 0.25 < required_duration_seconds:
+            render_log["status"] = "failed"
+            render_log["reason"] = "mootion_render_too_short"
+            render_log["editor_url"] = str(worker_payload.get("editor_url") or "").strip()
+            return render_log
+        continuity_ok, continuity_reason, continuity_metrics = _video_continuous_shot_gate(bundle_video_path)
+        render_log["continuous_shot_gate"] = continuity_metrics
+        if not continuity_ok:
+            render_log["status"] = "failed"
+            render_log["reason"] = continuity_reason or "continuous_shot_gate_failed"
+            render_log["editor_url"] = str(worker_payload.get("editor_url") or "").strip()
+            return render_log
+        bundle_sidecar_path.write_text(
+            json.dumps(
+                {
+                    "provider": "Mootion",
+                    "provider_key": "mootion",
+                    "composition": "continuous_first_person_walkthrough",
+                    "duration_seconds": duration_seconds,
+                    "required_duration_seconds": required_duration_seconds,
+                    "route_labels": route_labels,
+                    "covered_route_labels": route_labels,
+                    "editor_url": str(worker_payload.get("editor_url") or "").strip(),
+                    "raw_text": str(worker_payload.get("raw_text") or "").strip(),
+                    "tour_context_json": resolved_tour_context,
+                    "structured_output_json": (
+                        dict(worker_payload.get("structured_output_json") or {})
+                        if isinstance(worker_payload.get("structured_output_json"), dict)
+                        else {}
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            _update_hosted_property_tour_video_manifest(
+                tour_url=tour_url,
+                video_relpath=video_relpath,
+                sidecar_relpath=sidecar_relpath,
+                provider_key="mootion",
+                route_labels=route_labels,
+                coverage_proof="continuous_first_person_walkthrough",
+            )
+        except Exception as exc:
+            render_log["status"] = "failed"
+            render_log["reason"] = "mootion_manifest_update_failed"
+            render_log["error"] = str(exc)
+            return render_log
+    render_log["status"] = "rendered"
+    render_log["video_file_path"] = str(bundle_video_path)
+    render_log["sidecar_path"] = str(bundle_sidecar_path) if bundle_sidecar_path.exists() else ""
+    render_log["editor_url"] = str(worker_payload.get("editor_url") or "").strip()
+    return render_log
+
+
 def _render_property_flythrough_into_hosted_tour(
     *,
     tour_url: str,
@@ -14904,26 +15487,9 @@ def _render_property_flythrough_into_hosted_tour(
     person_motion_hint: str = "",
     diorama_style_hint: str = "",
     preferred_provider_key: str = "",
+    tour_context_json: dict[str, object] | None = None,
 ) -> dict[str, object]:
     normalized_preferred_provider = _normalize_provider_preference(preferred_provider_key)
-
-    def _magicfit_fallback_allowed(rendered: dict[str, object]) -> bool:
-        reason = str(rendered.get("reason") or "").strip().lower()
-        error = str(rendered.get("error") or "").strip().lower()
-        combined = f"{reason} {error}"
-        return any(
-            marker in combined
-            for marker in (
-                "not_enough_credits",
-                "not enough credits",
-                "magicfit_account",
-                "magicfit_provider",
-                "magicfit_login",
-                "magicfit_session",
-                "magicfit_render_script_missing",
-                "magicfit_segment_render_failed",
-            )
-        )
 
     route = route_property_media_task(
         MediaRequirement(
@@ -14942,7 +15508,19 @@ def _render_property_flythrough_into_hosted_tour(
     }
     if not route.ok:
         return {"status": "failed", "reason": route.reason or "flythrough_provider_unavailable", **route_payload}
-    if route.provider_key in {"mootion", "onemin_i2v"}:
+    if route.provider_key == "mootion":
+        rendered = _render_mootion_property_flythrough_into_hosted_tour(
+            tour_url=tour_url,
+            title=title,
+            property_facts=property_facts,
+            actor=actor,
+            birthday_party_request=birthday_party_request,
+            person_motion_hint=person_motion_hint,
+            diorama_style_hint=diorama_style_hint,
+            tour_context_json=tour_context_json,
+        )
+        return {**route_payload, **dict(rendered or {})}
+    if route.provider_key == "onemin_i2v":
         rendered = _render_onemin_property_flythrough_into_hosted_tour(
             tour_url=tour_url,
             title=title,
@@ -14951,6 +15529,7 @@ def _render_property_flythrough_into_hosted_tour(
             birthday_party_request=birthday_party_request,
             person_motion_hint=person_motion_hint,
             diorama_style_hint=diorama_style_hint,
+            tour_context_json=tour_context_json,
         )
         return {**route_payload, **dict(rendered or {})}
     if route.provider_key == "magicfit":
@@ -14962,23 +15541,9 @@ def _render_property_flythrough_into_hosted_tour(
             birthday_party_request=birthday_party_request,
             person_motion_hint=person_motion_hint,
             diorama_style_hint=diorama_style_hint,
+            tour_context_json=tour_context_json,
         )
-        rendered_payload = dict(rendered or {})
-        if str(rendered_payload.get("status") or "").strip().lower() == "rendered" or not _magicfit_fallback_allowed(rendered_payload):
-            return {**route_payload, **rendered_payload}
-        fallback = _render_onemin_property_flythrough_into_hosted_tour(
-            tour_url=tour_url,
-            title=title,
-            property_facts=property_facts,
-            actor=actor,
-            birthday_party_request=birthday_party_request,
-            person_motion_hint=person_motion_hint,
-            diorama_style_hint=diorama_style_hint,
-        )
-        fallback_payload = dict(fallback or {})
-        fallback_payload["primary_provider_status"] = rendered_payload
-        fallback_payload["media_route_fallback_provider_key"] = "onemin_i2v"
-        return {**route_payload, **fallback_payload}
+        return {**route_payload, **dict(rendered or {})}
     return {"status": "failed", "reason": "selected_flythrough_provider_not_implemented", **route_payload}
 
 
@@ -15705,8 +16270,6 @@ def _hosted_property_tour_provider_export_keys(tour_url: str) -> tuple[str, ...]
         keys.append("3dvista")
     if _hosted_property_tour_has_pano2vr_export(tour_url):
         keys.append("pano2vr")
-    if _hosted_property_tour_has_krpano_control(tour_url):
-        keys.append("krpano")
     return tuple(keys)
 
 
@@ -15727,11 +16290,149 @@ def _property_tour_compare_links(tour_url: str) -> dict[str, str]:
         pano2vr_url = _telegram_safe_url_button_target(_property_tour_control_link(normalized, viewer="pano2vr"))
         if pano2vr_url:
             links["pano2vr"] = pano2vr_url
-    if _hosted_property_tour_has_krpano_control(normalized):
-        krpano_url = _telegram_safe_url_button_target(_property_tour_control_link(normalized, viewer="krpano"))
-        if krpano_url:
-            links["krpano"] = krpano_url
     return links
+
+
+def _property_walkthrough_scene_video_context(
+    tour_url: str,
+    *,
+    tour_result: dict[str, object] | None = None,
+) -> dict[str, object]:
+    normalized_tour_url = str(tour_url or "").strip()
+    if not normalized_tour_url:
+        return {}
+    manifest = _hosted_property_tour_manifest(normalized_tour_url)
+    compare_links = dict(_property_tour_compare_links(normalized_tour_url))
+    if _hosted_property_tour_has_krpano_control(normalized_tour_url):
+        krpano_url = _property_tour_control_link(normalized_tour_url, viewer="krpano")
+        if krpano_url:
+            compare_links.setdefault("krpano", krpano_url)
+    route_labels: list[str] = []
+    walkable_scene = dict(manifest.get("walkable_scene") or {}) if isinstance(manifest.get("walkable_scene"), dict) else {}
+    for collection_key in ("route", "rooms"):
+        for raw_item in list(walkable_scene.get(collection_key) or []):
+            if not isinstance(raw_item, dict):
+                continue
+            label = compact_text(
+                str(raw_item.get("label") or raw_item.get("room") or raw_item.get("name") or "").strip(),
+                fallback="",
+                limit=80,
+            )
+            if label and label.lower() not in {item.lower() for item in route_labels}:
+                route_labels.append(label)
+    if not route_labels:
+        for raw_label in list(manifest.get("covered_route_labels") or manifest.get("room_visit_plan") or []):
+            label = compact_text(str(raw_label or "").strip(), fallback="", limit=80)
+            if label and label.lower() not in {item.lower() for item in route_labels}:
+                route_labels.append(label)
+    generated_reconstruction: dict[str, str] = {}
+    for asset_key, output_key in (
+        ("viewer_relpath", "viewer_url"),
+        ("model_relpath", "model_url"),
+        ("glb_model_relpath", "glb_model_url"),
+        ("walkthrough_video_relpath", "walkthrough_video_url"),
+    ):
+        asset_url = _hosted_property_tour_generated_reconstruction_asset_url(
+            normalized_tour_url,
+            asset_key=asset_key,
+        )
+        if asset_url:
+            generated_reconstruction[output_key] = asset_url
+    verified_provider = _hosted_property_tour_verified_provider(normalized_tour_url)
+    verified_open_url = _hosted_property_tour_verified_open_url(normalized_tour_url)
+    payload = {
+        "tour_url": normalized_tour_url,
+        "vendor_tour_url": str(dict(tour_result or {}).get("vendor_tour_url") or "").strip(),
+        "direct_360_url": _hosted_property_tour_direct_360_url(normalized_tour_url),
+        "source_virtual_tour_url": _first_non_empty_text(
+            manifest.get("source_virtual_tour_url"),
+            dict(tour_result or {}).get("source_virtual_tour_url"),
+        ),
+        "verified_provider": verified_provider,
+        "verified_open_url": verified_open_url,
+        "control_url": verified_open_url or _property_tour_control_link(normalized_tour_url),
+        "control_urls": compare_links,
+        "provider_exports": list(_hosted_property_tour_provider_export_keys(normalized_tour_url)),
+        "control_mode": str(manifest.get("control_mode") or "").strip(),
+        "scene_strategy": str(manifest.get("scene_strategy") or "").strip(),
+        "scene_count": int(manifest.get("scene_count") or 0),
+        "title": compact_text(
+            str(manifest.get("display_title") or manifest.get("title") or manifest.get("tour_title") or "").strip(),
+            fallback="",
+            limit=180,
+        ),
+        "preview_image_url": _hosted_property_tour_preview_image_url(normalized_tour_url),
+        "route_labels": route_labels,
+        "generated_reconstruction": generated_reconstruction,
+    }
+    return dict(_json_safe_product_payload(payload))
+
+
+def _property_walkthrough_context_route_labels(tour_context_json: dict[str, object] | None) -> list[str]:
+    route_labels: list[str] = []
+    context_payload = dict(tour_context_json or {}) if isinstance(tour_context_json, dict) else {}
+    for raw_label in list(context_payload.get("route_labels") or []):
+        label = compact_text(str(raw_label or "").strip(), fallback="", limit=80)
+        if label and label.lower() not in {item.lower() for item in route_labels}:
+            route_labels.append(label)
+    return route_labels
+
+
+def _property_walkthrough_context_reference_text(tour_context_json: dict[str, object] | None) -> str:
+    context_payload = dict(tour_context_json or {}) if isinstance(tour_context_json, dict) else {}
+    verified_provider = str(context_payload.get("verified_provider") or "").strip().lower()
+    provider_label = {
+        "matterport": "Matterport",
+        "3dvista": "3DVista",
+        "pano2vr": "Pano2VR",
+        "krpano": "krpano",
+    }.get(verified_provider, verified_provider)
+    route_labels = _property_walkthrough_context_route_labels(context_payload)
+    prompt_parts: list[str] = []
+    if provider_label:
+        prompt_parts.append(f"Spatial ground truth comes from the prepared {provider_label} tour.")
+    if route_labels:
+        prompt_parts.append(
+            "Respect this room order and adjacency from the tour reference: "
+            + ", ".join(route_labels[:10])
+            + "."
+        )
+    if str(context_payload.get("verified_open_url") or context_payload.get("control_url") or "").strip():
+        prompt_parts.append(
+            "Keep room geometry, doorway order, window orientation, and balcony placement consistent with that tour reference."
+        )
+    generated_reconstruction = dict(context_payload.get("generated_reconstruction") or {})
+    if str(generated_reconstruction.get("viewer_url") or "").strip():
+        prompt_parts.append("A generated geometry viewer is also available as a secondary cross-check.")
+    return compact_text(" ".join(prompt_parts), fallback="", limit=420)
+
+
+def _property_walkthrough_enrich_facts_with_context(
+    property_facts: dict[str, object] | None,
+    *,
+    tour_context_json: dict[str, object] | None,
+) -> dict[str, object]:
+    enriched = dict(property_facts or {}) if isinstance(property_facts, dict) else {}
+    context_payload = dict(tour_context_json or {}) if isinstance(tour_context_json, dict) else {}
+    route_labels = _property_walkthrough_context_route_labels(context_payload)
+    if route_labels:
+        enriched.setdefault("magicfit_route_labels", route_labels)
+        enriched.setdefault("room_visit_plan", route_labels)
+        enriched.setdefault("room_count", len(route_labels))
+        enriched.setdefault("tour_scene_count", len(route_labels))
+    verified_provider = str(context_payload.get("verified_provider") or "").strip().lower()
+    if verified_provider:
+        enriched.setdefault("tour_control_provider", verified_provider)
+    control_mode = str(context_payload.get("control_mode") or "").strip().lower()
+    if control_mode:
+        enriched.setdefault("tour_control_mode", control_mode)
+    control_url = str(context_payload.get("verified_open_url") or context_payload.get("control_url") or "").strip()
+    if control_url:
+        enriched.setdefault("tour_control_url", control_url)
+    direct_360_url = str(context_payload.get("direct_360_url") or context_payload.get("source_virtual_tour_url") or "").strip()
+    if direct_360_url:
+        enriched.setdefault("source_virtual_tour_url", direct_360_url)
+    return enriched
 
 
 def _property_3d_provider_rule_exit_gate(
@@ -15769,7 +16470,11 @@ def _property_3d_provider_rule_exit_gate(
             if provider and provider not in expected:
                 expected.append(provider)
     links = _property_tour_compare_links(normalized)
-    manifest = _hosted_property_tour_manifest(normalized)
+    declared_provider_controls = {
+        "3dvista": _hosted_property_tour_has_3dvista_export(normalized),
+        "pano2vr": _hosted_property_tour_has_pano2vr_export(normalized),
+        "krpano": _hosted_property_tour_has_krpano_control(normalized),
+    }
     metrics["expected_providers"] = list(expected)
     metrics["available_links"] = dict(links)
     metrics["selected_links"] = {provider: links[provider] for provider in expected if links.get(provider)}
@@ -15789,8 +16494,7 @@ def _property_3d_provider_rule_exit_gate(
             links.get(provider)
             or (
                 _property_tour_control_link(normalized, viewer=provider)
-                if provider in {"3dvista", "pano2vr"}
-                and (declared_3dvista_export if provider == "3dvista" else declared_pano2vr_export)
+                if provider in {"3dvista", "pano2vr", "krpano"} and declared_provider_controls.get(provider)
                 else ""
             )
         ).strip()
@@ -20369,6 +21073,230 @@ class ProductService:
             "warm_limit": warm_limit,
             "floorplan_worker_concurrency": _property_search_floorplan_worker_concurrency_for_plan(plan_key),
             "floorplan_recovery_limit": _property_search_floorplan_worker_limit(),
+        }
+
+    def _prefetch_property_public_previews_for_listing_urls(
+        self,
+        *,
+        listing_urls: list[str],
+        cache_index: dict[str, dict[str, object]],
+        worker_cap: int,
+    ) -> dict[str, object]:
+        normalized_urls: list[str] = []
+        for property_url in listing_urls:
+            normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+            if normalized and normalized not in normalized_urls:
+                normalized_urls.append(normalized)
+        if not normalized_urls:
+            return {
+                "previews": {},
+                "errors": {},
+                "cache_hit_total": 0,
+                "cache_refresh_total": 0,
+                "worker_concurrency": 0,
+            }
+
+        cache_lock = threading.Lock()
+        preview_rows: dict[str, dict[str, object]] = {}
+        preview_errors: dict[str, str] = {}
+        cache_hit_total = 0
+        cache_refresh_total = 0
+
+        def _task(property_url: str) -> tuple[str, dict[str, object] | None, str]:
+            with cache_lock:
+                cached_preview = self._property_public_preview_cache_lookup(
+                    cache_index=cache_index,
+                    property_url=property_url,
+                )
+            if cached_preview:
+                return property_url, dict(cached_preview), "hit"
+            preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=True)
+            with cache_lock:
+                self._property_public_preview_cache_store(
+                    cache_index=cache_index,
+                    property_url=property_url,
+                    preview=preview,
+                )
+            return property_url, dict(preview or {}), "refresh"
+
+        max_workers = max(1, min(int(worker_cap or 1), len(normalized_urls)))
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="property-preview-prefetch",
+        ) as executor:
+            futures = {
+                executor.submit(_task, property_url): property_url
+                for property_url in normalized_urls
+            }
+            for future in concurrent.futures.as_completed(futures):
+                property_url = futures[future]
+                try:
+                    resolved_url, preview, status = future.result()
+                except Exception as exc:
+                    preview_errors[property_url] = compact_text(
+                        str(exc or "property_scout_preview_prefetch_failed"),
+                        fallback="property_scout_preview_prefetch_failed",
+                        limit=200,
+                    )
+                    continue
+                if preview:
+                    preview_rows[resolved_url] = dict(preview)
+                if status == "hit":
+                    cache_hit_total += 1
+                elif status == "refresh":
+                    cache_refresh_total += 1
+        return {
+            "previews": preview_rows,
+            "errors": preview_errors,
+            "cache_hit_total": cache_hit_total,
+            "cache_refresh_total": cache_refresh_total,
+            "worker_concurrency": max_workers,
+        }
+
+    def _prefetch_property_public_previews_for_sources(
+        self,
+        *,
+        source_jobs: list[dict[str, object]],
+        cache_index: dict[str, dict[str, object]],
+        worker_cap: int,
+        on_source_started: callable | None = None,
+        on_source_finished: callable | None = None,
+    ) -> dict[str, object]:
+        normalized_jobs: list[dict[str, object]] = []
+        for job in _property_search_interleave_by_provider_group(source_jobs):
+            source_url = urllib.parse.urldefrag(str(job.get("url") or job.get("__source_url__") or "").strip())[0]
+            platform = str(job.get("platform") or "").strip().lower()
+            listing_urls: list[str] = []
+            for property_url in list(job.get("__listing_urls__") or []):
+                normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+                if normalized_property_url and normalized_property_url not in listing_urls:
+                    listing_urls.append(normalized_property_url)
+            if not source_url or not platform or not listing_urls:
+                continue
+            normalized_jobs.append(
+                {
+                    **dict(job),
+                    "__source_url__": source_url,
+                    "__platform__": platform,
+                    "__listing_urls__": listing_urls,
+                }
+            )
+        if not normalized_jobs:
+            return {
+                "source_results": {},
+                "cache_hit_total": 0,
+                "cache_refresh_total": 0,
+                "worker_concurrency": 0,
+            }
+
+        cache_lock = threading.Lock()
+        source_results: dict[tuple[str, str], dict[str, object]] = {}
+        cache_hit_total = 0
+        cache_refresh_total = 0
+
+        def _task(job: dict[str, object]) -> dict[str, object]:
+            previews: dict[str, dict[str, object]] = {}
+            errors: dict[str, str] = {}
+            hit_total = 0
+            refresh_total = 0
+            for property_url in list(job.get("__listing_urls__") or []):
+                with cache_lock:
+                    cached_preview = self._property_public_preview_cache_lookup(
+                        cache_index=cache_index,
+                        property_url=property_url,
+                    )
+                if cached_preview:
+                    previews[property_url] = dict(cached_preview)
+                    hit_total += 1
+                    continue
+                try:
+                    preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=True)
+                except Exception as exc:
+                    errors[property_url] = compact_text(
+                        str(exc or "property_scout_preview_prefetch_failed"),
+                        fallback="property_scout_preview_prefetch_failed",
+                        limit=200,
+                    )
+                    continue
+                with cache_lock:
+                    self._property_public_preview_cache_store(
+                        cache_index=cache_index,
+                        property_url=property_url,
+                        preview=preview,
+                    )
+                previews[property_url] = dict(preview or {})
+                refresh_total += 1
+            return {
+                "previews": previews,
+                "errors": errors,
+                "cache_hit_total": hit_total,
+                "cache_refresh_total": refresh_total,
+            }
+
+        max_workers = max(1, min(int(worker_cap or 1), len(normalized_jobs)))
+        queued_jobs = iter(normalized_jobs)
+
+        def _submit(executor: concurrent.futures.ThreadPoolExecutor, active: dict[concurrent.futures.Future, dict[str, object]]) -> bool:
+            try:
+                job = next(queued_jobs)
+            except StopIteration:
+                return False
+            if callable(on_source_started):
+                try:
+                    on_source_started(dict(job))
+                except Exception:
+                    pass
+            active[executor.submit(_task, dict(job))] = dict(job)
+            return True
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="property-source-preview",
+        ) as executor:
+            active: dict[concurrent.futures.Future, dict[str, object]] = {}
+            for _ in range(max_workers):
+                if not _submit(executor, active):
+                    break
+            while active:
+                done, _ = concurrent.futures.wait(
+                    tuple(active.keys()),
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+                for future in done:
+                    job = active.pop(future)
+                    platform = str(job.get("__platform__") or "").strip().lower()
+                    source_url = str(job.get("__source_url__") or "").strip()
+                    result: dict[str, object]
+                    try:
+                        result = dict(future.result() or {})
+                    except Exception as exc:
+                        result = {
+                            "previews": {},
+                            "errors": {
+                                source_url or platform or "source": compact_text(
+                                    str(exc or "property_scout_preview_prefetch_failed"),
+                                    fallback="property_scout_preview_prefetch_failed",
+                                    limit=200,
+                                )
+                            },
+                            "cache_hit_total": 0,
+                            "cache_refresh_total": 0,
+                        }
+                    source_results[(platform, source_url)] = result
+                    cache_hit_total += int(result.get("cache_hit_total") or 0)
+                    cache_refresh_total += int(result.get("cache_refresh_total") or 0)
+                    if callable(on_source_finished):
+                        try:
+                            on_source_finished(dict(job), dict(result))
+                        except Exception:
+                            pass
+                    _submit(executor, active)
+
+        return {
+            "source_results": source_results,
+            "cache_hit_total": cache_hit_total,
+            "cache_refresh_total": cache_refresh_total,
+            "worker_concurrency": max_workers,
         }
 
     def _recover_floorplans_for_candidates(
@@ -25220,6 +26148,12 @@ class ProductService:
     ) -> HumanTask:
         normalized_request_kind = _normalize_property_visual_request_kind(request_kind)
         normalized_style_hint = _compact_diorama_style_hint(str(diorama_style_hint or ""), max_length=180)
+        normalized_walkthrough_provider = _normalize_provider_preference(walkthrough_provider_key)
+        walkthrough_provider_label = {
+            "magicfit": "MagicFit",
+            "mootion": "Mootion",
+            "onemin_i2v": "OMagic",
+        }.get(normalized_walkthrough_provider, "")
         existing = self._existing_property_tour_followup(
             principal_id=principal_id,
             property_url=property_url,
@@ -25229,7 +26163,9 @@ class ProductService:
         if existing is not None:
             return existing
         is_user_visual_request = str(blocked_reason or "").strip() == "user_requested_visual_generation"
-        request_label = "walkthrough" if normalized_request_kind == "flythrough" else "3D tour"
+        request_label = "3D tour"
+        if normalized_request_kind == "flythrough":
+            request_label = f"{walkthrough_provider_label} walkthrough" if walkthrough_provider_label else "walkthrough"
         review_goal = (
             f"Build requested property visual for {title or property_url}"
             if is_user_visual_request
@@ -26116,7 +27052,10 @@ class ProductService:
                     for item in list(parent_state.get("selected_platforms") or parent_preferences.get("selected_platforms") or ())
                     if str(item or "").strip()
                 )
-                max_results_value = parent_preferences.get("max_results_per_source") or parent_summary.get("max_results_per_source")
+                max_results_value = _property_search_defined_max_results_value(
+                    parent_preferences,
+                    parent_summary,
+                )
                 repair_max_results = _property_search_resolve_max_results_per_source(
                     parent_preferences,
                     max_results_value,
@@ -28519,14 +29458,24 @@ class ProductService:
                 )
                 needs_flythrough_render = not existing_duration_ok
         if renderable_tour_url and needs_flythrough_render:
-            flythrough_render = _render_property_flythrough_into_hosted_tour(
-                tour_url=renderable_tour_url,
+            tour_context_json = _property_walkthrough_scene_video_context(
+                renderable_tour_url,
+                tour_result=dict(tour_result or {}),
+            )
+            flythrough_render = self._run_scene_video_skill(
                 title=title,
-                property_facts=property_facts_json,
                 actor=resolved_actor,
-                birthday_party_request=birthday_party_request,
-                person_motion_hint=resolved_person_motion_hint,
-                preferred_provider_key=walkthrough_provider_key,
+                provider_key=walkthrough_provider_key,
+                task_principal_id=principal_id,
+                input_json={
+                    "context_kind": "property_walkthrough",
+                    "tour_url": renderable_tour_url,
+                    "tour_context_json": tour_context_json,
+                    "property_facts_json": dict(property_facts_json or {}),
+                    "birthday_party_request": bool(birthday_party_request),
+                    "person_motion_hint": resolved_person_motion_hint,
+                    "diorama_style_hint": resolved_style_hint,
+                },
             )
             self._record_product_event(
                 principal_id=principal_id,
@@ -28676,7 +29625,7 @@ class ProductService:
         elif fit_score > 0:
             summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
         summary_lines.extend(_property_link_bundle_key_facts_lines(property_facts_json))
-        summary_lines.append("Matterport, 3DVista, and Pano2VR buttons appear only when a real provider export exists. Open Walkthrough starts the verified video immediately.")
+        summary_lines.append("Matterport, 3DVista, and Pano2VR buttons appear only when a real provider export exists. Open Walkthrough starts the published video immediately.")
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
         deep_flythrough_url = ""
@@ -29027,18 +29976,27 @@ class ProductService:
                 payload={
                     "source_pdf_filename": filename,
                     "source_ref": resolved_source_ref,
-                    "stage": "magicfit_start",
+                    "stage": "walkthrough_render_start",
                     "tour_url": tour_url or vendor_tour_url,
                 },
                 source_id=resolved_source_ref,
-                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-magicfit-start",
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-walkthrough-start",
             )
-            flythrough_render = _render_property_flythrough_into_hosted_tour(
-                tour_url=tour_url or vendor_tour_url,
+            tour_context_json = _property_walkthrough_scene_video_context(
+                tour_url or vendor_tour_url,
+                tour_result=tour_result,
+            )
+            flythrough_render = self._run_scene_video_skill(
                 title=title,
-                property_facts=property_facts_json,
                 actor=resolved_actor,
-                preferred_provider_key=walkthrough_provider_key,
+                provider_key=walkthrough_provider_key,
+                task_principal_id=principal_id,
+                input_json={
+                    "context_kind": "property_walkthrough",
+                    "tour_url": tour_url or vendor_tour_url,
+                    "tour_context_json": tour_context_json,
+                    "property_facts_json": dict(property_facts_json or {}),
+                },
             )
             self._record_product_event(
                 principal_id=principal_id,
@@ -31417,8 +32375,8 @@ class ProductService:
                 elif flythrough_status in {"rendered", "existing"}:
                     payload["flythrough_status"] = "blocked"
                     flythrough_status = "blocked"
-                    status_label = "Walkthrough verification needed"
-                    status_detail = "The render finished, but no verified playable walkthrough asset is published yet."
+                    status_label = "Walkthrough needs attention"
+                    status_detail = "The render finished, but the walkthrough is not published yet."
                 elif flythrough_status in {"queued", "pending"}:
                     status_label = "Walkthrough queued"
                     status_detail = "Queued. Opens here when ready."
@@ -31431,8 +32389,8 @@ class ProductService:
                     status_detail = "Queued. It starts after the 3D tour is ready."
             elif tour_status in {"blocked", "failed", "skipped"}:
                 payload["flythrough_status"] = "blocked"
-                status_label = "Walkthrough blocked"
-                status_detail = "No playable walkthrough is published yet. A verified rendered video is still needed."
+                status_label = "Walkthrough not ready"
+                status_detail = "Walkthrough not available yet."
             else:
                 payload["flythrough_status"] = "pending"
                 status_label = "Walkthrough queued"
@@ -31447,8 +32405,8 @@ class ProductService:
                 status_detail = "Ready on this page."
             elif str(payload.get("tour_url") or "").strip():
                 payload["tour_status"] = "repairing"
-                status_label = "3D tour verification needed"
-                status_detail = "The hosted tour shell exists, but no verified Matterport, 3DVista, Pano2VR, or licensed krpano control is published yet."
+                status_label = "3D tour needs attention"
+                status_detail = "The hosted tour link is not backed by usable Matterport, 3DVista, or Pano2VR viewer assets yet. Request a rebuild from this page."
             elif payload["tour_status"] in {"queued", "pending"}:
                 status_label = "3D tour queued"
                 status_detail = "Queued. Opens here when ready."
@@ -31456,8 +32414,8 @@ class ProductService:
                 status_label = "3D tour rendering"
                 status_detail = "Rendering now. Opens here when ready."
             elif payload["tour_status"] in {"blocked", "failed", "skipped"}:
-                status_label = "3D tour blocked"
-                status_detail = "No verified 3D tour is published yet. A Matterport, 3DVista, Pano2VR, or licensed krpano capture is still needed."
+                status_label = "3D tour not ready"
+                status_detail = "Tour not available yet."
             else:
                 payload["tour_status"] = "pending"
                 status_label = "3D tour queued"
@@ -31814,7 +32772,7 @@ class ProductService:
                 else "3D tour is rendering now and will appear here when it is ready."
             )
         elif status_value in {"blocked", "failed", "skipped", "not_applicable"}:
-            status_label = "Walkthrough unavailable" if normalized_kind == "flythrough" else "3D tour unavailable"
+            status_label = "Walkthrough not ready" if normalized_kind == "flythrough" else "3D tour not ready"
             status_detail = _property_visual_unavailable_detail(request_kind=normalized_kind, reason=reason)
         else:
             status_label = "Request walkthrough" if normalized_kind == "flythrough" else "Request 3D tour"
@@ -31842,33 +32800,25 @@ class ProductService:
                 status_detail = "Still rendering. Taking longer than usual."
         if repair_active and not ready_url and status_value not in {"blocked", "failed", "skipped", "not_applicable"}:
             status_value = "repairing"
-            status_label = "Walkthrough repair running" if normalized_kind == "flythrough" else "3D tour repair running"
+            status_label = "Walkthrough in progress" if normalized_kind == "flythrough" else "3D tour in progress"
             if not repair_started_at:
-                status_label = "Walkthrough repair queued" if normalized_kind == "flythrough" else "3D tour repair queued"
+                status_label = "Walkthrough in progress" if normalized_kind == "flythrough" else "3D tour in progress"
             status_detail = (
-                "PropertyQuarry is retrying the stalled walkthrough render."
+                "Walkthrough is being refreshed."
                 if normalized_kind == "flythrough"
-                else "PropertyQuarry is retrying the stalled 3D tour render."
+                else "Tour is being refreshed."
             )
             eta_label = "refreshing"
             progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
         if repair_queued and not ready_url:
             if status_value in {"queued", "pending"}:
                 status_value = "repairing"
-                status_label = "Walkthrough repair queued" if normalized_kind == "flythrough" else "3D tour repair queued"
-                status_detail = (
-                    "The request stalled, so PropertyQuarry started a repair run."
-                    if normalized_kind == "flythrough"
-                    else "The request stalled, so PropertyQuarry started a repair run."
-                )
+                status_label = "Walkthrough in progress" if normalized_kind == "flythrough" else "3D tour in progress"
+                status_detail = "Walkthrough is being refreshed." if normalized_kind == "flythrough" else "Tour is being refreshed."
             elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
                 status_value = "repairing"
-                status_label = "Walkthrough repair running" if normalized_kind == "flythrough" else "3D tour repair running"
-                status_detail = (
-                    "The request stalled, so PropertyQuarry restarted the background render."
-                    if normalized_kind == "flythrough"
-                    else "The request stalled, so PropertyQuarry restarted the background render."
-                )
+                status_label = "Walkthrough in progress" if normalized_kind == "flythrough" else "3D tour in progress"
+                status_detail = "Walkthrough is being refreshed." if normalized_kind == "flythrough" else "Tour is being refreshed."
             eta_label = "refreshing"
             progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
 
@@ -32144,51 +33094,10 @@ class ProductService:
         normalized_platforms = _normalize_property_search_platform_inputs(selected_platforms)
         if explicit_platform_input and not normalized_platforms:
             raise ValueError("invalid_property_search_platform")
-        if not normalized_platforms and not explicit_platform_input:
-            normalized_platforms = _property_search_platforms_with_family_toggles(
-                _normalize_property_search_platform_inputs(merged_preferences.get("selected_platforms")),
-                merged_preferences,
-            )
-            if not normalized_platforms:
-                normalized_platforms = _property_search_platforms_with_family_toggles(
-                    tuple(
-                        default_platforms_for_country_listing_mode(
-                            merged_preferences.get("country_code"),
-                            merged_preferences.get("listing_mode"),
-                            property_type=merged_preferences.get("property_type"),
-                        )
-                    ),
-                    merged_preferences,
-                )
-
-        normalized_platforms = _property_search_platforms_with_family_toggles(
-            normalized_platforms,
+        normalized_platforms, removed_platforms = _property_search_execution_platforms(
+            normalized_platforms if explicit_platform_input else tuple(selected_platforms or ()),
             merged_preferences,
         )
-        normalized_platforms, removed_platforms = _property_search_platforms_for_country(
-            normalized_platforms,
-            merged_preferences.get("country_code"),
-            listing_mode=merged_preferences.get("listing_mode"),
-            include_distressed_sale_signals=merged_preferences.get("include_distressed_sale_signals"),
-        )
-        if not normalized_platforms:
-            fallback_platforms = _property_search_platforms_with_family_toggles(
-                tuple(
-                    default_platforms_for_country_listing_mode(
-                        merged_preferences.get("country_code"),
-                        merged_preferences.get("listing_mode"),
-                        property_type=merged_preferences.get("property_type"),
-                    )
-                ),
-                merged_preferences,
-            )
-            normalized_platforms, fallback_removed = _property_search_platforms_for_country(
-                fallback_platforms,
-                merged_preferences.get("country_code"),
-                listing_mode=merged_preferences.get("listing_mode"),
-                include_distressed_sale_signals=merged_preferences.get("include_distressed_sale_signals"),
-            )
-            removed_platforms = tuple(dict.fromkeys((*removed_platforms, *fallback_removed)))
         if removed_platforms:
             merged_preferences["provider_country_filter_applied"] = True
             merged_preferences["provider_country_filter_removed"] = list(removed_platforms)
@@ -32735,6 +33644,49 @@ class ProductService:
             payload["summary"] = summary
             return summary, sources
 
+        def _normalize_run_summary_entitlements(
+            payload: dict[str, object],
+            *,
+            summary: dict[str, object],
+        ) -> dict[str, object]:
+            normalized = dict(summary)
+            summary_plan_key = str(normalized.get("current_plan_key") or "").strip()
+            if summary_plan_key:
+                normalized["current_plan_key"] = normalize_property_plan_key(summary_plan_key)
+            preference_payload: dict[str, object] = {}
+            for key in ("property_search_preferences", "preferences"):
+                candidate = payload.get(key)
+                if isinstance(candidate, dict) and candidate:
+                    preference_payload = dict(candidate)
+                    break
+            derived = _property_search_run_entitlement_summary(preference_payload) if preference_payload else {}
+            if not str(normalized.get("current_plan_key") or "").strip() and derived.get("current_plan_key"):
+                normalized["current_plan_key"] = str(derived.get("current_plan_key") or "").strip()
+            if not str(normalized.get("current_plan_label") or "").strip():
+                plan_key_for_label = normalized.get("current_plan_key") or derived.get("current_plan_key") or "free"
+                normalized["current_plan_label"] = str(derived.get("current_plan_label") or "").strip() or _property_plan_label(plan_key_for_label)
+            if not str(normalized.get("research_depth") or "").strip() and derived.get("research_depth"):
+                normalized["research_depth"] = str(derived.get("research_depth") or "").strip()
+            if normalized.get("max_results_per_source") in (None, "") and "max_results_per_source" in derived:
+                normalized["max_results_per_source"] = derived.get("max_results_per_source")
+            elif normalized.get("max_results_per_source") not in (None, ""):
+                raw_max_results_per_source = normalized.get("max_results_per_source")
+                try:
+                    normalized["max_results_per_source"] = max(
+                        0,
+                        int(float(str(raw_max_results_per_source).strip())),
+                    )
+                except Exception:
+                    normalized["max_results_per_source"] = max(0, int(derived.get("max_results_per_source") or 0))
+            provider_workers = dict(normalized.get("provider_workers") or {}) if isinstance(normalized.get("provider_workers"), dict) else {}
+            derived_provider_workers = dict(derived.get("provider_workers") or {})
+            if derived_provider_workers:
+                provider_workers.setdefault("worker_concurrency", int(derived_provider_workers.get("worker_concurrency") or 1))
+            if provider_workers:
+                normalized["provider_workers"] = provider_workers
+            payload["summary"] = normalized
+            return normalized
+
         def _has_pending_worker_exception_repair(summary: dict[str, object]) -> bool:
             if str(summary.get("repair_replacement_run_id") or "").strip():
                 return False
@@ -32828,11 +33780,75 @@ class ProductService:
             compact_snapshot = _load_property_search_run_compact_record(run_id=run_id, principal_id=principal_id)
             if isinstance(compact_snapshot, dict) and compact_snapshot:
                 summary = dict(compact_snapshot.get("summary") or {}) if isinstance(compact_snapshot.get("summary"), dict) else {}
+                compact_has_sources = bool(list(summary.get("sources") or []))
+                compact_status = str(compact_snapshot.get("status") or summary.get("status") or "").strip().lower()
+                compact_is_active = compact_status in {"queued", "starting", "in_progress", "running", "processing", "repairing"}
+                if not compact_has_sources and compact_is_active:
+                    with _PROPERTY_SEARCH_RUN_LOCK:
+                        live_state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(str(run_id or "").strip()) or {})
+                    if isinstance(live_state, dict) and str(live_state.get("principal_id") or "").strip() == str(principal_id or "").strip():
+                        live_entitlements = _property_search_run_entitlement_summary(
+                            dict(live_state.get("property_search_preferences") or {})
+                            if isinstance(live_state.get("property_search_preferences"), dict)
+                            else {}
+                        )
+                        summary = {
+                            **{
+                                key: value
+                                for key, value in live_entitlements.items()
+                                if key != "provider_workers"
+                                and not str(summary.get(key) or "").strip()
+                            },
+                            **summary,
+                        }
+                        summary_provider_workers = dict(summary.get("provider_workers") or {}) if isinstance(summary.get("provider_workers"), dict) else {}
+                        if dict(live_entitlements.get("provider_workers") or {}):
+                            summary_provider_workers.setdefault(
+                                "worker_concurrency",
+                                int(dict(live_entitlements.get("provider_workers") or {}).get("worker_concurrency") or 1),
+                            )
+                        if summary_provider_workers:
+                            summary["provider_workers"] = summary_provider_workers
+                        live_compact = _property_search_storage._compact_property_search_run_record(live_state)
+                        live_summary = dict(live_compact.get("summary") or {}) if isinstance(live_compact.get("summary"), dict) else {}
+                        if list(live_summary.get("sources") or []):
+                            compact_snapshot = {
+                                **compact_snapshot,
+                                **{
+                                    key: live_compact[key]
+                                    for key in ("status", "progress", "current_step", "message", "updated_at")
+                                    if key in live_compact and live_compact.get(key) not in (None, "", [], {})
+                                },
+                            }
+                            summary = {
+                                **summary,
+                                **{
+                                    key: live_summary[key]
+                                    for key in (
+                                        "current_plan_key",
+                                        "current_plan_label",
+                                        "research_depth",
+                                        "max_results_per_source",
+                                        "provider_total",
+                                        "provider_group_total",
+                                        "provider_workers",
+                                        "sources_total",
+                                        "source_total",
+                                        "source_variant_total",
+                                        "reviewed_listing_total",
+                                        "raw_listing_total",
+                                        "listing_total",
+                                        "sources",
+                                    )
+                                    if key in live_summary
+                                },
+                            }
                 _normalize_run_summary_counts(
                     compact_snapshot,
                     summary=summary,
                     selected_platforms=list(compact_snapshot.get("selected_platforms") or []),
                 )
+                summary = _normalize_run_summary_entitlements(compact_snapshot, summary=summary)
                 summary = self._apply_property_search_run_repair_receipts(summary=summary)
                 compact_snapshot["summary"] = summary
                 if (
@@ -32893,6 +33909,7 @@ class ProductService:
             summary=summary,
             selected_platforms=snapshot.get("selected_platforms") or [],
         )
+        summary = _normalize_run_summary_entitlements(snapshot, summary=summary)
         status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
         replacement_parent_refs = _replacement_parent_refs_from_payload(snapshot)
         if (replacement_parent_refs and _has_stale_replacement_execution(snapshot)) or _has_stale_active_execution(snapshot):
@@ -32913,6 +33930,7 @@ class ProductService:
                         summary=summary,
                         selected_platforms=snapshot.get("selected_platforms") or [],
                     )
+                    summary = _normalize_run_summary_entitlements(snapshot, summary=summary)
                     status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
         if _has_pending_worker_exception_repair(summary):
             try:
@@ -32943,6 +33961,7 @@ class ProductService:
                         summary=summary,
                         selected_platforms=snapshot.get("selected_platforms") or [],
                     )
+                    summary = _normalize_run_summary_entitlements(snapshot, summary=summary)
                     status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
         if sources and status_value not in {"processed", "completed", "completed_partial"}:
             repair_tasks = self._list_property_search_status_repair_tasks(
@@ -33211,6 +34230,205 @@ class ProductService:
             "run_ids": deleted_run_ids,
         }
 
+    def _property_search_agent_has_active_run(
+        self,
+        *,
+        principal_id: str,
+        agent_id: str,
+    ) -> bool:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_agent_id = str(agent_id or "").strip()
+        if not normalized_principal or not normalized_agent_id:
+            return False
+        records = _list_property_search_run_records(
+            limit=200,
+            principal_id=normalized_principal,
+            lightweight=True,
+        )
+        terminal_statuses = set(_PROPERTY_SEARCH_TERMINAL_STATUSES) | {"not started"}
+        for record in records:
+            if str(record.get("principal_id") or "").strip() != normalized_principal:
+                continue
+            summary = dict(record.get("summary") or {}) if isinstance(record.get("summary"), dict) else {}
+            status_value = str(record.get("status") or summary.get("status") or "").strip().lower()
+            if status_value and status_value in terminal_statuses:
+                continue
+            preferences = (
+                dict(record.get("property_search_preferences") or {})
+                if isinstance(record.get("property_search_preferences"), dict)
+                else {}
+            )
+            active_agent_id = str(
+                preferences.get("active_search_agent_id")
+                or summary.get("active_search_agent_id")
+                or ""
+            ).strip()
+            if active_agent_id == normalized_agent_id:
+                return True
+        return False
+
+    def _property_search_agent_launch_preferences(
+        self,
+        *,
+        base_preferences: dict[str, object],
+        search_agents: list[dict[str, object]],
+        agent: dict[str, object],
+    ) -> dict[str, object]:
+        normalized_base = dict(base_preferences or {})
+        normalized_agent = dict(agent or {})
+        agent_preferences = (
+            dict(normalized_agent.get("preferences_json") or {})
+            if isinstance(normalized_agent.get("preferences_json"), dict)
+            else {}
+        )
+        selected_platforms = [
+            str(item or "").strip()
+            for item in list(
+                normalized_agent.get("selected_platforms")
+                or agent_preferences.get("selected_platforms")
+                or normalized_base.get("selected_platforms")
+                or []
+            )
+            if str(item or "").strip()
+        ]
+        launch_preferences = {
+            **normalized_base,
+            **agent_preferences,
+            "search_agents": [dict(row) for row in list(search_agents or []) if isinstance(row, dict)],
+            "active_search_agent_id": str(normalized_agent.get("agent_id") or "").strip(),
+            "search_agent_enabled": bool(normalized_agent.get("enabled")),
+            "search_agent_duration_days": normalized_agent.get("duration_days"),
+            "search_agent_notification_limit": normalized_agent.get("notification_limit"),
+            "search_agent_notification_period": normalized_agent.get("notification_period"),
+            "selected_platforms": selected_platforms,
+            "property_search_enabled": True,
+        }
+        if selected_platforms:
+            launch_preferences["selected_platforms"] = selected_platforms
+        return launch_preferences
+
+    def launch_due_property_search_agents(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int = 32,
+    ) -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
+        empty_summary = {
+            "generated_at": _now_iso(),
+            "mode": "fallback",
+            "configured_total": 0,
+            "enabled_total": 0,
+            "due_total": 0,
+            "launched_total": 0,
+            "skipped_disabled_total": 0,
+            "skipped_not_due_total": 0,
+            "skipped_active_total": 0,
+            "skipped_invalid_total": 0,
+            "launched_runs": [],
+        }
+        if not normalized_principal:
+            return dict(empty_summary)
+        try:
+            onboarding_state = self._container.onboarding.status(principal_id=normalized_principal)
+        except Exception:
+            onboarding_state = {}
+        base_preferences = (
+            dict(onboarding_state.get("property_search_preferences") or {})
+            if isinstance(onboarding_state, dict) and isinstance(onboarding_state.get("property_search_preferences"), dict)
+            else {}
+        )
+        search_agents = [
+            dict(row)
+            for row in list(base_preferences.get("search_agents") or [])
+            if isinstance(row, dict)
+        ]
+        if not search_agents:
+            return dict(empty_summary)
+        now = datetime.now(timezone.utc)
+        configured_total = len(search_agents)
+        enabled_total = 0
+        due_total = 0
+        launched_total = 0
+        skipped_disabled_total = 0
+        skipped_not_due_total = 0
+        skipped_active_total = 0
+        skipped_invalid_total = 0
+        launched_runs: list[dict[str, object]] = []
+        remaining = max(1, int(limit or 0))
+        for agent in search_agents:
+            if not bool(agent.get("enabled")):
+                skipped_disabled_total += 1
+                continue
+            enabled_total += 1
+            next_run_at = _parse_utcish(str(agent.get("next_run_at") or "").strip())
+            if next_run_at is not None and next_run_at > now:
+                skipped_not_due_total += 1
+                continue
+            due_total += 1
+            agent_id = str(agent.get("agent_id") or "").strip()
+            if not agent_id or self._property_search_agent_has_active_run(principal_id=normalized_principal, agent_id=agent_id):
+                skipped_active_total += 1
+                continue
+            if remaining <= 0:
+                skipped_not_due_total += 1
+                continue
+            launch_preferences = self._property_search_agent_launch_preferences(
+                base_preferences=base_preferences,
+                search_agents=search_agents,
+                agent=agent,
+            )
+            selected_platforms = tuple(
+                str(item or "").strip()
+                for item in list(launch_preferences.get("selected_platforms") or [])
+                if str(item or "").strip()
+            )
+            resolved_max_results = _property_search_resolve_max_results_per_source(
+                launch_preferences,
+                launch_preferences.get("max_results_per_source"),
+            )
+            try:
+                started = self.start_property_search_run(
+                    principal_id=normalized_principal,
+                    actor=str(actor or "scheduler").strip() or "scheduler",
+                    selected_platforms=selected_platforms,
+                    property_search_preferences=launch_preferences,
+                    force_refresh=True,
+                    max_results_per_source=resolved_max_results,
+                    dispatch_only=True,
+                )
+            except Exception:
+                skipped_invalid_total += 1
+                continue
+            run_id = str(started.get("run_id") or "").strip() if isinstance(started, dict) else ""
+            if not run_id:
+                skipped_invalid_total += 1
+                continue
+            launched_total += 1
+            remaining -= 1
+            launched_runs.append(
+                {
+                    "agent_id": agent_id,
+                    "agent_name": str(agent.get("name") or "").strip(),
+                    "run_id": run_id,
+                    "status": str(started.get("status") or "").strip() or "queued",
+                }
+            )
+        return {
+            "generated_at": _now_iso(),
+            "mode": "agents",
+            "configured_total": configured_total,
+            "enabled_total": enabled_total,
+            "due_total": due_total,
+            "launched_total": launched_total,
+            "skipped_disabled_total": skipped_disabled_total,
+            "skipped_not_due_total": skipped_not_due_total,
+            "skipped_active_total": skipped_active_total,
+            "skipped_invalid_total": skipped_invalid_total,
+            "launched_runs": launched_runs[:50],
+        }
+
     def update_property_search_research_task(
         self,
         *,
@@ -33475,7 +34693,10 @@ class ProductService:
         preferences.pop("__premerged_preferences__", None)
         preferences["force_refresh"] = True
         summary = dict(state.get("summary") or {}) if isinstance(state.get("summary"), dict) else {}
-        max_results_value = preferences.get("max_results_per_source") or summary.get("max_results_per_source")
+        max_results_value = _property_search_defined_max_results_value(
+            preferences,
+            summary,
+        )
         max_results_per_source = _property_search_resolve_max_results_per_source(
             preferences,
             max_results_value,
@@ -33798,10 +35019,6 @@ class ProductService:
         progress_callback: callable | None = None,
     ) -> dict[str, object]:
         run_started_at = time.perf_counter()
-        run_platforms = _property_search_platforms_with_family_toggles(
-            _normalize_property_search_platform_inputs(selected_platforms),
-            property_search_preferences,
-        )
 
         def _report(
             *,
@@ -33830,10 +35047,21 @@ class ProductService:
             principal_id=principal_id,
             property_preferences=property_search_preferences,
         )
+        candidate_platforms = _normalize_property_search_platform_inputs(selected_platforms)
+        if not candidate_platforms:
+            candidate_platforms = _normalize_property_search_platform_inputs(request_preferences.get("selected_platforms"))
         if not normalize_country_code(request_preferences.get("country_code")):
-            inferred_country_code = _property_search_single_country_for_platforms(run_platforms)
+            inferred_country_code = _property_search_single_country_for_platforms(candidate_platforms)
             if inferred_country_code:
                 request_preferences["country_code"] = inferred_country_code
+        run_platforms, removed_platforms = _property_search_execution_platforms(
+            tuple(selected_platforms or ()),
+            request_preferences,
+        )
+        if removed_platforms:
+            request_preferences["provider_country_filter_applied"] = True
+            request_preferences["provider_country_filter_removed"] = list(removed_platforms)
+        request_preferences["selected_platforms"] = list(run_platforms)
         property_search_run_id = str(request_preferences.pop("__property_search_run_id__", "") or "").strip()
         public_preview_cache = self._property_public_preview_cache_index()
         if (
@@ -33876,6 +35104,7 @@ class ProductService:
             plan_key,
             commercial_snapshot.get("max_results_per_source"),
         ) and resolved_max_results is None
+        run_entitlement_summary = _property_search_run_entitlement_summary(request_preferences)
 
         preference_person_id = str(
             request_preferences.get("preference_person_id")
@@ -33991,9 +35220,153 @@ class ProductService:
                 else f"Selected {source_variant_total} source(s)."
             )
         )
+        _report(
+            step="source_catalog_loading",
+            message=(
+                f"Loading provider pages for {provider_total} selected provider(s)."
+                if provider_total
+                else f"Loading provider pages for {source_variant_total} selected source(s)."
+            ),
+            status="in_progress",
+            steps_delta=0,
+        )
+        source_summaries: list[dict[str, object]] = []
+        source_summary_index: dict[str, int] = {}
+
+        def _source_progress_row(
+            source_spec: dict[str, object],
+            *,
+            status: str = "queued",
+            provider_cache_state: dict[str, object] | None = None,
+        ) -> dict[str, object]:
+            source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
+            raw_source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=180) or urllib.parse.urlparse(source_url).netloc
+            source_label = (
+                _property_source_display_label(raw_source_label)
+                or compact_text(raw_source_label, fallback="", limit=120)
+                or urllib.parse.urlparse(source_url).netloc
+            )
+            provider_filter_pushdown = (
+                dict(source_spec.get("provider_filter_pushdown") or {})
+                if isinstance(source_spec.get("provider_filter_pushdown"), dict)
+                else {}
+            )
+            cache_key = _property_source_listing_cache_key(source_url=source_url, source_spec=source_spec)
+            cache_payload = dict(provider_cache_state or {})
+            cache_payload.setdefault("cache_key", cache_key)
+            cache_payload.setdefault(
+                "status",
+                "warming" if status == "warming" else ("queued" if status in {"queued", "starting", "running", "in_progress"} else "not_started"),
+            )
+            return {
+                "source_url": source_url,
+                "source_label": source_label,
+                "source_scope_label": raw_source_label,
+                "platform": str(source_spec.get("platform") or "").strip().lower(),
+                "provider_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                "provider_trust_tier": str(source_spec.get("provider_trust_tier") or "").strip().lower(),
+                "source_access_level": (
+                    str(source_spec.get("source_access_level") or "").strip().lower()
+                    or property_provider_access_level(source_spec.get("platform"))
+                ),
+                "verification_required": bool(source_spec.get("verification_required")),
+                "provider_filter_pushdown": provider_filter_pushdown,
+                "provider_cache": cache_payload,
+                "listing_total": 0,
+                "reviewed_listing_total": 0,
+                "raw_listing_total": 0,
+                "scanned_listing_total": 0,
+                "review_created_total": 0,
+                "review_existing_total": 0,
+                "high_fit_total": 0,
+                "filtered_property_type_total": 0,
+                "filtered_area_total": 0,
+                "filtered_availability_total": 0,
+                "filtered_floorplan_total": 0,
+                "filtered_generic_page_total": 0,
+                "filtered_listing_mode_total": 0,
+                "filtered_low_fit_total": 0,
+                "provider_repair_task_opened_total": 0,
+                "provider_repair_task_existing_total": 0,
+                "provider_repair_tasks": [],
+                "top_fit_score": 0.0,
+                "top_candidates": [],
+                "research_candidates": [],
+                "status": status,
+            }
+
+        def _source_progress_key(row: dict[str, object]) -> str:
+            source_url = urllib.parse.urldefrag(str(row.get("source_url") or "").strip())[0]
+            if source_url:
+                return f"url:{source_url}"
+            source_label = str(row.get("source_label") or "").strip().casefold()
+            return f"label:{source_label}" if source_label else ""
+
+        def _upsert_source_summary(row: dict[str, object]) -> dict[str, object]:
+            normalized = dict(row or {})
+            normalized["source_url"] = urllib.parse.urldefrag(str(normalized.get("source_url") or "").strip())[0]
+            key = _source_progress_key(normalized)
+            if not key:
+                source_summaries.append(normalized)
+                return normalized
+            index = source_summary_index.get(key)
+            if index is None:
+                source_summary_index[key] = len(source_summaries)
+                source_summaries.append(normalized)
+                return normalized
+            merged = {
+                **dict(source_summaries[index] or {}),
+                **normalized,
+            }
+            source_summaries[index] = merged
+            return merged
+
+        def _source_catalog_loading_started(source_spec: dict[str, object]) -> None:
+            _upsert_source_summary(
+                _source_progress_row(
+                    dict(source_spec),
+                    status="warming",
+                    provider_cache_state={"status": "warming"},
+                )
+            )
+            _report(
+                step="source_catalog_loading",
+                message=(
+                    f"Loading provider page for "
+                    f"{_property_source_display_label(str(source_spec.get('label') or '').strip()) or urllib.parse.urlparse(str(source_spec.get('url') or '').strip()).netloc}."
+                ),
+                status="in_progress",
+                steps_delta=0,
+                summary_updates={"sources": source_summaries},
+            )
+
+        def _source_catalog_loading_finished(source_spec: dict[str, object], payload: dict[str, object]) -> None:
+            cache_state = dict(payload.get("provider_cache_state") or {})
+            listing_total = len(list(payload.get("listing_urls") or []))
+            row = _source_progress_row(
+                dict(source_spec),
+                status="warming",
+                provider_cache_state=cache_state or {"status": "warming"},
+            )
+            row["raw_listing_total"] = listing_total
+            _upsert_source_summary(row)
+            _report(
+                step="source_catalog_loading",
+                message=(
+                    f"Loaded provider page for {row['source_label']} with {listing_total} raw listing candidate(s)."
+                    if not payload.get("error")
+                    else f"Could not load provider page for {row['source_label']}."
+                ),
+                status="in_progress",
+                steps_delta=0,
+                summary_updates={"sources": source_summaries},
+            )
+
         prefetched_source_results = _property_search_prefetch_listing_urls(
             specs=specs,
             force_refresh=effective_force_refresh,
+            on_source_started=_source_catalog_loading_started if specs else None,
+            on_source_finished=_source_catalog_loading_finished if specs else None,
         )
         provider_worker_state = self._warm_property_public_preview_cache_for_sources(
             specs=specs,
@@ -34002,11 +35375,24 @@ class ProductService:
             plan_key=plan_key,
         )
 
+        for source_spec in specs:
+            source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
+            source_key = (str(source_spec.get("platform") or "").strip().lower(), source_url)
+            prefetched_result = dict(prefetched_source_results.get(source_key) or {})
+            _upsert_source_summary(
+                _source_progress_row(
+                    dict(source_spec),
+                    status="queued",
+                    provider_cache_state=dict(prefetched_result.get("provider_cache_state") or {}),
+                )
+            )
+
         _report(
             step="sources_resolved",
             message=source_resolution_label,
             status="in_progress",
             summary_updates={
+                "sources": source_summaries,
                 "sources_total": source_variant_total,
                 "source_variant_total": source_variant_total,
                 "provider_total": provider_total,
@@ -34148,7 +35534,6 @@ class ProductService:
         recent_source_fetch_repair_memory = self._recent_property_source_fetch_repair_memory(
             principal_id=principal_id,
         )
-        source_summaries: list[dict[str, object]] = []
         pending_telegram_notifications: list[dict[str, object]] = []
         seen_listing_urls: set[str] = set()
         discovery_soft_distance_keys = {
@@ -34171,6 +35556,141 @@ class ProductService:
         allow_soft_property_type_filter = "property_type" in discovery_relaxed_filter_keys
         allow_soft_area_filter = "min_area_m2" in discovery_relaxed_filter_keys
         allow_soft_availability_filter = "available_within_years" in discovery_relaxed_filter_keys
+        provider_preview_worker_cap = max(
+            1,
+            int(
+                dict(provider_worker_state or {}).get("worker_concurrency")
+                or _property_search_provider_worker_concurrency_for_plan(plan_key)
+                or 1
+            ),
+        )
+        preview_scan_cap = _property_search_scan_cap_per_source()
+        source_preview_jobs: list[dict[str, object]] = []
+        for source_spec in specs:
+            source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
+            source_key = (str(source_spec.get("platform") or "").strip().lower(), source_url)
+            raw_source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=180) or urllib.parse.urlparse(source_url).netloc
+            source_label = _property_source_display_label(raw_source_label) or compact_text(raw_source_label, fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
+            source_scope_location_hints = _property_exact_source_scope_location_hints(
+                source_url=source_url,
+                source_label=raw_source_label,
+            )
+            source_exact_scope_requested = _property_search_has_exact_scope(
+                request_preferences=request_preferences,
+                location_hints=location_hints,
+            )
+            source_location_hints = (
+                source_scope_location_hints
+                if source_scope_location_hints and (source_exact_scope_requested or not location_hints)
+                else location_hints
+            )
+            source_repair_memory = recent_source_fetch_repair_memory.get(
+                self._property_source_repair_memory_key(source_url=source_url, source_label=source_label)
+            )
+            if source_repair_memory:
+                continue
+            prefetched_result = dict(prefetched_source_results.get(source_key) or {})
+            listing_urls = list(prefetched_result.get("listing_urls") or [])
+            if preview_scan_cap:
+                listing_urls = listing_urls[:preview_scan_cap]
+            preview_listing_urls = [
+                property_url
+                for property_url in listing_urls
+                if not (
+                    source_location_hints
+                    and _property_candidate_url_has_exact_location_probe(property_url)
+                    and not _property_candidate_matches_search_area(
+                        location_hints=source_location_hints,
+                        request_preferences=request_preferences,
+                        source_spec=source_spec,
+                        property_url=property_url,
+                        title="",
+                        summary="",
+                        property_facts={},
+                    )
+                )
+            ]
+            if not preview_listing_urls:
+                continue
+            source_preview_jobs.append(
+                {
+                    **dict(source_spec),
+                    "__source_url__": source_url,
+                    "__source_label__": source_label,
+                    "__source_scope_label__": raw_source_label,
+                    "__listing_urls__": preview_listing_urls,
+                }
+            )
+
+        if source_preview_jobs:
+            _report(
+                step="source_preview_prepare",
+                message=f"Checking listing previews across up to {min(len(source_preview_jobs), provider_preview_worker_cap)} providers at once.",
+                status="in_progress",
+                steps_delta=0,
+                summary_updates={"sources": source_summaries},
+            )
+
+        def _source_preview_prefetch_started(job: dict[str, object]) -> None:
+            source_url = urllib.parse.urldefrag(str(job.get("__source_url__") or job.get("url") or "").strip())[0]
+            source_key = (str(job.get("platform") or "").strip().lower(), source_url)
+            prefetched_result = dict(prefetched_source_results.get(source_key) or {})
+            _upsert_source_summary(
+                _source_progress_row(
+                    dict(job),
+                    status="warming",
+                    provider_cache_state=dict(prefetched_result.get("provider_cache_state") or {}),
+                )
+            )
+            _report(
+                step="source_preview_prepare",
+                message=f"Checking listing previews from {str(job.get('__source_label__') or source_url).strip()}.",
+                status="in_progress",
+                steps_delta=0,
+                summary_updates={"sources": source_summaries},
+            )
+
+        def _source_preview_prefetch_finished(job: dict[str, object], result: dict[str, object]) -> None:
+            source_url = urllib.parse.urldefrag(str(job.get("__source_url__") or job.get("url") or "").strip())[0]
+            source_key = (str(job.get("platform") or "").strip().lower(), source_url)
+            prefetched_result = dict(prefetched_source_results.get(source_key) or {})
+            prepared_total = len(dict(result.get("previews") or {}))
+            _upsert_source_summary(
+                {
+                    **_source_progress_row(
+                        dict(job),
+                        status="warming",
+                        provider_cache_state=dict(prefetched_result.get("provider_cache_state") or {}),
+                    ),
+                    "preview_prepared_total": prepared_total,
+                }
+            )
+            _report(
+                step="source_preview_prepare",
+                message=(
+                    f"Prepared {prepared_total} listing preview(s) from {str(job.get('__source_label__') or source_url).strip()}."
+                    if prepared_total > 0
+                    else f"Prepared preview queue for {str(job.get('__source_label__') or source_url).strip()}."
+                ),
+                status="in_progress",
+                steps_delta=0,
+                summary_updates={"sources": source_summaries},
+            )
+
+        source_preview_prefetch_state = self._prefetch_property_public_previews_for_sources(
+            source_jobs=source_preview_jobs,
+            cache_index=public_preview_cache,
+            worker_cap=provider_preview_worker_cap,
+            on_source_started=_source_preview_prefetch_started if source_preview_jobs else None,
+            on_source_finished=_source_preview_prefetch_finished if source_preview_jobs else None,
+        )
+        source_preview_prefetch_results = (
+            dict(source_preview_prefetch_state.get("source_results") or {})
+            if isinstance(source_preview_prefetch_state.get("source_results"), dict)
+            else {}
+        )
+        public_property_cache_hit_total += int(source_preview_prefetch_state.get("cache_hit_total") or 0)
+        public_property_cache_refresh_total += int(source_preview_prefetch_state.get("cache_refresh_total") or 0)
 
         def _record_discovery_filter_penalty(
             *,
@@ -34282,7 +35802,7 @@ class ProductService:
                 failed_total += 1
                 provider_repair_task_existing_for_source += 1
                 provider_repair_task_existing_total += 1
-                source_summaries.append(
+                _upsert_source_summary(
                     {
                         "source_url": source_url,
                         "source_label": source_label,
@@ -34320,6 +35840,14 @@ class ProductService:
                 )
                 continue
 
+            _upsert_source_summary(
+                _source_progress_row(
+                    dict(source_spec),
+                    status="starting",
+                    provider_cache_state=provider_cache_state,
+                )
+            )
+
             def _remember_filter_near_miss(
                 *,
                 row: dict[str, object],
@@ -34337,7 +35865,7 @@ class ProductService:
                 if normalized_filter_key not in _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS:
                     return
                 prefilter_score = float(row.get("fit_score") or 0.0)
-                if prefilter_score < max(float(min_match_score), 50.0):
+                if prefilter_score < 50.0:
                     return
                 near_miss_facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
                 if source_location_hints and not _property_candidate_matches_search_area(
@@ -34538,6 +36066,7 @@ class ProductService:
                 message=f"Scanning source {source_label}.",
                 status="in_progress",
                 steps_delta=1,
+                summary_updates={"sources": source_summaries},
             )
 
             prefetched_result = dict(prefetched_source_results.get(source_key) or {})
@@ -34624,7 +36153,7 @@ class ProductService:
                             "repair_workflow": "ea_provider_ooda",
                         }
                     )
-                source_summaries.append(
+                _upsert_source_summary(
                     {
                         "source_url": source_url,
                         "source_label": source_label,
@@ -34643,7 +36172,20 @@ class ProductService:
                         "provider_repair_task_existing_total": provider_repair_task_existing_for_source,
                         "provider_repair_tasks": provider_repair_tasks_for_source[:10],
                         "error": fetch_error,
+                        "status": "failed",
                     }
+                )
+                _report(
+                    step="source_failed",
+                    message=f"Could not fetch {source_label}.",
+                    status="in_progress",
+                    steps_delta=0,
+                    summary_updates={
+                        "sources": source_summaries,
+                        "failed_total": failed_total,
+                        "provider_repair_task_opened_total": provider_repair_task_opened_total,
+                        "provider_repair_task_existing_total": provider_repair_task_existing_total,
+                    },
                 )
                 continue
 
@@ -34662,8 +36204,8 @@ class ProductService:
                 step="source_rank_prep",
                 message=(
                     f"Found {raw_listing_count} raw listing candidates for {source_label}; "
-                    f"scanning {len(listing_urls)} for {shortlist_target_label} above "
-                    f"{int(min_match_score)}/100."
+                    f"scanning {len(listing_urls)} and ranking {shortlist_target_label} "
+                    "against the saved brief."
                 ),
                 status="in_progress",
                 steps_delta=1,
@@ -34703,7 +36245,7 @@ class ProductService:
                 ),
             )
             if not listing_urls:
-                source_summaries.append(
+                _upsert_source_summary(
                     {
                         "source_url": source_url,
                         "source_label": source_label,
@@ -34737,6 +36279,7 @@ class ProductService:
                         "top_fit_score": 0.0,
                         "top_candidates": [],
                         "research_candidates": [],
+                        "status": "completed",
                         "timing_ms": {
                             "provider_fetch": round(provider_fetch_ms, 2),
                             "provider_preview": 0.0,
@@ -34762,6 +36305,16 @@ class ProductService:
                     },
                 )
                 continue
+            prefetched_preview_state = (
+                dict(source_preview_prefetch_results.get(source_key) or {})
+                if isinstance(source_preview_prefetch_results.get(source_key), dict)
+                else {}
+            )
+            prefetched_listing_previews = (
+                dict(prefetched_preview_state.get("previews") or {})
+                if isinstance(prefetched_preview_state.get("previews"), dict)
+                else {}
+            )
             preliminary_rows: list[dict[str, object]] = []
             provider_preview_started_at = time.perf_counter()
             for ordinal, property_url in enumerate(listing_urls, start=1):
@@ -34803,23 +36356,14 @@ class ProductService:
                     },
                 )
                 preview: dict[str, object]
-                try:
-                    cached_preview = self._property_public_preview_cache_lookup(
-                        cache_index=public_preview_cache,
-                        property_url=property_url,
-                    )
-                    if cached_preview:
-                        preview = dict(cached_preview)
-                        public_property_cache_hit_total += 1
-                    else:
-                        preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=True)
-                        self._property_public_preview_cache_store(
-                            cache_index=public_preview_cache,
-                            property_url=property_url,
-                            preview=preview,
-                        )
-                        public_property_cache_refresh_total += 1
-                except Exception:
+                cached_preview = (
+                    dict(prefetched_listing_previews.get(property_url) or {})
+                    if isinstance(prefetched_listing_previews.get(property_url), dict)
+                    else {}
+                )
+                if cached_preview:
+                    preview = dict(cached_preview)
+                else:
                     preview = {
                         "listing_id": property_url,
                         "title": property_url,
@@ -35500,15 +37044,6 @@ class ProductService:
             ranked_rows: list[dict[str, object]] = []
             top_watch_candidate_for_source: dict[str, object] | None = None
             for ordinal, row in enumerate(preliminary_rows[:enrichment_limit], start=1):
-                if (
-                    not unlimited_provider_results
-                    and max_results is not None
-                    and (
-                    sum(1 for ranked_row in ranked_rows if not bool(ranked_row.get("below_match_threshold")))
-                    >= max_results
-                    )
-                ):
-                    break
                 property_url = str(row.get("property_url") or "").strip()
                 _report(
                     step="source_assessing",
@@ -36168,7 +37703,6 @@ class ProductService:
                     and not blocking_constraints
                 )
                 is_watch_fit = _property_alert_is_watch_fit(assessment, policy=policy)
-                keep_demoted_review_candidate = score_below_min and recommendation == "review"
                 if score_below_min and not sparse_provider_fallback:
                     if bool(policy.get("notify_top_watch_hit_when_no_good_fit")) and is_watch_fit:
                         candidate_source_ref = (
@@ -36185,42 +37719,22 @@ class ProductService:
                                 "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
                                 "fit_score": adjusted_fit_score,
                             }
-                    filtered_low_fit_total += 1
-                    filtered_low_fit_for_source += 1
                     ranked_rows[-1]["score_demoted"] = True
                     ranked_rows[-1]["below_match_threshold"] = True
                     ranked_rows[-1]["score_demotion_reason"] = (
-                        f"Below the current {int(min_match_score)}/100 match bar."
+                        f"Below the current {int(min_match_score)}/100 match bar; kept lower in ranking."
                     )
-                    if keep_demoted_review_candidate:
-                        ranked_rows[-1]["score_demotion_reason"] = (
-                            f"Below the current {int(min_match_score)}/100 match bar; kept for ranking."
-                        )
                     detailed_facts["score_demoted_by_match_threshold"] = True
                     detailed_facts["score_demotion_reason"] = ranked_rows[-1]["score_demotion_reason"]
-                    if keep_demoted_review_candidate:
-                        _report(
-                            step="source_low_fit_demoted",
-                            message=(
-                                f"Demoted review candidate below {int(min_match_score)}/100 for {source_label}; "
-                                "kept in ranking."
-                            ),
-                            status="in_progress",
-                            steps_delta=0,
-                            summary_updates={"filtered_low_fit_total": filtered_low_fit_total},
-                        )
-                    else:
-                        _report(
-                            step="source_low_fit_filtered",
-                            message=(
-                                f"Filtered candidate below {int(min_match_score)}/100 for {source_label}."
-                            ),
-                            status="in_progress",
-                            steps_delta=0,
-                            summary_updates={"filtered_low_fit_total": filtered_low_fit_total},
-                        )
-                        ranked_rows.pop()
-                        continue
+                    _report(
+                        step="source_low_fit_ranked",
+                        message=(
+                            f"Ranked candidate below {int(min_match_score)}/100 for {source_label}; "
+                            "kept for review."
+                        ),
+                        status="in_progress",
+                        steps_delta=0,
+                    )
                 if ordinal == 1 or ordinal == enrichment_limit or ordinal % 2 == 0:
                     _report(
                         step="source_ranking",
@@ -36344,24 +37858,8 @@ class ProductService:
                     seen_listing_fingerprints.add(listing_fingerprint)
                 unique_ranked_rows.append(row)
             ranked_rows = unique_ranked_rows
-            strong_ranked_rows = [
-                row for row in ranked_rows if not bool(row.get("below_match_threshold"))
-            ]
-            fallback_ranked_rows = [
-                row for row in ranked_rows if bool(row.get("below_match_threshold"))
-            ]
-            if strong_ranked_rows:
-                if unlimited_provider_results:
-                    ranked_rows = [*strong_ranked_rows, *fallback_ranked_rows]
-                else:
-                    ranked_rows = strong_ranked_rows[: max(1, int(max_results or 1))]
-                    remaining_slots = max(0, int(max_results or 1) - len(ranked_rows))
-                    if remaining_slots > 0 and fallback_ranked_rows:
-                        ranked_rows.extend(fallback_ranked_rows[:remaining_slots])
-            elif not unlimited_provider_results and len(fallback_ranked_rows) > int(max_results or 1):
-                ranked_rows = fallback_ranked_rows[: int(max_results or 1)]
-            else:
-                ranked_rows = fallback_ranked_rows
+            if not unlimited_provider_results:
+                ranked_rows = ranked_rows[: max(1, int(max_results or 1))]
             _report(
                 step="source_shortlist",
                 message=f"Built shortlist of {len(ranked_rows)} listing(s) for {source_label}.",
@@ -36785,7 +38283,7 @@ class ProductService:
                 )
 
             reviewed_listing_total += len(listing_urls)
-            source_summaries.append(
+            _upsert_source_summary(
                 {
                     "source_url": source_url,
                     "source_label": source_label,
@@ -36874,6 +38372,7 @@ class ProductService:
                     "top_fit_score": max((_property_alert_fit_score(dict(item.get("assessment") or {})) for item in ranked_rows), default=0.0),
                     "top_candidates": sorted_top_candidates_for_source if unlimited_provider_results else sorted_top_candidates_for_source[:5],
                     "research_candidates": sorted_top_candidates_for_source,
+                    "status": "completed",
                     "timing_ms": {
                         "provider_fetch": round(provider_fetch_ms, 2),
                         "provider_preview": round(float(source_timing_ms.get("provider_preview") or 0.0), 2),
@@ -37149,6 +38648,11 @@ class ProductService:
         payload = {
             "generated_at": _now_iso(),
             "status": "processed",
+            **{
+                key: value
+                for key, value in run_entitlement_summary.items()
+                if key != "provider_workers"
+            },
             "sources_total": source_variant_total,
             "source_variant_total": source_variant_total,
             "provider_total": provider_total,
@@ -40336,6 +41840,53 @@ class ProductService:
             "human_task_id": str(created.get("human_task_id") or "").strip(),
         }
 
+    def _run_scene_video_skill(
+        self,
+        *,
+        title: str,
+        actor: str,
+        provider_key: str = "",
+        input_json: dict[str, object] | None = None,
+        task_principal_id: str = "",
+    ) -> dict[str, object]:
+        import json as _json
+
+        from app.domain.models import TaskExecutionRequest
+        from app.services.scene_video_contract import normalize_scene_video_contract_provider
+
+        def _normalize_scene_video_provider_contract_key(value: object) -> str:
+            return normalize_scene_video_contract_provider(value, default="magicfit")
+
+        payload = {
+            "title": str(title or "Scene video").strip() or "Scene video",
+            **dict(input_json or {}),
+        }
+        request_principal_id = str(task_principal_id or "").strip() or str(payload.get("principal_id") or "").strip()
+        payload.pop("principal_id", None)
+        payload["provider_key"] = _normalize_scene_video_provider_contract_key(
+            payload.get("provider_key") or provider_key or "magicfit"
+        )
+        artifact = self._container.orchestrator.execute_task_artifact(
+            TaskExecutionRequest(
+                skill_key="scene_video_generate",
+                principal_id=request_principal_id or f"ea-scene-video-{str(actor or 'worker').strip() or 'worker'}",
+                goal=f"Generate a scene video packet for {title or 'the requested scene'}.",
+                text=str(payload.get("script_text") or payload.get("tour_url") or title or "").strip(),
+                input_json=payload,
+            )
+        )
+        structured = dict(artifact.structured_output_json or {})
+        if set(structured.keys()) == {"result"} and isinstance(structured.get("result"), dict):
+            structured = dict(structured.get("result") or {})
+        if not structured:
+            try:
+                loaded = _json.loads(str(artifact.content or ""))
+            except Exception:
+                loaded = {}
+            if isinstance(loaded, dict):
+                structured = dict(loaded)
+        return structured
+
     def _maybe_render_property_scout_flythrough(
         self,
         *,
@@ -40358,6 +41909,10 @@ class ProductService:
         if not renderable_tour_url:
             return {"status": "skipped", "reason": "tour_url_missing", "video_url": ""}
         facts = dict(property_facts or {}) if isinstance(property_facts, dict) else {}
+        tour_context_json = _property_walkthrough_scene_video_context(
+            renderable_tour_url,
+            tour_result=tour_payload,
+        )
         existing_delivery = _hosted_property_tour_video_delivery(renderable_tour_url)
         if str(existing_delivery.get("video_url") or "").strip():
             duration_ok, duration_reason, actual_seconds, required_seconds = _magicfit_flythrough_duration_gate(
@@ -40381,18 +41936,23 @@ class ProductService:
                 }
             existing_delivery["duration_gate_reason"] = duration_reason
         try:
-            rendered = _render_property_flythrough_into_hosted_tour(
-                tour_url=renderable_tour_url,
+            rendered = self._run_scene_video_skill(
                 title=title,
-                property_facts=facts,
                 actor=actor,
-                diorama_style_hint=diorama_style_hint,
-                preferred_provider_key=walkthrough_provider_key,
+                provider_key=walkthrough_provider_key,
+                task_principal_id=principal_id,
+                input_json={
+                    "context_kind": "property_walkthrough",
+                    "tour_url": renderable_tour_url,
+                    "tour_context_json": tour_context_json,
+                    "property_facts_json": dict(facts or {}),
+                    "diorama_style_hint": diorama_style_hint,
+                },
             )
         except Exception as exc:
             rendered = {
                 "status": "failed",
-                "reason": "magicfit_property_scout_render_exception",
+                "reason": "property_scout_flythrough_render_exception",
                 "error": compact_text(str(exc or ""), fallback="", limit=240),
             }
         delivery_after_render = _hosted_property_tour_video_delivery(renderable_tour_url)
@@ -40405,7 +41965,7 @@ class ProductService:
         }
         self._record_product_event(
             principal_id=principal_id,
-            event_type="property_scout_magicfit_flythrough_rendered",
+            event_type="property_scout_walkthrough_rendered",
             payload={
                 "property_url": property_url,
                 "title": title,
@@ -40414,7 +41974,7 @@ class ProductService:
                 **result,
             },
             source_id=source_ref,
-            dedupe_key=f"{principal_id}|{source_ref}|property-scout-magicfit-flythrough",
+            dedupe_key=f"{principal_id}|{source_ref}|property-scout-walkthrough",
         )
         return result
 

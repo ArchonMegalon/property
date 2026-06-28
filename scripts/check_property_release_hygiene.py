@@ -27,6 +27,41 @@ FORBIDDEN_AUDIT_SUFFIXES = (
     "_mobile.png",
 )
 
+IGNORED_UNTRACKED_PREFIXES = (
+    "_completion/",
+    "_tmp_live_shots/",
+    ".pytest_cache/",
+    "state/",
+    "tmp_audit/",
+)
+
+RELEASE_SOURCE_PREFIXES = (
+    "docs/",
+    "ea/",
+    "scripts/",
+    "tests/",
+)
+
+RELEASE_SOURCE_EXACT_PATHS = {
+    ".env.example",
+    ".env.local.example",
+    "LTDs.md",
+    "docker-compose.property.yml",
+    "ea/Dockerfile.property",
+}
+
+RELEASE_SOURCE_SUFFIXES = {
+    ".html",
+    ".j2",
+    ".json",
+    ".md",
+    ".py",
+    ".sh",
+    ".toml",
+    ".yaml",
+    ".yml",
+}
+
 ALLOWED_17217_HOST_PATHS = {
     "docker-compose.yml",
 }
@@ -87,6 +122,17 @@ def git_head_parent_sha() -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def _git_status_rows() -> list[str]:
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
 def release_manifest_runtime_sha() -> str:
     manifest = ROOT / "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md"
     try:
@@ -101,6 +147,26 @@ def looks_like_text(path: Path) -> bool:
     if path.suffix.lower() in TEXT_SUFFIXES:
         return True
     return path.name.startswith(".env")
+
+
+def _normalize_status_path(raw_path: str) -> str:
+    normalized = str(raw_path or "").strip().replace("\\", "/")
+    if " -> " in normalized:
+        normalized = normalized.split(" -> ", 1)[1].strip()
+    return normalized
+
+
+def _is_release_source_path(rel_path: str) -> bool:
+    normalized = str(rel_path or "").strip().replace("\\", "/")
+    if not normalized:
+        return False
+    if any(normalized.startswith(prefix) for prefix in IGNORED_UNTRACKED_PREFIXES):
+        return False
+    if normalized in RELEASE_SOURCE_EXACT_PATHS:
+        return True
+    if any(normalized.startswith(prefix) for prefix in RELEASE_SOURCE_PREFIXES):
+        return True
+    return "/" not in normalized and Path(normalized).suffix.lower() in RELEASE_SOURCE_SUFFIXES
 
 
 def build_release_hygiene_receipt() -> dict[str, object]:
@@ -120,6 +186,30 @@ def build_release_hygiene_receipt() -> dict[str, object]:
             "release manifest runtime commit does not match current HEAD or deployed parent: "
             f"manifest={manifest_sha} head={head_sha} parent={parent_sha}"
         )
+    tracked_dirty_paths: list[str] = []
+    untracked_release_source_paths: list[str] = []
+    for row in _git_status_rows():
+        if len(row) < 4:
+            continue
+        status_code = row[:2]
+        path = _normalize_status_path(row[3:])
+        if not path:
+            continue
+        if status_code == "??":
+            if _is_release_source_path(path):
+                untracked_release_source_paths.append(path)
+            continue
+        tracked_dirty_paths.append(path)
+    if tracked_dirty_paths:
+        preview = ", ".join(tracked_dirty_paths[:12])
+        if len(tracked_dirty_paths) > 12:
+            preview += f", +{len(tracked_dirty_paths) - 12} more"
+        failures.append(f"tracked worktree must be clean before release: {preview}")
+    if untracked_release_source_paths:
+        preview = ", ".join(untracked_release_source_paths[:12])
+        if len(untracked_release_source_paths) > 12:
+            preview += f", +{len(untracked_release_source_paths) - 12} more"
+        failures.append(f"untracked release source files forbidden before release: {preview}")
     for rel_path in tracked_paths():
         normalized = rel_path.replace("\\", "/")
         path = ROOT / normalized
@@ -147,6 +237,8 @@ def build_release_hygiene_receipt() -> dict[str, object]:
             failures.append(f"hardcoded bearer authorization forbidden in tracked file: {normalized}")
     required_checks = [
         "release_manifest_runtime_commit_matches_head_or_parent",
+        "tracked_worktree_clean",
+        "no_untracked_release_source_files",
         "no_tracked_live_env_files",
         "no_tracked_audit_scratch_paths",
         "no_tracked_audit_artifacts",
@@ -164,6 +256,8 @@ def build_release_hygiene_receipt() -> dict[str, object]:
         "manifest_runtime_commit": manifest_sha,
         "head_commit": head_sha,
         "parent_commit": parent_sha,
+        "tracked_dirty_path_count": len(tracked_dirty_paths),
+        "untracked_release_source_count": len(untracked_release_source_paths),
         "note": "Repository hygiene and release-manifest authority gate for the tracked PropertyQuarry release plane.",
     }
 

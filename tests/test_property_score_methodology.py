@@ -61,11 +61,11 @@ def test_score_methodology_languages_cover_country_provider_catalog() -> None:
 def test_score_methodology_pdf_source_localizes_demo_signals_for_every_language() -> None:
     english_phrases = {
         "Selected area is respected.",
-        "Verified costs, floorplan, and 360 evidence raise confidence.",
+        "Confirmed costs, floorplan, and 360 evidence raise confidence.",
         "Commute and daily-life preferences score well.",
         "One soft preference is missing and lowers rank without excluding.",
         "Heating detail still needs confirmation before a final decision.",
-        "Verify the still-missing fact with the agent.",
+        "Check the remaining gap with the agent.",
         "Compare the route and noise evidence during an actual viewing.",
         "Example budget",
         "Demo market",
@@ -118,6 +118,32 @@ def test_score_methodology_applies_candidate_signals_and_band() -> None:
     assert any(row["level"] == "Starker Wunsch" for row in payload["weight_ladder_rows"])
     assert "persönliche Passung" in payload["subtitle"]
     assert "präferenz" in payload["weight_ladder_title"].lower()
+
+
+def test_score_methodology_english_copy_avoids_verification_jargon() -> None:
+    payload = build_property_score_methodology(language_code="en")
+
+    examples_blob = " ".join(
+        " ".join(str(row.get(key) or "") for key in ("title", "detail"))
+        for row in payload["examples"]
+    )
+    detail_blob = " ".join(
+        " ".join(str(row.get(key) or "") for key in ("label", "source", "rule", "alternatives"))
+        for row in payload["calculation_detail_rows"]
+    )
+    source_sections_blob = " ".join(
+        " ".join(str(row.get(key) or "") for key in ("title", "detail"))
+        for row in payload["source_sections"]
+    )
+
+    assert "verified listing facts" not in payload["summary"]
+    assert "confirmed listing facts" in payload["summary"]
+    assert "verified 360 source" not in examples_blob
+    assert "real 360 source" in examples_blob
+    assert "verification rules" not in source_sections_blob.lower()
+    assert "how facts are checked" in source_sections_blob.lower()
+    assert "open verification risk" not in detail_blob.lower()
+    assert "open questions" in detail_blob.lower()
 
 
 def test_bts_methodology_contract_proves_sources_and_no_district_reward() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import urllib.parse
 
+from app.api.routes.landing_property_research import _property_normalized_mismatch_reasons
 from app.product.property_location_research import property_school_context_summary
 
 
@@ -33,7 +34,7 @@ def build_property_source_rows(*, property_summary: dict[str, object]) -> list[d
                     f"{int(source.get('filtered_floorplan_total') or 0)} still waiting on floorplans"
                     if int(source.get('filtered_floorplan_total') or 0)
                     else "",
-                    f"{int(source.get('tour_created_total') or 0)} hosted tours",
+                    f"{int(source.get('tour_created_total') or 0)} 3D tours",
                     f"{int(source.get('notified_total') or 0)} client alerts",
                     f"{int(source.get('email_notified_total') or 0)} email" if int(source.get('email_notified_total') or 0) else "",
                     f"top score {float(source.get('top_fit_score') or 0.0):.2f}" if source.get("top_fit_score") is not None else "",
@@ -137,6 +138,7 @@ def build_property_shortlist_panel(
     )
 
     for candidate in ranked_candidates:
+        candidate_facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         source_label = str(candidate.get("source_label") or candidate.get("source_url") or "Source").strip()
         title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"
         detail_parts = [clean_candidate_copy(candidate.get("fit_summary") or "")]
@@ -145,15 +147,12 @@ def build_property_shortlist_panel(
             for item in list(candidate.get("match_reasons") or [])
             if clean_candidate_copy(item)
         ]
-        mismatch_reasons = [
-            clean_candidate_copy(item)
-            for item in list(candidate.get("mismatch_reasons") or [])
-            if clean_candidate_copy(item)
-        ]
+        mismatch_reasons = _property_normalized_mismatch_reasons(
+            [clean_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if clean_candidate_copy(item)],
+            facts=candidate_facts,
+            preferences=property_preferences,
+        )
         priority_reason = candidate_priority_reason(match_reasons, mismatch_reasons, clean_candidate_copy(candidate.get("fit_summary") or ""))
-        compare_reason = str(candidate.get("compare_reason") or "").strip()
-        if compare_reason:
-            detail_parts.append(compare_reason)
         if priority_reason:
             detail_parts.append(priority_reason)
         row: dict[str, str] = {
@@ -239,7 +238,7 @@ def build_property_shortlist_panel(
                 "mismatch_reasons": mismatch_reasons,
                 "lifestyle_highlights": _candidate_lifestyle_highlights(candidate),
                 "research_highlights": _candidate_research_highlights(candidate),
-                "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
+                "property_facts": candidate_facts,
                 "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
                 "feedback_summary": dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {},
                 "feedback_rows": [

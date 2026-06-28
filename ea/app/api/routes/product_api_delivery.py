@@ -209,7 +209,14 @@ def _property_preferences(container: AppContainer, *, principal_id: str) -> dict
     state = container.onboarding.status(principal_id=principal_id)
     preferences = dict(state.get("property_search_preferences") or {})
     raw_preferences = dict(preferences.get("raw_preferences") or {})
-    return raw_preferences or preferences
+    merged = raw_preferences or preferences
+    if isinstance(preferences.get("property_commercial"), dict) and not isinstance(
+        merged.get("property_commercial"),
+        dict,
+    ):
+        merged = dict(merged)
+        merged["property_commercial"] = dict(preferences.get("property_commercial") or {})
+    return merged
 
 
 def _save_property_preferences(

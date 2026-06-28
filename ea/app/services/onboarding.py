@@ -1388,6 +1388,27 @@ class OnboardingService(AssistantOnboardingService):
             "onboarding_id": state.onboarding_id if state is not None else "",
         }
 
+    def list_property_search_agent_principals(self, *, limit: int = 1000) -> tuple[str, ...]:
+        try:
+            rows = self._repo.list_states(limit=max(int(limit or 0), 1))
+        except Exception:
+            return ()
+        principals: list[str] = []
+        for state in rows:
+            principal_id = str(getattr(state, "principal_id", "") or "").strip()
+            if not principal_id:
+                continue
+            raw_property_preferences = dict(getattr(state, "property_search_preferences_json", {}) or {})
+            agents = self._normalize_property_search_agents(
+                raw_property_preferences,
+                active_agent_id=str(raw_property_preferences.get("active_search_agent_id") or "").strip(),
+                enforce_plan_limit=False,
+            )
+            if not any(bool(agent.get("enabled")) for agent in agents):
+                continue
+            principals.append(principal_id)
+        return tuple(dict.fromkeys(principals))
+
     def _ensure_state(self, principal_id: str) -> OnboardingState:
         existing = self._bridge_browser_principal_state(principal_id) or self._repo.get_for_principal(principal_id)
         if existing is not None:
@@ -1996,7 +2017,7 @@ class OnboardingService(AssistantOnboardingService):
         try:
             normalized_min_match_score = int(float(str(min_match_score or "").strip())) if min_match_score is not None else None
             if normalized_min_match_score is not None:
-                normalized_min_match_score = max(1, min(100, normalized_min_match_score))
+                normalized_min_match_score = max(0, min(100, normalized_min_match_score))
         except Exception:
             normalized_min_match_score = None
         search_agent_enabled = raw.get("search_agent_enabled") is True or str(raw.get("search_agent_enabled") or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}

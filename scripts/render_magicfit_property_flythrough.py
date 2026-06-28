@@ -15,11 +15,8 @@ import requests
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from property_magicfit_env import load_magicfit_env
 
-ROOT = Path("/docker/property")
-ENV_FILES = [
-    ROOT / ".env",
-]
 MAGICFIT_HOME_URL = "https://magicfit.pushowl.com/home"
 MAGICFIT_VIDEO_URL = "https://magicfit.pushowl.com/agents/generate?mode=video"
 VIDEO_URL_RE = re.compile(r"https://(?:cdn\.pushowl\.com|media\.powlcdn\.com)/magicfit/[^\"'\s<>]+?\.(?:mp4|webm)(?:[^\"'\s<>]*)?")
@@ -39,24 +36,8 @@ NEGATIVE = ", ".join(
         "no sterile showroom look",
     ]
 )
-
-
-def load_env_file(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip("'").strip('"')
-        os.environ.setdefault(key, value)
-
-
 def load_env() -> None:
-    for path in ENV_FILES:
-        load_env_file(path)
+    load_magicfit_env()
 
 
 def arg_parser() -> argparse.ArgumentParser:

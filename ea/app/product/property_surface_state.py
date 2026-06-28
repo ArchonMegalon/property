@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Callable
 
 from app.services.property_billing import normalize_property_plan_key, property_commercial_snapshot, property_plan_has_unlimited_provider_results
@@ -36,6 +37,7 @@ _INTERNAL_RUN_STATUS_NOISE_TOKENS = (
     "could not load property search status",
     "checking run status",
     "suppressed_generic_listing_page",
+    "starting property search run",
 )
 
 _RAW_PROVIDER_FAILURE_TOKENS = (
@@ -66,6 +68,10 @@ _CUSTOMER_SAFE_FAILURE_PREFIXES = (
     "no source completed cleanly enough",
 )
 
+_ACTIVE_REPAIR_STATUSES = {"repairing", "queued", "pending", "assigned", "retrying", "existing"}
+_ACTIVE_REPAIR_TASK_STATUSES = {"opened", "assigned", "running", "repairing", "pending", "existing", "queued"}
+_TERMINAL_REPAIR_TASK_STATUSES = {"returned", "failed", "done", "resolved", "completed", "closed"}
+
 
 def _positive_int(value: object, *, default: int = 0) -> int:
     try:
@@ -73,6 +79,80 @@ def _positive_int(value: object, *, default: int = 0) -> int:
     except Exception:
         parsed = 0
     return parsed if parsed > 0 else default
+
+
+def _property_run_distance_subject(value: object) -> str:
+    label = " ".join(str(value or "").replace("-", " ").split()).strip()
+    label = re.sub(r"\s+(?:radius|distance)\b", "", label, flags=re.IGNORECASE).strip()
+    if not label:
+        return "Distance"
+    return f"{label[:1].upper()}{label[1:]}"
+
+
+def _property_run_distance_phase_label(
+    *,
+    filter_label: object,
+    observed_distance_m: object = None,
+    requested_distance_m: object = None,
+    observed_place_name: object = "",
+) -> str:
+    observed = _positive_int(observed_distance_m)
+    if observed <= 0:
+        return ""
+    subject = _property_run_distance_subject(filter_label)
+    place_name = " ".join(str(observed_place_name or "").split()).strip()
+    detail = f"{subject}: {place_name} is {observed} m away" if place_name else f"{subject}: {observed} m away"
+    requested = _positive_int(requested_distance_m)
+    if requested > 0:
+        return f"{detail}. Limit {requested} m."
+    return f"{detail}."
+
+
+def _property_run_distance_phase_label_from_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    measured_match = re.search(
+        r"(?:outside the relaxed|beyond the preferred)\s+(.+?)\s+radius(?:\s+for\s+.+?)?:\s*(\d+(?:[.,]\d+)?)\s*m\s+vs\s+(\d+(?:[.,]\d+)?)\s*m\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not measured_match:
+        return ""
+    return _property_run_distance_phase_label(
+        filter_label=measured_match.group(1),
+        observed_distance_m=str(measured_match.group(2) or "").replace(",", "."),
+        requested_distance_m=str(measured_match.group(3) or "").replace(",", "."),
+    )
+
+
+def _property_run_source_near_miss_phase_label(source: dict[str, object]) -> str:
+    near_misses = [dict(item) for item in list(source.get("filter_near_misses") or []) if isinstance(item, dict)]
+    for near_miss in near_misses:
+        label = _property_run_distance_phase_label(
+            filter_label=near_miss.get("failed_filter_label") or near_miss.get("failed_filter_key"),
+            observed_distance_m=near_miss.get("observed_distance_m"),
+            requested_distance_m=near_miss.get("requested_distance_m"),
+            observed_place_name=near_miss.get("observed_place_name"),
+        )
+        if label:
+            return label
+    return ""
+
+
+def _property_run_source_summary_for_label(
+    source_rows: list[dict[str, object]],
+    source_label: object,
+) -> dict[str, object]:
+    needle = _canonical_property_run_source_label(source_label)
+    if not needle:
+        return {}
+    needle_folded = needle.casefold()
+    for row in source_rows:
+        row_label = _canonical_property_run_source_label(row.get("source_label") or row.get("label") or "")
+        if row_label == needle or row_label.casefold() == needle_folded:
+            return row
+    return {}
 
 
 def normalized_property_search_goal(value: object) -> str:
@@ -188,7 +268,7 @@ def property_run_status_copy(status_value: object, message_value: object = "") -
     if status == "completed_partial":
         return ("Finished with partial coverage", safe_message or "The shortlist is ready, but one or more sources finished degraded.")
     if status == "failed":
-        return ("Search failed", safe_message or "The search failed before ranking finished.")
+        return ("Search paused", safe_message or "The search paused before ranking finished.")
     if status == "cancelled":
         return ("Stopped", safe_message or "This search was stopped before it finished.")
     if status == "noop":
@@ -216,13 +296,25 @@ def property_run_customer_safe_status_detail(
     replacement_run_id = str(summary_dict.get("repair_replacement_run_id") or "").strip()
     repair_step = str(summary_dict.get("repair_step_label") or "").strip()
     repair_status = str(summary_dict.get("repair_status_label") or summary_dict.get("repair_status") or "").strip()
+    repair_flags = _repair_summary_flags(summary_dict)
+    repair_reason = _resolved_customer_repair_reason(summary_dict, message_value=message)
+    calm_repair_copy = _calm_customer_repair_copy(
+        repair_reason,
+        replacement_run_id=replacement_run_id,
+        repair_active=bool(repair_flags.get("active")),
+        repair_failed=bool(repair_flags.get("failed")),
+    )
+    if _customer_status_is_internal_failure_copy(customer_status) and calm_repair_copy:
+        customer_status = calm_repair_copy
+    if customer_status and calm_repair_copy and customer_status.lower() == calm_repair_copy.lower():
+        repair_reason = ""
 
     if replacement_run_id:
-        return "A replacement search run is now checking the saved brief."
+        return customer_status or calm_repair_copy or "A replacement search run is checking the saved brief."
     if any(token in lowered for token in _INTERNAL_RUN_STATUS_NOISE_TOKENS):
-        return customer_status
+        return customer_status or calm_repair_copy or repair_reason
     if status == "failed" and lowered.startswith(_CUSTOMER_SAFE_FAILURE_PREFIXES):
-        return message
+        return customer_status or calm_repair_copy or _join_customer_sentences(message, repair_reason if repair_reason.lower() not in lowered else "")
 
     raw_failure_like = (
         status in {"failed", "error"}
@@ -233,16 +325,245 @@ def property_run_customer_safe_status_detail(
     ) or any(token in lowered for token in _RAW_PROVIDER_FAILURE_TOKENS)
 
     if repair_step and raw_failure_like and prefer_repair_step:
-        return repair_step if repair_step.endswith((".", "!", "?")) else f"{repair_step}."
+        return customer_status or calm_repair_copy or _join_customer_sentences(repair_step, repair_reason)
     if customer_status and (status in {"failed", "completed_partial"} or raw_failure_like):
+        if repair_reason and repair_reason.lower() not in customer_status.lower():
+            return _join_customer_sentences(customer_status, repair_reason)
         return customer_status
     if repair_step and raw_failure_like:
-        return "Repair is retrying the interrupted provider checks."
+        return calm_repair_copy or _join_customer_sentences("Repair is retrying the interrupted provider checks", repair_reason)
     if raw_failure_like and repair_status:
-        return f"Repair status: {repair_status}."
+        return calm_repair_copy or _join_customer_sentences(f"Recovery: {repair_status}", repair_reason)
     if status == "failed" and raw_failure_like:
-        return "Search paused before a stable shortlist was ready."
+        return calm_repair_copy or _join_customer_sentences("Search paused before a stable shortlist was ready", repair_reason)
+    if status == "failed" and repair_flags.get("active"):
+        return customer_status or calm_repair_copy or "Repair is retrying the saved search."
+    if status == "failed" and repair_flags.get("failed"):
+        return customer_status or calm_repair_copy or "Search paused before a usable shortlist was ready."
     return customer_status or message
+
+
+def _repair_tasks(summary: dict[str, object]) -> list[dict[str, object]]:
+    return [dict(row) for row in list(summary.get("provider_repair_tasks") or []) if isinstance(row, dict)]
+
+
+def _repair_receipts(summary: dict[str, object]) -> list[dict[str, object]]:
+    return [dict(row) for row in list(summary.get("repair_receipts") or []) if isinstance(row, dict)]
+
+
+def _repair_summary_flags(summary: dict[str, object]) -> dict[str, object]:
+    repair_status = str(summary.get("repair_status") or "").strip().lower()
+    repair_status_label = str(summary.get("repair_status_label") or "").strip().lower()
+    replacement_run_id = str(summary.get("repair_replacement_run_id") or "").strip()
+    tasks = _repair_tasks(summary)
+    task_statuses = {
+        str(task.get("status") or "").strip().lower()
+        for task in tasks
+        if str(task.get("status") or "").strip()
+    }
+    has_active_task = bool(task_statuses & _ACTIVE_REPAIR_TASK_STATUSES)
+    has_terminal_task = bool(task_statuses & _TERMINAL_REPAIR_TASK_STATUSES)
+    active = not replacement_run_id and (
+        repair_status in _ACTIVE_REPAIR_STATUSES
+        or repair_status_label in _ACTIVE_REPAIR_STATUSES
+        or has_active_task
+    )
+    failed = not replacement_run_id and (
+        repair_status == "failed"
+        or repair_status_label == "repair failed"
+        or (has_terminal_task and not has_active_task and repair_status not in _ACTIVE_REPAIR_STATUSES and repair_status_label not in _ACTIVE_REPAIR_STATUSES)
+    )
+    return {
+        "active": active,
+        "failed": failed,
+        "replacement_run_id": replacement_run_id,
+    }
+
+
+def _latest_repair_reason(summary: dict[str, object]) -> str:
+    receipts = _repair_receipts(summary)
+    for receipt in reversed(receipts):
+        reason = str(receipt.get("reason") or "").strip()
+        if reason:
+            return reason
+    for task in _repair_tasks(summary):
+        reason = str(task.get("reason") or "").strip()
+        if reason:
+            return reason
+    return ""
+
+
+def _customer_friendly_repair_reason(summary: dict[str, object]) -> str:
+    receipts = _repair_receipts(summary)
+    latest_receipt = receipts[-1] if receipts else {}
+    resolution = str(latest_receipt.get("resolution") or "").strip().lower()
+    reason = _latest_repair_reason(summary).strip().lower()
+    combined = " ".join(part for part in (resolution, reason) if part).strip()
+    if not combined:
+        return ""
+    if (
+        resolution == "suppressed_source_fetch_forbidden"
+        or "blocked or rejected automated source fetch" in reason
+        or "403" in combined
+        or "forbidden" in combined
+    ):
+        return "This source stopped returning a usable listing page."
+    if resolution == "suppressed_generic_listing_page" or "generic marketing or overview page" in reason:
+        return "This source opened an overview page instead of one concrete home."
+    if resolution == "provider_quarantined_retry_budget_exhausted" or "manual_provider_patch_required" in combined:
+        return "This source changed enough that the run could not recover it automatically yet."
+    if resolution == "suppressed_missing_location" or "lacks a concrete location" in reason:
+        return "This source no longer returned a clear location for the home."
+    if resolution == "suppressed_missing_price" or "lacks a concrete price" in reason:
+        return "This source no longer returned a confirmed price for the home."
+    if resolution == "suppressed_location_scope" or "conflicts with the active search location" in reason:
+        return "This source no longer matched the saved search area cleanly."
+    if resolution in {"worker_exception_restart_required", "stale_run_restart_required"}:
+        return "The repair restarted the run, but it still did not reach a usable shortlist."
+    if "provider page" in combined or "webpage" in combined or "extract" in combined:
+        return "This source changed and the current check could not confirm the listing reliably."
+    return ""
+
+
+def _resolved_customer_repair_reason(
+    summary: dict[str, object],
+    *,
+    message_value: object = "",
+) -> str:
+    friendly = _customer_friendly_repair_reason(summary).strip()
+    if friendly:
+        return friendly
+    latest_reason = _latest_repair_reason(summary).strip().lower()
+    message = str(message_value or "").strip().lower()
+    combined = " ".join(part for part in (latest_reason, message) if part).strip()
+    if not combined:
+        return ""
+    if (
+        "suppressed_generic_listing_page" in combined
+        or "generic listing page" in combined
+        or "overview page" in combined
+    ):
+        return "This source opened an overview page instead of one concrete home."
+    if (
+        "suppressed_missing_location" in combined
+        or "missing location" in combined
+        or "lacks a concrete location" in combined
+    ):
+        return "This source no longer returned a clear location for the home."
+    if (
+        "suppressed_missing_price" in combined
+        or "missing price" in combined
+        or "lacks a concrete price" in combined
+    ):
+        return "This source no longer returned a confirmed price for the home."
+    if (
+        "suppressed_location_scope" in combined
+        or "location scope" in combined
+        or "wrong area" in combined
+        or "conflicts with the active search location" in combined
+    ):
+        return "This source no longer matched the saved search area cleanly."
+    if (
+        "403" in combined
+        or "forbidden" in combined
+        or "provider returned" in combined
+        or "while fetching" in combined
+        or "fetch failed" in combined
+        or "temporary fetch failed" in combined
+        or "timeout" in combined
+        or "timed out" in combined
+        or "blocked" in combined
+        or "webpage" in combined
+        or "provider page" in combined
+        or "extract" in combined
+    ):
+        return "This source changed and the current check could not confirm the listing reliably."
+    return ""
+
+
+def _join_customer_sentences(*parts: object) -> str:
+    rows: list[str] = []
+    for part in parts:
+        text = str(part or "").strip()
+        if not text:
+            continue
+        rows.append(text if text.endswith((".", "!", "?")) else f"{text}.")
+    return " ".join(rows).strip()
+
+
+def _customer_status_is_internal_failure_copy(value: object) -> bool:
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return False
+    return lowered.startswith(
+        (
+            "no source completed cleanly enough",
+            "search failed before ranking",
+            "search paused before a stable shortlist was ready",
+        )
+    )
+
+
+def _repair_reason_points_to_provider_site_change(reason: object) -> bool:
+    lowered = str(reason or "").strip().lower()
+    if not lowered:
+        return False
+    return any(
+        token in lowered
+        for token in (
+            "source stopped returning",
+            "overview page",
+            "clear location",
+            "confirmed price",
+            "matched the saved search area",
+            "confirm the listing reliably",
+        )
+    )
+
+
+def _calm_customer_repair_copy(
+    repair_reason: object,
+    *,
+    replacement_run_id: object = "",
+    repair_active: bool = False,
+    repair_failed: bool = False,
+) -> str:
+    if replacement_run_id and _repair_reason_points_to_provider_site_change(repair_reason):
+        return "A source changed, so a fresh search is already running."
+    if replacement_run_id:
+        return "A replacement search run is checking the saved brief."
+    if repair_active and _repair_reason_points_to_provider_site_change(repair_reason):
+        return "One source changed, so PropertyQuarry is retrying it."
+    if repair_failed and _repair_reason_points_to_provider_site_change(repair_reason):
+        return "One source changed, so this run could not finish automatically."
+    return ""
+
+
+def _latest_repair_timestamp(summary: dict[str, object]) -> str:
+    receipts = _repair_receipts(summary)
+    candidate_values = [summary.get("repair_last_updated_at")]
+    if receipts:
+        candidate_values.append(receipts[-1].get("at"))
+    for value in candidate_values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _format_property_repair_timestamp(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except Exception:
+        return text
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    parsed_utc = parsed.astimezone(timezone.utc)
+    return parsed_utc.strftime("%b %-d, %Y %H:%M UTC")
 
 
 def property_run_event_is_internal_noise(event: dict[str, object]) -> bool:
@@ -259,7 +580,100 @@ def property_run_event_is_internal_noise(event: dict[str, object]) -> bool:
         or "checking run status" in message
     ):
         return True
+    if "starting property search run" in message:
+        return True
     return False
+
+
+def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
+    reviewed = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
+    provider_total = _positive_int(
+        summary.get("provider_total")
+        or summary.get("source_variant_total")
+        or summary.get("sources_total")
+    )
+    provider_label = (
+        f"{provider_total} provider check{'s' if provider_total != 1 else ''}"
+        if provider_total > 0
+        else "provider checks"
+    )
+    if reviewed > 0:
+        return f"Checking {provider_label} · {reviewed} homes reviewed."
+    if provider_total > 0:
+        return f"Preparing {provider_label}."
+    return "Preparing provider checks."
+
+
+def _property_run_current_progress_message(
+    payload: dict[str, object],
+    *,
+    summary: dict[str, object],
+    status: str,
+) -> str:
+    raw_message = payload.get("message") or summary.get("message") or summary.get("status_note") or ""
+    safe_message = property_run_customer_safe_status_detail(
+        status,
+        raw_message,
+        summary=summary,
+        prefer_repair_step=True,
+    )
+    repair_status = str(summary.get("repair_status") or summary.get("repair_status_label") or "").strip().lower()
+    if safe_message and (status in {"failed", "completed_partial"} or repair_status):
+        return safe_message
+
+    step = str(payload.get("current_step") or summary.get("current_step") or "").strip().lower()
+    live_board = build_property_run_live_board_snapshot(payload, plan_key="free")
+    provider_label = _compact_property_provider_label(
+        live_board.get("provider_full_label") or live_board.get("provider_label") or ""
+    )
+    fraction_label = str(live_board.get("fraction_label") or "").strip()
+    phase_label = str(live_board.get("phase_label") or "").strip()
+    aggregate_label = str(live_board.get("aggregate_label") or "").strip()
+    generic_waiting_phase = phase_label.lower() == "waiting for the first provider update."
+
+    if step in {"queued", "starting", "sources_resolved", "source_catalog_loading", "source_started"}:
+        return _property_run_progress_fallback_message(summary)
+
+    progress_parts: list[str] = []
+    if provider_label and provider_label.lower() not in {"provider", "ready", "waiting", "preparing"}:
+        progress_parts.append(provider_label)
+    if fraction_label:
+        progress_parts.append(fraction_label)
+    if aggregate_label and aggregate_label.lower() != "0 homes reviewed":
+        progress_parts.append(aggregate_label)
+
+    if step in {"source_ranking", "source_shortlist", "source_assessing", "source_low_fit_ranked", "source_discovery_penalty"}:
+        if phase_label.lower().startswith("shortlist ready"):
+            return phase_label if not progress_parts else f"{phase_label} · {' · '.join(progress_parts)}"
+        if progress_parts:
+            return " · ".join(progress_parts)
+    if step in {"source_fetching", "source_extracting", "source_preview_prepare", "source_previewing", "source_rank_prep"}:
+        if progress_parts:
+            return " · ".join(progress_parts)
+    if step in {"shortlist_ready", "source_review_packet", "source_completed"} and phase_label and not generic_waiting_phase:
+        return phase_label if not progress_parts else f"{phase_label} · {' · '.join(progress_parts)}"
+    if phase_label and not generic_waiting_phase:
+        return phase_label if not progress_parts else f"{phase_label} · {' · '.join(progress_parts)}"
+    if progress_parts:
+        return " · ".join(progress_parts)
+    return safe_message or _property_run_progress_fallback_message(summary)
+
+
+def _property_run_repair_receipt_message(receipt: dict[str, object]) -> str:
+    source_label = str(receipt.get("source_label") or "Provider").strip() or "Provider"
+    stub_summary = {"repair_receipts": [receipt]}
+    friendly = _resolved_customer_repair_reason(
+        stub_summary,
+        message_value=receipt.get("resolution") or receipt.get("reason") or "",
+    )
+    if friendly:
+        return f"{source_label}: {friendly}"
+    resolution = str(receipt.get("resolution") or receipt.get("reason") or "repair updated").strip()
+    if not resolution:
+        return ""
+    normalized = " ".join(resolution.replace("_", " ").split()).strip()
+    normalized = normalized[:1].upper() + normalized[1:] if normalized else "Repair updated"
+    return f"{source_label}: {normalized}."
 
 
 def property_run_customer_visible_events(
@@ -272,17 +686,7 @@ def property_run_customer_visible_events(
 
     def _current_progress_event() -> dict[str, object]:
         step = str(payload.get("current_step") or summary.get("current_step") or "status_refresh").strip() or "status_refresh"
-        message = property_run_customer_safe_status_detail(
-            status,
-            payload.get("message") or summary.get("message") or summary.get("status_note") or "",
-            summary=summary,
-            prefer_repair_step=True,
-        )
-        if not message:
-            reviewed = summary.get("reviewed_listing_total") or summary.get("listing_total") or 0
-            provider_total = summary.get("provider_total") or summary.get("source_variant_total") or 0
-            provider_label = f"{provider_total} provider checks" if provider_total else "selected providers"
-            message = f"Search is still running across {provider_label}; {reviewed} homes reviewed so far."
+        message = _property_run_current_progress_message(payload, summary=summary, status=status)
         return {
             "step": step,
             "status": status,
@@ -304,8 +708,17 @@ def property_run_customer_visible_events(
                 prefer_repair_step=True,
             ) or str(row.get("message") or "").strip()
             visible_events.append(row)
+        current_event = _current_progress_event()
+        if current_event.get("message"):
+            latest_visible = visible_events[-1] if visible_events else {}
+            latest_step = str(latest_visible.get("step") or "").strip().lower()
+            latest_message = str(latest_visible.get("message") or "").strip().lower()
+            current_step = str(current_event.get("step") or "").strip().lower()
+            current_message = str(current_event.get("message") or "").strip().lower()
+            if current_message and (current_step != latest_step or current_message != latest_message):
+                visible_events.append(current_event)
         if visible_events:
-            return visible_events
+            return visible_events[-8:]
     if status not in {"failed", "completed_partial"}:
         return [_current_progress_event()]
     synthesized_events: list[dict[str, object]] = []
@@ -316,20 +729,22 @@ def property_run_customer_visible_events(
             {
                 "step": "repair_status",
                 "status": str(summary.get("repair_status") or "repairing").strip() or "repairing",
-                "message": repair_step or f"Repair status: {repair_label}.",
+                "message": repair_step or f"Source follow-up: {repair_label}.",
                 "created_at": str(summary.get("repair_last_updated_at") or payload.get("updated_at") or payload.get("generated_at") or ""),
             }
         )
     for receipt in [dict(item) for item in list(summary.get("repair_receipts") or []) if isinstance(item, dict)][-3:]:
-        source_label = str(receipt.get("source_label") or "Provider").strip()
         resolution = str(receipt.get("resolution") or receipt.get("reason") or "repair updated").strip()
         if resolution.strip().lower() == "suppressed_generic_listing_page":
+            continue
+        message = _property_run_repair_receipt_message(receipt)
+        if not message:
             continue
         synthesized_events.append(
             {
                 "step": "repair_receipt",
                 "status": "repaired",
-                "message": f"{source_label}: {resolution}.",
+                "message": message,
                 "created_at": str(receipt.get("at") or payload.get("updated_at") or payload.get("generated_at") or ""),
             }
         )
@@ -416,11 +831,22 @@ def build_property_run_repair_snapshot(
             eta_confidence = "low"
         else:
             eta_confidence = "unknown"
+    repair_flags = _repair_summary_flags(summary)
+    latest_repair_reason = _resolved_customer_repair_reason(summary, message_value=payload.get("message"))
+    calm_repair_copy = _calm_customer_repair_copy(
+        latest_repair_reason,
+        replacement_run_id=repair_flags.get("replacement_run_id"),
+        repair_active=bool(repair_flags.get("active")),
+        repair_failed=bool(repair_flags.get("failed")),
+    )
+    latest_repair_timestamp = _format_property_repair_timestamp(_latest_repair_timestamp(summary))
     repair_status = str(summary.get("repair_status") or "").strip().lower()
     if not repair_status:
         if status == "completed_partial":
             repair_status = "degraded"
-        elif failed_total:
+        elif repair_flags["failed"]:
+            repair_status = "failed"
+        elif repair_flags["active"] or failed_total:
             repair_status = "repairing"
         else:
             repair_status = "stable"
@@ -436,12 +862,30 @@ def build_property_run_repair_snapshot(
             repair_status_label = "Stable"
     repair_outcome_summary = str(summary.get("repair_outcome_summary") or "").strip()
     if not repair_outcome_summary:
-        if status == "completed_partial":
+        if repair_flags["failed"]:
+            repair_outcome_summary = (
+                property_run_customer_safe_status_detail(status, payload.get("message") or "", summary=summary)
+                or calm_repair_copy
+                or "Search paused before a usable shortlist was ready."
+            )
+            if latest_repair_timestamp:
+                repair_outcome_summary = f"{repair_outcome_summary} Last real update: {latest_repair_timestamp}."
+        elif status == "completed_partial":
             repair_outcome_summary = "The shortlist is ready, but one or more provider checks finished degraded."
         elif failed_total and results_total > 0:
-            repair_outcome_summary = "Some provider checks are retrying, but the current shortlist is already usable."
+            repair_outcome_summary = _join_customer_sentences(
+                "Some provider checks are retrying, but the current shortlist is already usable",
+                latest_repair_reason,
+            )
         elif failed_total:
-            repair_outcome_summary = "Some provider checks are retrying before the shortlist can settle."
+            repair_outcome_summary = _join_customer_sentences(
+                "Some provider checks are retrying before the shortlist can settle",
+                latest_repair_reason,
+            )
+    if repair_flags["failed"] and not repair_step:
+        repair_step = "Repair finished without a usable shortlist."
+    if repair_flags["failed"] and not next_useful_eta:
+        next_useful_eta = "start a fresh run after changing one provider or rule"
     return PropertyRunRepairSnapshot(
         repair_status=repair_status,
         repair_status_label=repair_status_label,
@@ -477,20 +921,39 @@ def build_property_run_reliability_snapshot(
             failed_total += 1
     pending_total = max(0, source_total - source_checked)
     repair = build_property_run_repair_snapshot(payload, results_total=results_total)
-    customer_status = str(summary.get("customer_status_message") or "").strip()
+    repair_reason = _resolved_customer_repair_reason(summary, message_value=message)
+    customer_status = ""
+    if status in {"failed", "completed_partial"} or failed_total or str(summary.get("repair_status") or "").strip():
+        customer_status = property_run_customer_safe_status_detail(status, message, summary=summary)
+    if not customer_status:
+        customer_status = str(summary.get("customer_status_message") or "").strip()
     if not customer_status:
         if status in {"processed", "completed"}:
             customer_status = "Search finished cleanly."
         elif status == "completed_partial":
             customer_status = message or "Search finished with partial coverage after one or more provider checks degraded."
         elif status == "failed":
-            customer_status = message or "Search interrupted before the final pass completed."
+            if str(summary.get("repair_replacement_run_id") or "").strip():
+                customer_status = _join_customer_sentences(
+                    "A replacement search run is now checking the saved brief",
+                    repair_reason,
+                )
+            elif repair_reason:
+                customer_status = _join_customer_sentences("Repair is retrying the saved search", repair_reason)
+            else:
+                customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
-            customer_status = "Some provider checks are retrying, but the current shortlist is already usable."
+            customer_status = _join_customer_sentences(
+                "Some provider checks are retrying, but the current shortlist is already usable",
+                repair_reason,
+            )
         elif failed_total:
-            customer_status = "Some provider checks are retrying before the shortlist can settle."
+            customer_status = _join_customer_sentences(
+                "Some provider checks are retrying before the shortlist can settle",
+                repair_reason,
+            )
         elif results_total > 0:
-            customer_status = "Strongest verified matches are already ready while the rest of the search finishes."
+            customer_status = "The strongest matches are already ready while the rest of the search finishes."
         elif source_checked > 0:
             customer_status = "Provider checks are running and the first shortlist is still building."
         else:
@@ -554,6 +1017,17 @@ def _compact_run_message(value: object) -> str:
     return text
 
 
+def _canonical_property_run_source_label(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\s+with\s+\d+\s+raw listing candidate\(s\)\.?$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+with\s+\d+\s+listing candidate\(s\)\.?$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+with\s+\d+\s+listing preview\(s\)\.?$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+with\s+\d+\s+preview\(s\)\.?$", "", text, flags=re.IGNORECASE)
+    return text.rstrip(". ").strip()
+
+
 def _parse_property_run_message_info(value: object) -> dict[str, str]:
     text = str(value or "").strip()
     if not text:
@@ -562,6 +1036,38 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
             "fraction_label": "",
             "source_label": "",
             "phase_label": "Waiting for the first provider update.",
+        }
+    provider_load_match = re.search(r"^Loading provider page for\s+(.+?)\.?$", text, flags=re.IGNORECASE)
+    if provider_load_match:
+        return {
+            "raw": text,
+            "fraction_label": "",
+            "source_label": _canonical_property_run_source_label(provider_load_match.group(1)),
+            "phase_label": _compact_run_message(text),
+        }
+    provider_loaded_match = re.search(r"^Loaded provider page for\s+(.+?)\s+with\s+\d+\s+raw listing candidate\(s\)\.?$", text, flags=re.IGNORECASE)
+    if provider_loaded_match:
+        return {
+            "raw": text,
+            "fraction_label": "",
+            "source_label": _canonical_property_run_source_label(provider_loaded_match.group(1)),
+            "phase_label": _compact_run_message(text),
+        }
+    provider_failed_match = re.search(r"^Could not load provider page for\s+(.+?)\.?$", text, flags=re.IGNORECASE)
+    if provider_failed_match:
+        return {
+            "raw": text,
+            "fraction_label": "",
+            "source_label": _canonical_property_run_source_label(provider_failed_match.group(1)),
+            "phase_label": _compact_run_message(text),
+        }
+    preview_match = re.search(r"^(?:Checking listing previews from|Prepared \d+ listing preview\(s\) from|Prepared preview queue for)\s+(.+?)\.?$", text, flags=re.IGNORECASE)
+    if preview_match:
+        return {
+            "raw": text,
+            "fraction_label": "",
+            "source_label": _canonical_property_run_source_label(preview_match.group(1)),
+            "phase_label": _compact_run_message(text),
         }
     source_match = re.search(r"\sfor\s+(.+?)\.?$", text, flags=re.IGNORECASE)
     candidate_match = re.search(r"^(Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
@@ -575,7 +1081,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
         return {
             "raw": text,
             "fraction_label": f"{candidate_match.group(2)} / {candidate_match.group(3)}",
-            "source_label": str(source_match.group(1) or "").strip() if source_match else "",
+            "source_label": _canonical_property_run_source_label(source_match.group(1) if source_match else ""),
             "phase_label": phase_label,
         }
     enrich_match = re.search(r"^Enriching top\s+(\d+)\s+candidate\(s\)\s+out of\s+(\d+)\s+for\s+(.+?)\s+before final shortlist scoring\.?$", text, flags=re.IGNORECASE)
@@ -583,7 +1089,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
         return {
             "raw": text,
             "fraction_label": f"{enrich_match.group(1)} / {enrich_match.group(2)}",
-            "source_label": str(enrich_match.group(3) or "").strip(),
+            "source_label": _canonical_property_run_source_label(enrich_match.group(3)),
             "phase_label": "Preparing shortlist",
         }
     shortlist_match = re.search(r"^Built shortlist of\s+(\d+)\s+listing\(s\)\s+for\s+(.+)\.$", text, flags=re.IGNORECASE)
@@ -592,7 +1098,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
         return {
             "raw": text,
             "fraction_label": "",
-            "source_label": str(shortlist_match.group(2) or "").strip(),
+            "source_label": _canonical_property_run_source_label(shortlist_match.group(2)),
             "phase_label": f"Shortlist ready · {total} home{'' if total == '1' else 's'}",
         }
     prepared_match = re.search(r"^Prepared property page for\s+.+\.$", text, flags=re.IGNORECASE)
@@ -608,13 +1114,13 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
         return {
             "raw": text,
             "fraction_label": "",
-            "source_label": str(completed_match.group(1) or "").strip(),
+            "source_label": _canonical_property_run_source_label(completed_match.group(1)),
             "phase_label": "Source finished",
         }
     return {
         "raw": text,
         "fraction_label": "",
-        "source_label": str(source_match.group(1) or "").strip() if source_match else "",
+        "source_label": _canonical_property_run_source_label(source_match.group(1) if source_match else ""),
         "phase_label": _compact_run_message(text),
     }
 
@@ -642,6 +1148,10 @@ def _property_run_candidate_reason_label(value: object) -> str:
         return ""
     ordinal = f"{candidate.group(1)}/{candidate.group(2)}"
     normalized = text.lower()
+    concrete_distance_label = _property_run_distance_phase_label_from_text(text)
+    if concrete_distance_label:
+        return concrete_distance_label
+    measured_distance_match = re.search(r"\b\d+(?:[.,]\d+)?\s*(?:m|meter|metre|km|kilometer|kilometre)\b", text, flags=re.IGNORECASE)
     if any(token in normalized for token in ("balcony", "terrace", "outdoor")) and any(
         token in normalized for token in ("missing", "none", "without", "absent", "no ")
     ):
@@ -756,8 +1266,14 @@ def _property_run_candidate_reason_label(value: object) -> str:
     if ("school" in normalized or "kindergarten" in normalized) and any(
         token in normalized for token in ("too far", "farther", "further", "beyond", "outside")
     ):
-        fit_label = "Kindergarten distance" if "kindergarten" in normalized else "School distance"
-        return f"{fit_label} was wider than preferred for candidate {ordinal} (score impact only)"
+        if not measured_distance_match:
+            return ""
+        observed_match = re.search(r"\d+(?:[.,]\d+)?", measured_distance_match.group(0), flags=re.IGNORECASE)
+        fit_label = "Kindergarten" if "kindergarten" in normalized else "School"
+        return _property_run_distance_phase_label(
+            filter_label=fit_label,
+            observed_distance_m=str(observed_match.group(0) if observed_match else "").replace(",", "."),
+        )
     if "commute" in normalized and any(token in normalized for token in ("within", "fast", "short", "fits", "fit", "matched")):
         return f"Commute fit improved the score for candidate {ordinal}"
     if "commute" in normalized and any(token in normalized for token in ("long", "slow", "longer", "beyond", "outside")):
@@ -765,16 +1281,8 @@ def _property_run_candidate_reason_label(value: object) -> str:
     if any(token in normalized for token in ("supermarket", "pharmacy", "bakery", "market", "errand")) and any(
         token in normalized for token in ("far", "farther", "beyond", "outside")
     ):
-        return f"Daily errands were farther than preferred for candidate {ordinal} (score impact only)"
-    distance_match = re.search(
-        r"(?:outside the relaxed|beyond the preferred)\s+(.+?)\s+radius",
-        text,
-        flags=re.IGNORECASE,
-    )
-    if distance_match:
-        label = str(distance_match.group(1) or "").strip().replace("-", " ")
-        label = label[:1].upper() + label[1:] if label else "Distance"
-        return f"{label} was too far away for candidate {ordinal} (score impact only)"
+        if not measured_distance_match:
+            return ""
     if "below" in normalized and ("/m2" in normalized or "area" in normalized):
         return f"Area was below the minimum for candidate {ordinal}"
     if "outside the move-in horizon" in normalized:
@@ -827,12 +1335,18 @@ def _compact_property_provider_label(value: object) -> str:
 
 
 def _source_provider_group(source: dict[str, object]) -> str:
-    family = str(source.get("provider_family") or "").strip().lower()
-    if family:
-        return family
-    platform = str(source.get("platform") or "").strip().lower()
-    if platform:
-        return platform
+    for raw_key in (
+        "provider_source_key",
+        "source_provider_key",
+        "provider_key",
+        "platform",
+        "provider_group",
+        "provider_channel",
+        "provider_family",
+    ):
+        value = str(source.get(raw_key) or "").strip().lower()
+        if value:
+            return value
     label = str(source.get("source_label") or source.get("label") or "").strip()
     return (label.split("|")[0] or label).strip().lower() or "provider"
 
@@ -873,6 +1387,7 @@ def build_property_run_live_board_snapshot(
     progress = max(0, min(100, _positive_int(payload.get("progress") or summary.get("progress"))))
     source_total = max(0, _positive_int(summary.get("sources_total")))
     source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    source_total = max(source_total, _positive_int(summary.get("source_variant_total")), len(source_rows))
     reviewed_total = max(0, _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total") or summary.get("raw_listing_total")))
     waiting_on_floorplans = max(0, _positive_int(summary.get("filtered_floorplan_total")))
     packet_prepared = max(0, _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total")))
@@ -880,15 +1395,19 @@ def build_property_run_live_board_snapshot(
 
     live_info = _latest_property_run_fraction_info(payload)
     current_info = _parse_property_run_message_info(payload.get("message"))
-    active_source_label = str(current_info.get("source_label") or live_info.get("source_label") or "").strip()
+    active_source_label = _canonical_property_run_source_label(current_info.get("source_label") or live_info.get("source_label") or "")
     message_text = str(payload.get("message") or "").strip().lower()
 
     aggregate_label = f"{reviewed_total} homes reviewed"
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} still waiting on floorplans"
     phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first provider update."
+    active_source_summary = _property_run_source_summary_for_label(source_rows, active_source_label)
+    source_near_miss_label = _property_run_source_near_miss_phase_label(active_source_summary)
     candidate_reason_label = _latest_property_run_candidate_reason_label(payload)
-    if current_info.get("fraction_label") and candidate_reason_label:
+    if current_info.get("fraction_label") and source_near_miss_label:
+        phase_label = source_near_miss_label
+    elif current_info.get("fraction_label") and candidate_reason_label:
         phase_label = candidate_reason_label
     if phase_label == "Waiting for the first provider update." and packet_prepared > 0 and str(payload.get("current_step") or "").strip().lower() == "source_review_packet":
         phase_label = f"{packet_prepared} property pages prepared"
@@ -899,19 +1418,23 @@ def build_property_run_live_board_snapshot(
     for source in source_rows:
         row = dict(source)
         raw_status = str(row.get("status") or row.get("state") or "").strip().lower()
-        row_label = str(row.get("source_label") or row.get("label") or "").strip()
+        row_label = _canonical_property_run_source_label(row.get("source_label") or row.get("label") or "")
         if not raw_status:
             row["status"] = "failed" if row.get("error") else "completed"
         if active_source_label and row_label == active_source_label and not message_text.startswith("completed scanning "):
             row["status"] = "failed" if row.get("error") else "running"
         normalized_rows.append(row)
     synthetic_active = []
-    if active_source_label and not any(str(row.get("source_label") or row.get("label") or "").strip() == active_source_label for row in normalized_rows) and not message_text.startswith("completed scanning "):
+    if active_source_label and not any(_canonical_property_run_source_label(row.get("source_label") or row.get("label") or "") == active_source_label for row in normalized_rows) and not message_text.startswith("completed scanning "):
         synthetic_active.append({"source_label": active_source_label, "label": active_source_label, "status": "running"})
     lane_rows = [*synthetic_active, *normalized_rows]
-    active_rows = [
+    running_rows = [
         row for row in lane_rows
-        if str(row.get("status") or row.get("state") or "").strip().lower() in {"running", "processing", "in_progress", "working", "warming", "queued", "pending", "starting"}
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"running", "processing", "in_progress", "working", "warming"}
+    ]
+    queued_rows = [
+        row for row in lane_rows
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"queued", "pending", "starting"}
     ]
     failed_rows = [
         row for row in lane_rows
@@ -919,9 +1442,9 @@ def build_property_run_live_board_snapshot(
     ]
     completed_rows = [
         row for row in lane_rows
-        if str(row.get("status") or row.get("state") or "").strip().lower() in {"completed", "processed", "done", "success"}
+        if str(row.get("status") or row.get("state") or "").strip().lower() in {"completed", "processed", "done", "success", "repaired"}
     ]
-    raw_worker_queue = [*active_rows, *failed_rows, *completed_rows]
+    raw_worker_queue = [*running_rows, *queued_rows, *failed_rows, *completed_rows]
     seen_groups: set[str] = set()
     worker_queue: list[dict[str, object]] = []
     for row in raw_worker_queue:
@@ -932,8 +1455,11 @@ def build_property_run_live_board_snapshot(
         worker_queue.append(row)
     normalized_plan_key = normalize_property_plan_key(plan_key)
     plan_cap = 4 if normalized_plan_key == "agent" else (2 if normalized_plan_key == "plus" else 1)
+    provider_workers = dict(summary.get("provider_workers") or {}) if isinstance(summary.get("provider_workers"), dict) else {}
+    configured_workers = _positive_int(provider_workers.get("worker_concurrency"))
     run_active = progress > 0 or status in {"queued", "in_progress", "running", "processing", "starting"}
-    actual_worker_count = min(plan_cap, len(worker_queue))
+    effective_worker_cap = max(1, min(4, max(configured_workers or plan_cap, len(worker_queue) if run_active else 0)))
+    actual_worker_count = min(effective_worker_cap, len(worker_queue))
     worker_count = actual_worker_count if actual_worker_count > 0 else (1 if run_active else 0)
     worker_lanes: list[dict[str, object]] = []
     for index in range(worker_count):
@@ -943,19 +1469,27 @@ def build_property_run_live_board_snapshot(
         if progress_pct <= 0:
             if raw_status in {"completed", "processed", "done", "success", "failed", "error", "skipped"}:
                 progress_pct = 100
-            elif raw_status in {"running", "processing", "in_progress", "working", "warming"}:
+            elif raw_status == "starting":
+                progress_pct = 26
+            elif raw_status == "warming":
+                progress_pct = 42
+            elif raw_status in {"running", "processing", "in_progress", "working"}:
                 progress_pct = 58
-            elif raw_status in {"queued", "pending", "starting"}:
+            elif raw_status in {"queued", "pending"}:
                 progress_pct = 18
             else:
                 progress_pct = 0
         if source is None:
             status_label = "Starting" if run_active else "Idle"
-        elif raw_status in {"completed", "processed", "done", "success"}:
+        elif raw_status in {"completed", "processed", "done", "success", "repaired"}:
             status_label = "Done"
         elif raw_status in {"failed", "error"} or source.get("error"):
             status_label = "Fetch failed"
-        elif raw_status in {"running", "processing", "in_progress", "working", "warming"}:
+        elif raw_status == "starting":
+            status_label = "Starting"
+        elif raw_status == "warming":
+            status_label = "Preparing"
+        elif raw_status in {"running", "processing", "in_progress", "working"}:
             status_label = "Running"
         else:
             status_label = "Up next"
@@ -963,7 +1497,7 @@ def build_property_run_live_board_snapshot(
             tone = "active" if status_label == "Starting" else "idle"
         elif progress_pct >= 100 and status_label == "Done":
             tone = "done"
-        elif status_label in {"Running", "Starting"}:
+        elif status_label in {"Running", "Starting", "Preparing"}:
             tone = "active"
         elif status_label == "Fetch failed":
             tone = "warn"
@@ -1369,11 +1903,6 @@ def build_property_empty_outcome_summary(
     suppression_rows: list[dict[str, object]],
 ) -> dict[str, str]:
     filtered_total = int(run_summary.get("filtered_total") or run_summary.get("held_back_total") or 0)
-    score_demoted_total = int(
-        run_summary.get("score_demoted_total")
-        or run_summary.get("filtered_low_fit_total")
-        or 0
-    )
     source_total = int(run_summary.get("sources_total") or len(run_sources) or 0)
     source_completed = int(
         run_summary.get("sources_completed")
@@ -1401,9 +1930,25 @@ def build_property_empty_outcome_summary(
     eta_label = str(run_summary.get("eta_label") or "").strip()
     repair_step_label = str(run_summary.get("repair_step_label") or "").strip()
     repair_status_label = str(run_summary.get("repair_status_label") or run_summary.get("repair_status") or "").strip()
-    replacement_run_id = str(run_summary.get("repair_replacement_run_id") or "").strip()
-    repair_tasks = [row for row in list(run_summary.get("provider_repair_tasks") or []) if isinstance(row, dict)]
-    repair_task_open = any(str(row.get("status") or "").strip().lower() in {"opened", "assigned", "running", "repairing"} for row in repair_tasks)
+    repair_flags = _repair_summary_flags(run_summary)
+    replacement_run_id = str(repair_flags.get("replacement_run_id") or "").strip()
+    repair_task_open = bool(repair_flags.get("active"))
+    repair_failed = bool(repair_flags.get("failed"))
+    latest_repair_reason = _resolved_customer_repair_reason(run_summary, message_value=run_message)
+    calm_repair_copy = _calm_customer_repair_copy(
+        latest_repair_reason,
+        replacement_run_id=replacement_run_id,
+        repair_active=repair_task_open,
+        repair_failed=repair_failed,
+    )
+    latest_repair_update = _format_property_repair_timestamp(_latest_repair_timestamp(run_summary))
+    safe_failed_message = property_run_customer_safe_status_detail(
+        status_value,
+        run_message,
+        summary=run_summary,
+    )
+    if safe_failed_message.lower().startswith("search paused"):
+        safe_failed_message = "Search paused before a usable shortlist was ready."
     strongest_relax = next((row for row in (counterfactual_rows or []) if row.get("adjustments")), {})
     active_rule = ""
     if strongest_relax:
@@ -1411,13 +1956,24 @@ def build_property_empty_outcome_summary(
     elif suppression_rows:
         active_rule = str((suppression_rows[0] or {}).get("title") or "").strip()
     if status_value == "failed" and replacement_run_id:
-        happened = "Search paused. A replacement run is checking the saved brief."
+        happened = calm_repair_copy or "A replacement search run is checking the saved brief."
         stopped_context = "This page will move to the replacement run when it has a usable update."
     elif status_value == "failed":
-        if source_total or listing_total:
+        if repair_failed:
+            happened = safe_failed_message or calm_repair_copy or "Search paused before a usable shortlist was ready."
+            if source_total or listing_total:
+                listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
+                stopped_context = (
+                    f"The last pass inspected {listing_label} before the repair stopped."
+                    if listing_total > 0
+                    else "The brief and selected providers were saved, but no provider produced a usable shortlist."
+                )
+            else:
+                stopped_context = "The brief and selected providers were saved, but no provider produced a usable shortlist."
+        elif source_total or listing_total:
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if repair_task_open or repair_step_label or repair_status_label:
-                happened = "Search paused. Repair is retrying the saved search."
+                happened = safe_failed_message or calm_repair_copy or "Repair is retrying the saved search."
             else:
                 happened = "Search paused before a stable shortlist was ready."
             if source_completed <= 0 and listing_total <= 0:
@@ -1426,27 +1982,16 @@ def build_property_empty_outcome_summary(
                 stopped_context = f"The interrupted pass inspected {listing_label} before repair took over."
         else:
             if repair_task_open or repair_step_label or repair_status_label:
-                happened = "Search paused. Repair is retrying the saved search."
+                happened = safe_failed_message or calm_repair_copy or "Repair is retrying the saved search."
+                stopped_context = "Repair took over before any listing inspection completed."
             else:
-                happened = (
-                    property_run_customer_safe_status_detail(
-                        status_value,
-                        run_message,
-                        summary=run_summary,
-                    )
-                    or "Search paused before a stable shortlist was ready."
-                )
-            stopped_context = ""
+                happened = safe_failed_message or "Search paused before a stable shortlist was ready."
+                stopped_context = ""
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         happened = "No shortlist yet inside the selected area."
         stopped_context = (
             f"{filtered_total} candidate{'s' if filtered_total != 1 else ''} were held back; "
             "most conflicted with the selected-area rule or were provider overview pages."
-        )
-    elif filtered_total <= 0 and score_demoted_total > 0:
-        happened = "No homes cleared the shortlist score."
-        stopped_context = (
-            f"{score_demoted_total} reviewed home{'s' if score_demoted_total != 1 else ''} stayed below the current shortlist score."
         )
     elif filtered_total > 0:
         happened = "No shortlist yet."
@@ -1458,24 +2003,20 @@ def build_property_empty_outcome_summary(
         still_worked = (
             f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected providers."
         )
-    elif filtered_total <= 0 and score_demoted_total > 0:
-        still_worked = (
-            f"The selected providers covered {listing_total} listing{'s' if listing_total != 1 else ''}."
-            if listing_total
-            else stopped_context
-        )
     else:
         still_worked = (
             f"The selected providers covered {listing_total} listing{'s' if listing_total != 1 else ''}."
             if listing_total
             else "The brief and selected providers were still saved."
         )
-    if status_value == "failed":
+    if status_value == "failed" and replacement_run_id:
         next_move = "Wait for repair; this page switches to the usable run when one is ready."
+    elif status_value == "failed" and repair_task_open:
+        next_move = "Wait for repair; this page switches to the usable run when one is ready."
+    elif status_value == "failed":
+        next_move = "Start a fresh search or change one provider or rule before retrying the same brief."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
-    elif filtered_total <= 0 and score_demoted_total > 0:
-        next_move = "Lower the shortlist score or review the strongest near-misses before changing any hard rules."
     else:
         next_move = (
             str(strongest_relax.get("detail") or "").strip()
@@ -1484,18 +2025,22 @@ def build_property_empty_outcome_summary(
         )
     if status_value == "failed" and replacement_run_id:
         eta_feedback = stopped_context
+    elif status_value == "failed" and repair_failed:
+        eta_feedback = stopped_context
+        if latest_repair_update:
+            eta_feedback = f"{eta_feedback} Last real update: {latest_repair_update}.".strip()
     elif status_value == "failed" and repair_step_label:
-        if repair_step_label.lower().startswith("queued a generic"):
+        if repair_task_open:
+            eta_feedback = stopped_context
+        elif repair_step_label.lower().startswith("queued a generic"):
             eta_feedback = stopped_context
         else:
             eta_feedback = f"{repair_step_label}. {stopped_context}".strip()
     elif status_value == "failed" and repair_status_label:
-        eta_feedback = f"Repair: {repair_status_label}. {stopped_context}".strip()
+        eta_feedback = stopped_context if repair_task_open else f"Repair: {repair_status_label}. {stopped_context}".strip()
     elif status_value not in {"processed", "completed", "completed_partial", "noop", "cancelled"} and eta_label:
         eta_feedback = f"Estimated remaining time: {eta_label}."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
-        eta_feedback = stopped_context
-    elif filtered_total <= 0 and score_demoted_total > 0:
         eta_feedback = stopped_context
     elif source_total:
         eta_feedback = "Change one rule and rerun for a fresh read."

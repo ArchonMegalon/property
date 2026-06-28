@@ -126,7 +126,9 @@ fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_tour_delivery_contract.py \
   --tour-control-receipt _completion/property_tour_controls/release-gate.json \
   --write _completion/tour_delivery/property-tour-delivery-contract-release-gate.json
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
+if ! PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py; then
+  echo "warning: Brilliant Directories verifier reported a blocked external billing lane; continuing so the consolidated gold receipt can capture the blocker." >&2
+fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_id_austria_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py \
   --write _completion/smoke/property-auth-performance-release-gate.json >/dev/null
@@ -169,7 +171,9 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_provider_ownership.py
   > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py \
   > _completion/repair/propertyquarry-repair-canary-release-gate.json
-if [[ -f _completion/provider_smoke/all-search-ready-current-resumed.json ]]; then
+if [[ -f _completion/provider_smoke/production-e2e-provider-matrix-current.json ]]; then
+  cp _completion/provider_smoke/production-e2e-provider-matrix-current.json _completion/provider_smoke/release-gate-provider-matrix.json
+elif [[ -f _completion/provider_smoke/all-search-ready-current-resumed.json ]]; then
   cp _completion/provider_smoke/all-search-ready-current-resumed.json _completion/provider_smoke/release-gate-provider-matrix.json
 elif [[ -f _completion/provider_smoke/all-search-ready-live.json ]]; then
   cp _completion/provider_smoke/all-search-ready-live.json _completion/provider_smoke/release-gate-provider-matrix.json
@@ -199,6 +203,19 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --tour-delivery-contract-receipt _completion/tour_delivery/property-tour-delivery-contract-release-gate.json \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
+gold_notification_principal_id="${PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID:-${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}}"
+gold_notification_base_url="${PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL:-${live_mobile_base_url}}"
+gold_notification_state="${PROPERTYQUARRY_GOLD_NOTIFICATION_STATE:-_completion/propertyquarry-gold-notification-state.json}"
+gold_notification_report="_completion/property_gold_status/telegram-notify-report.json"
+if ! PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_notify_gold_status.py \
+  --receipt _completion/property_gold_status/release-gate.json \
+  --state-file "${gold_notification_state}" \
+  --principal-id "${gold_notification_principal_id}" \
+  --base-url "${gold_notification_base_url}" \
+  --write "${gold_notification_report}" >/dev/null; then
+  echo "warning: PropertyQuarry gold notification script failed." >&2
+  cat "${gold_notification_report}" >&2 2>/dev/null || true
+fi
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
   tests/test_property_live_mobile_surface_smoke.py \

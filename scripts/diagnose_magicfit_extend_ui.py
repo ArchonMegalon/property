@@ -10,28 +10,9 @@ from pathlib import Path
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-
-ENV_FILES = (
-    Path("/docker/property/.env"),
-    Path("/app/.env"),
-    Path("/app/config/.env"),
-)
-
-
-def _load_env_file(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip("'").strip('"'))
-
-
+from property_magicfit_env import load_magicfit_env
 def _load_env() -> None:
-    for path in ENV_FILES:
-        _load_env_file(path)
+    load_magicfit_env()
 
 
 def _login_if_needed(page) -> None:

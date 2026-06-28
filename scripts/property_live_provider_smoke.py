@@ -293,6 +293,39 @@ def _search_ready_provider_options(country_code: str) -> list[dict[str, object]]
     ]
 
 
+def _select_targeted_provider_options(
+    *,
+    countries: Iterable[str],
+    provider_keys: Iterable[str] = (),
+    max_providers: int = 0,
+) -> dict[str, list[dict[str, object]]]:
+    normalized_countries = tuple(
+        dict.fromkeys(str(country or "").strip().upper() for country in countries if str(country or "").strip())
+    )
+    requested_provider_keys = tuple(
+        dict.fromkeys(str(provider_key or "").strip() for provider_key in provider_keys if str(provider_key or "").strip())
+    )
+    allowed_provider_keys = set(requested_provider_keys)
+    remaining_global_limit = max(0, int(max_providers or 0))
+    limit_enabled = remaining_global_limit > 0
+    selected: dict[str, list[dict[str, object]]] = {}
+    for country in normalized_countries:
+        country_rows: list[dict[str, object]] = []
+        for option in _search_ready_provider_options(country):
+            provider_key = str(option.get("value") or "").strip()
+            if not provider_key:
+                continue
+            if allowed_provider_keys and provider_key not in allowed_provider_keys:
+                continue
+            if limit_enabled and remaining_global_limit <= 0:
+                break
+            country_rows.append(dict(option))
+            if limit_enabled:
+                remaining_global_limit -= 1
+        selected[country] = country_rows
+    return selected
+
+
 def _post_search_run_payload(*, base_url: str, payload: dict[str, object], timeout_seconds: float) -> dict[str, object]:
     url = urllib.parse.urljoin(base_url.rstrip("/") + "/", "app/api/property/search-runs")
     api_token = str(os.getenv("EA_API_TOKEN") or "").strip()
@@ -488,12 +521,19 @@ def _build_targeted_provider_search_matrix(
     dry_run: bool,
     execute: bool,
     timeout_seconds: float,
+    provider_keys: Iterable[str] = (),
+    max_providers: int = 0,
     search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
     status_fetcher: Callable[[str, str, float], dict[str, object]] | None = None,
     checkpoint_writer: Callable[[list[dict[str, object]]], None] | None = None,
     resume_rows: Iterable[dict[str, object]] = (),
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    provider_rows_by_country = _select_targeted_provider_options(
+        countries=countries,
+        provider_keys=provider_keys,
+        max_providers=max_providers,
+    )
     executor = search_executor or (lambda payload, timeout: _post_search_run_payload(base_url=base_url, payload=payload, timeout_seconds=timeout))
     status_reader = status_fetcher or (
         lambda run_id, status_url, timeout: _fetch_search_run_status_payload(
@@ -514,7 +554,7 @@ def _build_targeted_provider_search_matrix(
     }
     for country in countries:
         normalized_country = str(country or "").strip().upper()
-        for option in _search_ready_provider_options(normalized_country):
+        for option in list(provider_rows_by_country.get(normalized_country) or []):
             provider_key = str(option.get("value") or "").strip()
             provider_country = str(option.get("country_code") or "").strip().upper()
             if not provider_key:
@@ -640,8 +680,35 @@ def _targeted_search_matrix_summary(
     execute_requested: bool,
     enabled: bool,
     dry_run: bool,
+    provider_keys: Iterable[str] = (),
+    max_providers: int = 0,
 ) -> dict[str, object]:
     normalized_countries = tuple(dict.fromkeys(str(country or "").strip().upper() for country in countries if str(country or "").strip()))
+    selected_provider_scope = _select_targeted_provider_options(
+        countries=normalized_countries,
+        provider_keys=provider_keys,
+        max_providers=max_providers,
+    )
+    full_provider_scope = {
+        country: _search_ready_provider_options(country)
+        for country in normalized_countries
+    }
+    selected_provider_keys_by_country = {
+        country: {
+            str(row.get("value") or "").strip()
+            for row in list(selected_provider_scope.get(country) or [])
+            if str(row.get("value") or "").strip()
+        }
+        for country in normalized_countries
+    }
+    full_provider_keys_by_country = {
+        country: {
+            str(row.get("value") or "").strip()
+            for row in list(full_provider_scope.get(country) or [])
+            if str(row.get("value") or "").strip()
+        }
+        for country in normalized_countries
+    }
     status_counts: dict[str, int] = {}
     providers_by_country: dict[str, set[str]] = {country: set() for country in normalized_countries}
     modes_by_provider: dict[tuple[str, str], set[str]] = {}
@@ -679,6 +746,10 @@ def _targeted_search_matrix_summary(
     strict_rows = [row for row in rows if str(row.get("mode") or "") == "targeted_no_soft_filters"]
     soft_rows = [row for row in rows if str(row.get("mode") or "") == "targeted_soft_filters"]
     executed = bool(execute_requested and enabled and not dry_run)
+    provider_scope_filtered = any(
+        selected_provider_keys_by_country.get(country, set()) != full_provider_keys_by_country.get(country, set())
+        for country in normalized_countries
+    )
     reported_missing_passed_mode_pairs = missing_passed_mode_pairs if executed else []
     executed_rows = [
         row
@@ -715,8 +786,21 @@ def _targeted_search_matrix_summary(
     return {
         "country_codes": list(normalized_countries),
         "case_count": len(rows),
+        "provider_scope_filtered": provider_scope_filtered,
+        "selected_provider_keys": list(
+            dict.fromkeys(str(provider_key or "").strip() for provider_key in provider_keys if str(provider_key or "").strip())
+        ),
+        "max_providers": max(0, int(max_providers or 0)),
         "provider_count_by_country": {
             country: len(providers_by_country.get(country, set()))
+            for country in normalized_countries
+        },
+        "selected_provider_scope_count_by_country": {
+            country: len(selected_provider_keys_by_country.get(country, set()))
+            for country in normalized_countries
+        },
+        "full_search_ready_provider_count_by_country": {
+            country: len(full_provider_keys_by_country.get(country, set()))
             for country in normalized_countries
         },
         "strict_case_count": len(strict_rows),
@@ -740,7 +824,18 @@ def _targeted_search_matrix_summary(
         "status_readback_case_count": len(executed_rows),
         "status_readback_ok_count": len(status_readback_ok_rows),
         "status_readback_complete": (not executed) or len(status_readback_ok_rows) == len(rows),
-        "all_search_ready_providers_covered": not missing_mode_pairs,
+        "all_search_ready_providers_covered": (
+            not provider_scope_filtered
+            and all(
+                providers_by_country.get(country, set()) == full_provider_keys_by_country.get(country, set())
+                for country in normalized_countries
+            )
+            and not missing_mode_pairs
+        ),
+        "selected_provider_scope_covered": all(
+            providers_by_country.get(country, set()) == selected_provider_keys_by_country.get(country, set())
+            for country in normalized_countries
+        ) and not missing_mode_pairs,
         "missing_mode_pairs": missing_mode_pairs,
         "all_search_ready_provider_modes_passed": (not executed) or not reported_missing_passed_mode_pairs,
         "missing_passed_mode_pairs": reported_missing_passed_mode_pairs[:25],
@@ -790,6 +885,8 @@ def build_live_provider_smoke_receipt(
     countries: Iterable[str] = ("AT", "CR"),
     base_url: str = "http://localhost:8097",
     timeout_seconds: float = 8.0,
+    provider_keys: Iterable[str] = (),
+    max_providers: int = 0,
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
     execute_search_matrix: bool | None = None,
     all_search_ready_countries: bool | None = None,
@@ -918,6 +1015,8 @@ def build_live_provider_smoke_receipt(
             execute_requested=should_execute_search_matrix,
             enabled=enabled,
             dry_run=dry_run,
+            provider_keys=provider_keys,
+            max_providers=max_providers,
         )
         partial_receipt = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -949,6 +1048,8 @@ def build_live_provider_smoke_receipt(
         dry_run=dry_run,
         execute=should_execute_search_matrix,
         timeout_seconds=search_run_timeout_seconds,
+        provider_keys=provider_keys,
+        max_providers=max_providers,
         search_executor=search_executor,
         status_fetcher=status_fetcher,
         checkpoint_writer=_write_checkpoint if should_execute_search_matrix and enabled and not dry_run else None,
@@ -968,6 +1069,8 @@ def build_live_provider_smoke_receipt(
         execute_requested=should_execute_search_matrix,
         enabled=enabled,
         dry_run=dry_run,
+        provider_keys=provider_keys,
+        max_providers=max_providers,
     )
     statuses = {str(row.get("status") or "").strip().lower() for row in checks}
     search_statuses = {str(row.get("status") or "").strip().lower() for row in search_matrix}
@@ -1027,6 +1130,7 @@ def build_live_provider_smoke_receipt(
             "Dry-run mode proves provider catalog, default provider, floorplan, and filter-pushdown contracts without crawling.",
             "Live mode probes the runtime provider catalog endpoint and checks provider/default-provider parity.",
             "The targeted search matrix covers every search-ready provider with one strict no-soft-filter payload and one discovery soft-filter payload.",
+            "Use --provider and --max-providers to stage smaller real E2E slices while the receipt still reports whether the full search-ready catalog was covered.",
             "When the targeted matrix is executed, each accepted dispatch must also return a readable search-run status receipt.",
             "The cross-country sanitization probe deliberately submits a foreign provider with a local provider and expects the runtime to remove the foreign provider before dispatch.",
             "Use --resume-from with a checkpoint/final receipt to reuse passed targeted search rows and rerun only missing or failed cases.",
@@ -1056,6 +1160,8 @@ def main() -> int:
     parser.add_argument("--resume-from", default="", help="Optional checkpoint/final receipt whose passed targeted search rows should be reused.")
     parser.add_argument("--base-url", default=os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_BASE_URL") or "http://localhost:8097")
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
+    parser.add_argument("--provider", action="append", default=[], help="Provider key to include in the targeted matrix. Repeatable.")
+    parser.add_argument("--max-providers", type=int, default=0, help="Optional global cap for how many search-ready providers to include in the targeted matrix scope.")
     matrix_group = parser.add_mutually_exclusive_group()
     matrix_group.add_argument(
         "--execute-search-matrix",
@@ -1080,6 +1186,8 @@ def main() -> int:
             countries=tuple(args.country or (() if args.all_search_ready_countries else CUSTOMER_SEARCH_COUNTRY_ORDER)),
             base_url=str(args.base_url),
             timeout_seconds=float(args.timeout_seconds),
+            provider_keys=tuple(args.provider or []),
+            max_providers=int(args.max_providers or 0),
             execute_search_matrix=execute_search_matrix,
             all_search_ready_countries=bool(args.all_search_ready_countries and not args.country),
             checkpoint_path=args.write,

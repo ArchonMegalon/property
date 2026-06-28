@@ -150,6 +150,21 @@ def test_normalize_property_search_preferences_filters_unselectable_providers() 
     assert payload["provider_selection_filter_removed"] == ["community_signals_at", "rightmove"]
 
 
+def test_normalize_property_search_preferences_defaults_to_at_and_drops_foreign_providers() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "listing_mode": "rent",
+            "location_query": "Vienna",
+            "selected_platforms": ["realestate_au", "willhaben", "otodom"],
+        }
+    )
+
+    assert payload["country_code"] == "AT"
+    assert payload["selected_platforms"] == ["willhaben"]
+    assert payload["provider_selection_filter_applied"] is True
+    assert payload["provider_selection_filter_removed"] == ["realestate_au", "otodom"]
+
+
 def test_filter_selectable_property_platforms_honors_mode_country_and_readiness() -> None:
     kept, removed = filter_selectable_property_platforms(
         ("willhaben", "community_signals_at", "rightmove", "corporate_landlords_de"),
@@ -305,6 +320,19 @@ def test_normalize_property_search_preferences_clamps_search_agent_controls() ->
     assert payload["search_agent_duration_days"] == 365
     assert payload["search_agent_notification_limit"] == 50
     assert payload["search_agent_notification_period"] == "week"
+
+
+def test_normalize_property_search_preferences_preserves_zero_match_bar() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "min_match_score": 0,
+        }
+    )
+
+    assert payload["min_match_score"] == 0
 
 
 def test_normalize_property_search_preferences_scopes_full_region_backend_runs() -> None:

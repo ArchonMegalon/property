@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 import urllib.request
 
 import scripts.propertyquarry_live_authenticated_smoke as authenticated_smoke
@@ -39,6 +41,18 @@ ACCOUNT_AGENT_BODY = (
 
 ACCOUNT_FREE_BODY = ACCOUNT_AGENT_BODY.replace("<h2>Agent</h2>", "<h2>Free</h2>")
 
+BILLING_PORTAL_UNAVAILABLE_BODY = (
+    "PropertyQuarry Billing portal unavailable. "
+    "The billing portal is still being connected. "
+    "Your PropertyQuarry access stays active from the account page."
+)
+
+BILLING_PORTAL_LOGIN_REQUIRED_BODY = (
+    "PropertyQuarry Billing portal unavailable. "
+    "This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now. "
+    "Your PropertyQuarry access stays active from the account page."
+)
+
 
 def _fake_response(
     body: str,
@@ -59,7 +73,7 @@ def _fake_response(
 def test_live_authenticated_smoke_passes_paid_customer_surfaces_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_UNAVAILABLE_BODY,
         "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
@@ -78,8 +92,27 @@ def test_live_authenticated_smoke_passes_paid_customer_surfaces_without_network(
 def test_live_authenticated_smoke_accepts_active_signed_in_copy_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_UNAVAILABLE_BODY,
         "https://propertyquarry.com/sign-in": SIGN_IN_ACTIVE_BODY,
+    }
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=lambda url, _timeout: _fake_response(bodies[url], final_url=url),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["failed_count"] == 0
+
+
+def test_live_authenticated_smoke_accepts_login_required_fail_closed_billing_copy_without_network() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_LOGIN_REQUIRED_BODY,
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -125,6 +158,51 @@ def test_live_authenticated_smoke_accepts_external_billing_redirect_without_netw
     assert any(check["name"] == "billing_external_handoff" and check["ok"] is True for check in billing_row["checks"])
     assert any(check["name"] == "billing_external_handoff_resolves" and check["ok"] is True for check in billing_row["checks"])
     assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is True for check in billing_row["checks"])
+
+
+def test_live_authenticated_smoke_accepts_local_bridge_launch_then_external_billing_redirect_without_network() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/app/billing": "",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+        "https://propertyquarry.com/app/api/property/billing/bridge-launch": "",
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "/app/api/property/billing/bridge-launch"},
+            )
+        if "/app/api/property/billing/bridge-launch" in url:
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "https://billing.propertyquarry.com/sso/propertyquarry?pq_bridge=token"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+        billing_handoff_resolver=lambda _host, _port: [(object(),)],
+    )
+
+    assert receipt["status"] == "pass"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
+    assert billing_row["billing_handoff_resolution"]["bridge_launch_used"] is True
+    assert billing_row["billing_handoff_resolution"]["bridge_launch_status_code"] == 303
+    assert isinstance(billing_row["billing_handoff_resolution"]["bridge_launch_result"]["body"], str)
+    assert any(check["name"] == "billing_bridge_launch" and check["ok"] is True for check in billing_row["checks"])
+    assert any(check["name"] == "billing_external_handoff" and check["ok"] is True for check in billing_row["checks"])
+    assert billing_row["billing_handoff_probe"]["status_code"] == 0
+    json.dumps(receipt, sort_keys=True)
 
 
 def test_live_authenticated_smoke_rejects_external_billing_redirect_404_without_network() -> None:
@@ -234,6 +312,42 @@ def test_live_authenticated_smoke_rejects_billing_handoff_that_requires_second_l
     billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
     assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is False for check in billing_row["checks"])
     assert billing_row["billing_handoff_probe"]["error"] == "handoff_url_requires_separate_login"
+
+
+def test_live_authenticated_smoke_rejects_white_label_redirect_chain_that_ends_in_login(
+    monkeypatch,
+) -> None:
+    class _RedirectChainOpener:
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            if request.full_url == "https://billing.propertyquarry.com/account":
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    302,
+                    "redirect",
+                    {"Location": "https://propertyquarry.directoryup.com/account"},
+                    io.BytesIO(b""),
+                )
+            if request.full_url == "https://propertyquarry.directoryup.com/account":
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    302,
+                    "redirect",
+                    {"Location": "/login?login_direct_url=/account"},
+                    io.BytesIO(b""),
+                )
+            raise AssertionError(request.full_url)
+
+    monkeypatch.setattr("scripts.propertyquarry_billing_handoff_probe.no_proxy_opener", lambda *handlers: _RedirectChainOpener())
+
+    probe = authenticated_smoke._https_handoff_url_usable("https://billing.propertyquarry.com/account", timeout_seconds=3.0)
+
+    assert probe["ok"] is False
+    assert probe["status_code"] == 302
+    assert probe["error"] == "handoff_url_requires_separate_login"
+    assert probe["redirect_chain"] == [
+        "https://propertyquarry.directoryup.com/account",
+        "https://propertyquarry.directoryup.com/login?login_direct_url=/account",
+    ]
 
 
 def test_live_authenticated_smoke_rejects_unresolved_external_billing_redirect_without_network(monkeypatch) -> None:
@@ -484,7 +598,7 @@ def test_live_authenticated_smoke_rejects_public_dns_target_mismatch(monkeypatch
 def test_live_authenticated_smoke_accepts_fail_closed_billing_recovery_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_UNAVAILABLE_BODY,
         "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
@@ -509,7 +623,7 @@ def test_live_authenticated_smoke_accepts_fail_closed_billing_recovery_without_n
 def test_live_authenticated_smoke_passes_free_customer_surfaces_when_free_is_expected() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_FREE_BODY,
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_UNAVAILABLE_BODY,
         "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
@@ -528,7 +642,7 @@ def test_live_authenticated_smoke_passes_free_customer_surfaces_when_free_is_exp
 def test_live_authenticated_smoke_fails_when_account_loses_paid_plan_projection() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_FREE_BODY,
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_UNAVAILABLE_BODY,
         "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
@@ -548,7 +662,7 @@ def test_live_authenticated_smoke_fails_when_account_loses_paid_plan_projection(
 def test_live_authenticated_smoke_fails_when_account_loses_logout_strip() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY.replace("pqx-account-logout-strip", "pqx-account-session"),
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_UNAVAILABLE_BODY,
         "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
@@ -568,7 +682,7 @@ def test_live_authenticated_smoke_fails_when_account_loses_logout_strip() -> Non
 def test_live_authenticated_smoke_fails_when_account_duplicates_logout_actions() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY.replace("</section>", "</section><button>Log out</button>", 1),
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_UNAVAILABLE_BODY,
         "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
@@ -588,7 +702,7 @@ def test_live_authenticated_smoke_fails_when_account_duplicates_logout_actions()
 def test_live_authenticated_smoke_fails_when_sign_in_surface_duplicates_logout() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_UNAVAILABLE_BODY,
         "https://propertyquarry.com/sign-in": SIGN_IN_BODY.replace("<button>Log out</button>", "<button>Log out</button><button>Log out</button>"),
     }
 
@@ -627,7 +741,7 @@ def test_live_authenticated_smoke_fails_when_sign_in_loses_account_creation_copy
 def test_live_authenticated_smoke_retries_transient_transport_failures_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_UNAVAILABLE_BODY,
         "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
     attempts: dict[str, int] = {}

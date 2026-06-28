@@ -21,6 +21,7 @@ from discover_property_tour_exports import (  # noqa: E402
 )
 from property_tour_runtime_paths import preferred_public_tour_root  # noqa: E402
 from verify_property_tour_controls import build_property_tour_control_receipt
+from verify_property_tour_controls import _load_cli_env_defaults as _load_tour_control_env_defaults
 
 
 IMPORTABLE_PROVIDERS = ("3dvista", "pano2vr", "krpano", "magicfit")
@@ -381,6 +382,7 @@ def build_export_manifest(
     providers: set[str] | None = None,
     limit_per_provider: int = 1,
 ) -> dict[str, Any]:
+    _load_tour_control_env_defaults()
     resolved_tour_root = (tour_root or _tour_root()).expanduser().resolve()
     resolved_incoming_root = (incoming_root or _incoming_root()).expanduser().resolve()
     receipt = build_property_tour_control_receipt(

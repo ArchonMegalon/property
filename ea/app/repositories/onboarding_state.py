@@ -29,6 +29,9 @@ class OnboardingStateRepository(Protocol):
     def get_for_principal(self, principal_id: str) -> OnboardingState | None:
         ...
 
+    def list_states(self, *, limit: int = 1000) -> tuple[OnboardingState, ...]:
+        ...
+
 
 def _normalize_status(value: str) -> str:
     raw = str(value or "").strip().lower()
@@ -106,3 +109,11 @@ class InMemoryOnboardingStateRepository:
 
     def get_for_principal(self, principal_id: str) -> OnboardingState | None:
         return self._rows_by_principal.get(str(principal_id or "").strip())
+
+    def list_states(self, *, limit: int = 1000) -> tuple[OnboardingState, ...]:
+        rows = sorted(
+            self._rows_by_principal.values(),
+            key=lambda row: (str(row.updated_at or ""), str(row.principal_id or "")),
+            reverse=True,
+        )
+        return tuple(rows[: max(int(limit or 0), 1)])

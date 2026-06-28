@@ -32,6 +32,12 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_DISABLED=0",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS=",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL=",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BOOTSTRAP_EDGE=auto",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED=0",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED=0",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL=",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ALLOWED_HOSTS=",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET=",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY=",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR=_completion/brilliant_directories",
         "MATTERPORT_API_KEY=",
@@ -104,6 +110,7 @@ def test_property_release_gate_runs_repair_fleet_canary() -> None:
 
     assert "scripts/propertyquarry_repair_fleet_canary.py" in gate
     assert "scripts/verify_id_austria_provider.py" in gate
+    assert "warning: Brilliant Directories verifier reported a blocked external billing lane" in gate
 
 
 def test_property_compose_passes_id_austria_deployment_env() -> None:
@@ -134,6 +141,11 @@ def test_property_compose_passes_brilliant_directories_deployment_env() -> None:
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ALLOWED_HOSTS",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR",
@@ -180,6 +192,16 @@ def test_release_hygiene_requires_manifest_to_match_current_head() -> None:
     assert "git_head_parent_sha" in script
     assert "release manifest runtime commit does not match current HEAD or deployed parent" in script
     assert "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md" in script
+
+
+def test_release_hygiene_requires_clean_releasable_worktree() -> None:
+    script = (ROOT / "scripts/check_property_release_hygiene.py").read_text(encoding="utf-8")
+
+    assert "_git_status_rows" in script
+    assert "tracked worktree must be clean before release" in script
+    assert "untracked release source files forbidden before release" in script
+    assert '"tracked_worktree_clean"' in script
+    assert '"no_untracked_release_source_files"' in script
 
 
 def test_prod_compose_keeps_fastestvpn_repo_local_and_default_off() -> None:

@@ -3,30 +3,58 @@
 <style>
   .access-grid {
     display: grid;
-    grid-template-columns: minmax(0, 500px);
+    grid-template-columns: minmax(0, 860px);
     justify-content: center;
+    gap: 16px;
   }
   .access-panel,
   .access-card {
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 12px;
     background: color-mix(in srgb, var(--panel) 88%, transparent);
     box-shadow: var(--shadow);
   }
   .access-panel,
   .access-card {
-    padding: 14px;
+    padding: 16px;
+  }
+  .access-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.96fr);
+    gap: 20px;
+    align-items: start;
+  }
+  .access-intro {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+  }
+  .access-entry {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+  }
+  .access-entry-block {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--panel-2) 64%, transparent);
   }
   .access-panel h1 {
-    margin: 4px 0 8px;
-    font-size: clamp(2.15rem, 5vw, 3.1rem);
-    line-height: 0.96;
-    letter-spacing: 0;
-    max-width: 9ch;
+    margin: 4px 0 0;
+    font-size: clamp(2.3rem, 4vw, 3.7rem);
+    line-height: 0.92;
+    letter-spacing: -0.04em;
+    max-width: 10ch;
+    text-wrap: balance;
   }
   .access-panel .lead {
-    margin: 0 0 10px;
-    font-size: 0.98rem;
+    margin: 0;
+    max-width: 34ch;
+    font-size: 1rem;
+    line-height: 1.5;
   }
   .access-card strong {
     display: block;
@@ -35,7 +63,7 @@
   .access-form {
     display: grid;
     gap: 8px;
-    margin-top: 10px;
+    margin-top: 0;
   }
   .access-form label {
     display: block;
@@ -57,10 +85,13 @@
     display: block;
     margin-bottom: 6px;
   }
+  .access-feedback .cta-row {
+    margin-top: 12px;
+  }
   .auth-provider-stack {
     display: grid;
     gap: 0;
-    margin-top: 8px;
+    margin-top: 0;
     padding: 3px;
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -121,6 +152,17 @@
     border-color: var(--line);
     background: color-mix(in srgb, var(--panel) 88%, var(--bg) 12%);
     color: var(--text);
+  }
+  .access-panel .cta-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    align-items: stretch;
+  }
+  .access-panel .cta-row form,
+  .access-panel .cta-row .btn,
+  .access-panel .cta-row form .btn {
+    width: 100%;
   }
   .access-panel .btn.primary {
     border-color: color-mix(in srgb, var(--accent) 44%, var(--line) 56%);
@@ -197,23 +239,36 @@
     .access-grid {
       grid-template-columns: 1fr;
     }
+    .access-shell {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 14px;
+    }
+    .access-panel h1 {
+      max-width: 9ch;
+    }
   }
   @media (max-width: 760px) {
     .access-panel,
     .access-card {
-      padding: 14px;
+      padding: 15px;
     }
     .access-panel h1 {
       max-width: none;
       font-size: clamp(2rem, 9vw, 2.7rem);
     }
-    .topbar .actions,
-    .mobile-nav {
+    .topbar .actions {
       display: none !important;
+    }
+    .mobile-nav {
+      display: flex !important;
+      padding-bottom: 10px;
     }
     .access-panel .cta-row {
       display: grid;
       grid-template-columns: 1fr;
+    }
+    .access-entry-block {
+      padding: 11px;
     }
     .access-panel .cta-row form {
       width: 100%;
@@ -233,73 +288,101 @@
 <section class="access-grid">
   <section class="access-panel">
     <div class="kicker">Sign in</div>
-    <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
-    <p class="lead">Use a saved session, email link, or connected identity. First-time provider sign-in also creates the account automatically.</p>
-    <div class="cta-row">
-      {% if public_signed_in %}
-      <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
-      <form method="post" action="/app/actions/sign-out">
-        <input type="hidden" name="return_to" value="/sign-in?signing_in=1">
-        <button class="btn" type="submit">Log out</button>
-      </form>
-      {% else %}
-      <a class="btn primary" href="/sign-in/current-session">Open current session</a>
-      <a class="btn" href="/register">{{ brand.create_label }}</a>
-      {% endif %}
+    <div class="access-shell">
+      <div class="access-intro">
+        <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
+        <p class="lead">Use a saved session, email link, or connected identity. First-time provider sign-in also creates the account automatically.</p>
+      </div>
+      <div class="access-entry">
+        <div class="access-entry-block">
+          <div class="cta-row">
+            {% if public_signed_in %}
+            <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
+            <form method="post" action="/app/actions/sign-out">
+              <input type="hidden" name="return_to" value="/sign-in?signing_in=1">
+              <button class="btn" type="submit">Log out</button>
+            </form>
+            {% else %}
+            <a class="btn primary" href="/sign-in/current-session">Open current session</a>
+            <a class="btn" href="/register">{{ brand.create_label }}</a>
+            {% endif %}
+          </div>
+        </div>
+        {% set show_google_provider = sign_in_google_enabled %}
+        {% set show_facebook_provider = sign_in_facebook_enabled %}
+        {% set show_id_austria_provider = sign_in_id_austria_visible and sign_in_id_austria_enabled %}
+        {% if show_google_provider or show_facebook_provider or show_id_austria_provider or sign_in_show_disabled_provider_fixture %}
+        <div class="access-entry-block">
+          <p class="copy">Any provider below reopens the same account or creates it automatically on first use.</p>
+          <div class="auth-provider-stack" aria-label="Sign-in providers">
+            {% if show_google_provider %}
+            <div class="auth-provider-card" data-auth-provider-card data-auth-provider="google" data-auth-provider-state="enabled">
+              <span class="auth-provider-icon" aria-hidden="true">G</span>
+              <span>
+                <strong>Google</strong>
+                <p>Saved Google account or automatic first account creation</p>
+              </span>
+              <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Continue with Google</a>
+            </div>
+            {% endif %}
+            {% if show_facebook_provider %}
+            <div class="auth-provider-card" data-auth-provider-card data-auth-provider="facebook" data-auth-provider-state="enabled">
+              <span class="auth-provider-icon" aria-hidden="true">f</span>
+              <span>
+                <strong>Facebook</strong>
+                <p>Saved Facebook identity or automatic first account creation</p>
+              </span>
+              <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
+            </div>
+            {% endif %}
+            {% if show_id_austria_provider %}
+            <div class="auth-provider-card" data-auth-provider-card data-auth-provider="id-austria" data-auth-provider-state="enabled">
+              <span class="auth-provider-icon" aria-hidden="true">ID</span>
+              <span>
+                <strong>ID Austria</strong>
+                <p>Saved Austrian identity or automatic first account creation</p>
+              </span>
+              <a class="btn" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>
+            </div>
+            {% endif %}
+            {% if sign_in_show_disabled_provider_fixture %}
+            <div class="auth-provider-card disabled" data-auth-provider-card data-auth-provider="trusted-device" data-auth-provider-state="disabled">
+              <span class="auth-provider-icon" aria-hidden="true">TD</span>
+              <span>
+                <strong>Trusted device</strong>
+                <p>Private hardware sign-in lane for approved devices.</p>
+              </span>
+              <button class="btn" type="button" disabled>Restricted</button>
+            </div>
+            {% endif %}
+            <div class="auth-provider-status" data-auth-provider-status role="status" aria-live="polite"></div>
+          </div>
+        </div>
+        {% endif %}
+        <div class="access-entry-block">
+          {% if sign_in_link_enabled %}
+          <form class="access-form" method="post" action="/sign-in/email-link">
+            <div>
+              <label for="sign_in_email">Email link</label>
+              <input id="sign_in_email" name="email" type="email" value="{{ sign_in_google_prefill_email or sign_in_link_email or '' }}" placeholder="you@company.com" required>
+            </div>
+            <div class="cta-row">
+              <button class="btn" type="submit">Email me a sign-in link</button>
+            </div>
+          </form>
+          {% else %}
+          <div class="access-feedback">
+            <strong>Email link delivery needs setup.</strong>
+            <p class="copy">Continue with Google, Facebook, ID Austria, an existing invite, or a saved access link. First-time provider sign-in still creates the account automatically.</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
     </div>
-    {% set show_google_provider = sign_in_google_enabled %}
-    {% set show_facebook_provider = sign_in_facebook_enabled %}
-    {% set show_id_austria_provider = sign_in_id_austria_visible and sign_in_id_austria_enabled %}
-    {% if show_google_provider or show_facebook_provider or show_id_austria_provider or sign_in_show_disabled_provider_fixture %}
-    <p class="copy">Any provider below reopens the same account or creates it automatically on first use.</p>
-    <div class="auth-provider-stack" aria-label="Sign-in providers">
-      {% if show_google_provider %}
-      <div class="auth-provider-card" data-auth-provider-card data-auth-provider="google" data-auth-provider-state="enabled">
-        <span class="auth-provider-icon" aria-hidden="true">G</span>
-        <span>
-          <strong>Google</strong>
-          <p>Saved Google account or automatic first account creation</p>
-        </span>
-        <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Continue with Google</a>
-      </div>
-      {% endif %}
-      {% if show_facebook_provider %}
-      <div class="auth-provider-card" data-auth-provider-card data-auth-provider="facebook" data-auth-provider-state="enabled">
-        <span class="auth-provider-icon" aria-hidden="true">f</span>
-        <span>
-          <strong>Facebook</strong>
-          <p>Saved Facebook identity or automatic first account creation</p>
-        </span>
-        <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
-      </div>
-      {% endif %}
-      {% if show_id_austria_provider %}
-      <div class="auth-provider-card" data-auth-provider-card data-auth-provider="id-austria" data-auth-provider-state="enabled">
-        <span class="auth-provider-icon" aria-hidden="true">ID</span>
-        <span>
-          <strong>ID Austria</strong>
-          <p>Saved verified Austrian identity or automatic first account creation</p>
-        </span>
-        <a class="btn" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>
-      </div>
-      {% endif %}
-      {% if sign_in_show_disabled_provider_fixture %}
-      <div class="auth-provider-card disabled" data-auth-provider-card data-auth-provider="trusted-device" data-auth-provider-state="disabled">
-        <span class="auth-provider-icon" aria-hidden="true">TD</span>
-        <span>
-          <strong>Trusted device</strong>
-          <p>Private hardware sign-in lane for approved devices.</p>
-        </span>
-        <button class="btn" type="button" disabled>Restricted</button>
-      </div>
-      {% endif %}
-      <div class="auth-provider-status" data-auth-provider-status role="status" aria-live="polite"></div>
-    </div>
-    {% endif %}
     {% if sign_in_connected_provider %}
     <div class="access-feedback" data-sign-in-provider-connected>
       <strong>{{ sign_in_connected_provider }} returned to PropertyQuarry.</strong>
-      <p class="copy">Open the account now, or use the email link for the same account.</p>
+      <p class="copy">Use the email link for this account.</p>
       <div class="cta-row">
         <button class="btn primary" type="button" data-focus-sign-in-email>Use email link</button>
       </div>
@@ -356,7 +439,7 @@
       <strong>ID Austria sign-in could not complete.</strong>
       <p class="copy">
         {% if sign_in_id_austria_error == 'id_austria_sign_in_not_found' %}
-        This verified ID Austria identity did not reopen a saved PropertyQuarry workspace. Retry ID Austria sign-in and PropertyQuarry will start the account automatically.
+        This ID Austria identity did not reopen a saved PropertyQuarry workspace. Retry ID Austria sign-in and PropertyQuarry will start the account automatically.
         {% elif sign_in_id_austria_error == 'id_austria_austria_ip_required' %}
         ID Austria sign-in is offered only when this request is detected from Austria.
         {% elif sign_in_id_austria_error.startswith('id_austria_') %}
@@ -368,22 +451,6 @@
       <div class="cta-row">
         <a class="btn primary" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Retry ID Austria sign-in</a>
       </div>
-    </div>
-    {% endif %}
-    {% if sign_in_link_enabled %}
-      <form class="access-form" method="post" action="/sign-in/email-link">
-        <div>
-          <label for="sign_in_email">Email link</label>
-          <input id="sign_in_email" name="email" type="email" value="{{ sign_in_google_prefill_email or sign_in_link_email or '' }}" placeholder="you@company.com" required>
-        </div>
-      <div class="cta-row">
-        <button class="btn" type="submit">Email me a sign-in link</button>
-      </div>
-    </form>
-    {% else %}
-    <div class="access-feedback">
-      <strong>Email link delivery needs setup.</strong>
-      <p class="copy">Continue with Google, Facebook, ID Austria, an existing invite, or a saved access link. First-time provider sign-in still creates the account automatically.</p>
     </div>
     {% endif %}
     {% if sign_in_link_status %}

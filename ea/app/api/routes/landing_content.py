@@ -2,7 +2,6 @@ from __future__ import annotations
 
 PUBLIC_NAV = (
     {"href": "/", "label": "Product", "key": "product"},
-    {"href": "/directory", "label": "Directory", "key": "directory"},
     {"href": "/how-it-works", "label": "How it works", "key": "how-it-works"},
     {"href": "/pricing", "label": "Pricing", "key": "pricing"},
     {"href": "/sign-in?signing_in=1", "label": "Sign in", "key": "sign-in"},
@@ -251,7 +250,7 @@ PUBLIC_TRUST_PAGES = {
                 "items": (
                     "A completed-partial run can still be useful, but it must say which providers need another pass.",
                     "Repair attempts should be bounded and visible instead of silently consuming resources.",
-                    "Unsupported providers and markets should stay marked as coming soon until verified.",
+                    "Unsupported providers and markets should stay marked as coming soon until they are available here.",
                 ),
             },
         ),
@@ -262,7 +261,7 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "question": "Can generated tours replace a viewing?",
-                "answer": "No. Generated or embedded tours help screening, but dimensions, finishes, noise, light, and condition must be verified.",
+                "answer": "No. Generated or embedded tours help screening, but dimensions, finishes, noise, light, and condition still need a real-world check.",
             },
         ),
     },
@@ -463,7 +462,7 @@ PUBLIC_TRUST_PAGES = {
         "band": (
             {
                 "title": "Generated visualization",
-                "body": "Tours and furnished previews are illustrative unless they come from a verified live provider embed. Verify dimensions, finishes, and condition.",
+                "body": "Tours and furnished previews are illustrative unless they come from a live provider embed. Check dimensions, finishes, and condition in the real property.",
             },
             {
                 "title": "Investment research",
@@ -473,7 +472,7 @@ PUBLIC_TRUST_PAGES = {
         "sections": (
             {
                 "eyebrow": "Evidence",
-                "title": "Verification required",
+                "title": "Check before deciding",
                 "body": "PropertyQuarry should show uncertainty, missing facts, source trail, and repair status so users can decide what still needs manual review.",
                 "items": (
                     "Verify price, operating costs, availability, and eligibility with the provider.",
@@ -485,7 +484,7 @@ PUBLIC_TRUST_PAGES = {
         "faqs": (
             {
                 "question": "Is an embedded Matterport or 3DVista tour generated?",
-                "answer": "No. It is a provider-hosted source when available, but the listing and rights still need provider verification.",
+                "answer": "No. It is a provider-hosted source when available, but the listing details and usage rights still come from the provider.",
             },
             {
                 "question": "Is a generated 3D tour measured?",

@@ -61,7 +61,7 @@ def test_property_evidence_overlays_read_verified_and_stale_cached_rollups(tmp_p
     by_key = {str(row["layer_key"]): row for row in rows}
 
     assert by_key["media_attention"]["ui_state"] == "verified"
-    assert by_key["media_attention"]["tag"] == "Verified"
+    assert by_key["media_attention"]["tag"] == "Ready"
     assert by_key["media_attention"]["article_url"] == "https://news.example.test/article/1"
     assert "12 local articles" in str(by_key["media_attention"]["detail"])
     assert by_key["fiber_broadband"]["ui_state"] == "stale"

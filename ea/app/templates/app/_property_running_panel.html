@@ -2,7 +2,7 @@
   <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property" data-pqx-screenfit-target="run-progress">
     <div class="pqx-section-head">
       <div>
-        <h2>{% if run_active %}Search progress{% else %}Search summary{% endif %}</h2>
+        <h2>{% if run_active %}Live search{% else %}Search summary{% endif %}</h2>
         <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('reviewed_listing_total') or (run.get('summary') or {}).get('listing_total') or 0 }} homes checked so far{% if ((run.get('summary') or {}).get('filtered_floorplan_total') or 0) %} · {{ (run.get('summary') or {}).get('filtered_floorplan_total') or 0 }} still missing floorplans{% endif %}</div>
       </div>
       <div class="pqx-inline-actions">
@@ -19,14 +19,24 @@
       </div>
     </div>
     {% set run_message_raw = (run.get('message') or '')|trim %}
-    {% set run_message_lower = run_message_raw|lower %}
     {% set run_summary = run.get('summary') or {} %}
+    {% set run_reliability = run.get('reliability') or {} %}
     {% set run_reviewed_total = run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0 %}
     {% set run_provider_total = run_summary.get('provider_total') or run_summary.get('source_variant_total') or 0 %}
     {% set run_provider_label = run_provider_total|string ~ ' provider checks' if run_provider_total else 'selected providers' %}
-    {% set run_message_display = run_message_raw %}
-    {% if not run_message_display or 'could not load property search status' in run_message_lower or 'checking run status' in run_message_lower or 'suppressed_generic_listing_page' in run_message_lower %}
-      {% set run_message_display = 'Search is still running across ' ~ run_provider_label ~ '; ' ~ run_reviewed_total ~ ' homes reviewed so far.' %}
+    {% set run_repair_status = (run_summary.get('repair_status') or run_summary.get('repair_status_label') or '')|lower %}
+    {% set run_has_repair_copy = status|lower == 'failed' or run_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
+    {% set run_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
+    {% set run_message_display = run_safe_message if run_has_repair_copy and run_safe_message else run_message_raw %}
+    {% set run_message_display_lower = run_message_display|lower %}
+    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or run_message_display_lower == 'starting' %}
+      {% if run_reviewed_total %}
+      {% set run_message_display = 'Checking ' ~ run_provider_label ~ ' · ' ~ run_reviewed_total ~ ' homes reviewed.' %}
+      {% elif run_provider_total %}
+      {% set run_message_display = 'Preparing ' ~ run_provider_label ~ '.' %}
+      {% else %}
+      {% set run_message_display = 'Preparing provider checks.' %}
+      {% endif %}
     {% endif %}
     <div class="pqx-note" data-pqx-run-message>{{ run_message_display or 'The search is queued.' }}</div>
     {{ progress_board(run, run_sources, research_task_counts) }}
@@ -41,22 +51,19 @@
         {% set provisional_title_raw = (provisional.get('title') or '')|trim %}
         {% set provisional_title_lower = provisional_title_raw|lower %}
         {% set provisional_title = provisional_title_raw if provisional_title_raw and not (provisional_title_lower.startswith('http://') or provisional_title_lower.startswith('https://') or provisional_title_lower.startswith('www.')) else (provisional_location or 'Property candidate') %}
+        {% set provisional_reason_raw = (provisional.get('fit_summary') or provisional.get('summary') or '')|trim %}
+        {% set provisional_reason_lower = provisional_reason_raw|lower %}
+        {% set provisional_reason = provisional_reason_raw if provisional_reason_raw and not (provisional_reason_lower.startswith('http://') or provisional_reason_lower.startswith('https://') or provisional_reason_lower.startswith('www.')) else 'Leading match right now.' %}
         <div class="pqx-section-head">
           <div>
-            <h2>Current lead</h2>
-            <div class="pqx-note">Still provisional while the run is finishing.</div>
+            <h2>{{ provisional_title }}</h2>
+            <div class="pqx-note">{{ provisional_reason }}</div>
           </div>
           {% if provisional.get('fit_score') %}
           <span class="pqx-pill">{{ provisional.get('fit_score')|int }}/100</span>
           {% endif %}
         </div>
         <div class="pqx-pref-list">
-          <div class="pqx-pref-row">
-            <div>
-              <strong>{{ provisional_title }}</strong>
-              <small>{{ provisional.get('fit_summary') or provisional.get('compare_reason') or provisional.get('summary') or 'Top-ranked home in the current run.' }}</small>
-            </div>
-          </div>
           <div class="pqx-pref-row">
             {% set provisional_facts = provisional.get('property_facts') or {} %}
             {% set provisional_price_text = provisional.get('price_display') or provisional.get('costs_display') or provisional.get('rent_display') or provisional_facts.get('price_display') or provisional_facts.get('rent_display') or provisional_facts.get('price') or provisional_facts.get('rent') or '' %}
@@ -68,6 +75,7 @@
             <div><strong>Location</strong><small>{{ provisional_location }}</small></div>
           </div>
         </div>
+        <div class="pqx-note" style="margin-top:12px;">Leading right now. Can still change before the search finishes.</div>
         <div class="pqx-actions">
           {% if provisional.get('packet_url') %}
           <a class="pqx-link-button primary" href="{{ provisional.get('packet_url') }}">Open property</a>
@@ -79,27 +87,52 @@
       {% endif %}
     </div>
     <details class="pqx-card" data-pqx-running-details>
-      <summary><strong>More updates</strong></summary>
+      <summary><strong>Recent updates</strong></summary>
       {% if (research_task_counts.get('open') or 0) %}
       <div class="pqx-note" style="margin:12px 0 0;">{{ research_task_counts.get('open') or 0 }} missing details are still being checked in the background.</div>
       {% endif %}
-      <div class="pqx-note" style="margin:12px 0 0;">Latest useful search updates. Internal repair receipts and transient refresh failures stay hidden.</div>
+      <div class="pqx-note" style="margin:12px 0 0;">Background retries and refresh noise stay hidden.</div>
       <div class="pqx-event-list" data-pqx-run-events>
         {% set visible_event_count = namespace(value=0) %}
         {% for event in (run.get('events') or [])|reverse %}
         {% set event_step = (event.get('step') or '')|lower %}
         {% set event_message = event.get('message') or '' %}
         {% set event_message_lower = event_message|lower %}
-        {% if visible_event_count.value < 4 and not ('suppressed_generic_listing_page' in event_message_lower or 'could not load property search status' in event_message_lower or 'checking run status' in event_message_lower or (event_step == 'status_refresh')) %}
+        {% if visible_event_count.value < 4 and not ('suppressed_generic_listing_page' in event_message_lower or 'could not load property search status' in event_message_lower or 'checking run status' in event_message_lower or 'starting property search run' in event_message_lower or (event_step == 'status_refresh')) %}
         {% set visible_event_count.value = visible_event_count.value + 1 %}
+        {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
+        {% set event_label = 'Preparing search' %}
+        {% elif event_step in ['source_search', 'provider_search', 'search'] %}
+        {% set event_label = 'Searching providers' %}
+        {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
+        {% set event_label = 'Checking details' %}
+        {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
+        {% set event_label = 'Checking listings' %}
+        {% elif event_step in ['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'] %}
+        {% set event_label = 'Ranking homes' %}
+        {% elif event_step == 'shortlist_ready' %}
+        {% set event_label = 'First shortlist' %}
+        {% elif event_step in ['source_review_packet', 'source_review_packet_failed'] %}
+        {% set event_label = 'Open property ready' %}
+        {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
+        {% set event_label = 'Applying hard rules' %}
+        {% elif event_step in ['source_completed', 'completed'] %}
+        {% set event_label = 'Provider finished' %}
+        {% elif event_step in ['source_notify'] %}
+        {% set event_label = 'Sending update' %}
+        {% elif event_step.startswith('repair') or event_step in ['source_repair_reuse', 'source_failed'] %}
+        {% set event_label = 'Recovery' %}
+        {% else %}
+        {% set event_label = 'Update' %}
+        {% endif %}
         <div class="pqx-event-card">
-          <strong>{{ (event.get('step') or 'Update')|replace('_', ' ')|title }}</strong>
+          <strong>{{ event_label }}</strong>
           <span class="pqx-note">{{ event_message or 'Search is still running.' }}</span>
         </div>
         {% endif %}
         {% endfor %}
         {% if not run.get('events') or visible_event_count.value == 0 %}
-        <div class="pqx-empty">Waiting for the first search update.</div>
+        <div class="pqx-empty">Waiting for the next useful update.</div>
         {% endif %}
       </div>
     </details>

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import sys
 import urllib.parse
 import urllib.request
@@ -17,6 +18,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
+
+from scripts.propertyquarry_billing_handoff_probe import (
+    https_handoff_url_usable,
+    https_redirect_host_resolves,
+)
 
 
 DEFAULT_ROUTES = (
@@ -38,6 +44,62 @@ DEFAULT_ROUTES = (
 )
 SEEDED_RESEARCH_DETAIL_ROUTE = "/app/research/perf-candidate-1020?run_id=run-gold-mobile"
 SEED_FIXTURE_USER_AGENT = "PropertyQuarry-live-mobile-surface-smoke/1.0"
+BILLING_FAIL_CLOSED_MARKERS = (
+    "billing portal unavailable",
+    "propertyquarry access stays active",
+)
+BILLING_FAIL_CLOSED_STATE_MARKERS = (
+    "billing portal is still being connected",
+    "still opens another sign-in",
+    "billing account host is not ready yet",
+)
+
+
+def _resolve_mobile_billing_external_handoff(
+    *,
+    base_url: str,
+    redirect_location: str,
+    request_context: Any,
+    request_headers: dict[str, str],
+    timeout_ms: int,
+) -> dict[str, object]:
+    normalized_location = str(redirect_location or "").strip()
+    if not normalized_location:
+        return {
+            "external_location": "",
+            "bridge_launch_used": False,
+            "bridge_launch_url": "",
+            "bridge_launch_status_code": 0,
+        }
+    parsed = urllib.parse.urlparse(normalized_location)
+    if parsed.scheme == "https":
+        return {
+            "external_location": normalized_location,
+            "bridge_launch_used": False,
+            "bridge_launch_url": "",
+            "bridge_launch_status_code": 0,
+        }
+    normalized_path = parsed.path or ""
+    if not normalized_path.startswith("/app/api/property/billing/bridge-launch"):
+        return {
+            "external_location": normalized_location,
+            "bridge_launch_used": False,
+            "bridge_launch_url": "",
+            "bridge_launch_status_code": 0,
+        }
+    bridge_launch_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", normalized_location.lstrip("/"))
+    bridge_response = request_context.get(
+        bridge_launch_url,
+        headers=request_headers,
+        max_redirects=0,
+        timeout=timeout_ms,
+    )
+    return {
+        "external_location": str(bridge_response.headers.get("location") or "").strip(),
+        "bridge_launch_used": True,
+        "bridge_launch_url": bridge_launch_url,
+        "bridge_launch_status_code": int(bridge_response.status),
+    }
 
 
 def _env(name: str, default: str = "") -> str:
@@ -252,14 +314,22 @@ def _route_expectations(route: str) -> dict[str, Any]:
 def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[str, Any]]:
     if str(route or "").split("?", 1)[0].strip() == "/app/billing" and int(metrics.get("status_code") or 0) in {303, 307}:
         redirect_location = str(metrics.get("redirect_location") or "").strip()
+        handoff_host_resolves = bool(metrics.get("billing_handoff_host_resolves"))
+        handoff_usable = bool(metrics.get("billing_handoff_usable"))
         return [
             {"name": "billing_external_handoff", "ok": redirect_location.startswith("https://") and "/app/billing" not in redirect_location},
+            {"name": "billing_external_handoff_resolves", "ok": handoff_host_resolves},
+            {"name": "billing_external_handoff_usable", "ok": handoff_usable},
             {"name": "billing_local_page_deleted", "ok": True},
         ]
     if str(route or "").split("?", 1)[0].strip() == "/app/billing" and int(metrics.get("status_code") or 0) == 503:
         billing_text = str(metrics.get("billing_visible_text") or "").strip().lower()
         return [
-            {"name": "billing_fail_closed_recovery", "ok": all(marker in billing_text for marker in ("billing handoff unavailable", "external account lane", "propertyquarry access remains active"))},
+            {
+                "name": "billing_fail_closed_recovery",
+                "ok": all(marker in billing_text for marker in BILLING_FAIL_CLOSED_MARKERS)
+                and any(marker in billing_text for marker in BILLING_FAIL_CLOSED_STATE_MARKERS),
+            },
             {"name": "billing_local_page_deleted", "ok": not any(marker in billing_text for marker in ("open pricing", "compare plans", "plus checkout", "billing history"))},
         ]
     expectations = _route_expectations(route)
@@ -275,6 +345,7 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
         {"name": "primary_touch_targets", "ok": min_action_height >= 44},
         {"name": "card_density", "ok": int(metrics.get("visible_card_count") or 0) <= 26},
         {"name": "low_shadow_noise", "ok": int(metrics.get("heavy_shadow_count") or 0) <= 2},
+        {"name": "mobile_fold_single_open", "ok": bool(metrics.get("mobile_fold_single_open", True))},
     ]
     if expectations.get("needs_district_picker"):
         checks.extend(
@@ -420,6 +491,7 @@ def _collect_metrics_script() -> str:
       const whatMatters = document.querySelector('[data-property-what-matters-panel]');
       const whatMatterGroups = Array.from(whatMatters?.querySelectorAll('details[data-what-matters-group]') || []);
       const whatMattersStyle = whatMatters ? window.getComputedStyle(whatMatters) : null;
+      const mobileFolds = Array.from(document.querySelectorAll('details.pqx-mobile-fold'));
       let singleOpen = true;
       if (whatMatterGroups.length >= 2) {
         whatMatterGroups[0].open = true;
@@ -427,6 +499,14 @@ def _collect_metrics_script() -> str:
         whatMatterGroups[1].open = true;
         whatMatterGroups[1].dispatchEvent(new Event('toggle'));
         singleOpen = whatMatterGroups.filter((node) => node.open).length === 1 && whatMatterGroups[1].open;
+      }
+      let mobileFoldSingleOpen = true;
+      if (mobileFolds.length >= 2) {
+        mobileFolds[0].open = true;
+        mobileFolds[0].dispatchEvent(new Event('toggle'));
+        mobileFolds[1].open = true;
+        mobileFolds[1].dispatchEvent(new Event('toggle'));
+        mobileFoldSingleOpen = mobileFolds.filter((node) => node.open).length === 1 && mobileFolds[1].open;
       }
       const whatMattersPageScroll = Boolean(
         whatMatters
@@ -473,16 +553,28 @@ def _collect_metrics_script() -> str:
       ));
       const generatedReconstructionCard = document.querySelector('[data-prd-visual-card="generated_reconstruction"]');
       const generatedReconstructionHonest = !generatedReconstructionCard || (
-        bodyText.includes('not a verified provider capture')
-        && bodyText.includes('build verified 3d tour')
+        (bodyText.includes('not a live provider tour') || bodyText.includes('not a verified provider capture'))
+        && (bodyText.includes('build 3d tour') || bodyText.includes('build verified 3d tour'))
         && Boolean(document.querySelector('[data-pw-visual-request="tour"]'))
       );
       const verifiedTourEvidenceCopy = (
-        bodyText.includes('evidence: verified matterport control')
+        bodyText.includes('tour: matterport.')
+        || bodyText.includes('tour: 3dvista.')
+        || bodyText.includes('tour: pano2vr.')
+        || bodyText.includes('tour: krpano.')
+        || bodyText.includes('evidence: matterport.')
+        || bodyText.includes('evidence: 3dvista.')
+        || bodyText.includes('evidence: pano2vr.')
+        || bodyText.includes('evidence: krpano.')
+        || bodyText.includes('evidence: verified matterport control')
         || bodyText.includes('evidence: verified 3dvista control')
         || bodyText.includes('evidence: verified pano2vr control')
         || bodyText.includes('evidence: verified krpano control')
+        || bodyText.includes('no 3d tour is attached yet')
+        || bodyText.includes('no live 3d tour is attached yet')
+        || bodyText.includes('no 3d tour is published yet')
         || bodyText.includes('no verified 3d tour is published yet')
+        || bodyText.includes('a matterport, 3dvista, or pano2vr tour is still needed')
         || bodyText.includes('a matterport, 3dvista, pano2vr, or licensed krpano capture is still needed')
       );
       const walkthroughEvidenceCopy = (
@@ -490,6 +582,7 @@ def _collect_metrics_script() -> str:
         || bodyText.includes('walkthrough is ready')
         || bodyText.includes('rendered walkthrough is ready')
         || bodyText.includes('no playable walkthrough is published yet')
+        || bodyText.includes('a rendered video is still needed')
         || bodyText.includes('a verified rendered video is still needed')
       );
       const vagueVisualCopy = (
@@ -516,6 +609,7 @@ def _collect_metrics_script() -> str:
         district_map_close_restored_scroll: Boolean(!dialog || modalClosed),
         district_map_lock_open: htmlOverflowOpen === 'hidden' && bodyOverflowOpen === 'hidden' && bodyPositionOpen === 'fixed' && bodyTopOpen.startsWith('-'),
         mobile_what_matters_single_open: singleOpen,
+        mobile_fold_single_open: mobileFoldSingleOpen,
         mobile_what_matters_page_scroll: whatMattersPageScroll,
         account_logout_strip_visible: visible(document.querySelector('.pqx-account-logout-strip')),
         logout_button_count: logoutButtons.length,
@@ -632,13 +726,45 @@ def build_live_mobile_surface_receipt(
                                 billing_text = str(response.text() or "")
                             except Exception:
                                 billing_text = ""
+                        billing_handoff_probe: dict[str, Any] = {}
+                        billing_handoff_host_resolves = False
+                        redirect_location = str(response.headers.get("location") or "")
+                        resolved_handoff = {
+                            "external_location": redirect_location,
+                            "bridge_launch_used": False,
+                            "bridge_launch_url": "",
+                            "bridge_launch_status_code": 0,
+                        }
+                        if status_code in {303, 307} and redirect_location:
+                            resolved_handoff = _resolve_mobile_billing_external_handoff(
+                                base_url=base_url,
+                                redirect_location=redirect_location,
+                                request_context=context.request,
+                                request_headers=request_headers,
+                                timeout_ms=timeout_ms,
+                            )
+                            external_location = str(resolved_handoff.get("external_location") or "").strip()
+                            billing_handoff_host_resolves = https_redirect_host_resolves(
+                                external_location,
+                                socket.getaddrinfo,
+                            )
+                            billing_handoff_probe = https_handoff_url_usable(
+                                external_location,
+                                timeout_seconds=max(3.0, timeout_ms / 1000.0),
+                            )
                         metrics = {
                             "status_code": status_code,
                             "viewport_width": viewport_width,
                             "body_width": viewport_width,
                             "topbar_height": 0,
                             "min_action_height": 44,
-                            "redirect_location": str(response.headers.get("location") or ""),
+                            "redirect_location": str(resolved_handoff.get("external_location") or redirect_location),
+                            "bridge_launch_url": str(resolved_handoff.get("bridge_launch_url") or ""),
+                            "bridge_launch_used": bool(resolved_handoff.get("bridge_launch_used")),
+                            "bridge_launch_status_code": int(resolved_handoff.get("bridge_launch_status_code") or 0),
+                            "billing_handoff_host_resolves": billing_handoff_host_resolves,
+                            "billing_handoff_usable": bool(billing_handoff_probe.get("ok")),
+                            "billing_handoff_probe": billing_handoff_probe,
                             "billing_visible_text": billing_text,
                         }
                         checks = evaluate_mobile_metrics(route, metrics)
@@ -738,6 +864,43 @@ def build_live_mobile_surface_receipt(
     }
 
 
+def build_seed_fixture_blocked_receipt(
+    *,
+    base_url: str,
+    host_header: str,
+    principal_id: str,
+    viewport_width: int,
+    viewport_height: int,
+    error: str,
+) -> dict[str, Any]:
+    return {
+        "status": "blocked",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "base_url": base_url,
+        "host_header": host_header,
+        "navigation_base_url": base_url,
+        "principal_id": principal_id,
+        "viewport": {"width": viewport_width, "height": viewport_height},
+        "route_count": 0,
+        "failed_count": 1,
+        "coverage_checks": [
+            {
+                "name": "research_detail_seed_fixture_ready",
+                "ok": False,
+                "reason": "Live mobile smoke could not seed the saved research-detail fixture, so it cannot honestly prove the open-property surface.",
+                "error": error,
+            }
+        ],
+        "routes": [],
+        "error": error,
+        "notes": [
+            "Live mobile smoke checks deployed HTML geometry only; it does not call listing providers.",
+            "API token values are never written to this receipt.",
+            "When fixture seeding fails, rerun with a known current /app/research/{id}?run_id=... route via --routes or set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE.",
+        ],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a live mobile UI smoke against PropertyQuarry app surfaces.")
     parser.add_argument("--base-url", default=_env("PROPERTYQUARRY_LIVE_BASE_URL", "http://localhost:8097"))
@@ -770,12 +933,29 @@ def main() -> int:
     routes_list = [route.strip() for route in str(args.routes or "").split(",") if route.strip()]
     seeded_route = ""
     if args.seed_research_detail_fixture:
-        seeded_route = seed_research_detail_fixture(
-            base_url=str(args.base_url).strip(),
-            api_token=str(args.api_token or "").strip(),
-            principal_id=str(args.principal_id or "").strip() or "pq-live-mobile-smoke",
-            host_header=str(args.host_header or "").strip(),
-        )
+        try:
+            seeded_route = seed_research_detail_fixture(
+                base_url=str(args.base_url).strip(),
+                api_token=str(args.api_token or "").strip(),
+                principal_id=str(args.principal_id or "").strip() or "pq-live-mobile-smoke",
+                host_header=str(args.host_header or "").strip(),
+            )
+        except Exception as exc:
+            receipt = build_seed_fixture_blocked_receipt(
+                base_url=str(args.base_url).strip(),
+                host_header=str(args.host_header or "").strip(),
+                principal_id=str(args.principal_id or "").strip() or "pq-live-mobile-smoke",
+                viewport_width=width,
+                viewport_height=height,
+                error=f"seed_research_detail_fixture_failed:{type(exc).__name__}: {exc}",
+            )
+            output = json.dumps(receipt, indent=2, sort_keys=True)
+            if args.write:
+                out_path = Path(args.write)
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(output + "\n", encoding="utf-8")
+            print(output)
+            return 1
         if seeded_route not in routes_list:
             routes_list.append(seeded_route)
         args.require_research_detail = True

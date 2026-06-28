@@ -5877,6 +5877,87 @@ def test_tool_execution_service_self_heals_missing_builtin_onemin_property_walkt
     assert tool_runtime.get_tool("provider.onemin.property_walkthrough_video") is not None
 
 
+def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_definition_and_normalizes_contract_provider_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    captured_render_kwargs: dict[str, object] = {}
+
+    def _fake_render_property_flythrough_into_hosted_tour(**kwargs):
+        captured_render_kwargs.update(kwargs)
+        return {
+            "status": "rendered",
+            "provider_key": "onemin_i2v",
+            "media_route_provider_key": "onemin_i2v",
+            "editor_url": "https://editor.example/scene-video",
+            "reason": "",
+        }
+
+    monkeypatch.setattr(
+        "app.product.service._render_property_flythrough_into_hosted_tour",
+        _fake_render_property_flythrough_into_hosted_tour,
+    )
+    monkeypatch.setattr(
+        "app.product.service._hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://cdn.example/property/walkthrough.mp4",
+            "flythrough_url": "https://viewer.example/property/walkthrough",
+            "provider_key": "onemin_i2v",
+        },
+    )
+    registry._rows.pop("ea.scene_video_generate", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "ea.scene_video_generate"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-1",
+            step_id="step-scene-video-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "magic",
+                "context_kind": "property_walkthrough",
+                "title": "Runsite Walkthrough",
+                "tour_url": "https://property.example/tours/runsite",
+                "tour_context_json": {
+                    "verified_provider": "3dvista",
+                    "control_url": "https://property.example/tours/runsite/control/3dvista",
+                },
+                "property_facts_json": {"room_count": 4},
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "ea.scene_video_generate"
+    assert result.action_kind == "video.generate"
+    assert result.output_json["provider_key"] == "omagic"
+    assert result.output_json["provider_backend_key"] == "onemin_i2v"
+    assert result.output_json["video_url"] == "https://cdn.example/property/walkthrough.mp4"
+    assert captured_render_kwargs["tour_context_json"] == {
+        "verified_provider": "3dvista",
+        "control_url": "https://property.example/tours/runsite/control/3dvista",
+    }
+    structured = result.output_json["structured_output_json"]
+    assert structured["provider_key"] == "omagic"
+    assert structured["provider_backend_key"] == "onemin_i2v"
+    assert structured["structured_output_json"]["provider_backend_key"] == "onemin_i2v"
+    assert structured["tour_context_json"]["verified_provider"] == "3dvista"
+    assert result.receipt_json["provider_key"] == "omagic"
+    assert result.receipt_json["provider_backend_key"] == "onemin_i2v"
+    assert result.receipt_json["tour_context_present"] is True
+    assert tool_runtime.get_tool("ea.scene_video_generate") is not None
+
+
 def test_tool_execution_service_self_heals_missing_builtin_comfyui_image_generate_definition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

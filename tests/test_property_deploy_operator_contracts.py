@@ -52,14 +52,29 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "scripts/propertyquarry_live_authenticated_smoke.py",
         "scripts/propertyquarry_live_market_scope_smoke.py",
         "scripts/property_live_provider_smoke.py",
+        "scripts/propertyquarry_gold_status.py",
+        "scripts/propertyquarry_notify_gold_status.py",
         "propertyquarry_deploy_public_smoke.json",
         "propertyquarry_deploy_authenticated_smoke.json",
         "propertyquarry_deploy_market_scope_smoke.json",
         "propertyquarry_deploy_provider_smoke.json",
+        "_completion/property_gold_status/release-gate.json",
+        "propertyquarry-gold-status-latest.json",
+        "_completion/property_gold_status/telegram-notify-report.json",
         "PROPERTYQUARRY_DEPLOY_PUBLIC_SMOKE_TIMEOUT_SECONDS:-8",
         "PROPERTYQUARRY_DEPLOY_AUTHENTICATED_SMOKE_TIMEOUT_SECONDS:-20",
         "PROPERTYQUARRY_DEPLOY_MARKET_SCOPE_SMOKE_TIMEOUT_SECONDS:-8",
         "PROPERTYQUARRY_DEPLOY_PROVIDER_SMOKE_TIMEOUT_SECONDS:-20",
+        "PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES",
+        "PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID",
+        "PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL",
+        "PROPERTYQUARRY_GOLD_NOTIFICATION_STATE",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BOOTSTRAP_EDGE",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET",
+        "scripts/bootstrap_billing_handoff_worker.py",
+        "propertyquarry_billing_edge_worker.json",
+        "PropertyQuarry billing worker bootstrap failed.",
         "PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1",
         "PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0",
         "PropertyQuarry",
@@ -69,6 +84,11 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "restart_existing_cloudflared_tunnel",
         "docker restart",
         "did not restart cleanly after API deploy",
+        "Warning: PropertyQuarry gold notification script failed.",
+        "--live-mobile-receipt _completion/smoke/property-live-mobile-surface-latest.json",
+        "--public-smoke-receipt _completion/smoke/property-live-public-latest.json",
+        "--authenticated-smoke-receipt _completion/smoke/property-live-authenticated-latest.json",
+        "--billing-receipt _completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json",
     ):
         assert required in script
 
@@ -77,6 +97,17 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
     assert re.search(r"Expected /app/properties to require auth", script)
     assert "timeout" in script
     assert "did not answer within" in script
+
+
+def test_propertyquarry_deploy_wrapper_supports_focused_provider_country_matrix() -> None:
+    script = _read("scripts/deploy_propertyquarry.sh")
+
+    assert "PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES" in script
+    assert "provider_smoke_scope_args=(--all-search-ready-countries)" in script
+    assert 'provider_country_args+=(--country "${country_code}")' in script
+    assert '"${provider_smoke_scope_args[@]}"' in script
+    assert "production-e2e-provider-matrix-${provider_country_scope_slug}-current.json" in script
+    assert "provider verification: ${provider_smoke_scope_label}" in script
 
 
 def test_propertyquarry_deploy_wrapper_stays_property_only() -> None:
@@ -177,6 +208,7 @@ def test_property_release_gate_wires_tour_import_manifest_into_gold_status() -> 
     assert "_completion/property_tour_exports/release-gate-import-manifest.json" in release_gate
     assert "--import-manifest-receipt _completion/property_tour_exports/release-gate-import-manifest.json" in release_gate
     assert "--vendor-tooling-receipt _completion/tours/property-tour-vendor-tooling-current.json" in release_gate
+    assert "_completion/provider_smoke/production-e2e-provider-matrix-current.json" in release_gate
 
 
 def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:
@@ -204,6 +236,17 @@ def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:
     assert "_completion/property_tour_ownership/release-gate.json" in release_gate
     assert "--tour-provider-ownership-receipt _completion/property_tour_ownership/release-gate.json" in release_gate
     assert "tests/test_property_live_mobile_surface_smoke.py" in release_gate
+
+
+def test_property_release_gate_sends_gold_notification_when_green() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    assert "scripts/propertyquarry_notify_gold_status.py" in release_gate
+    assert "PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID" in release_gate
+    assert "PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL" in release_gate
+    assert "PROPERTYQUARRY_GOLD_NOTIFICATION_STATE" in release_gate
+    assert "_completion/property_gold_status/telegram-notify-report.json" in release_gate
+    assert "warning: PropertyQuarry gold notification script failed." in release_gate
 
 
 def test_readme_documents_hardened_deploy_and_port_override() -> None:
@@ -235,7 +278,7 @@ def test_runtime_hard_exit_gates_can_extend_into_propertyquarry_live_runtime() -
         "PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1",
         "PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0",
         "verify_pocket_audio_archive.py failed, continuing because Pocket archive backfill is outside the PropertyQuarry runtime lane",
-        "EA_API_TOKEN is not set; skipping authenticated/provider PropertyQuarry runtime smokes",
+        "EA_API_TOKEN is not set; skipping authenticated/mobile/provider PropertyQuarry runtime smokes",
     ):
         assert required in script
 
@@ -257,6 +300,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert dockerfile.index("COPY ea/requirements.txt /app/requirements.txt") < dockerfile.index("pip install --no-cache-dir")
     assert dockerfile.index("pip install --no-cache-dir") < dockerfile.index("COPY ea/app /app/app")
     assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
+    assert "COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py" in dockerfile
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
     assert "COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py" in dockerfile
     assert "COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py" in dockerfile
@@ -264,6 +308,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "COPY scripts/import_property_tour_exports.py /app/scripts/import_property_tour_exports.py" in dockerfile
     assert "COPY scripts/attach_provider_tour_layer.py /app/scripts/attach_provider_tour_layer.py" in dockerfile
     assert "COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py" in dockerfile
+    assert "COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_paths.py" in dockerfile
     assert "COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py" in dockerfile
     assert "COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py" in dockerfile
     assert "COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py" in dockerfile
@@ -283,6 +328,7 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
 
     assert copied_scripts == [
         "willhaben_property_packet.py",
+        "property_magicfit_env.py",
         "render_magicfit_property_flythrough.py",
         "render_onemin_property_i2v_segment.py",
         "import_3dvista_export.py",
@@ -292,6 +338,7 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         "attach_provider_tour_layer.py",
         "discover_property_tour_exports.py",
         "materialize_property_tour_export_manifest.py",
+        "property_tour_runtime_paths.py",
         "generate_property_reconstruction.py",
         "import_magicfit_walkthrough.py",
         "verify_property_tour_controls.py",

@@ -277,7 +277,7 @@
       status.className = 'pqx-decision-status';
       status.setAttribute('data-pw-visual-request-status', '');
       status.textContent = !tour.url
-        ? 'Need a remote view? Request a verified 3D tour or a receipt-backed MagicFit walkthrough.'
+        ? 'Need a closer look? Request a 3D tour or walkthrough.'
         : '';
       details.appendChild(status);
       node.appendChild(details);
@@ -437,8 +437,8 @@
                 title: investmentSearch ? 'Return' : 'Cost check',
                 detail: String(
                   investmentSearch
-                    ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.headline || 'Not verified yet.')
-                    : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Not verified yet.')
+                    ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.headline || 'Not available yet.')
+                    : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Not available yet.')
                 ),
                 tag: investmentSearch ? 'return' : 'cost',
               },
@@ -903,17 +903,17 @@
         const hasTour = Boolean(tour.url || tour.embed_url);
         oodaSummary.textContent = candidate.ooda?.summary || (hasTour
           ? 'Start with the tour, then check the facts below before deciding.'
-          : 'No verified 360 is attached yet.');
+          : 'No 360 tour is attached yet.');
       });
       root.querySelectorAll('[data-pw-match]').forEach((match) => {
-        renderReasonCards(match, candidate.match_reasons, { emptyTitle: 'No explicit match reason captured yet.', defaultTitle: 'For' });
+        renderReasonCards(match, candidate.match_reasons, { emptyTitle: 'No explicit match reason captured yet.', defaultTitle: 'Fit' });
       });
       const objections = root.querySelector('[data-pw-objections]');
       renderReasonCards(objections, candidate.objection_rows, { emptyTitle: 'No objection captured yet.', defaultTitle: 'Objection' });
       renderReasonCards(householdNode, candidate.household_rows, { emptyTitle: 'No household vote captured yet.', defaultTitle: 'Stakeholder' });
       if (householdScoreNode) householdScoreNode.textContent = `Alignment score ${Number(candidate.household_alignment_score || 0)}/100`;
       if (householdLabelNode) householdLabelNode.textContent = String(candidate.household_alignment_label || 'waiting');
-      renderReasonCards(riskSignalsNode, candidate.risk_signal_rows, { emptyTitle: 'No market-risk candidate captured yet.', defaultTitle: 'Risk signal' });
+      renderReasonCards(riskSignalsNode, candidate.risk_signal_rows, { emptyTitle: 'No shared note yet.', defaultTitle: 'Shared watch-out' });
       renderReasonCards(recentChangesNode, candidate.recent_change_rows, { emptyTitle: 'No new deltas yet.', defaultTitle: 'Change' });
       if (officialPostureNode) {
         renderEventCards(
@@ -977,8 +977,8 @@
       if (investment) {
         const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
         investment.textContent = investmentSearch
-          ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Not verified yet.')
-          : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Not verified yet.');
+          ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Not available yet.')
+          : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Not available yet.');
       }
       const underwritingSummary = root.querySelector('[data-pw-underwriting-summary]');
       if (underwritingSummary) {

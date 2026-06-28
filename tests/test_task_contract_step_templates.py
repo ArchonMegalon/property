@@ -683,6 +683,7 @@ def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_br
         ("create_mootion_movie", "browseract.mootion_movie", "mootion_movie", "mootion_movie_packet", "script_text", "step_browseract_mootion_movie"),
         ("create_avomap_flyover", "browseract.avomap_flyover", "avomap_flyover", "avomap_flyover_packet", "route_data", "step_browseract_avomap_flyover"),
         ("create_booka_book", "browseract.booka_book", "booka_book", "booka_book_packet", "book_prompt", "step_browseract_booka_book"),
+        ("scene_video_generate", "ea.scene_video_generate", "scene_video_generate", "scene_video_packet", "provider_key", "step_scene_video_generate"),
     ],
 )
 def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_browseract_ui_services(

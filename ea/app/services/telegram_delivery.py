@@ -430,12 +430,14 @@ def _telegram_binding_principal_candidates(principal_id: str) -> tuple[str, ...]
 
 
 def resolve_primary_telegram_binding(tool_runtime: ToolRuntimeService, *, principal_id: str) -> ConnectorBinding | None:
-    def _sort_key(item: ConnectorBinding) -> tuple[int, int, str]:
+    def _sort_key(item: ConnectorBinding) -> tuple[int, int, int, str]:
         metadata = dict(item.auth_metadata_json or {})
         chat_ref = str(metadata.get("default_chat_ref") or item.external_account_ref or "").strip()
         numeric = 1 if chat_ref.isdigit() else 0
-        plausible_numeric = 1 if numeric and int(chat_ref) > 1000 else 0
-        return (plausible_numeric, numeric, str(item.updated_at or ""))
+        numeric_value = int(chat_ref) if numeric else 0
+        plausible_numeric = 1 if numeric_value > 1000 else 0
+        high_confidence_numeric = 1 if numeric_value >= 1_000_000 else 0
+        return (high_confidence_numeric, plausible_numeric, numeric, str(item.updated_at or ""))
 
     for binding_principal_id in _telegram_binding_principal_candidates(principal_id):
         rows = tool_runtime.list_connector_bindings(binding_principal_id, limit=200)

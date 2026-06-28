@@ -35,10 +35,14 @@ PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER=X-Api-Key
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY=
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URLS=
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET=
+PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED=0
+PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL=
+PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ALLOWED_HOSTS=
+PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET=
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR=_completion/brilliant_directories
 ```
 
-The adapter requires HTTPS and an explicit allowed-host list before API requests can be built or executed. For billing handoff, set `PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET` to the exact CNAME target shown in Brilliant Directories Domain Manager before deploying. If the preferred white-label billing host is still propagating or temporarily unavailable, `PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URLS` can provide one or more allowlisted fallback account URLs. Customer-facing directory and pricing surfaces stay on PropertyQuarry; there is no public provider-site or provider-pricing redirect knob. API payloads are form-encoded by default because Brilliant Directories' own examples use `application/x-www-form-urlencoded` for member create, delete, search, and transaction calls.
+The adapter requires HTTPS and an explicit allowed-host list before API requests can be built or executed. For billing handoff, set `PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET` to the exact CNAME target shown in Brilliant Directories Domain Manager before deploying. If the preferred white-label billing host is still propagating or temporarily unavailable, `PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URLS` can provide one or more allowlisted fallback account URLs. Customer-facing directory and pricing surfaces stay on PropertyQuarry; there is no public provider-site or provider-pricing redirect knob. `PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_*` is reserved for a custom, PropertyQuarry-controlled signed bridge that can launch a billing session only after a separate consumer is deployed on an allowlisted host. API payloads are form-encoded by default because Brilliant Directories' own examples use `application/x-www-form-urlencoded` for member create, delete, search, and transaction calls.
 
 ## Implemented Local Contract
 
@@ -83,21 +87,36 @@ Brilliant Directories may provide only:
 
 Every billing state must have a local receipt. `/app/billing` is not a local plan/payment page; it redirects to the configured white-label Brilliant Directories account lane. If Brilliant Directories is unavailable, misconfigured, unsigned, replayed, returns a non-allowlisted URL, or the white-label billing host does not resolve, PropertyQuarry must fail closed instead of rendering a local billing board.
 
+If the white-label account lane still forces a second Brilliant Directories login, PropertyQuarry can expose only a signed bridge launch contract, not automatic access. The bridge contract is:
+
+- the PropertyQuarry app launches `/app/api/property/billing/bridge-launch`;
+- the route signs a 5-minute `pq_bridge` token containing `principal_id`, `access_email`, `return_to`, `return_to_origin`, `issued_at`, and `expires_at`;
+- `return_to` is always a PropertyQuarry path such as `/app/account` or `/app/billing`, not a path on the billing host;
+- `return_to_origin` is the trusted PropertyQuarry public origin that the bridge consumer must use when it sends the user back after the billing step;
+- the token is HMAC-signed with `PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET`;
+- the external bridge consumer must live at `PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL` on an allowlisted HTTPS host;
+- the external bridge consumer is responsible for turning that signed launch into a real Brilliant Directories member session and can keep a short-lived signed context cookie only on the billing host.
+
+This contract does not claim that Brilliant Directories natively supports SSO. It only gives PropertyQuarry a controlled launch surface once a custom consumer exists. On Brilliant Directories' side, the real billing domain still needs a working member-login setup; their own Integrations settings docs note that the default test reCAPTCHA credentials stop applying once the site is connected to its real custom domain.
+
 ## Verification
 
 ```bash
 PYTHONPATH=ea python3 scripts/verify_brilliant_directories_provider.py
 ```
 
-The default verification is mostly dry and writes a redacted provider receipt that records whether configuration is disabled or ready, and whether the local request executor, redirect blocking, byte limit, public projection, billing handoff, and private-field stripping contracts are present. When a white-label billing URL is configured, the verifier performs a DNS resolution check for that host and blocks release if the target does not resolve.
+The default verification is mostly dry and writes a redacted provider receipt that records whether configuration is disabled or ready, and whether the local request executor, redirect blocking, byte limit, public projection, billing handoff, signed bridge contract, and private-field stripping contracts are present. When a white-label billing URL is configured, the verifier performs a DNS resolution check for that host, probes whether the account lane still falls into a separate login, and checks whether the `/join` pricing surface is still the stock Brilliant Directories template. If the direct member lane still requires a second login, the receipt also reports whether a custom bridge launch contract is ready. Release stays blocked if the billing host does not resolve, the account lane still requires separate login without a verified custom bridge, or the pricing surface still shows placeholder plan copy.
 
 ## Provider Sources
 
 The integration is based on Brilliant Directories' official developer docs for API endpoints, API key generation, member search, member posts, and webhooks:
 
 - https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000101842-brilliant-directories-api-endpoints-technical-reference
+- https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000108047-api-reference-users
 - https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000088768-developer-hub-generate-api-key-overview
 - https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000083005-developer-hub-webhooks
+- https://support.brilliantdirectories.com/support/solutions/articles/12000036189-how-to-login-as-member
+- https://support.brilliantdirectories.com/support/solutions/articles/12000050980-settings-general-settings-integrations-tab
 - https://support.brilliantdirectories.com/support/solutions/articles/12000102884-how-to-search-for-members-through-the-api
 - https://support.brilliantdirectories.com/support/solutions/articles/12000093239-member-posts-api-create-search-update-delete-and-get
 
@@ -110,4 +129,6 @@ The integration is based on Brilliant Directories' official developer docs for A
 - Public-directory field rights reviewed.
 - Webhook signature and replay controls implemented before accepting callbacks.
 - Billing webhook signature, replay protection, and local entitlement reconciliation implemented before any Brilliant Directories event can change access.
+- White-label member login handoff works without a second login prompt, or a verified custom bridge consumer is live and accepting PropertyQuarry's signed `pq_bridge` launch token.
+- The public join page no longer shows stock placeholder plan copy.
 - Human approval remains required before any public PropertyQuarry surface uses directory output.
