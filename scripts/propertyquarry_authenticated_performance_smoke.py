@@ -804,6 +804,8 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
     os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS"] = "billing.propertyquarry.test"
     os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL"] = "https://billing.propertyquarry.test/account"
     os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY"] = "performance-smoke-local-key"
+    if str(os.environ.get("EA_RUNTIME_MODE") or "").strip().lower() == "prod" and not str(os.environ.get("DATABASE_URL") or "").strip():
+        os.environ["EA_RUNTIME_MODE"] = "dev"
     api_token = str(os.environ.get("EA_API_TOKEN") or "").strip()
     principal_id = "pq-auth-performance-smoke"
     client = TestClient(create_app(), base_url="https://propertyquarry.com")
