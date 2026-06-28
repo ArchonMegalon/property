@@ -533,6 +533,27 @@
         next_action: 'Open the shared shortlist and review the top homes first.',
       };
     };
+    const counterfactualOnlyAdjustsRankingBar = (adjustments) => {
+      if (!adjustments || typeof adjustments !== 'object' || Array.isArray(adjustments)) return false;
+      const keys = Object.keys(adjustments).filter((key) => key && adjustments[key] !== undefined);
+      return keys.length === 1 && keys[0] === 'min_match_score';
+    };
+    const counterfactualApplyLabel = (adjustments) => (
+      counterfactualOnlyAdjustsRankingBar(adjustments) ? 'Updating ranking bar...' : 'Applying broader search...'
+    );
+    const counterfactualSaveErrorLabel = (adjustments) => (
+      counterfactualOnlyAdjustsRankingBar(adjustments) ? 'Could not update the ranking bar.' : 'Could not apply the broader search.'
+    );
+    const counterfactualRestartLabel = (adjustments) => (
+      counterfactualOnlyAdjustsRankingBar(adjustments)
+        ? 'Restarting search with the new ranking bar...'
+        : 'Restarting search...'
+    );
+    const counterfactualRestartErrorLabel = (adjustments) => (
+      counterfactualOnlyAdjustsRankingBar(adjustments)
+        ? 'Could not restart the search with the new ranking bar.'
+        : 'Could not restart property search.'
+    );
     const saveCounterfactualBrief = async (adjustments) => {
       const endpoint = String(meta.preferences_endpoint || data.endpoints?.preferences || '').trim();
       if (!endpoint) throw new Error('Brief endpoint missing.');
@@ -545,7 +566,7 @@
         body: JSON.stringify(nextPreferences),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not apply the broader search.'));
+      if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, counterfactualSaveErrorLabel(adjustments)));
       return nextPreferences;
     };
     const csvValues = (value) => String(value || '')
@@ -589,7 +610,7 @@
           return { ...basePreferences };
       }
     };
-    const startSearchWithPreferences = async (nextPreferences, statusNode) => {
+    const startSearchWithPreferences = async (nextPreferences, statusNode, adjustments = {}) => {
       const startEndpoint = String(meta.start_endpoint || data.endpoints?.start || '').trim();
       if (!startEndpoint) throw new Error('Search endpoint missing.');
       const selectedPlatforms = Array.isArray(nextPreferences?.selected_platforms) && nextPreferences.selected_platforms.length
@@ -609,9 +630,9 @@
       });
       const runBody = await runResponse.json().catch(() => ({}));
       if (!runResponse.ok) {
-        throw new Error(readableErrorDetail(runBody.detail || runBody.error || runBody.message || runBody, 'Could not restart property search.'));
+        throw new Error(readableErrorDetail(runBody.detail || runBody.error || runBody.message || runBody, counterfactualRestartErrorLabel(adjustments)));
       }
-      if (statusNode) statusNode.textContent = 'Restarting search...';
+      if (statusNode) statusNode.textContent = counterfactualRestartLabel(adjustments);
       if (runBody.run_id) {
         window.location.href = `/app/properties?run_id=${encodeURIComponent(runBody.run_id)}`;
         return;
@@ -5510,12 +5531,12 @@
           const fieldName = String(slider.getAttribute('data-pqx-filter-field') || '').trim();
           if (fieldName) adjustments[fieldName] = Math.max(0, Number(slider.value || '0') || 0);
         }
-        if (localStatusNode) localStatusNode.textContent = 'Applying broader search...';
+        if (localStatusNode) localStatusNode.textContent = counterfactualApplyLabel(adjustments);
         try {
           const nextPreferences = await saveCounterfactualBrief(adjustments);
-          await startSearchWithPreferences(nextPreferences, localStatusNode);
+          await startSearchWithPreferences(nextPreferences, localStatusNode, adjustments);
         } catch (error) {
-          if (localStatusNode) localStatusNode.textContent = error instanceof Error ? error.message : 'Could not apply the broader search.';
+          if (localStatusNode) localStatusNode.textContent = error instanceof Error ? error.message : counterfactualSaveErrorLabel(adjustments);
         }
       });
     });

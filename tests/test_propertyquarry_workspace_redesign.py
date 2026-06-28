@@ -11850,11 +11850,96 @@ def test_propertyquarry_empty_state_promotes_ranking_bar_control(monkeypatch) ->
     visible_text = re.sub(r"<script.*?</script>", "", page.text, flags=re.S)
 
     assert page.status_code == 200
+    assert "Homes were scored, but the current ranking bar kept the list empty." in visible_text
     assert "Current ranking bar: 35/100." in visible_text
     assert "Show every home in one ranking" in visible_text
     assert "Turn bar off" in visible_text or "Use 15/100" in visible_text
     assert "watch-tier" not in visible_text.lower()
     assert "score gate" not in visible_text.lower()
+
+
+def test_propertyquarry_results_surface_exposes_ranking_bar_controls_after_a_run(monkeypatch) -> None:
+    principal_id = "pq-results-ranking-bar"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Results Ranking Bar")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "min_match_score": 35,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "summary": {
+                "sources_total": 1,
+                "provider_total": 1,
+                "listing_total": 1,
+                "reviewed_listing_total": 12,
+                "score_demoted_total": 6,
+                "filtered_low_fit_total": 6,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-ranking-bar-1",
+                        "title": "Praterstrasse ranked home",
+                        "summary": "EUR 1,520 | 67 m2 | 1020 Vienna",
+                        "property_url": "https://example.test/praterstrasse-ranked-home",
+                        "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                        "fit_score": 58,
+                        "fit_summary": "Kept visible while lower-ranked homes stay below the current bar.",
+                        "price_display": "EUR 1,520",
+                        "layout_display": "3 rooms | 67 m2",
+                        "property_facts": {
+                            "postal_name": "1020 Vienna",
+                            "rent_display": "EUR 1,520",
+                            "area_sqm": 67,
+                            "rooms": 3,
+                        },
+                    }
+                ],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                        "status": "completed",
+                        "scanned_listing_total": 12,
+                        "top_candidates": [
+                            {
+                                "candidate_ref": "cand-ranking-bar-1",
+                                "title": "Praterstrasse ranked home",
+                                "property_url": "https://example.test/praterstrasse-ranked-home",
+                                "fit_score": 58,
+                            }
+                        ],
+                    }
+                ],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-results-ranking-bar"}, headers=headers)
+    visible_text = re.sub(r"<script.*?</script>", "", response.text, flags=re.S)
+
+    assert response.status_code == 200
+    assert "Praterstrasse ranked home" in visible_text
+    assert "Current ranking bar: 35/100." in visible_text
+    assert "6 homes from this run sit below it." in visible_text
+    assert "Show every home in one ranking" in visible_text
+    assert "Turn bar off" in visible_text or "Use 15/100" in visible_text
 
 
 def test_propertyquarry_ranked_results_render_even_when_high_fit_total_is_zero(monkeypatch) -> None:

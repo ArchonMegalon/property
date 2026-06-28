@@ -4,8 +4,16 @@
 {% set is_research_surface = surface_mode == 'research' %}
 {% set run_sources = run_summary.get('sources') or [] %}
 {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_generic_page_total') or 0) + (run_summary.get('filtered_listing_mode_total') or 0) %}
+{% set score_demoted_total = (run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0)|int %}
 {% set results_label = 'shortlisted opportunities' if is_shortlist_surface and brief.get('search_goal') == 'investment' else ('shortlisted homes' if is_shortlist_surface else ('ranked opportunities' if brief.get('search_goal') == 'investment' else 'ranked homes')) %}
 {% set shortlist_compact_actions = is_shortlist_surface %}
+{% set ranking_bar = namespace(row=None) %}
+{% for row in (counterfactual_rows or []) %}
+  {% set slider = row.get('slider') or {} %}
+  {% if not ranking_bar.row and slider.get('kind') == 'ranking_bar' and row.get('adjustments') %}
+    {% set ranking_bar.row = row %}
+  {% endif %}
+{% endfor %}
 <section class="pqx-result-panel active{% if is_research_surface and not results %} is-empty-research{% endif %}" data-pqx-mobile-panel="results">
   <div class="pqx-result-panel-head">
     <div class="pqx-results-headline">
@@ -33,6 +41,54 @@
       </div>
       {% if is_research_surface %}
       <div class="pqx-note">Open the strongest property pages first. Hosted property pages and 360 tours stay primary.</div>
+      {% endif %}
+      {% if ranking_bar.row and not is_research_surface %}
+      {% set ranking_slider = ranking_bar.row.get('slider') or {} %}
+      <div class="pqx-suppression-grid" style="margin-top:12px;">
+        <div class="pqx-suppression-item pqx-suppression-item-adjustable">
+          <strong>{{ ranking_bar.row.get('title') or 'Adjust ranking bar' }}</strong>
+          <span class="pqx-note">
+            Current ranking bar: {{ ranking_slider.get('max') or 0 }}/100.
+            {% if score_demoted_total > 0 %}
+            {{ score_demoted_total }} home{% if score_demoted_total != 1 %}s{% endif %} from this run sit below it. Turn it down or off if you want one uninterrupted ranking.
+            {% else %}
+            The bar only marks stronger matches. Hard rules still stay strict.
+            {% endif %}
+          </span>
+          <label class="pqx-filter-radius-control pqx-suppression-slider">
+            <span>{{ ranking_slider.get('label') or 'Ranking bar' }} <b data-pqx-filter-slider-value>{{ ranking_slider.get('value') or ranking_slider.get('min') or 0 }}{% if ranking_slider.get('unit') %} {{ ranking_slider.get('unit') }}{% endif %}</b></span>
+            <input
+              type="range"
+              min="{{ ranking_slider.get('min') or 0 }}"
+              max="{{ ranking_slider.get('max') or ranking_slider.get('value') or 0 }}"
+              step="{{ ranking_slider.get('step') or 1 }}"
+              value="{{ ranking_slider.get('value') or ranking_slider.get('min') or 0 }}"
+              data-pqx-filter-slider
+              data-pqx-filter-field="{{ ranking_slider.get('field') or '' }}"
+              data-pqx-filter-kind="{{ ranking_slider.get('kind') or '' }}"
+              data-pqx-filter-unit="{{ ranking_slider.get('unit') or '' }}"
+              data-pqx-filter-base="{{ ranking_slider.get('min') or 0 }}"
+              data-pqx-filter-max-value="{{ ranking_slider.get('max') or ranking_slider.get('value') or 0 }}"
+              data-pqx-filter-max="{{ score_demoted_total or ranking_bar.row.get('affected_total') or 0 }}"
+            >
+            <span class="pqx-small" data-pqx-filter-estimate>
+              {% if score_demoted_total > 0 %}
+              Lower the bar to review those homes in the same ranking.
+              {% else %}
+              Restart the run only if you want the saved brief to keep the new bar.
+              {% endif %}
+            </span>
+          </label>
+          <button
+            class="pqx-suppression-action"
+            type="button"
+            aria-label="{{ ranking_bar.row.get('action_label') or 'Adjust ranking bar' }}"
+            data-pqx-counterfactual='{{ ranking_bar.row.get("adjustments")|tojson|safe }}'
+            data-pqx-counterfactual-action-kind="{{ ranking_slider.get('kind') or '' }}"
+            data-pqx-counterfactual-action-default="{{ ranking_bar.row.get('action_label') or 'Adjust ranking bar' }}"
+          >{{ ranking_bar.row.get('action_label') or 'Adjust ranking bar' }}</button>
+        </div>
+      </div>
       {% endif %}
     </div>
   </div>
@@ -253,7 +309,7 @@
       </span>
       {% else %}
         <strong>No ranked homes are ready yet.</strong>
-      <span class="pqx-note">Relax one hard rule to rank more homes.</span>
+      <span class="pqx-note">{% if score_demoted_total > 0 and ranking_bar.row %}Lower the ranking bar or turn it off to show every ranked home.{% else %}Relax one hard rule to rank more homes.{% endif %}</span>
       <span class="pqx-actions">
         <a class="pqx-button primary" href="/app/properties{{ results_query_suffix }}">Adjust search</a>
         {% if filtered_total %}
@@ -272,9 +328,19 @@
       <article class="pqx-source-card">
         <strong>{{ (source.get('source_label') or source.get('platform') or 'Provider').split('|')[0].strip() }}</strong>
         <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Checked' }}</span>
+        {% set source_ranked_total = (
+          source.get('ranked_total')
+          or source.get('ranked_candidate_total')
+          or source.get('results_total')
+          or source.get('survivor_total')
+          or ((source.get('top_candidates') or [])|length)
+          or source.get('high_fit_total')
+          or 0
+        ) %}
+        {% set source_checked_total = source.get('scanned_listing_total') or source.get('reviewed_listing_total') or source.get('raw_listing_total') or source.get('listing_total') or 0 %}
         <div class="pqx-source-metrics">
-          <span>Checked <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
-          <span>Ranked <b>{{ source.get('high_fit_total') or 0 }}</b></span>
+          <span>Checked <b>{{ source_checked_total }}</b></span>
+          <span>Ranked <b>{{ source_ranked_total }}</b></span>
           <span>Hard rules <b>{{ (source.get('filtered_area_total') or 0) + (source.get('filtered_property_type_total') or 0) + (source.get('filtered_availability_total') or 0) + (source.get('filtered_floorplan_total') or 0) + (source.get('filtered_generic_page_total') or 0) + (source.get('filtered_listing_mode_total') or 0) }}</b></span>
           <span>Missing floorplans <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
         </div>

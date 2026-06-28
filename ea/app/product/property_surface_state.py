@@ -1928,6 +1928,11 @@ def build_property_empty_outcome_summary(
     suppression_rows: list[dict[str, object]],
 ) -> dict[str, str]:
     filtered_total = int(run_summary.get("filtered_total") or run_summary.get("held_back_total") or 0)
+    score_demoted_total = int(
+        run_summary.get("score_demoted_total")
+        or run_summary.get("filtered_low_fit_total")
+        or 0
+    )
     source_total = int(run_summary.get("sources_total") or len(run_sources) or 0)
     source_completed = int(
         run_summary.get("sources_completed")
@@ -2018,6 +2023,11 @@ def build_property_empty_outcome_summary(
             f"{filtered_total} candidate{'s' if filtered_total != 1 else ''} were held back; "
             "most conflicted with the selected-area rule or were provider overview pages."
         )
+    elif score_demoted_total > 0 and listing_total == 0:
+        happened = "Homes were scored, but the current ranking bar kept the list empty."
+        stopped_context = (
+            f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still scored in this run."
+        )
     elif filtered_total > 0:
         happened = "No shortlist yet."
     else:
@@ -2027,6 +2037,10 @@ def build_property_empty_outcome_summary(
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
             f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected providers."
+        )
+    elif score_demoted_total > 0 and listing_total == 0:
+        still_worked = (
+            f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still ranked for the brief."
         )
     else:
         still_worked = (
@@ -2042,6 +2056,8 @@ def build_property_empty_outcome_summary(
         next_move = "Start a fresh search or change one provider or rule before retrying the same brief."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
+    elif score_demoted_total > 0 and listing_total == 0:
+        next_move = "Lower the ranking bar or turn it off if you want one uninterrupted ranking."
     else:
         next_move = (
             str(strongest_relax.get("detail") or "").strip()
