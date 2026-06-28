@@ -4176,6 +4176,12 @@
       border-color: rgba(151, 124, 70, 0.28);
       background: rgba(255, 250, 242, 0.98);
     }
+    html[data-pq-theme="dark"] .pqx-what-matters-mobile-menu > summary,
+    html[data-pq-theme="dark"] .pqx-what-matters-mobile-menu[open] > summary {
+      border-color: color-mix(in srgb, var(--pq-line) 84%, rgba(211, 182, 116, 0.28));
+      background: color-mix(in srgb, var(--pq-panel) 92%, rgba(7, 9, 12, 0.92));
+      color: var(--pq-ink);
+    }
     .pqx-what-matters-mobile-menu-card {
       position: absolute;
       top: calc(100% + 8px);

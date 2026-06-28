@@ -721,6 +721,11 @@
     font-size: 0.82rem;
     font-weight: 760;
   }
+  html[data-pq-theme="dark"] .prd-inline-viewer-action {
+    border-color: color-mix(in srgb, var(--prd-gold) 28%, var(--line));
+    background: color-mix(in srgb, var(--panel) 90%, rgba(6, 8, 12, 0.88));
+    color: var(--text);
+  }
   .prd-media-frame.prd-media-image-failed::before {
     content: "Preview unavailable";
     position: absolute;
@@ -731,6 +736,17 @@
     color: var(--text-soft);
     background:
       linear-gradient(180deg, rgba(250, 248, 242, 0.95), rgba(239, 235, 225, 0.95));
+  }
+  html[data-pq-theme="dark"] .prd-mobile-nav-menu > summary,
+  html[data-pq-theme="dark"] .prd-mobile-nav-menu[open] > summary {
+    border-color: color-mix(in srgb, var(--prd-gold) 24%, var(--line));
+    background: color-mix(in srgb, var(--panel) 92%, rgba(5, 7, 10, 0.92));
+    color: var(--text);
+  }
+  html[data-pq-theme="dark"] .prd-primary-nav {
+    border-color: color-mix(in srgb, var(--prd-gold) 18%, var(--line));
+    background: color-mix(in srgb, var(--panel) 96%, rgba(5, 7, 10, 0.92));
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
   }
   html[data-pq-theme="dark"] .prd-media-frame.prd-media-image-failed::before {
     color: var(--text-soft);
