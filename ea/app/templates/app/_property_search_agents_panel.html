@@ -60,11 +60,11 @@
           <span>{{ agent.get('delivery_label') or 'Alerts not set' }}</span>
         </div>
         <div class="pqx-automation-actions" style="gap:5px; padding-top:0;">
-          <button class="pqx-button primary" type="button" data-search-agent-action="run" data-run-agent-href="/app/search?run_agent={{ (agent.get('agent_id') or 'current')|urlencode }}" style="min-height:28px; padding-inline:8px;">Run</button>
+          <button class="pqx-button primary" type="button" data-search-agent-action="run" data-run-agent-href="/app/search?run_agent={{ (agent.get('agent_id') or 'current')|urlencode }}" style="padding-inline:10px;">Run</button>
           {% if agent.get('enabled') %}
-          <button class="pqx-button subtle" type="button" data-search-agent-action="pause" style="min-height:28px; padding-inline:8px;">Pause</button>
+          <button class="pqx-button subtle" type="button" data-search-agent-action="pause" style="padding-inline:10px;">Pause</button>
           {% else %}
-          <button class="pqx-button" type="button" data-search-agent-action="resume" style="min-height:28px; padding-inline:8px;">Resume</button>
+          <button class="pqx-button" type="button" data-search-agent-action="resume" style="padding-inline:10px;">Resume</button>
           {% endif %}
         </div>
       </div>

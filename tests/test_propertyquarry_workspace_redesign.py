@@ -11124,12 +11124,18 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "Pause</button>" in page.text
     assert "/app/search?load_agent=" in page.text
     assert "/app/search?run_agent=" in page.text
+    assert 'style="min-height:28px; padding-inline:8px;"' not in page.text
+    assert 'style="padding-inline:10px;">Run</button>' in page.text
     template = _read_workbench_bundle()
     product_api = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/product_api.py").read_text(encoding="utf-8")
     assert ".pqx-automation-grid" in template
     assert ".pqx-automation-thumbnail" in template
     assert ".pqx-automation-delete" in template
     assert ".pqx-automation-card" in template
+    assert ".pqx-automation-actions .pqx-button {\n      min-height: 40px;" in template
+    assert ".pqx-automation-board.is-compact .pqx-automation-actions .pqx-button {\n      min-height: 40px;" in template
+    assert ".pqx-shell[data-pqx-surface=\"agents\"] .pqx-automation-actions .pqx-button {\n        min-height: 44px !important;" in template
+    assert ".pqx-shell[data-pqx-surface=\"agents\"] .pqx-automation-delete {\n        width: 44px !important;" in template
     assert 'pqx-automation-scope-empty--fallback' not in template
     assert "Map preview unavailable" not in template
     assert "Map preview unavailable" not in product_api
