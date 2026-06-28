@@ -29,10 +29,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `a4787ddc48df28393ea66cd50f4de5292b125c78` |
+| Runtime commit SHA | `20cbf8776a96d86467bee23b9ead544f0b679a74` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current release candidate on 2026-06-28 after `5646ce5d`, carrying the latest billing fail-closed surface, compact What Matters distance controls, quieter notification copy, and usage-and-activation wording on top of the live billing-copy and mobile-sheet polish pass |
+| Deployment ID | current release candidate on 2026-06-28 after `20cbf877`, carrying the latest billing fail-closed surface, compact What Matters distance controls, quieter notification copy, usage-and-activation wording, and a local performance smoke fallback that stays runnable when live-only prod env vars are not present |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
