@@ -29,7 +29,7 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `f75b3e31758801e4533001d85389816bbce7f37c` |
+| Runtime commit SHA | `f75b3e3169f74a51227c3bcada2522d22cb1accd` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | local compose redeploy on 2026-06-28 after `f75b3e31` to keep ranked homes visible even when the ranking bar demotes them below the current score threshold; this manifest-only follow-up commit keeps branch/deployment reconciliation explicit |
