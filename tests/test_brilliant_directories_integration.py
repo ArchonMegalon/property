@@ -1861,7 +1861,7 @@ def test_brilliant_directories_projection_rejects_private_property_and_contact_f
         build_directory_profile_projection({"id": "1", "name": "Agent", "property_facts": {"price": 1000}})
     assert "private_field_blocked" in str(ranking_error.value)
 
-    for forbidden in ("billing", "payment", "invoice"):
+    for forbidden in ("billing", "payment", "invoice", "max_match_score", "score_threshold"):
         with pytest.raises(BrilliantDirectoriesApiError) as billing_error:
             build_directory_profile_projection({"id": "1", "name": "Agent", forbidden: "private"})
         assert "private_field_blocked" in str(billing_error.value)

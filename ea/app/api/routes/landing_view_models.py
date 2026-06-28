@@ -25,7 +25,6 @@ from app.product.service import (
     _property_alert_fit_summary,
     _property_visible_mismatch_reasons,
 )
-from app.services.property_billing import property_plan_has_unlimited_provider_results
 from app.api.routes.landing_property_saved_searches import (
     build_agent_management_rows,
     build_property_search_agents,
@@ -226,6 +225,15 @@ def _clean_property_candidate_copy(value: object) -> str:
         (r"(?i)\bTurn the ranking bar down or off\b", "Start a fresh search"),
         (r"(?i)\bLower the ranking bar or turn it off\b", "Start a fresh search"),
         (r"(?i)\bTurn bar off\b", "Refresh search"),
+        (r"(?i)\bCurrent score filter:\s*\d+\s*/\s*100\b[;:,-]?\s*", ""),
+        (r"(?i)\bCurrent score filter:\s*", ""),
+        (r"(?i)\bCurrent score ceiling:\s*\d+\s*/\s*100\b[;:,-]?\s*", ""),
+        (r"(?i)\bCurrent score ceiling:\s*", ""),
+        (r"(?i)\beven below the (?:current|saved) score filter\b", "in the full list"),
+        (r"(?i)\bbelow the (?:current|saved) score filter\b", "in the full list"),
+        (r"(?i)\bbelow the current score ceiling\b", "in the full list"),
+        (r"(?i)\bTurn the score filter down or off\b", "Start a fresh search"),
+        (r"(?i)\bLower the score filter or turn it off\b", "Start a fresh search"),
     )
     for pattern, replacement in pattern_replacements:
         text = re.sub(pattern, replacement, text)
@@ -3697,30 +3705,12 @@ def app_section_payload(
         for entry in list(property_learning_summary.get("recent_feedback") or [])[:4]
         if isinstance(entry, dict)
     ]
-    property_visible_max_match_score = 60
-    property_visible_max_results_per_source = 10
     property_plan_catalog = [
         dict(plan)
         for plan in list(property_state.get("commercial", {}).get("plan_catalog") or [])
         if isinstance(plan, dict)
     ]
     property_current_plan_key = str(property_state.get("commercial", {}).get("current_plan_key") or "free").strip().lower() or "free"
-    try:
-        property_plan_raw_max_results = int(property_state.get("commercial", {}).get("max_results_per_source") or 0)
-    except Exception:
-        property_plan_raw_max_results = 0
-    property_plan_has_unlimited_results = property_plan_has_unlimited_provider_results(
-        property_current_plan_key,
-        property_plan_raw_max_results,
-    )
-    try:
-        property_plan_max_results = (
-            property_visible_max_results_per_source
-            if property_plan_has_unlimited_results
-            else max(1, int(property_state.get("commercial", {}).get("max_results_per_source") or 2))
-        )
-    except Exception:
-        property_plan_max_results = property_visible_max_results_per_source if property_plan_has_unlimited_results else 2
     property_furniture_style_options = _property_furniture_style_options(
         plan_key=property_current_plan_key,
         selected_value=property_preferences.get("furniture_style"),
@@ -3760,11 +3750,6 @@ def app_section_payload(
         str(property_preferences.get("country_code") or "AT"),
         selected_region_code,
     )
-    try:
-        property_results_value = int(property_preferences.get("max_results_per_source") or property_plan_max_results)
-    except Exception:
-        property_results_value = property_plan_max_results
-    property_results_value = max(1, min(property_results_value, property_plan_max_results))
     property_search_agent_enabled = bool(property_preferences.get("search_agent_enabled"))
     property_search_agent_duration_days = _positive_int(property_preferences.get("search_agent_duration_days"), default=30)
     property_search_agent_duration_days = max(7, min(365, property_search_agent_duration_days or 30))
@@ -5475,15 +5460,6 @@ def app_section_payload(
                             "Active providers",
                             ", ".join(property_selected_platform_labels) if property_selected_platform_labels else "No providers saved yet.",
                             "Profile",
-                        ),
-                        row_item(
-                            "Result cap per provider",
-                            (
-                                "All"
-                                if property_plan_has_unlimited_results
-                                else str(property_results_value)
-                            ),
-                            "Guardrail",
                         ),
                     ],
                 },

@@ -1728,7 +1728,7 @@ def test_propertyquarry_agency_alias_search_form_hides_provider_result_cap_contr
     )
 
 
-def test_propertyquarry_agent_search_brief_summary_uses_all_ranked_provider_copy() -> None:
+def test_propertyquarry_agent_search_brief_summary_hides_provider_result_cap_copy() -> None:
     payload = landing_routes._property_workspace_payload(
         "properties",
         status={"workspace": {"name": "Agent Summary"}, "channels": {}},
@@ -1749,13 +1749,10 @@ def test_propertyquarry_agent_search_brief_summary_uses_all_ranked_provider_copy
         for card in list(payload.get("primary_cards") or [])
         if isinstance(card, dict) and str(card.get("eyebrow") or "").strip() == "Search brief"
     )
-    result_cap_row = next(
-        item
+    assert not any(
+        isinstance(item, dict) and str(item.get("title") or "").strip() == "Result cap per provider"
         for item in list(search_brief_card.get("items") or [])
-        if isinstance(item, dict) and str(item.get("title") or "").strip() == "Result cap per provider"
     )
-
-    assert result_cap_row["detail"] == "All"
 
 
 def test_propertyquarry_agent_search_brief_summary_ignores_stale_saved_result_cap() -> None:
@@ -1783,16 +1780,13 @@ def test_propertyquarry_agent_search_brief_summary_ignores_stale_saved_result_ca
         for card in list(payload.get("primary_cards") or [])
         if isinstance(card, dict) and str(card.get("eyebrow") or "").strip() == "Search brief"
     )
-    result_cap_row = next(
-        item
+    assert not any(
+        isinstance(item, dict) and str(item.get("title") or "").strip() == "Result cap per provider"
         for item in list(search_brief_card.get("items") or [])
-        if isinstance(item, dict) and str(item.get("title") or "").strip() == "Result cap per provider"
     )
 
-    assert result_cap_row["detail"] == "All"
 
-
-def test_propertyquarry_plus_search_brief_summary_keeps_all_provider_results_visible() -> None:
+def test_propertyquarry_plus_search_brief_summary_hides_provider_result_cap_copy() -> None:
     payload = landing_routes._property_workspace_payload(
         "properties",
         status={"workspace": {"name": "Plus Summary Legacy"}, "channels": {}},
@@ -1817,13 +1811,10 @@ def test_propertyquarry_plus_search_brief_summary_keeps_all_provider_results_vis
         for card in list(payload.get("primary_cards") or [])
         if isinstance(card, dict) and str(card.get("eyebrow") or "").strip() == "Search brief"
     )
-    result_cap_row = next(
-        item
+    assert not any(
+        isinstance(item, dict) and str(item.get("title") or "").strip() == "Result cap per provider"
         for item in list(search_brief_card.get("items") or [])
-        if isinstance(item, dict) and str(item.get("title") or "").strip() == "Result cap per provider"
     )
-
-    assert result_cap_row["detail"] == "All"
 
 
 def test_propertyquarry_agent_search_surface_hides_capped_provider_results_slider() -> None:
@@ -15033,6 +15024,24 @@ def test_property_candidate_copy_strips_removed_score_filter_hints_across_surfac
     for cleaned in (cleaned_workspace, cleaned_marketing):
         assert "ranking bar" not in cleaned.lower()
         assert "65/100" not in cleaned
+        assert "Still worth checking in the full list." in cleaned
+        assert "Start a fresh search." in cleaned
+
+
+def test_property_candidate_copy_strips_score_filter_hints_across_surfaces() -> None:
+    from app.api.routes import landing
+
+    raw = (
+        "Still worth checking even below the saved score filter. "
+        "Current score filter: 50/100. "
+        "Lower the score filter or turn it off."
+    )
+    cleaned_workspace = landing_view_models._clean_property_candidate_copy(raw)
+    cleaned_marketing = landing._clean_property_candidate_copy(raw)
+
+    for cleaned in (cleaned_workspace, cleaned_marketing):
+        assert "score filter" not in cleaned.lower()
+        assert "50/100" not in cleaned
         assert "Still worth checking in the full list." in cleaned
         assert "Start a fresh search." in cleaned
 
