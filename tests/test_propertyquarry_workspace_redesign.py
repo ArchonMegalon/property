@@ -3925,6 +3925,44 @@ def test_propertyquarry_landing_handoff_falls_back_to_search(monkeypatch) -> Non
     assert response.json()["target"] == "/app/search"
 
 
+def test_propertyquarry_landing_handoff_ignores_mismatched_active_run(monkeypatch) -> None:
+    principal_id = "pq-landing-handoff-mismatched-run"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Landing Handoff Mismatch Office")
+    client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+
+    def _fake_active_run(self, *, principal_id: str, limit: int = 8):
+        assert principal_id == "pq-landing-handoff-mismatched-run"
+        return {
+            "run_id": "run-berlin",
+            "status": "in_progress",
+            "property_search_preferences": {
+                "country_code": "DE",
+                "region_code": "berlin",
+                "listing_mode": "rent",
+                "location_query": "Berlin",
+                "selected_platforms": ["core_portals_de"],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
+    monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
+    monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
+
+    response = client.get("/app/api/property/landing-handoff", headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    assert response.json()["target"] == "/app/search"
+
+
 def test_property_provider_options_expose_homepage_links() -> None:
     options = property_market_catalog.provider_options(country_code="AT")
     willhaben = next(option for option in options if option["value"] == "willhaben")
@@ -5167,6 +5205,210 @@ def test_property_console_context_properties_falls_back_to_latest_usable_result_
 
     assert context["run"]["run_id"] == "run-ready"
     assert calls == ["run-ready"]
+
+
+def test_property_console_context_properties_prefers_scope_compatible_run_over_newer_mismatched_result(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-properties-scope-compatible")
+    calls: list[str] = []
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+            return [
+                {
+                    "run_id": "run-de",
+                    "status": "completed_partial",
+                    "property_search_preferences": {
+                        "country_code": "DE",
+                        "region_code": "berlin",
+                        "location_query": "Berlin",
+                        "listing_mode": "rent",
+                        "selected_platforms": ["core_portals_de"],
+                    },
+                    "summary": {
+                        "status": "completed_partial",
+                        "ranked_candidates": [{"candidate_ref": "cand-de", "title": "Berlin result"}],
+                    },
+                },
+                {
+                    "run_id": "run-at",
+                    "status": "completed_partial",
+                    "property_search_preferences": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1010 Vienna",
+                        "listing_mode": "rent",
+                        "selected_platforms": ["willhaben"],
+                    },
+                    "summary": {
+                        "status": "completed_partial",
+                        "ranked_candidates": [{"candidate_ref": "cand-at", "title": "Vienna result"}],
+                    },
+                },
+            ]
+
+        def find_active_property_search_run(self, *, principal_id: str, limit: int = 8):
+            return {}
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+            calls.append(run_id)
+            payloads = {
+                "run-at": {
+                    "run_id": "run-at",
+                    "status": "completed_partial",
+                    "property_search_preferences": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1010 Vienna",
+                        "listing_mode": "rent",
+                        "selected_platforms": ["willhaben"],
+                    },
+                    "summary": {
+                        "status": "completed_partial",
+                        "ranked_candidates": [{"candidate_ref": "cand-at", "title": "Vienna result"}],
+                        "sources": [],
+                    },
+                },
+                "run-de": {
+                    "run_id": "run-de",
+                    "status": "completed_partial",
+                    "property_search_preferences": {
+                        "country_code": "DE",
+                        "region_code": "berlin",
+                        "location_query": "Berlin",
+                        "listing_mode": "rent",
+                        "selected_platforms": ["core_portals_de"],
+                    },
+                    "summary": {
+                        "status": "completed_partial",
+                        "ranked_candidates": [{"candidate_ref": "cand-de", "title": "Berlin result"}],
+                        "sources": [],
+                    },
+                },
+            }
+            return payloads[run_id]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id="pq-properties-scope-compatible",
+        status={
+            "property_search_preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "listing_mode": "rent",
+                "location_query": "1010 Vienna",
+                "selected_platforms": ["willhaben"],
+            }
+        },
+        run_id="",
+        surface_mode="properties",
+    )
+
+    assert context["run"]["run_id"] == "run-at"
+    assert calls == ["run-at"]
+
+
+def test_property_console_context_properties_ignores_incompatible_recent_result(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-properties-ignore-mismatched-run")
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+            return [
+                {
+                    "run_id": "run-de",
+                    "status": "completed_partial",
+                    "property_search_preferences": {
+                        "country_code": "DE",
+                        "region_code": "berlin",
+                        "location_query": "Berlin",
+                        "listing_mode": "rent",
+                        "selected_platforms": ["core_portals_de"],
+                    },
+                    "summary": {
+                        "status": "completed_partial",
+                        "ranked_candidates": [{"candidate_ref": "cand-de", "title": "Berlin result"}],
+                    },
+                }
+            ]
+
+        def find_active_property_search_run(self, *, principal_id: str, limit: int = 8):
+            return {}
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+            raise AssertionError("mismatched recent run should not be hydrated")
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id="pq-properties-ignore-mismatched-run",
+        status={
+            "property_search_preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "listing_mode": "rent",
+                "location_query": "1010 Vienna",
+                "selected_platforms": ["willhaben"],
+            }
+        },
+        run_id="",
+        surface_mode="properties",
+    )
+
+    assert context["run"] == {}
+
+
+def test_propertyquarry_properties_route_redirects_to_search_when_only_recent_run_scope_mismatches_saved_brief(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-properties-route-ignore-mismatched-run")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+            return [
+                {
+                    "run_id": "run-de",
+                    "status": "completed_partial",
+                    "property_search_preferences": {
+                        "country_code": "DE",
+                        "region_code": "berlin",
+                        "location_query": "Berlin",
+                        "listing_mode": "rent",
+                        "selected_platforms": ["core_portals_de"],
+                    },
+                    "summary": {
+                        "status": "completed_partial",
+                        "ranked_candidates": [{"candidate_ref": "cand-de", "title": "Berlin result"}],
+                    },
+                }
+            ]
+
+        def find_active_property_search_run(self, *, principal_id: str, limit: int = 8):
+            return {}
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+            raise AssertionError("mismatched recent run should not be hydrated")
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(
+        "/app/properties",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/search"
 
 
 def test_property_console_context_backfills_cached_preview_facts_for_stale_shortlist_candidates(monkeypatch) -> None:

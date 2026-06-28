@@ -144,6 +144,7 @@ from app.services.property_market_catalog import (
     is_customer_search_country_code,
     normalize_country_code,
     normalize_listing_mode,
+    normalize_property_platform,
     normalize_property_search_preferences,
     property_type_label as property_type_label_for_value,
     property_type_options as property_type_options_catalog,
@@ -2310,6 +2311,90 @@ def _property_search_platform_catalog() -> tuple[dict[str, str], ...]:
     return tuple(property_provider_options(country_code="AT"))
 
 
+def _property_run_scope_snapshot(run_payload: dict[str, object]) -> dict[str, object]:
+    payload = dict(run_payload or {})
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    preferences_json = (
+        dict(payload.get("property_search_preferences") or payload.get("preferences") or {})
+        if isinstance(payload.get("property_search_preferences") or payload.get("preferences"), dict)
+        else {}
+    )
+    brief = dict(payload.get("brief") or {}) if isinstance(payload.get("brief"), dict) else {}
+    selected_platforms: list[str] = []
+    for raw_values in (
+        preferences_json.get("selected_platforms"),
+        payload.get("selected_platforms"),
+        summary.get("selected_platforms"),
+        brief.get("providers"),
+    ):
+        if not isinstance(raw_values, (list, tuple, set)):
+            continue
+        for item in raw_values:
+            normalized = normalize_property_platform(item)
+            if normalized and normalized != "all" and normalized not in selected_platforms:
+                selected_platforms.append(normalized)
+    return {
+        "country_code": normalize_country_code(preferences_json.get("country_code") or summary.get("country_code") or ""),
+        "region_code": str(preferences_json.get("region_code") or summary.get("region_code") or "").strip().lower(),
+        "listing_mode": normalize_listing_mode(preferences_json.get("listing_mode") or summary.get("listing_mode") or ""),
+        "location_query": str(preferences_json.get("location_query") or summary.get("location_query") or "").strip(),
+        "selected_platforms": selected_platforms,
+        "agent_id": str(
+            payload.get("active_search_agent_id")
+            or payload.get("agent_id")
+            or preferences_json.get("active_search_agent_id")
+            or summary.get("active_search_agent_id")
+            or summary.get("agent_id")
+            or ""
+        ).strip(),
+    }
+
+
+def _property_run_matches_saved_brief(
+    run_payload: dict[str, object],
+    *,
+    preferences: dict[str, object],
+    selected_platforms: set[str] | list[str] | tuple[str, ...],
+    selected_agent_id: str = "",
+) -> bool:
+    current_country = normalize_country_code(preferences.get("country_code"))
+    current_region = str(preferences.get("region_code") or "").strip().lower()
+    current_listing_mode = normalize_listing_mode(preferences.get("listing_mode"))
+    normalized_selected_platforms = {
+        normalize_property_platform(item)
+        for item in list(selected_platforms or [])
+        if normalize_property_platform(item) and normalize_property_platform(item) != "all"
+    }
+    if not normalized_selected_platforms:
+        normalized_selected_platforms = {
+            normalize_property_platform(item)
+            for item in list(preferences.get("selected_platforms") or [])
+            if normalize_property_platform(item) and normalize_property_platform(item) != "all"
+        }
+    scope = _property_run_scope_snapshot(run_payload)
+    run_country = str(scope.get("country_code") or "").strip().upper()
+    run_region = str(scope.get("region_code") or "").strip().lower()
+    run_listing_mode = str(scope.get("listing_mode") or "").strip().lower()
+    run_selected_platforms = {
+        normalize_property_platform(item)
+        for item in list(scope.get("selected_platforms") or [])
+        if normalize_property_platform(item) and normalize_property_platform(item) != "all"
+    }
+    run_agent_id = str(scope.get("agent_id") or "").strip()
+    normalized_selected_agent_id = str(selected_agent_id or "").strip()
+    if normalized_selected_agent_id and run_agent_id and run_agent_id != normalized_selected_agent_id:
+        return False
+    if current_country and run_country and run_country != current_country:
+        return False
+    if current_region and run_region and run_region != current_region:
+        return False
+    if current_listing_mode and run_listing_mode and run_listing_mode != current_listing_mode:
+        return False
+    if normalized_selected_platforms and run_selected_platforms and not (normalized_selected_platforms & run_selected_platforms):
+        return False
+    return True
+
+
 def _property_console_context(
     *,
     container: AppContainer,
@@ -2378,6 +2463,13 @@ def _property_console_context(
     recent_search_runs: list[dict[str, object]] = []
     lightweight_active_run: dict[str, object] = {}
     active_run: dict[str, object] | None = None
+    def _current_scope_compatible_run(row: object) -> bool:
+        return isinstance(row, dict) and _property_run_matches_saved_brief(
+            row,
+            preferences=preferences,
+            selected_platforms=selected_platforms,
+            selected_agent_id=selected_agent_id,
+        )
     should_load_recent_runs = (
         wants_recent_runs
         and not (normalized_run_id and surface_scope.section in {"properties", "shortlist", "research"})
@@ -2405,12 +2497,14 @@ def _property_console_context(
         if surface_scope.section == "properties":
             with contextlib.suppress(Exception):
                 active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
+            if isinstance(active_run, dict) and active_run and not _current_scope_compatible_run(active_run):
+                active_run = None
         if (not isinstance(active_run, dict) or not active_run) and surface_scope.section == "properties":
             active_run = next(
                 (
                     row
                     for row in recent_search_runs
-                    if isinstance(row, dict)
+                    if _current_scope_compatible_run(row)
                     and str(row.get("run_id") or "").strip()
                     and _property_run_payload_has_shortlist_results(row)
                 ),
@@ -2421,7 +2515,7 @@ def _property_console_context(
                 (
                     row
                     for row in recent_search_runs
-                    if isinstance(row, dict)
+                    if _current_scope_compatible_run(row)
                     and str(row.get("run_id") or "").strip()
                     and str(
                         row.get("status")
@@ -2437,7 +2531,7 @@ def _property_console_context(
                 (
                     row
                     for row in recent_search_runs
-                    if isinstance(row, dict)
+                    if _current_scope_compatible_run(row)
                     and str(row.get("run_id") or "").strip()
                     and str(
                         row.get("status")
@@ -2453,7 +2547,7 @@ def _property_console_context(
                 (
                     row
                     for row in recent_search_runs
-                    if isinstance(row, dict)
+                    if _current_scope_compatible_run(row)
                     and str(row.get("run_id") or "").strip()
                     and _property_run_payload_has_shortlist_results(row)
                 ),
@@ -2919,6 +3013,41 @@ def propertyquarry_landing_handoff(
         return {"target": "/app/search", "signed_in": False}
     product = build_product_service(container)
     active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
+    status = container.onboarding.status(principal_id=principal_id)
+    raw_property_preferences = dict(status.get("property_search_preferences") or {})
+    saved_preferences = _property_customer_scoped_preferences(
+        normalize_property_search_preferences(
+            dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences)
+        )
+    )
+    saved_country = normalize_country_code(saved_preferences.get("country_code"))
+    saved_platforms = {
+        str(value or "").strip().lower()
+        for value in list(saved_preferences.get("selected_platforms") or [])
+        if str(value or "").strip()
+    }
+    saved_platforms = set(
+        property_filter_selectable_property_platforms(
+            saved_platforms,
+            country_code=saved_country,
+            listing_mode=normalize_listing_mode(saved_preferences.get("listing_mode")),
+            include_distressed_sale_signals=saved_preferences.get("include_distressed_sale_signals"),
+        )[0]
+    )
+    if not saved_platforms:
+        saved_platforms = set(
+            default_platforms_for_country_listing_mode(
+                saved_country,
+                saved_preferences.get("listing_mode"),
+                property_type=saved_preferences.get("property_type"),
+            )
+        )
+    if active_run and not _property_run_matches_saved_brief(
+        active_run,
+        preferences=saved_preferences,
+        selected_platforms=saved_platforms,
+    ):
+        active_run = {}
     candidate_run_id = str(active_run.get("run_id") or "").strip()
     if candidate_run_id:
         return {
