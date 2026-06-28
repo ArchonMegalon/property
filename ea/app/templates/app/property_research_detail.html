@@ -238,9 +238,14 @@
   }
   .prd-media-stack {
     grid-column: 1;
-    grid-row: 1 / span 2;
+    grid-row: 1;
     align-content: start;
     gap: 10px;
+  }
+  .prd-visual-console {
+    grid-column: 1;
+    grid-row: 2;
+    align-self: start;
   }
   .prd-body {
     grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
@@ -2839,8 +2844,37 @@
 </aside>
 {% endif %}
 
-<section class="prd-shell" data-property-research-detail>
+  <section class="prd-shell" data-property-research-detail>
   <section class="prd-hero" data-pqx-screenfit-target="research-detail-hero">
+    {% set visual_actions = namespace(items=[]) %}
+    {% for action in research_actions %}
+      {% set action_label = (action.get('label') or '')|lower %}
+      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough', 'open original tour'] or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
+        {% set visual_actions.items = visual_actions.items + [action] %}
+      {% endif %}
+    {% endfor %}
+    {% set primary_visual_actions = namespace(items=[]) %}
+    {% for action in visual_actions.items %}
+      {% set action_label = (action.get('label') or '')|lower %}
+      {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': research_media.get('provider_label') or ('3D tour' if action.get('href') else '3D tour pending'), 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open the tour or rebuild it from this page.', 'action': action}] %}
+      {% elif action.get('kind') == 'flythrough' or 'walkthrough' in action_label %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': ('MagicFit walkthrough' if action.get('href') else 'MagicFit walkthrough pending'), 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
+      {% endif %}
+    {% endfor %}
+    {% set visual_status = namespace(active=None) %}
+    {% for action in visual_actions.items %}
+      {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] and visual_status.active is none %}
+        {% set visual_status.active = action %}
+      {% endif %}
+    {% endfor %}
+    {% if visual_status.active is none %}
+      {% for action in research_actions if action.get('kind') %}
+        {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] and visual_status.active is none %}
+          {% set visual_status.active = action %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
     <section class="prd-media-stack">
       {% set inline_media_preview = research_preview_image or research_location_preview.get('image_url') or '' %}
       <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live prd-media-frame-inline-gated{% endif %}" data-object-media-stage{% if research_media.get('embed_href') %} data-prd-inline-viewer-stage{% endif %}>
@@ -2893,35 +2927,6 @@
         </div>
       </section>
     </section>
-    {% set visual_actions = namespace(items=[]) %}
-    {% for action in research_actions %}
-      {% set action_label = (action.get('label') or '')|lower %}
-      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough', 'open original tour'] or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
-        {% set visual_actions.items = visual_actions.items + [action] %}
-      {% endif %}
-    {% endfor %}
-    {% set primary_visual_actions = namespace(items=[]) %}
-    {% for action in visual_actions.items %}
-      {% set action_label = (action.get('label') or '')|lower %}
-      {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': research_media.get('provider_label') or ('3D tour' if action.get('href') else '3D tour pending'), 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open the tour or rebuild it from this page.', 'action': action}] %}
-      {% elif action.get('kind') == 'flythrough' or 'walkthrough' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': ('MagicFit walkthrough' if action.get('href') else 'MagicFit walkthrough pending'), 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
-      {% endif %}
-    {% endfor %}
-    {% set visual_status = namespace(active=None) %}
-    {% for action in visual_actions.items %}
-      {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] and visual_status.active is none %}
-        {% set visual_status.active = action %}
-      {% endif %}
-    {% endfor %}
-    {% if visual_status.active is none %}
-      {% for action in research_actions if action.get('kind') %}
-        {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] and visual_status.active is none %}
-          {% set visual_status.active = action %}
-        {% endif %}
-      {% endfor %}
-    {% endif %}
     <section class="prd-hero-side">
     <section class="prd-headline">
       {% set headline_actions = namespace(items=[]) %}
@@ -3031,7 +3036,7 @@
     </section>
     {% if visual_actions.items or research_media.get('show_status_line') or research_visual_status_line or visual_status.active %}
     <section class="prd-visual-console" aria-label="Visual review controls">
-        <div class="prd-visual-toolbar">
+      <div class="prd-visual-toolbar">
         <div class="prd-visual-heading">
           <div class="prd-kicker">3D and walkthrough</div>
           <p class="prd-copy">Open or request visuals from here.</p>

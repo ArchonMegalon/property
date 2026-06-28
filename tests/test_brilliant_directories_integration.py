@@ -1362,6 +1362,26 @@ def test_billing_handoff_worker_includes_propertyquarry_bridge_consumer() -> Non
     assert "View plans" in source
 
 
+def test_billing_handoff_worker_scrubs_score_filter_noise_from_proxied_html() -> None:
+    source = _worker_source(
+        target_base_url="https://propertyquarry.directoryup.com",
+        pricing_url="https://propertyquarry.com/pricing",
+    )
+
+    assert "scrubCustomerFacingBillingNoise" in source
+    assert "billingNoiseCleanupScript" in source
+    assert "regex('\\\\bCurrent '+'score '+'filter" in source
+    assert "regex('\\\\bCurrent '+'score '+'ceiling" in source
+    assert "regex('\\\\bCurrent '+'ranking '+'bar" in source
+    assert "regex('\\\\bResult '+'cap per '+'provider\\\\b')" in source
+    assert "regex('\\\\bScore '+'ceiling\\\\b')" in source
+    assert "regex('\\\\bAll '+'ranked\\\\b')" in source
+    assert "regex('\\\\bPer '+'provider\\\\b')" in source
+    assert "regex('\\\\bscore '+'gate\\\\b')" in source
+    assert "MutationObserver" in source
+    assert 'data-pq-billing-bridge="1"' in source
+
+
 def test_brilliant_directories_receipt_records_billing_as_advisory_white_label_handoff(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

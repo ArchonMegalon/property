@@ -393,6 +393,24 @@ def test_property_research_detail_right_rail_stays_compact() -> None:
     assert "Media and plans" in research
 
 
+def test_property_research_detail_places_visual_console_under_media_stage() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    research = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
+
+    media_stack_index = research.index('<section class="prd-media-stack">')
+    quick_take_index = research.index('<section class="prd-band prd-current-read">')
+    hero_side_index = research.index('<section class="prd-hero-side">')
+    visual_console_index = research.index('<section class="prd-visual-console"')
+
+    assert media_stack_index < quick_take_index < hero_side_index < visual_console_index
+    assert research.count('<section class="prd-visual-console"') == 1
+    assert ".prd-visual-console {" in research
+    assert "grid-column: 1;" in research
+    assert "grid-row: 2;" in research
+    assert ".prd-hero-side {" in research
+    assert "grid-row: 1 / span 2;" in research
+
+
 def test_property_research_detail_uses_property_shell_and_real_title() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     base_console = (repo_root / "ea/app/templates/base_console.html").read_text(encoding="utf-8")
