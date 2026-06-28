@@ -546,8 +546,14 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
     )
     for audit_client, path in audited_paths:
         response = audit_client.get(path, headers={"host": "propertyquarry.com"})
-        expected_status = 200
+        expected_status = 503 if path == "/app/billing" else 200
         assert response.status_code == expected_status, path
+        if path == "/app/billing":
+            assert (
+                "This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now." in response.text
+                or "The billing portal is still being connected." in response.text
+            )
+            assert "Your PropertyQuarry access stays active from the account page." in response.text
         rendered_text = re.sub(
             r"<script.*?</script>|<style.*?</style>",
             " ",
@@ -616,7 +622,7 @@ def test_propertyquarry_active_workspace_nav_item_is_not_a_self_link() -> None:
     billing = client.get("/app/account", headers={"host": "propertyquarry.com"})
 
     assert billing.status_code == 200, billing.text
-    assert re.search(r'<span class="is-active" aria-current="page">Account</span>', billing.text)
+    assert re.search(r'<span class="is-active" aria-current="page"[^>]*>Account</span>', billing.text)
     assert re.search(r'<a href="/app/account"[^>]*>Account</a>', billing.text) is None
 
 
@@ -1163,7 +1169,9 @@ def test_propertyquarry_visual_requests_stay_user_initiated_and_idempotent() -> 
     assert "Open flythrough" not in research_detail
     assert "const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];" in research_detail
     assert "const isWaiting = visualPendingStates.includes(nextState);" in research_detail
-    assert "button.disabled = isWaiting || isTerminal;" in research_detail
+    assert "button.disabled = isWaiting;" in research_detail
+    assert "const retryableTerminal = visualTerminalStates.includes(state) && !String(payload?.flythrough_url || '').trim();" in research_detail
+    assert "const retryableTerminal = visualTerminalStates.includes(state) && !verifiedTourUrl;" in research_detail
 
 
 def test_propertyquarry_register_surface_uses_property_search_language() -> None:
@@ -1613,7 +1621,7 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
 
     assert page.status_code == 200
     assert "Usage" in page.text
-    assert "Search runs, ranked homes, filtered homes" in page.text
+    assert "Search activation, ranked homes, filtered homes" in page.text
     assert "property pages, and tours" in page.text
     assert "Property usage" in page.text
     assert "Ranked homes" in page.text
@@ -3114,13 +3122,22 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
 def test_propertyquarry_search_route_disables_unimplemented_providers() -> None:
     client = build_property_client(principal_id="pq-provider-coming-soon")
     start_workspace(client, mode="personal", workspace_name="Property Office")
+    save = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+        },
+    )
+    assert save.status_code == 200
 
     response = client.get("/app/search", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
     html = response.text
 
-    assert 'value="community_signals_at"' in html
-    assert re.search(r'value="community_signals_at"\s+disabled', html)
+    assert '"value": "community_signals_at"' in html
+    assert '"search_ready": false' in html
     assert 'Coming soon' in html
 
 
@@ -3324,10 +3341,12 @@ def test_propertyquarry_properties_route_bootstraps_full_run_trail(monkeypatch) 
     )
     assert workbench_match
     workbench_payload = json.loads(html.unescape(workbench_match.group(1)))
-    assert [event["message"] for event in workbench_payload["run"]["events"]] == [
+    messages = [event["message"] for event in workbench_payload["run"]["events"]]
+    assert messages[:2] == [
         "Fetched listings from Willhaben.",
         "Ranking homes.",
     ]
+    assert messages[-1] == "Ranking homes. · 1 provider checks · 12 homes reviewed"
 
 
 def test_propertyquarry_properties_route_redirects_failed_run_to_replacement(monkeypatch) -> None:
@@ -3516,8 +3535,9 @@ def test_propertyquarry_shared_shells_apply_saved_dark_theme_tokens() -> None:
     assert "position: fixed;" in mobile_block
 
     base_public = (repo_root / "ea/app/templates/base_public.html").read_text(encoding="utf-8")
-    assert 'html[data-pq-theme="dark"] .mobile-nav a' in base_public
-    assert ".mobile-nav {\n        display: flex;" in base_public
+    assert ".mobile-nav {" in base_public
+    assert ".mobile-nav-sheet-panel .nav-card a.active" in base_public
+    assert 'html[data-pq-theme="dark"] .btn.primary' in base_public
 
     home = (repo_root / "ea/app/templates/propertyquarry_home.html").read_text(encoding="utf-8")
     assert 'html[data-pq-theme="dark"] .pq-hero-copy' in home
@@ -4134,7 +4154,8 @@ def test_property_workbench_script_keeps_agent_provider_results_uncapped() -> No
     assert "const hasUnlimitedProviderResults = () => currentResultCap() <= 0;" in script_source
     assert "const limitRowsForPlan = (rows, limit) => {" in script_source
     assert "const rows = limitRowsForPlan(sources, 8);" in script_source
-    assert "const sourceChips = limitRowsForPlan(summary.sources, 8).map((source) => {" in script_source
+    assert "const renderSourceBreakdown = (sources) => {" in script_source
+    assert "return rows.map((source) => {" in script_source
     assert "const rows = limitRowsForPlan(candidates, 50);" in script_source
     assert "return limitRowsForPlan(collected, 50).map((candidate, index) => ({" in script_source
 
@@ -10628,7 +10649,54 @@ def test_property_properties_surface_loads_recent_runs_without_saved_brief(monke
     response = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
     assert 'data-property-decision-workbench' in response.text
-    assert calls == [("pq-fast-properties", 8, False)]
+    assert calls
+    assert all(call == ("pq-fast-properties", 8, False) for call in calls)
+
+
+def test_property_search_surface_loads_recent_runs_without_saved_brief(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-fast-search")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    calls: list[tuple[str, int, bool]] = []
+
+    def _fake_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+        calls.append((principal_id, limit, hydrate))
+        assert principal_id == "pq-fast-search"
+        assert limit == 8
+        assert hydrate is False
+        return [
+            {
+                "run_id": "run-history-search-1",
+                "principal_id": principal_id,
+                "status": "processed",
+                "updated_at": "2026-06-29T07:30:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1020 Vienna",
+                },
+                "summary": {
+                    "status": "processed",
+                    "sources_total": 4,
+                    "listing_total": 28,
+                    "ranked_candidates": [
+                        {
+                            "title": "Bright apartment near Augarten",
+                            "price_display": "EUR 1,240",
+                            "packet_url": "/app/research/candidate-1?run_id=run-history-search-1",
+                        }
+                    ],
+                },
+            }
+        ]
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
+
+    response = client.get("/app/search", headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    assert "1020 Vienna" in response.text
+    assert "No previous searches yet" not in response.text
+    assert calls
+    assert all(call == ("pq-fast-search", 8, False) for call in calls)
 
 
 def test_property_properties_surface_uses_active_run_lookup_with_recent_run_list(monkeypatch) -> None:

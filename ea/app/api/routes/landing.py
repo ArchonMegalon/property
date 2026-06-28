@@ -2641,7 +2641,6 @@ def _property_console_context(
     should_load_recent_runs = (
         wants_recent_runs
         and not (normalized_run_id and surface_scope.section in {"properties", "shortlist", "research"})
-        and surface_scope.section != "search"
     )
     if should_load_recent_runs:
         try:
@@ -2650,7 +2649,7 @@ def _property_console_context(
                 for row in product.list_property_search_runs(
                     principal_id=principal_id,
                     limit=8,
-                    hydrate=surface_scope.section not in {"properties", "shortlist", "research"},
+                    hydrate=surface_scope.section not in {"properties", "shortlist", "research", "search"},
                 )
                 if isinstance(row, dict)
             ]

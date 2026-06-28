@@ -1061,7 +1061,7 @@ def property_workspace_payload(
             },
             counterfactual_rows=counterfactual_rows,
             recent_packets=[],
-            previous_search_runs=[],
+            previous_search_runs=previous_search_runs,
             search_agents=(
                 property_search_agents
                 if normalized_section != "search" or bool(str(property_state.get("selected_agent_id") or "").strip())
@@ -4013,7 +4013,7 @@ def property_workspace_payload(
             for item in list(recent_matches_card.get("items") or [])[:5]
             if isinstance(item, dict)
         ],
-        previous_search_runs=[] if normalized_section == "search" else previous_search_runs,
+        previous_search_runs=previous_search_runs,
         search_agents=(
             property_search_agents
             if normalized_section != "search" or bool(str(property_state.get("selected_agent_id") or "").strip())
