@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 from urllib.error import HTTPError
 
 from scripts.propertyquarry_live_mobile_surface_smoke import (
@@ -664,3 +665,15 @@ def test_live_mobile_smoke_rejects_small_packet_touch_targets() -> None:
     metrics.update({"min_action_height": 40})
 
     assert _failed_names("/app/properties/packets", metrics) == {"primary_touch_targets"}
+
+
+def test_live_mobile_smoke_accepts_current_research_detail_visual_copy_contract() -> None:
+    source = (Path(__file__).resolve().parents[1] / "scripts/propertyquarry_live_mobile_surface_smoke.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "available in matterport." in source
+    assert "3d tour available." in source
+    assert "no 3d tour yet." in source
+    assert "walkthrough available." in source
+    assert "no walkthrough yet." in source

@@ -563,7 +563,13 @@ def _collect_metrics_script() -> str:
         && Boolean(document.querySelector('[data-pw-visual-request="tour"]'))
       );
       const verifiedTourEvidenceCopy = (
-        bodyText.includes('tour: matterport.')
+        bodyText.includes('available in matterport.')
+        || bodyText.includes('available in 3dvista.')
+        || bodyText.includes('available in pano2vr.')
+        || bodyText.includes('available in krpano.')
+        || bodyText.includes('3d tour available.')
+        || bodyText.includes('no 3d tour yet.')
+        || bodyText.includes('tour: matterport.')
         || bodyText.includes('tour: 3dvista.')
         || bodyText.includes('tour: pano2vr.')
         || bodyText.includes('tour: krpano.')
@@ -584,8 +590,10 @@ def _collect_metrics_script() -> str:
       );
       const walkthroughEvidenceCopy = (
         bodyText.includes('open walkthrough')
+        || bodyText.includes('walkthrough available.')
         || bodyText.includes('walkthrough is ready')
         || bodyText.includes('rendered walkthrough is ready')
+        || bodyText.includes('no walkthrough yet.')
         || bodyText.includes('no playable walkthrough is published yet')
         || bodyText.includes('a rendered video is still needed')
         || bodyText.includes('a verified rendered video is still needed')
