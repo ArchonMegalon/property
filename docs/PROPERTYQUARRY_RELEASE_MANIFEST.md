@@ -30,10 +30,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `7837fa61cffc5ba1961ce009327ac2cd666c2219` |
+| Runtime commit SHA | `b4e894ab4b1aff689105fc172b6c2f45efc0b990` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current release candidate on 2026-06-28 after `7837fa61`, carrying the live research-detail hero polish plus the removal of customer-visible score-filter/result-cap hints from the first-party Brilliant Directories billing handoff |
+| Deployment ID | current release candidate on 2026-06-28 after `b4e894ab`, carrying the live research-detail hero polish plus the removal of customer-visible score-filter/result-cap hints from the first-party Brilliant Directories billing handoff |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
@@ -41,7 +41,7 @@ That means the billing account lane still requires a second vendor login even th
 The live rollout on 2026-06-28 verified:
 
 - `make deploy` completed successfully and rebuilt the live `propertyquarry-api` / `propertyquarry-scheduler` stack on `http://localhost:8097`.
-- Commit `7837fa61` is the currently deployed runtime candidate; it keeps the research-detail visual workspace in the hero grid on desktop while preserving mobile-first order, and it removes customer-facing `score filter`, `score ceiling`, and `Result cap per provider` language from the first-party Brilliant Directories login/account handoff HTML.
+- Commit `b4e894ab` is the currently deployed branch/deployment candidate; the live runtime behavior remains the research-detail hero polish and first-party Brilliant Directories handoff scrub introduced in `7837fa61`, and this redeploy reconciled the branch with the authoritative release manifest.
 - `PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py --base-url https://propertyquarry.com --write _completion/smoke/property-live-public-release-after-7837fa61.json` returned `status=pass`, `failed_count=0`, and `route_count=20`.
 - `PYTHONPATH=ea python3 scripts/propertyquarry_live_authenticated_smoke.py --base-url https://propertyquarry.com --principal-id cf-email:tibor.girschele@gmail.com --expected-plan-label Agent --write _completion/smoke/property-live-authenticated-release-after-7837fa61.json` returned `status=pass`, `failed_count=0`, and `route_count=3`, with `/app/billing` resolving through `https://billing.propertyquarry.com/sso/propertyquarry?...` and `billing_external_handoff_usable=true`.
 - `PYTHONPATH=ea python3 scripts/propertyquarry_live_mobile_surface_smoke.py --base-url https://propertyquarry.com --host-header propertyquarry.com --principal-id cf-email:tibor.girschele@gmail.com --seed-research-detail-fixture --require-research-detail --write _completion/smoke/property-live-mobile-release-after-7837fa61.json` returned `status=pass`, `failed_count=0`, `route_count=16`, and `covered_surface_count=18`, including the seeded live research-detail route `/app/research/perf-candidate-1020?run_id=run-gold-mobile`.
