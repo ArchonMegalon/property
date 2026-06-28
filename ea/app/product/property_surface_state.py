@@ -237,20 +237,45 @@ def _property_summary_held_back_total(summary: dict[str, object]) -> int:
     )
 
 
+def _property_summary_ranked_candidates(summary: dict[str, object]) -> list[dict[str, object]]:
+    ranked_candidates = [
+        dict(row)
+        for row in list(summary.get("ranked_candidates") or [])
+        if isinstance(row, dict)
+    ]
+    if ranked_candidates:
+        return ranked_candidates
+    sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    if not sources:
+        return []
+    return _property_search_ranked_candidates_from_sources(sources)
+
+
+def _property_summary_ranked_total(summary: dict[str, object]) -> int:
+    ranked_candidates = _property_summary_ranked_candidates(summary)
+    explicit_total = max(
+        0,
+        _positive_int(summary.get("ranked_total")),
+        _positive_int(summary.get("ranked_candidate_total")),
+        _positive_int(summary.get("results_total")),
+        _positive_int(summary.get("survivor_total")),
+        _positive_int(summary.get("high_fit_total")),
+    )
+    if ranked_candidates:
+        return max(len(ranked_candidates), explicit_total)
+    return explicit_total
+
+
 def normalize_property_search_run_snapshot(raw_run: dict[str, object]) -> dict[str, object]:
     payload = PropertySearchRunSnapshot.from_dict(dict(raw_run or {})).to_dict()
     summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
     sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
     if sources:
-        ranked_candidates = [
-            dict(row)
-            for row in list(summary.get("ranked_candidates") or [])
-            if isinstance(row, dict)
-        ]
+        ranked_candidates = _property_summary_ranked_candidates(summary)
         if not ranked_candidates:
             ranked_candidates = _property_search_ranked_candidates_from_sources(sources)
-            if ranked_candidates:
-                summary["ranked_candidates"] = ranked_candidates
+        if ranked_candidates:
+            summary["ranked_candidates"] = ranked_candidates
         held_back_total = _property_summary_held_back_total(summary)
         if held_back_total > 0:
             summary.setdefault("held_back_total", held_back_total)
@@ -1094,12 +1119,11 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
         }
     shortlist_match = re.search(r"^Built shortlist of\s+(\d+)\s+listing\(s\)\s+for\s+(.+)\.$", text, flags=re.IGNORECASE)
     if shortlist_match:
-        total = str(shortlist_match.group(1) or "0")
         return {
             "raw": text,
             "fraction_label": "",
             "source_label": _canonical_property_run_source_label(shortlist_match.group(2)),
-            "phase_label": f"Shortlist ready · {total} home{'' if total == '1' else 's'}",
+            "phase_label": "Shortlist ready",
         }
     prepared_match = re.search(r"^Prepared property page for\s+.+\.$", text, flags=re.IGNORECASE)
     if prepared_match:
@@ -1391,7 +1415,7 @@ def build_property_run_live_board_snapshot(
     reviewed_total = max(0, _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total") or summary.get("raw_listing_total")))
     waiting_on_floorplans = max(0, _positive_int(summary.get("filtered_floorplan_total")))
     packet_prepared = max(0, _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total")))
-    shortlist_ready = max(0, _positive_int(summary.get("high_fit_total")))
+    shortlist_ready = _property_summary_ranked_total(summary)
 
     live_info = _latest_property_run_fraction_info(payload)
     current_info = _parse_property_run_message_info(payload.get("message"))
@@ -1409,10 +1433,11 @@ def build_property_run_live_board_snapshot(
         phase_label = source_near_miss_label
     elif current_info.get("fraction_label") and candidate_reason_label:
         phase_label = candidate_reason_label
-    if phase_label == "Waiting for the first provider update." and packet_prepared > 0 and str(payload.get("current_step") or "").strip().lower() == "source_review_packet":
+    current_step = str(payload.get("current_step") or "").strip().lower()
+    if phase_label == "Waiting for the first provider update." and packet_prepared > 0 and current_step == "source_review_packet":
         phase_label = f"{packet_prepared} property pages prepared"
-    elif phase_label == "Waiting for the first provider update." and shortlist_ready > 0 and str(payload.get("current_step") or "").strip().lower() == "source_shortlist":
-        phase_label = f"{shortlist_ready} shortlist homes ready"
+    elif current_step == "source_shortlist" and shortlist_ready > 0 and phase_label in {"Waiting for the first provider update.", "Shortlist ready"}:
+        phase_label = f"{shortlist_ready} ranked home{'s' if shortlist_ready != 1 else ''} ready"
 
     normalized_rows: list[dict[str, object]] = []
     for source in source_rows:

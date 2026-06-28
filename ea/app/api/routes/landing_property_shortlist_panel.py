@@ -22,6 +22,31 @@ def _candidate_external_listing_url(candidate: dict[str, object]) -> str:
     return ""
 
 
+def _source_count(source: dict[str, object], key: str) -> int:
+    try:
+        return max(0, int(float(source.get(key) or 0)))
+    except Exception:
+        return 0
+
+
+def _source_ranked_total(source: dict[str, object]) -> int:
+    top_candidates = [
+        dict(candidate)
+        for candidate in list(source.get("top_candidates") or [])
+        if isinstance(candidate, dict)
+    ]
+    explicit_total = max(
+        _source_count(source, "ranked_total"),
+        _source_count(source, "ranked_candidate_total"),
+        _source_count(source, "results_total"),
+        _source_count(source, "survivor_total"),
+        _source_count(source, "high_fit_total"),
+    )
+    if top_candidates:
+        return max(len(top_candidates), explicit_total)
+    return explicit_total
+
+
 def build_property_source_rows(*, property_summary: dict[str, object]) -> list[dict[str, str]]:
     return [
         {
@@ -30,7 +55,7 @@ def build_property_source_rows(*, property_summary: dict[str, object]) -> list[d
                 part
                 for part in (
                     f"{int(source.get('listing_total') or 0)} listings",
-                    f"{int(source.get('high_fit_total') or 0)} high-fit",
+                    f"{_source_ranked_total(source)} ranked",
                     f"{int(source.get('filtered_floorplan_total') or 0)} still waiting on floorplans"
                     if int(source.get('filtered_floorplan_total') or 0)
                     else "",

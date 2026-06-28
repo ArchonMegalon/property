@@ -191,14 +191,17 @@
       if (window.localStorage.getItem(dedupeKey) === '1') return;
       window.localStorage.setItem(dedupeKey, '1');
       const summary = runPayload?.summary || {};
-      const count = Number(summary.high_fit_total || (Array.isArray(data.results) ? data.results.length : 0) || 0);
+      const count = Math.max(
+        rankedTotalFromSummary(summary),
+        Array.isArray(data.results) ? data.results.length : 0,
+      );
       const title = status === 'failed' ? 'PropertyQuarry search failed' : 'PropertyQuarry results are ready';
       const body = status === 'failed'
         ? String(runPayload?.message || 'The search failed before ranking finished.')
         : (
           status === 'completed_partial'
-            ? String(runPayload?.message || `${count} high-fit match${count === 1 ? '' : 'es'} ready with partial coverage.`)
-            : `${count} high-fit match${count === 1 ? '' : 'es'} ready to review.`
+            ? String(runPayload?.message || `${count} ranked home${count === 1 ? '' : 's'} ready with partial coverage.`)
+            : `${count} ranked home${count === 1 ? '' : 's'} ready to review.`
         );
       try {
         const notification = new window.Notification(title, {
@@ -666,6 +669,41 @@
     const shortlistEmptyResultsMarkup = () => (
       `<div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state><strong>No shortlist yet.</strong><span class="pqx-actions"><a class="pqx-button primary" href="${escapeHtml(shortlistEmptyCtaHref())}" data-pw-shortlist-empty-cta>Start search</a></span></div>`
     );
+    const rankedTotalFromSummary = (summary) => {
+      const normalizedSummary = summary && typeof summary === 'object' ? summary : {};
+      const explicitTotal = Math.max(
+        0,
+        Number(normalizedSummary.ranked_total || 0),
+        Number(normalizedSummary.ranked_candidate_total || 0),
+        Number(normalizedSummary.results_total || 0),
+        Number(normalizedSummary.survivor_total || 0),
+        Number(normalizedSummary.high_fit_total || 0),
+      );
+      const rankedCandidates = Array.isArray(normalizedSummary.ranked_candidates)
+        ? normalizedSummary.ranked_candidates.filter((row) => row && typeof row === 'object')
+        : [];
+      if (rankedCandidates.length) return Math.max(explicitTotal, rankedCandidates.length);
+      const sourceCandidates = (Array.isArray(normalizedSummary.sources) ? normalizedSummary.sources : [])
+        .flatMap((source) => (Array.isArray(source?.top_candidates) ? source.top_candidates : []))
+        .filter((row) => row && typeof row === 'object');
+      if (sourceCandidates.length) return Math.max(explicitTotal, sourceCandidates.length);
+      return explicitTotal;
+    };
+    const rankedTotalForSource = (source) => {
+      const topCandidates = Array.isArray(source?.top_candidates)
+        ? source.top_candidates.filter((row) => row && typeof row === 'object')
+        : [];
+      const explicitTotal = Math.max(
+        0,
+        Number(source?.ranked_total || 0),
+        Number(source?.ranked_candidate_total || 0),
+        Number(source?.results_total || 0),
+        Number(source?.survivor_total || 0),
+        Number(source?.high_fit_total || 0),
+      );
+      if (topCandidates.length) return Math.max(explicitTotal, topCandidates.length);
+      return explicitTotal;
+    };
     const setShortlistReviewEmptyState = (isEmpty) => {
       const reviewContent = root.querySelector('[data-pw-review-content]');
       const emptyState = root.querySelector('[data-pw-shortlist-empty-state]');
@@ -1113,7 +1151,7 @@
           raw: text,
           fraction: '',
           sourceLabel: String(shortlistMatch[2] || '').trim(),
-          phaseLabel: `Shortlist ready · ${shortlistMatch[1]} home${String(shortlistMatch[1]) === '1' ? '' : 's'}`,
+          phaseLabel: 'Shortlist ready',
         };
       }
       if (/^Prepared property page for\s+.+\.$/i.test(text)) {
@@ -1612,7 +1650,7 @@
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
-      const shortlistReady = Number(summary.high_fit_total || 0);
+      const shortlistReady = rankedTotalFromSummary(summary);
       const liveInfo = latestFractionInfo(runPayload);
       if (liveInfo.sourceLabel && liveInfo.fraction) {
         return `Now: ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction} · ${scanLabel}`;
@@ -1621,7 +1659,7 @@
         return `${scanLabel} · ${packetPrepared} property pages prepared`;
       }
       if (currentStep === 'source_shortlist' && shortlistReady > 0) {
-        return `${scanLabel} · ${shortlistReady} shortlist home${shortlistReady === 1 ? '' : 's'} ready`;
+        return `${scanLabel} · ${shortlistReady} ranked home${shortlistReady === 1 ? '' : 's'} ready`;
       }
       return `${scanLabel}${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
     };
@@ -1785,7 +1823,7 @@
           + Number(source?.filtered_floorplan_total || 0)
           + Number(source?.filtered_generic_page_total || 0)
           + Number(source?.filtered_listing_mode_total || 0);
-        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Checked')}</span><div class="pqx-source-metrics"><span>Checked <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>Ranked <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Hard rules <b>${escapeHtml(filtered)}</b></span><span>Missing floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
+        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Checked')}</span><div class="pqx-source-metrics"><span>Checked <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>Ranked <b>${escapeHtml(rankedTotalForSource(source))}</b></span><span>Hard rules <b>${escapeHtml(filtered)}</b></span><span>Missing floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
       }).join('');
     };
     const renderRouteEvidence = (routes) => {
@@ -2032,7 +2070,7 @@
       const layout = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
-      const shortlistReady = Number(summary.high_fit_total || 0);
+      const shortlistReady = rankedTotalFromSummary(summary);
       const title = status === 'processed' || status === 'completed' || status === 'completed_partial'
         ? 'Results are ready'
         : (status === 'failed' ? 'Search paused' : 'Search in progress');
@@ -2064,8 +2102,8 @@
       }
       if (!liveInfo.phaseLabel && currentStep === 'source_review_packet' && packetPrepared > 0) {
         phaseMeta = `${packetPrepared} property pages prepared`;
-      } else if (!liveInfo.phaseLabel && currentStep === 'source_shortlist' && shortlistReady > 0) {
-        phaseMeta = `${shortlistReady} shortlist homes ready`;
+      } else if (currentStep === 'source_shortlist' && shortlistReady > 0 && (!liveInfo.phaseLabel || /^shortlist ready$/i.test(String(liveInfo.phaseLabel || '').trim()))) {
+        phaseMeta = `${shortlistReady} ranked home${shortlistReady === 1 ? '' : 's'} ready`;
       }
       const runState = String(runPayload?.status || '').trim().toLowerCase();
       const sourceProviderGroup = (source) => {
@@ -2656,11 +2694,7 @@
         const rankedCandidates = rankedCandidatesFromRunPayload(runPayload);
         rankedNode.outerHTML = renderRankedCandidates(rankedCandidates, runPayload);
       if (rankedCandidates.length) {
-        const hasRankedOutcome = (
-          Number(runPayload?.summary?.high_fit_total || 0) > 0
-          || Number(runPayload?.summary?.ranked_total || 0) > 0
-          || Number(runPayload?.summary?.ranked_candidates?.length || 0) > 0
-        );
+        const hasRankedOutcome = rankedTotalFromSummary(runPayload?.summary) > 0;
         replaceCandidates(rankedCandidates);
         const rankedPanel = root.querySelector('[data-pqx-ranked-candidates]')?.closest('[data-pqx-mobile-panel]');
         setMode(rankedPanel?.getAttribute('data-pqx-mobile-panel') || 'results');
@@ -2794,7 +2828,7 @@
           if (!response.ok || !payload || typeof payload !== 'object') return;
           const status = String(payload.status || payload.summary?.status || '').trim().toLowerCase();
           const runId = encodeURIComponent(String(payload.run_id || data.run?.run_id || '').trim());
-          const rankedTotal = Array.isArray(payload.summary?.ranked_candidates) ? payload.summary.ranked_candidates.length : Number(payload.summary?.high_fit_total || 0);
+          const rankedTotal = rankedTotalFromSummary(payload.summary);
           const signature = [
             status,
             String(payload.current_step || '').trim(),

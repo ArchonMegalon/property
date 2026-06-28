@@ -7349,6 +7349,31 @@ def test_property_run_live_board_marks_safe_kindergarten_route_as_score_upgrade(
     assert snapshot["phase_label"] == "Way to kindergarten looked safe for candidate 18/60 (score upgraded)"
 
 
+def test_property_run_live_board_prefers_ranked_candidates_when_high_fit_total_is_zero() -> None:
+    snapshot = property_surface_state.build_property_run_live_board_snapshot(
+        {
+            "status": "running",
+            "progress": 64,
+            "current_step": "source_shortlist",
+            "message": "Built shortlist of 0 listing(s) for Willhaben | Austria | Rent | 1020 Vienna.",
+            "summary": {
+                "sources_total": 4,
+                "provider_total": 1,
+                "reviewed_listing_total": 18,
+                "high_fit_total": 0,
+                "ranked_candidates": [
+                    {"candidate_ref": "cand-1", "title": "Candidate One", "fit_score": 54},
+                    {"candidate_ref": "cand-2", "title": "Candidate Two", "fit_score": 43},
+                ],
+                "sources": [],
+            },
+        },
+        plan_key="agent",
+    )
+
+    assert snapshot["phase_label"] == "2 ranked homes ready"
+
+
 def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
     cases = [
         (
@@ -11832,6 +11857,80 @@ def test_propertyquarry_empty_state_promotes_ranking_bar_control(monkeypatch) ->
     assert "score gate" not in visible_text.lower()
 
 
+def test_propertyquarry_ranked_results_render_even_when_high_fit_total_is_zero(monkeypatch) -> None:
+    principal_id = "pq-ranked-zero-high-fit"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Ranked Zero High Fit")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "summary": {
+                "sources_total": 1,
+                "provider_total": 1,
+                "listing_total": 1,
+                "reviewed_listing_total": 1,
+                "high_fit_total": 0,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-ranked-1",
+                        "title": "Leopoldstadt ranked home",
+                        "summary": "EUR 1,480 | 64 m2 | 1020 Vienna",
+                        "property_url": "https://example.test/leopoldstadt-ranked-home",
+                        "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                        "fit_score": 48,
+                        "fit_summary": "Kept in the ranking even though the bar is set higher.",
+                        "price_display": "EUR 1,480",
+                        "layout_display": "3 rooms | 64 m2",
+                        "property_facts": {
+                            "postal_name": "1020 Vienna",
+                            "rent_display": "EUR 1,480",
+                            "area_sqm": 64,
+                            "rooms": 3,
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-ranked-zero-high-fit"}, headers=headers)
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
+    workbench_match = re.search(
+        r'<script type="application/json" data-property-workbench-json>(.*?)</script>',
+        response.text,
+        re.S,
+    )
+
+    assert response.status_code == 200
+    assert workbench_match
+    assert "Leopoldstadt ranked home" in rendered_html
+    assert 'data-pqx-state="results"' in response.text
+    workbench_payload = json.loads(html.unescape(workbench_match.group(1)))
+    assert len(workbench_payload["results"]) == 1
+    assert workbench_payload["results"][0]["title"] == "Leopoldstadt ranked home"
+
+
 def test_propertyquarry_suppression_rows_includes_property_type_and_availability_rules() -> None:
     rows = landing_property_workspace_helpers._property_suppression_rows(
         run_summary={
@@ -12351,7 +12450,7 @@ def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
     assert source_rows == [
         {
             "title": "Willhaben",
-                "detail": "12 listings | 3 high-fit | 2 still waiting on floorplans | 1 3D tours | 1 client alerts | 1 email | top score 87.50",
+                "detail": "12 listings | 3 ranked | 2 still waiting on floorplans | 1 3D tours | 1 client alerts | 1 email | top score 87.50",
                 "tag": "Scanned",
             }
         ]

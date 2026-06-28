@@ -1925,25 +1925,20 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
         assert page.locator("[data-pqx-empty-results]", has_text=re.compile("No strong matches|No valid homes|No shortlist|current brief|search finished", re.I)).is_visible()
         assert page.locator("body", has_text=re.compile("Change one hard rule|No shortlist yet", re.I)).is_visible()
         assert page.locator("body", has_text=re.compile("Lower shortlist score|below the shortlist score", re.I)).count() == 0
-        assert page.locator("[data-pqx-counterfactuals]").is_visible()
-        first_counterfactual = page.locator("[data-pqx-counterfactuals] .pqx-suppression-item").first
-        assert first_counterfactual.is_visible()
-        assert page.locator("[data-pqx-counterfactuals] .pqx-suppression-item .pqx-note").first.is_visible()
-        ranking_slider = page.locator('[data-pqx-counterfactuals] [data-pqx-filter-slider][data-pqx-filter-field="min_match_score"]').first
+        ranking_slider = page.locator('[data-pqx-empty-results] [data-pqx-filter-slider][data-pqx-filter-field="min_match_score"]').first
         assert ranking_slider.is_visible()
-        ranking_action = page.locator('[data-pqx-counterfactuals] [data-pqx-counterfactual]').first
+        ranking_action = page.locator('[data-pqx-empty-results] [data-pqx-counterfactual-action-kind="ranking_bar"]').first
+        assert ranking_action.is_visible()
         expect(ranking_action).to_have_text(re.compile(r"Use \d+/100|Turn bar off", re.I))
         ranking_slider.evaluate(
             """(node) => {
-              node.value = '0';
-              node.dispatchEvent(new Event('input', { bubbles: true }));
-            }"""
+          node.value = '0';
+          node.dispatchEvent(new Event('input', { bubbles: true }));
+        }"""
         )
         expect(ranking_action).to_have_text("Turn bar off")
-        first_counterfactual_width = first_counterfactual.bounding_box()["width"]
-        assert first_counterfactual_width >= 220
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
-        assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
+        assert "0 ranked homes" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
         context.close()
