@@ -1,12 +1,14 @@
-<section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
+<section class="pqx-review-stack" data-workbench-dossier>
   {% set is_shortlist_surface = surface_mode == 'shortlist' %}
   {% set review_query_suffix = ('?run_id=' ~ ((run_payload.get('run_id') or '')|urlencode)) if run_payload.get('run_id') else '' %}
-  <div class="pqx-empty pqx-results-empty-state" data-pw-shortlist-empty-state hidden>
-    <strong>No shortlist yet.</strong>
-    <span class="pqx-actions">
-      <a class="pqx-button primary" href="/app/search" data-pw-shortlist-empty-cta>Start search</a>
-    </span>
-  </div>
+  <template data-pw-shortlist-empty-state-template>
+    <div class="pqx-empty pqx-results-empty-state" data-pw-shortlist-empty-state hidden>
+      <strong>Nothing on the shortlist yet.</strong>
+      <span class="pqx-actions">
+        <a class="pqx-button primary" href="/app/search{{ review_query_suffix }}" data-pw-shortlist-empty-cta>Search brief</a>
+      </span>
+    </div>
+  </template>
   <div data-pw-review-content>
   {% set selected_orientation_preview = selected.get('orientation_preview') or {} %}
   {% set selected_preview_url = selected_orientation_preview.get('image_url') or selected.get('preview_image_url') or '' %}
@@ -37,8 +39,8 @@
       {% set selected_flythrough_status = (selected_flythrough.get('status') or '')|lower %}
       {% set selected_tour_pending = selected_tour_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
       {% set selected_flythrough_pending = selected_flythrough_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
-      {% set selected_tour_progress = selected_tour.get('progress_pct') or (18 if selected_tour_pending else (100 if selected_tour.get('url') else 0)) %}
-      {% set selected_flythrough_progress = selected_flythrough.get('progress_pct') or (18 if selected_flythrough_pending else (100 if selected_flythrough.get('url') else 0)) %}
+      {% set selected_tour_progress = selected_tour.get('progress_pct') if selected_tour.get('progress_pct') is not none else (100 if selected_tour.get('url') else 0) %}
+      {% set selected_flythrough_progress = selected_flythrough.get('progress_pct') if selected_flythrough.get('progress_pct') is not none else (100 if selected_flythrough.get('url') else 0) %}
       {% set selected_tour_provider_label = selected_tour.get('provider_label') or '' %}
       {% set selected_flythrough_provider_label = selected_flythrough.get('provider_label') or '' %}
       {% set selected_visual_status = '' %}
@@ -172,9 +174,9 @@
         <div>
           <h2>Next step</h2>
         </div>
-        <button class="pqx-button subtle" type="button" data-pw-finetune-toggle aria-expanded="false">Adjust my search</button>
+        <button class="pqx-button subtle" type="button" data-pw-finetune-toggle aria-expanded="false">Tune search</button>
       </div>
-      <div class="pqx-actions">
+      <div class="pqx-actions pqx-decision-state-grid">
         <button class="pqx-button" type="button" data-pw-decision-state="viewing_requested">Viewing requested</button>
         <button class="pqx-button" type="button" data-pw-decision-state="documents_requested">Documents requested</button>
         <button class="pqx-button" type="button" data-pw-decision-state="offer_candidate">Offer candidate</button>
@@ -188,7 +190,7 @@
           <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="dislike">No</button>
           <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="hide">Hide</button>
         </div>
-        <div class="pqx-decision-status" data-pw-feedback-status>Choose Yes, Maybe, No, or Hide.</div>
+        <div class="pqx-decision-status" data-pw-feedback-status>Pick one to teach the ranking.</div>
         <div class="pqx-decision-detail" data-pw-decision-detail hidden>
           <div class="pqx-decision-copy"><strong>Why?</strong></div>
           <div class="pqx-decision-reasons" data-pw-feedback-reasons></div>
@@ -197,9 +199,9 @@
             <div class="pqx-note">Loading the next suggested questions.</div>
           </div>
           <textarea class="pqx-decision-note" rows="3" placeholder="What worked, failed, or still feels unclear?" data-pw-feedback-note></textarea>
-          <div class="pqx-actions">
+          <div class="pqx-actions pqx-decision-feedback-actions">
             <button class="pqx-button primary" type="button" data-pw-feedback-save aria-label="Save decision">Save</button>
-            <a class="pqx-link-button subtle" href="/app/search{{ review_query_suffix }}">Open search brief</a>
+            <a class="pqx-link-button subtle" href="/app/search{{ review_query_suffix }}">Search brief</a>
           </div>
         </div>
       </div>

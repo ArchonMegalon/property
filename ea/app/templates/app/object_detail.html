@@ -510,6 +510,13 @@
       border-radius: 16px;
       box-shadow: none;
     }
+    .object-grid.is-settings-surface {
+      gap: 10px;
+    }
+    .object-grid.is-settings-surface > .object-panel {
+      display: grid;
+      gap: 10px;
+    }
     .object-grid.is-settings-surface .object-panel h1 {
       font-size: clamp(1.35rem, 7vw, 2rem);
       line-height: 1.02;
@@ -525,6 +532,20 @@
     .object-grid.is-settings-surface .object-sidebar-copy {
       font-size: 13px;
       line-height: 1.42;
+      max-width: 34ch;
+      margin: 0;
+    }
+    .object-grid.is-settings-surface .object-meta {
+      gap: 8px;
+    }
+    .object-grid.is-settings-surface .object-meta-card {
+      display: grid;
+      gap: 2px;
+      align-content: start;
+      min-height: 0;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: var(--panel-2);
     }
     .object-grid.is-settings-surface .object-meta-card span {
       margin-bottom: 4px;
@@ -534,8 +555,8 @@
       line-height: 1.15;
     }
     .object-grid.is-settings-surface .object-row {
-      gap: 8px;
-      padding-bottom: 8px;
+      gap: 7px;
+      padding-bottom: 10px;
     }
     .object-grid.is-settings-surface .object-row strong {
       margin-bottom: 2px;
@@ -552,12 +573,18 @@
       padding: 0;
     }
     .object-grid.is-settings-surface .object-disclosure-summary {
+      gap: 8px;
       padding: 14px;
+    }
+    .object-grid.is-settings-surface .object-disclosure-summary .object-tag,
+    .object-sections.is-settings-surface .object-disclosure-summary .object-tag {
+      display: none;
     }
     .object-grid.is-settings-surface .object-disclosure[open] .object-disclosure-summary {
       border-bottom: 1px solid var(--line);
     }
     .object-grid.is-settings-surface .object-disclosure-body {
+      gap: 10px;
       padding: 0 14px 14px;
     }
     .object-grid.is-settings-surface .object-form-disclosure .object-copy {
@@ -568,13 +595,34 @@
       padding: 0;
     }
     .object-grid.is-settings-surface .object-panel-stack {
-      gap: 10px;
+      gap: 8px;
     }
     .object-grid.is-settings-surface .object-list {
-      gap: 8px;
+      gap: 6px;
     }
     .object-grid.is-settings-surface .object-row:last-child {
       margin-bottom: 0;
+    }
+    .object-grid.is-settings-surface .object-row .object-actions {
+      margin-top: 4px;
+    }
+    .object-grid.is-settings-surface .object-tag {
+      min-height: 24px;
+      padding: 0 8px;
+    }
+    .object-grid.is-settings-surface .object-form {
+      margin-top: 8px;
+      gap: 10px;
+    }
+    .object-grid.is-settings-surface .object-field {
+      gap: 4px;
+    }
+    .object-grid.is-settings-surface .object-disclosure-body > .object-kicker,
+    .object-grid.is-settings-surface .object-disclosure-body > h2 {
+      display: none;
+    }
+    .object-grid.is-settings-surface .object-disclosure-body > .object-copy:first-of-type {
+      margin-top: 0;
     }
   }
   @media (max-width: 520px) {
@@ -586,6 +634,31 @@
     }
     .object-grid.is-settings-surface .object-meta-card:last-child:nth-child(odd) {
       grid-column: 1 / -1;
+    }
+    .object-grid.is-settings-surface .object-panel,
+    .object-grid.is-settings-surface .object-section,
+    .object-grid.is-settings-surface .object-meta-card {
+      padding: 12px;
+      border-radius: 14px;
+    }
+    .object-grid.is-settings-surface .object-disclosure-summary {
+      padding: 12px;
+    }
+    .object-grid.is-settings-surface .object-disclosure-body {
+      padding: 0 12px 12px;
+    }
+    .object-grid.is-settings-surface .object-panel > .object-copy,
+    .object-grid.is-settings-surface .object-sidebar-copy,
+    .object-grid.is-settings-surface .object-row small {
+      font-size: 11.5px;
+      line-height: 1.3;
+    }
+    .object-grid.is-settings-surface .object-row {
+      gap: 6px;
+      padding-bottom: 6px;
+    }
+    .object-grid.is-settings-surface .object-disclosure-copy strong {
+      font-size: 0.95rem;
     }
     .object-grid.is-settings-surface .object-media-frame-inner {
       min-height: 300px;
@@ -691,7 +764,9 @@
           <span class="object-kicker">{{ object_sidebar_kicker or 'Quick actions' }}</span>
           <strong>{{ object_sidebar_title }}</strong>
         </span>
-        <span class="object-tag">{{ (object_sidebar_rows or [])|length }} item{% if ((object_sidebar_rows or [])|length) != 1 %}s{% endif %}</span>
+        {% if ((object_sidebar_rows or [])|length) > 1 %}
+        <span class="object-tag">{{ (object_sidebar_rows or [])|length }} items</span>
+        {% endif %}
       </summary>
       <div class="object-disclosure-body">
       {% if object_sidebar_copy %}<p class="object-copy object-sidebar-copy">{{ object_sidebar_copy }}</p>{% endif %}
@@ -769,7 +844,11 @@
           </div>
           {% endif %}
         </div>
+        {% if item.tag %}
+        {% if item.tag %}
         <div class="object-tag">{{ item.tag }}</div>
+        {% endif %}
+        {% endif %}
       </div>
       {% endfor %}
     </div>
@@ -786,7 +865,8 @@
           <span class="object-kicker">{{ object_sidebar_form.get('eyebrow') or 'Update' }}</span>
           <strong>{{ object_sidebar_form.get('title') or 'Update details' }}</strong>
         </span>
-        <span class="object-tag">{{ object_sidebar_form.get('submit_label') or 'Save' }}</span>
+        {% set form_summary_label = object_sidebar_form.get('summary_label') or object_sidebar_form.get('submit_label') or 'Save' %}
+        <span class="object-tag">{{ form_summary_label }}</span>
       </summary>
       <div class="object-disclosure-body">
         {% if object_sidebar_form.get('copy') %}<p class="object-copy">{{ object_sidebar_form.get('copy') }}</p>{% endif %}
@@ -930,8 +1010,8 @@
 	      {% endif %}
 	      <textarea data-object-feedback-note placeholder="What worked, failed, or still feels unclear?"></textarea>
 	      <div class="object-actions">
-	        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
-	        <a class="console-action" href="{{ object_feedback.get('profile_href') or ('/app/search' ~ object_query_suffix) }}">Open active search</a>
+	        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save</button>
+	        <a class="console-action" href="{{ object_feedback.get('profile_href') or ('/app/search' ~ object_query_suffix) }}">Search brief</a>
 	      </div>
 	      <p class="object-copy" data-object-feedback-status></p>
 	      <div class="object-actions" style="margin-top: 12px;">
@@ -1053,7 +1133,9 @@
         <strong>{{ section["title"] }}</strong>
       </span>
       {% if section.get('items') %}
-      <span class="object-tag">{{ (section.get('items') or [])|length }} item{% if ((section.get('items') or [])|length) != 1 %}s{% endif %}</span>
+      {% if ((section.get('items') or [])|length) > 1 %}
+      <span class="object-tag">{{ (section.get('items') or [])|length }} items</span>
+      {% endif %}
       {% endif %}
     </summary>
     <div class="object-disclosure-body">
@@ -1165,7 +1247,9 @@
           </div>
           {% endif %}
         </div>
+        {% if item.tag %}
         <div class="object-tag">{{ item.tag }}</div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
@@ -1182,9 +1266,6 @@
 (() => {
   if (!window.matchMedia('(max-width: 760px)').matches) return;
   const settingsSurfaceDisclosures = [...document.querySelectorAll('.is-settings-surface details.object-disclosure')];
-  const preferredOpenDisclosure = settingsSurfaceDisclosures.find((detailsNode) => (
-    String(detailsNode.dataset.objectMobileDefault || '').trim() === 'open'
-  )) || settingsSurfaceDisclosures[0] || null;
   const closeOtherDisclosures = (activeNode) => {
     settingsSurfaceDisclosures.forEach((candidate) => {
       if (candidate !== activeNode) {
@@ -1193,7 +1274,7 @@
     });
   };
   settingsSurfaceDisclosures.forEach((detailsNode) => {
-    detailsNode.open = detailsNode === preferredOpenDisclosure;
+    detailsNode.open = false;
     detailsNode.addEventListener('toggle', () => {
       if (!detailsNode.open) return;
       closeOtherDisclosures(detailsNode);

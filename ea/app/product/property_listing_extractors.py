@@ -36,7 +36,7 @@ from app.services.property_market_catalog import (
 from app.services.propertyquarry_teable_projection import _safe_teable_facts
 
 _PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
-_PROPERTY_SCOUT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+_PROPERTY_SCOUT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif")
 _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS = (*_PROPERTY_SCOUT_IMAGE_EXTENSIONS, ".pdf")
 _PROPERTY_SCOUT_LISTING_HOSTS = provider_host_markers()
 _PROPERTY_SCOUT_ARCHIVE_EXTENSIONS = (".zip",)
@@ -164,8 +164,15 @@ def _property_scout_image_looks_like_floorplan(payload: bytes) -> tuple[bool, di
         if marker in normalized_ocr
     )
     plan_like_geometry = edge_mean >= 10.0 and light_ratio >= 0.42 and 0.01 <= dark_ratio <= 0.42 and avg_saturation <= 62.0
+    light_scan_like_plan = (
+        edge_mean >= 13.0
+        and light_ratio >= 0.78
+        and dark_ratio <= 0.08
+        and avg_saturation <= 12.0
+        and min(width, height) >= 280
+    )
     ocr_like_plan = room_word_hits >= 2 and light_ratio >= 0.30 and avg_saturation <= 95.0
-    return bool(plan_like_geometry or ocr_like_plan), {
+    return bool(plan_like_geometry or light_scan_like_plan or ocr_like_plan), {
         "status": "classified",
         "width": width,
         "height": height,
@@ -579,10 +586,71 @@ def _property_scout_extract_html_attr_urls(*, source_url: str, html: str, attr_n
             values.append(normalized)
     return tuple(values)
 
+
+def _property_scout_media_asset_identity(url: str) -> str:
+    normalized = urllib.parse.urldefrag(str(url or "").strip())[0]
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    path = urllib.parse.unquote(parsed.path or "")
+    if "/~/" in path:
+        path = path.split("/~/", 1)[0]
+    return urllib.parse.urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), path, "", "", ""))
+
+
+def _property_scout_media_url_priority(url: str) -> tuple[int, int, int]:
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    combined = urllib.parse.unquote(f"{parsed.netloc}{parsed.path}?{parsed.query}").lower()
+    score = 0
+    if any(marker in combined for marker in ("immoimporte", "storage.justimmo.at", "/thumb/", "gallery", "listing", "property", "expose")):
+        score += 6
+    if any(marker in combined for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
+        score += 8
+    if "format:jpg" in combined or "format=jpg" in combined or combined.endswith(".jpg"):
+        score += 2
+    if "format:png" in combined or "format=png" in combined or combined.endswith(".png"):
+        score += 1
+    if any(marker in combined for marker in ("favicon", "apple-touch-icon", "/icons/", "/icon/", "/logo", "sprite")):
+        score -= 12
+    if any(marker in combined for marker in ("avatar", "broker", "agentcard", "businesscard", "card")):
+        score -= 3
+    return (score, -len(parsed.path or ""), -len(parsed.query or ""))
+
+
+def _property_scout_prioritized_media_urls(urls: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    deduped_by_identity: dict[str, str] = {}
+    for raw_url in urls:
+        normalized = urllib.parse.urldefrag(str(raw_url or "").strip())[0]
+        if not normalized:
+            continue
+        identity = _property_scout_media_asset_identity(normalized) or normalized
+        incumbent = deduped_by_identity.get(identity)
+        if not incumbent:
+            deduped_by_identity[identity] = normalized
+            continue
+        if _property_scout_media_url_priority(normalized) > _property_scout_media_url_priority(incumbent):
+            deduped_by_identity[identity] = normalized
+    ranked = sorted(
+        deduped_by_identity.values(),
+        key=lambda value: _property_scout_media_url_priority(value),
+        reverse=True,
+    )
+    return tuple(ranked)
+
+
 def _property_scout_is_asset_url(url: str, *, extensions: tuple[str, ...]) -> bool:
     parsed = urllib.parse.urlparse(str(url or "").strip())
     path = urllib.parse.unquote(parsed.path or "").lower()
-    return bool(path.endswith(extensions))
+    combined = urllib.parse.unquote(f"{path}?{parsed.query}").lower()
+    if path.endswith(extensions):
+        return True
+    if any(segment.endswith(extensions) for segment in path.split("/") if segment):
+        return True
+    return any(
+        marker in combined
+        for extension in extensions
+        for marker in (f"format:{extension.lstrip('.')}", f"format={extension.lstrip('.')}")
+    )
 
 def _property_scout_is_archive_url(url: str) -> bool:
     parsed = urllib.parse.urlparse(str(url or "").strip())
@@ -786,7 +854,7 @@ def _property_scout_extract_detail_media_urls(*, source_url: str, html: str) -> 
             continue
         seen.add(normalized)
         media_urls.append(normalized)
-    return tuple(media_urls)
+    return _property_scout_prioritized_media_urls(media_urls)
 
 def _property_public_preview_cache_key(
     *,
@@ -864,7 +932,7 @@ def _property_scout_extract_gallery_floorplan_urls(
     urls: list[str] = []
     seen: set[str] = set()
     visual_checks: list[dict[str, object]] = []
-    normalized_media_urls = [urllib.parse.urldefrag(str(url or "").strip())[0] for url in media_urls if str(url or "").strip()]
+    normalized_media_urls = list(_property_scout_prioritized_media_urls(list(media_urls or ())))
     for url in normalized_media_urls:
         if url in seen:
             continue
@@ -880,8 +948,12 @@ def _property_scout_extract_gallery_floorplan_urls(
             for url in normalized_media_urls
             if url not in seen and _property_scout_is_asset_url(url, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS)
         ]
-        if len(visual_candidates) > 8:
-            visual_candidates = [*visual_candidates[:4], *visual_candidates[-4:]]
+        high_signal_candidates = [url for url in visual_candidates if _property_scout_media_url_priority(url)[0] >= 0]
+        sample_pool = high_signal_candidates or visual_candidates
+        if len(sample_pool) > 8:
+            visual_candidates = [*sample_pool[:4], *sample_pool[-4:]]
+        else:
+            visual_candidates = sample_pool
         for url in visual_candidates:
             try:
                 payload, content_type = _property_scout_download_bytes(url, timeout_seconds=5.0, max_bytes=3 * 1024 * 1024)

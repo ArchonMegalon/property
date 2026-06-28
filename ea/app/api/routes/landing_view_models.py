@@ -21,6 +21,10 @@ from app.product.property_location_research import (
     _property_research_boundary_record,
     _property_research_geojson_outer_rings,
 )
+from app.product.service import (
+    _property_alert_fit_summary,
+    _property_visible_mismatch_reasons,
+)
 from app.services.property_billing import property_plan_has_unlimited_provider_results
 from app.api.routes.landing_property_saved_searches import (
     build_agent_management_rows,
@@ -213,6 +217,22 @@ def _clean_property_candidate_copy(value: object) -> str:
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
+    pattern_replacements = (
+        (r"(?i)\bCurrent ranking bar:\s*\d+\s*/\s*100\b[;:,-]?\s*", ""),
+        (r"(?i)\bCurrent ranking bar:\s*", ""),
+        (r"(?i)\beven below the (?:current|saved) ranking bar\b", "in the full list"),
+        (r"(?i)\bbelow the (?:current|saved) ranking bar\b", "in the full list"),
+        (r"(?i)\bbelow the current bar\b", "in the full list"),
+        (r"(?i)\bTurn the ranking bar down or off\b", "Start a fresh search"),
+        (r"(?i)\bLower the ranking bar or turn it off\b", "Start a fresh search"),
+        (r"(?i)\bTurn bar off\b", "Refresh search"),
+    )
+    for pattern, replacement in pattern_replacements:
+        text = re.sub(pattern, replacement, text)
+    text = re.sub(r"^(?:[.,;:\s]+)", "", text)
+    text = re.sub(r"\s+([,.;:])", r"\1", text)
+    text = re.sub(r"([.?!]){2,}", r"\1", text)
+    text = " ".join(text.split()).strip(" ,;:-")
     return text.strip()
 
 
@@ -247,8 +267,11 @@ def _property_customer_source_summary(source: dict[str, object]) -> dict[str, ob
         "error": str(source_row.get("error") or "").strip(),
         "listing_total": _to_int(source_row.get("listing_total") or source_row.get("scanned_listing_total") or 0),
         "scanned_listing_total": _to_int(source_row.get("scanned_listing_total") or source_row.get("listing_total") or 0),
+        "ranked_total": _to_int(source_row.get("ranked_total") or source_row.get("listing_total") or 0),
+        "ranked_candidate_total": _to_int(source_row.get("ranked_candidate_total") or source_row.get("ranked_total") or 0),
         "high_fit_total": _to_int(source_row.get("high_fit_total") or 0),
         "filtered_low_fit_total": _to_int(source_row.get("filtered_low_fit_total") or 0),
+        "score_demoted_total": _to_int(source_row.get("score_demoted_total") or source_row.get("filtered_low_fit_total") or 0),
         "filtered_floorplan_total": _to_int(source_row.get("filtered_floorplan_total") or 0),
         "location_mismatch_reason": str(source_row.get("location_mismatch_reason") or "").strip(),
         "location_mismatch_candidate_total": _to_int(source_row.get("location_mismatch_candidate_total") or 0),
@@ -270,8 +293,57 @@ def _property_customer_lightweight_image_url(value: object, *, max_data_url_char
     return url
 
 
-def _property_customer_candidate_summary(candidate: dict[str, object]) -> dict[str, object]:
+def _property_customer_candidate_summary(
+    candidate: dict[str, object],
+    *,
+    preferences: dict[str, object] | None = None,
+) -> dict[str, object]:
     row = dict(candidate or {})
+    facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
+    for key in ("fit_summary", "score_demotion_reason", "compare_reason", "summary"):
+        cleaned_copy = _clean_property_candidate_copy(row.get(key))
+        if cleaned_copy:
+            row[key] = cleaned_copy
+        else:
+            row.pop(key, None)
+    normalized_mismatch_reasons = _property_visible_mismatch_reasons(
+        {"mismatch_reasons_json": list(row.get("mismatch_reasons") or [])},
+        facts=facts,
+        preferences=preferences,
+        limit=6,
+    )
+    if normalized_mismatch_reasons:
+        row["mismatch_reasons"] = normalized_mismatch_reasons
+    else:
+        row.pop("mismatch_reasons", None)
+    raw_fit_summary = str(row.get("fit_summary") or "").strip()
+    fit_summary_needs_refresh = (
+        not raw_fit_summary
+        or any(
+            token in raw_fit_summary.casefold()
+            for token in (
+                "farther away than wished",
+                "less convenient",
+                "too close for avoid preference",
+            )
+        )
+    )
+    if fit_summary_needs_refresh:
+        refreshed_fit_summary = _property_alert_fit_summary(
+            {
+                "fit_score": row.get("fit_score") or row.get("assessment_fit_score") or 0.0,
+                "recommendation": row.get("recommendation") or "",
+                "match_reasons_json": list(row.get("match_reasons") or []),
+                "mismatch_reasons_json": list(candidate.get("mismatch_reasons") or []),
+            },
+            facts=facts,
+            preferences=preferences,
+        )
+        refreshed_fit_summary = _clean_property_candidate_copy(refreshed_fit_summary)
+        if refreshed_fit_summary:
+            row["fit_summary"] = refreshed_fit_summary
+        else:
+            row.pop("fit_summary", None)
     for key in ("preview_image_url", "image_url", "thumb_image_url"):
         cleaned = _property_customer_lightweight_image_url(row.get(key))
         if cleaned:
@@ -404,14 +476,18 @@ def _property_customer_candidate_is_rankable(candidate: dict[str, object]) -> bo
     return True
 
 
-def _property_customer_run_summary(summary: dict[str, object]) -> dict[str, object]:
+def _property_customer_run_summary(
+    summary: dict[str, object],
+    *,
+    preferences: dict[str, object] | None = None,
+) -> dict[str, object]:
     source_rows = [
         _property_customer_source_summary(row)
         for row in list(dict(summary or {}).get("sources") or [])
         if isinstance(row, dict)
     ]
     ranked_candidates = [
-        _property_customer_candidate_summary(row)
+        _property_customer_candidate_summary(row, preferences=preferences)
         for row in list(dict(summary or {}).get("ranked_candidates") or [])
         if isinstance(row, dict) and _property_customer_candidate_is_rankable(row)
     ]
@@ -2256,15 +2332,15 @@ def _property_heat_resilience_copy(language_code: object) -> dict[str, object]:
         "sv": "Kan bostaden halla sig sval under langre varmeperioder?",
     }
     tooltips = {
-        "de": "Prueft Sommerhitze, Dachgeschoss, grosse suedseitige Fenster, heisse Stadtlagen, Klimaanlage, Altbau, Schatten, Baeume und Aussenjalousien als Score-Signal.",
-        "en": "Checks heat waves, top-floor risk, large south-facing windows, hotter city areas, cooling, old-building thermal mass, shade, trees, and external blinds.",
-        "es": "Comprueba olas de calor, riesgo de atico, grandes ventanas al sur, zonas urbanas mas calientes, aire acondicionado, muros gruesos, sombra y persianas exteriores.",
-        "fr": "Verifie chaleur estivale, risque de dernier etage, grandes fenetres au sud, secteurs urbains plus chauds, climatisation, murs epais, ombre et stores exterieurs.",
-        "it": "Controlla ondate di calore, rischio ultimo piano, grandi finestre a sud, zone urbane piu calde, climatizzazione, muri spessi, ombra e schermature esterne.",
-        "nl": "Controleert hittegolven, risico van bovenste verdieping, grote zuidramen, warmere stadsdelen, koeling, dikke muren, schaduw en buitenzonwering.",
-        "pt": "Verifica ondas de calor, risco de ultimo andar, grandes janelas a sul, zonas urbanas mais quentes, ar condicionado, paredes espessas, sombra e estores exteriores.",
-        "pl": "Sprawdza fale upalow, ryzyko ostatniego pietra, duze okna od poludnia, gorace dzielnice, klimatyzacje, grube sciany, cien i rolety zewnetrzne.",
-        "sv": "Kontrollerar varmeboljor, risk pa oversta vaningen, stora sodervanda fonster, varmare stadsdelar, kylning, tjocka vaggar, skugga och utvandiga solskydd.",
+        "de": "Prueft Sommerhitze, Dachgeschoss, grosse suedseitige Fenster, heisse Stadtlagen, Klimaanlage, Altbau, Schatten, Baeume, lokale Kaelteschneisen an fliessendem Wasser und Aussenjalousien als Score-Signal.",
+        "en": "Checks heat waves, top-floor risk, large south-facing windows, hotter city areas, cooling, old-building thermal mass, shade, trees, nearby flowing-water cooling corridors, and external blinds.",
+        "es": "Comprueba olas de calor, riesgo de atico, grandes ventanas al sur, zonas urbanas mas calientes, aire acondicionado, muros gruesos, sombra, corredores de enfriamiento junto al agua en movimiento y persianas exteriores.",
+        "fr": "Verifie chaleur estivale, risque de dernier etage, grandes fenetres au sud, secteurs urbains plus chauds, climatisation, murs epais, ombre, couloirs de fraicheur pres de l eau courante et stores exterieurs.",
+        "it": "Controlla ondate di calore, rischio ultimo piano, grandi finestre a sud, zone urbane piu calde, climatizzazione, muri spessi, ombra, corridoi di raffrescamento vicino ad acqua corrente e schermature esterne.",
+        "nl": "Controleert hittegolven, risico van bovenste verdieping, grote zuidramen, warmere stadsdelen, koeling, dikke muren, schaduw, koele corridors langs stromend water en buitenzonwering.",
+        "pt": "Verifica ondas de calor, risco de ultimo andar, grandes janelas a sul, zonas urbanas mais quentes, ar condicionado, paredes espessas, sombra, corredores de arrefecimento junto de agua corrente e estores exteriores.",
+        "pl": "Sprawdza fale upalow, ryzyko ostatniego pietra, duze okna od poludnia, gorace dzielnice, klimatyzacje, grube sciany, cien, korytarze chlodzace przy plynacej wodzie i rolety zewnetrzne.",
+        "sv": "Kontrollerar varmeboljor, risk pa oversta vaningen, stora sodervanda fonster, varmare stadsdelar, kylning, tjocka vaggar, skugga, svalkande korridorer vid rinnande vatten och utvandiga solskydd.",
     }
     return {
         "label": _localized_property_ui_text(labels, language_code, "Stays cool in summer"),
@@ -2272,7 +2348,7 @@ def _property_heat_resilience_copy(language_code: object) -> dict[str, object]:
         "tooltip": _localized_property_ui_text(
             tooltips,
             language_code,
-            "Checks heat waves, top-floor risk, large south-facing windows, hotter city areas, cooling, old-building thermal mass, shade, trees, and external blinds.",
+            "Checks heat waves, top-floor risk, large south-facing windows, hotter city areas, cooling, old-building thermal mass, shade, trees, nearby flowing-water cooling corridors, and external blinds.",
         ),
         "label_i18n": labels,
         "detail_i18n": details,
@@ -2946,29 +3022,46 @@ def app_section_payload(
     property_state = dict(property_context or {})
     surface_scope = PropertySurfaceScope.for_section(str(property_state.get("surface_mode") or "properties"))
     property_run = dict(property_state.get("run") or {})
-    if isinstance(property_run.get("summary"), dict):
-        property_run["summary"] = _property_customer_run_summary(dict(property_run.get("summary") or {}))
     property_run_preferences = (
         dict(property_run.get("property_search_preferences") or property_run.get("preferences") or {})
         if isinstance(property_run.get("property_search_preferences") or property_run.get("preferences"), dict)
         else {}
     )
-    property_preferences = {
-        **dict(property_state.get("preferences") or {}),
-        **property_run_preferences,
-    }
+    property_saved_preferences = dict(property_state.get("preferences") or {})
+    property_preferences = (
+        property_saved_preferences
+        if surface_scope.section in {"search", "agents", "alerts", "account", "billing", "settings"}
+        else {
+            **property_saved_preferences,
+            **property_run_preferences,
+        }
+    )
+    if isinstance(property_run.get("summary"), dict):
+        property_run["summary"] = _property_customer_run_summary(
+            dict(property_run.get("summary") or {}),
+            preferences=property_preferences,
+        )
     property_summary = dict(property_run.get("summary") or {})
     saved_shortlist_candidates = [
         dict(row)
         for row in list(property_state.get("saved_shortlist_candidates") or [])
         if isinstance(row, dict)
     ]
-    if surface_scope.section == "shortlist" and saved_shortlist_candidates:
+    if surface_scope.section in {"properties", "shortlist"} and saved_shortlist_candidates:
         from app.product.service import (
             _property_candidate_matches_requested_location,
             _property_search_location_hints,
         )
 
+        requested_run_id = str(property_state.get("requested_run_id") or "").strip()
+        active_run_id = str(property_run.get("run_id") or "").strip()
+        explicit_run_scope = bool(requested_run_id)
+        if explicit_run_scope and active_run_id:
+            saved_shortlist_candidates = [
+                dict(row)
+                for row in saved_shortlist_candidates
+                if str(dict(row).get("saved_from_run_id") or "").strip() == active_run_id
+            ]
         current_ranked = [
             dict(row)
             for row in list(property_summary.get("ranked_candidates") or [])
@@ -3121,6 +3214,7 @@ def app_section_payload(
     ]
     try:
         from app.services.property_market_catalog import provider_options as property_provider_options
+        from app.services.property_market_catalog import filter_selectable_property_platforms as property_filter_selectable_property_platforms
 
         known_values = {
             str(option.get("value") or "").strip().lower()
@@ -3140,6 +3234,25 @@ def app_section_payload(
         for option in platform_options
         if str(option.get("value") or "").strip() and bool(option.get("search_ready", True))
     }
+    selectable_platform_values = set(
+        property_filter_selectable_property_platforms(
+            tuple(available_platform_values),
+            country_code=selected_country_code,
+            listing_mode=selected_listing_mode,
+            include_distressed_sale_signals=property_preferences.get("include_distressed_sale_signals"),
+        )[0]
+    )
+    if selectable_platform_values:
+        platform_options = [
+            dict(option)
+            for option in platform_options
+            if str(option.get("value") or "").strip() in selectable_platform_values
+        ]
+        available_platform_values = {
+            str(option.get("value") or "").strip()
+            for option in platform_options
+            if str(option.get("value") or "").strip() and bool(option.get("search_ready", True))
+        }
     selected_platforms = {
         value
         for value in selected_platforms
@@ -3608,10 +3721,6 @@ def app_section_payload(
         )
     except Exception:
         property_plan_max_results = property_visible_max_results_per_source if property_plan_has_unlimited_results else 2
-    try:
-        property_plan_max_match_score = max(1, min(100, int(property_state.get("commercial", {}).get("max_match_score") or 35)))
-    except Exception:
-        property_plan_max_match_score = 35
     property_furniture_style_options = _property_furniture_style_options(
         plan_key=property_current_plan_key,
         selected_value=property_preferences.get("furniture_style"),
@@ -3620,25 +3729,6 @@ def app_section_payload(
         (str(option.get("value") or "") for option in property_furniture_style_options if option.get("selected")),
         PROPERTY_FURNITURE_STYLE_CATALOG[0]["value"],
     )
-
-    def _property_upgrade_hint(metric_key: str, current_cap: int, visible_cap: int) -> str:
-        if current_cap >= visible_cap:
-            return ""
-        upgrade_parts: list[str] = []
-        for plan in property_plan_catalog:
-            plan_key = str(plan.get("plan_key") or "").strip().lower()
-            if not plan_key or plan_key == property_current_plan_key:
-                continue
-            try:
-                plan_cap = int(plan.get(metric_key) or 0)
-            except Exception:
-                continue
-            if plan_cap <= current_cap:
-                continue
-            upgrade_parts.append(f"{str(plan.get('display_name') or plan_key.title())} unlocks {plan_cap}")
-        if upgrade_parts:
-            return f"Current plan cap {current_cap}; " + ". ".join(upgrade_parts) + "."
-        return f"Current plan cap {current_cap}; visible ceiling {visible_cap}."
 
     def _positive_int(value: object, *, default: int = 0) -> int:
         try:
@@ -3686,7 +3776,9 @@ def app_section_payload(
     property_search_mode_requested = str(property_preferences.get("search_mode") or "strict").strip().lower()
     if property_search_mode_requested not in {"strict", "discovery"}:
         property_search_mode_requested = "strict"
-    if surface_scope.wants_agent_views:
+    if surface_scope.wants_agent_views or (
+        surface_scope.section == "search" and str(property_state.get("selected_agent_id") or "").strip()
+    ):
         search_agent_scope_preview_builder = (
             _property_scope_preview_map_only
             if surface_scope.section == "agents"
@@ -3721,26 +3813,6 @@ def app_section_payload(
     )
     if property_search_mode == "strict" and property_run_status_for_defaults in {"processed", "completed"} and property_ranked_total_for_defaults < 6:
         property_search_mode = "discovery"
-    raw_property_min_match_score = property_preferences.get("min_match_score")
-    try:
-        property_min_match_score_value = (
-            int(raw_property_min_match_score)
-            if raw_property_min_match_score not in (None, "")
-            else 0
-        )
-    except Exception:
-        property_min_match_score_value = 0
-    property_min_match_score_value = max(0, min(property_min_match_score_value, property_plan_max_match_score))
-    property_min_match_tooltip = (
-        "Use this bar to separate stronger personal matches from weaker ones inside the ranking. "
-        "It does not remove homes from the run. "
-        "Set it to Off when you want one broad ranked list."
-    )
-    property_min_match_upgrade_hint = _property_upgrade_hint(
-        "max_match_score",
-        property_plan_max_match_score,
-        property_visible_max_match_score,
-    )
     country_codes = tuple(
         str(option.get("value") or "").strip()
         for option in country_options
@@ -4222,7 +4294,7 @@ def app_section_payload(
                 "name": "custom_keywords",
                 "label": "Custom priorities",
                 "value": custom_keywords,
-                "placeholder": "Free text for priorities not listed above",
+                "placeholder": "Add something not listed above",
                 "tooltip": "If the same custom preference is requested three times, it should be promoted into this user's default catalog. If many users request the same thing, it should become available for everyone.",
                 "step": "children",
             },
@@ -5005,7 +5077,7 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "enable_trust_risk_scoring",
-                "label": "Duplicate, scam, and stale scoring",
+                "label": "Check listing quality",
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_trust_risk_scoring")),
                 "tooltip": "Check duplicate, stale, and scam risk rather than treating all sources equally.",
@@ -5078,49 +5150,6 @@ def app_section_payload(
                 "scale_max_label": "10 years",
                 "tooltip": "Filter for listings or projects that should be ready within the selected number of years. Useful for cooperative and planned development sign-ups.",
                 "step": "what",
-            },
-            {
-                "type": "range",
-                "name": "max_results_per_source",
-                "label": "Max results per provider",
-                "value": str(property_results_value),
-                "display_value": "All ranked" if property_plan_has_unlimited_results else str(property_results_value),
-                "min": "1",
-                "max": str(property_visible_max_results_per_source),
-                "selectable_max": str(property_plan_max_results),
-                "visual_max": str(property_visible_max_results_per_source),
-                "range_step": "1",
-                "format": "count",
-                "suffix": "",
-                "display_only": property_plan_has_unlimited_results,
-                "display_note": (
-                    "Agent includes all ranked results per provider in every run."
-                    if property_plan_has_unlimited_results
-                    else ""
-                ),
-                "upgrade_hint": _property_upgrade_hint(
-                    "max_results_per_source",
-                    property_plan_max_results,
-                    property_visible_max_results_per_source,
-                ),
-                "tooltip": "How many ranked homes each provider may return. Higher values increase review depth and processing work.",
-                "step": "providers",
-            },
-            {
-                "type": "range",
-                "name": "min_match_score",
-                "label": "Ranking bar",
-                "value": str(property_min_match_score_value),
-                "min": "0",
-                "max": str(property_visible_max_match_score),
-                "selectable_max": str(property_plan_max_match_score),
-                "visual_max": str(property_visible_max_match_score),
-                "range_step": "1",
-                "suffix": f"/{property_visible_max_match_score}",
-                "empty_label": "Off",
-                "upgrade_hint": property_min_match_upgrade_hint,
-                "tooltip": property_min_match_tooltip,
-                "step": "providers",
             },
             {
                 "type": "checkbox",
@@ -5450,7 +5479,7 @@ def app_section_payload(
                         row_item(
                             "Result cap per provider",
                             (
-                                "All ranked"
+                                "All"
                                 if property_plan_has_unlimited_results
                                 else str(property_results_value)
                             ),

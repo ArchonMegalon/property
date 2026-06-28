@@ -34,3 +34,9 @@ def test_alerts_and_delivery_copy_stay_customer_facing() -> None:
     assert "Community-sourced hits should stay separate until a human confirms identity, freshness, and legitimacy." in view_model_body
     assert "def _property_run_progress_fallback_message(" in surface_state_body
     assert 'return "Preparing provider checks."' in surface_state_body
+
+
+def test_property_search_service_drops_removed_match_bar_copy_at_source() -> None:
+    body = Path("/docker/property/ea/app/product/service.py").read_text(encoding="utf-8")
+    assert "Lower-ranked for this source; kept visible in the full ranking." in body
+    assert "match bar" not in body

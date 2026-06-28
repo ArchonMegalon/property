@@ -56,6 +56,7 @@ from app.api.routes.landing_view_models import (
     channel_cards as _channel_cards,
     humanize as _humanize,
     list_rows as _list_rows,
+    _clean_property_candidate_copy as _shared_clean_property_candidate_copy,
     _property_scope_preview_map_only,
     property_workspace_payload as _property_workspace_payload,
 )
@@ -111,6 +112,10 @@ from app.product.property_score_methodology import (
 )
 from app.product.projections.common import compact_text
 from app.product.service import (
+    _property_candidate_has_floorplan,
+    _property_fact_value_is_weak,
+    _property_scout_candidate_payload_from_preview,
+    _property_scout_page_preview_with_timeout,
     _property_visual_terminal_status_for_reason,
     _property_visual_unavailable_detail,
     _property_visual_eta_label,
@@ -364,6 +369,10 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
         "bridge_href": bridge_href,
         "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
     }
+
+
+def _property_billing_fallback_href() -> str:
+    return "/app/account?billing=1#delivery"
 
 
 def _google_sign_in_enabled() -> bool:
@@ -667,6 +676,268 @@ def _propertyquarry_normalize_run_public_tour_targets(run_payload: dict[str, obj
     normalized_run = dict(run_payload)
     normalized_run["summary"] = summary
     return normalized_run
+
+
+def _propertyquarry_backfill_candidate_from_cached_preview(
+    *,
+    candidate: object,
+    preview_cache_index: dict[str, dict[str, object]],
+    preview_lookup: Any,
+) -> dict[str, object] | object:
+    if not isinstance(candidate, dict):
+        return candidate
+    candidate_row = dict(candidate)
+    property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
+    if not property_url:
+        return candidate_row
+
+    cached_preview: dict[str, object] | None = None
+    with contextlib.suppress(Exception):
+        preview = preview_lookup(cache_index=preview_cache_index, property_url=property_url)
+        if isinstance(preview, dict) and preview:
+            cached_preview = dict(preview)
+    if not cached_preview:
+        return candidate_row
+
+    existing_facts = dict(candidate_row.get("property_facts") or {}) if isinstance(candidate_row.get("property_facts"), dict) else {}
+    if isinstance(candidate_row.get("property_facts_json"), dict):
+        existing_facts = {**existing_facts, **dict(candidate_row.get("property_facts_json") or {})}
+    preview_facts = _property_scout_candidate_payload_from_preview(property_url=property_url, preview=cached_preview)
+    merged_facts = dict(existing_facts)
+    changed = False
+
+    for key, value in preview_facts.items():
+        if _property_fact_value_is_weak(merged_facts.get(key)) and not _property_fact_value_is_weak(value):
+            merged_facts[key] = list(value) if isinstance(value, tuple) else dict(value) if isinstance(value, dict) else value
+            changed = True
+    for key in ("media_urls_json", "floorplan_urls_json", "source_virtual_tour_url", "panorama_source"):
+        value = cached_preview.get(key)
+        if _property_fact_value_is_weak(merged_facts.get(key)) and not _property_fact_value_is_weak(value):
+            merged_facts[key] = list(value) if isinstance(value, tuple) else dict(value) if isinstance(value, dict) else value
+            changed = True
+
+    current_title = str(candidate_row.get("title") or "").strip()
+    preview_title = str(cached_preview.get("title") or "").strip()
+    if preview_title and (not current_title or current_title == property_url):
+        candidate_row["title"] = preview_title
+        changed = True
+    current_summary = str(candidate_row.get("summary") or "").strip()
+    preview_summary = str(cached_preview.get("summary") or "").strip()
+    if preview_summary and not current_summary:
+        candidate_row["summary"] = preview_summary
+        changed = True
+
+    for key in ("listing_id", "media_urls_json", "floorplan_urls_json", "source_virtual_tour_url", "panorama_source"):
+        value = cached_preview.get(key)
+        if _property_fact_value_is_weak(candidate_row.get(key)) and not _property_fact_value_is_weak(value):
+            candidate_row[key] = list(value) if isinstance(value, tuple) else dict(value) if isinstance(value, dict) else value
+            changed = True
+
+    if merged_facts:
+        if changed or not isinstance(candidate_row.get("property_facts"), dict):
+            candidate_row["property_facts"] = dict(merged_facts)
+        if changed or not isinstance(candidate_row.get("property_facts_json"), dict):
+            candidate_row["property_facts_json"] = dict(merged_facts)
+
+    for key in ("has_floorplan", "floorplan_count", "has_360", "media_count"):
+        value = merged_facts.get(key)
+        if _property_fact_value_is_weak(candidate_row.get(key)) and not _property_fact_value_is_weak(value):
+            candidate_row[key] = value
+
+    return candidate_row
+
+
+def _propertyquarry_backfill_run_cached_preview_candidates(
+    *,
+    product: object,
+    run_payload: dict[str, object],
+) -> dict[str, object]:
+    if not isinstance(run_payload, dict) or not run_payload:
+        return run_payload
+    summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
+    if not summary:
+        return run_payload
+
+    preview_cache_index_fn = getattr(product, "_property_public_preview_cache_index", None)
+    preview_lookup_fn = getattr(product, "_property_public_preview_cache_lookup", None)
+    if not callable(preview_cache_index_fn) or not callable(preview_lookup_fn):
+        return run_payload
+
+    try:
+        preview_cache_index = dict(preview_cache_index_fn() or {})
+    except Exception:
+        return run_payload
+    if not preview_cache_index:
+        return run_payload
+
+    changed = False
+
+    def _backfill_candidate_list(items: object) -> list[object]:
+        nonlocal changed
+        rows: list[object] = []
+        for item in list(items or []):
+            updated = _propertyquarry_backfill_candidate_from_cached_preview(
+                candidate=item,
+                preview_cache_index=preview_cache_index,
+                preview_lookup=preview_lookup_fn,
+            )
+            if updated != item:
+                changed = True
+            rows.append(updated)
+        return rows
+
+    if "ranked_candidates" in summary:
+        summary["ranked_candidates"] = _backfill_candidate_list(summary.get("ranked_candidates"))
+    for key in ("results", "top_candidates"):
+        if key in summary:
+            summary[key] = _backfill_candidate_list(summary.get(key))
+
+    sources: list[dict[str, object]] = []
+    for source in list(summary.get("sources") or []):
+        if not isinstance(source, dict):
+            sources.append(source)
+            continue
+        source_row = dict(source)
+        for key in ("top_candidates", "research_candidates"):
+            if key in source_row:
+                source_row[key] = _backfill_candidate_list(source_row.get(key))
+        sources.append(source_row)
+    if "sources" in summary:
+        summary["sources"] = sources
+
+    if not changed:
+        return run_payload
+    normalized_run = dict(run_payload)
+    normalized_run["summary"] = summary
+    return normalized_run
+
+
+def _propertyquarry_prepare_run_payload(*, product: object, run_payload: dict[str, object]) -> dict[str, object]:
+    normalized_run = _propertyquarry_normalize_run_public_tour_targets(run_payload)
+    return _propertyquarry_backfill_run_cached_preview_candidates(product=product, run_payload=normalized_run)
+
+
+def _propertyquarry_candidate_needs_detailed_preview(candidate: object) -> bool:
+    if not isinstance(candidate, dict):
+        return False
+    property_url = urllib.parse.urldefrag(str(candidate.get("property_url") or "").strip())[0]
+    if not property_url:
+        return False
+    property_facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    if isinstance(candidate.get("property_facts_json"), dict):
+        property_facts = {**property_facts, **dict(candidate.get("property_facts_json") or {})}
+    if _property_candidate_has_floorplan(
+        property_url=property_url,
+        title=str(candidate.get("title") or "").strip(),
+        summary=str(candidate.get("summary") or "").strip(),
+        property_facts=property_facts,
+        preview=candidate,
+    ):
+        return False
+    media_urls = list(candidate.get("media_urls_json") or property_facts.get("media_urls_json") or [])
+    if media_urls:
+        return True
+    try:
+        media_count = int(float(str(candidate.get("media_count") or property_facts.get("media_count") or 0).strip()))
+    except Exception:
+        media_count = 0
+    return media_count > 0
+
+
+def _propertyquarry_find_run_candidate(
+    *,
+    run_payload: dict[str, object],
+    candidate_ref: str,
+) -> dict[str, object] | None:
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    if not normalized_candidate_ref:
+        return None
+    summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
+    candidate_lists: list[object] = [
+        summary.get("ranked_candidates"),
+        summary.get("results"),
+        summary.get("top_candidates"),
+    ]
+    for source in list(summary.get("sources") or []):
+        if isinstance(source, dict):
+            candidate_lists.extend((source.get("top_candidates"), source.get("research_candidates")))
+    for candidate_list in candidate_lists:
+        if not isinstance(candidate_list, list):
+            continue
+        for candidate in candidate_list:
+            if isinstance(candidate, dict) and _property_candidate_ref(candidate) == normalized_candidate_ref:
+                return dict(candidate)
+    return None
+
+
+def _propertyquarry_refresh_candidate_preview_if_needed(
+    *,
+    product: object,
+    candidate: object,
+) -> dict[str, object] | object:
+    if not isinstance(candidate, dict):
+        return candidate
+    candidate_row = dict(candidate)
+    if not _propertyquarry_candidate_needs_detailed_preview(candidate_row):
+        return candidate_row
+    property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
+    if not property_url:
+        return candidate_row
+    preview_cache_index_fn = getattr(product, "_property_public_preview_cache_index", None)
+    preview_lookup_fn = getattr(product, "_property_public_preview_cache_lookup", None)
+    preview_store_fn = getattr(product, "_property_public_preview_cache_store", None)
+    if not callable(preview_cache_index_fn) or not callable(preview_lookup_fn) or not callable(preview_store_fn):
+        return candidate_row
+
+    try:
+        preview_cache_index = dict(preview_cache_index_fn() or {})
+    except Exception:
+        preview_cache_index = {}
+
+    cached_preview: dict[str, object] | None = None
+    with contextlib.suppress(Exception):
+        preview = preview_lookup_fn(cache_index=preview_cache_index, property_url=property_url)
+        if isinstance(preview, dict) and preview:
+            cached_preview = dict(preview)
+    if cached_preview:
+        candidate_row = _propertyquarry_backfill_candidate_from_cached_preview(
+            candidate=candidate_row,
+            preview_cache_index=preview_cache_index,
+            preview_lookup=preview_lookup_fn,
+        )
+        if not _propertyquarry_candidate_needs_detailed_preview(candidate_row):
+            return candidate_row
+
+    with contextlib.suppress(Exception):
+        detailed_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
+        if isinstance(detailed_preview, dict) and detailed_preview:
+            preview_store_fn(cache_index=preview_cache_index, property_url=property_url, preview=detailed_preview)
+            candidate_row = _propertyquarry_backfill_candidate_from_cached_preview(
+                candidate=candidate_row,
+                preview_cache_index=preview_cache_index,
+                preview_lookup=preview_lookup_fn,
+            )
+    return candidate_row
+
+
+def _propertyquarry_refresh_run_candidate_preview_if_needed(
+    *,
+    product: object,
+    run_payload: dict[str, object],
+    candidate_ref: str,
+) -> dict[str, object]:
+    candidate = _propertyquarry_find_run_candidate(run_payload=run_payload, candidate_ref=candidate_ref)
+    if not isinstance(candidate, dict):
+        return run_payload
+    if not _propertyquarry_candidate_needs_detailed_preview(candidate):
+        return run_payload
+    refreshed_candidate = _propertyquarry_refresh_candidate_preview_if_needed(
+        product=product,
+        candidate=candidate,
+    )
+    if refreshed_candidate == candidate:
+        return run_payload
+    return _propertyquarry_prepare_run_payload(product=product, run_payload=run_payload)
 
 
 def _propertyquarry_example_media_targets() -> dict[str, str]:
@@ -1079,15 +1350,7 @@ PUBLIC_MARKET_VIENNA = {
 
 
 def _clean_property_candidate_copy(value: object) -> str:
-    text = " ".join(str(value or "").split()).strip()
-    if not text:
-        return ""
-    if text == "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.":
-        return ""
-    return text.replace(
-        "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.",
-        "Fallback candidate because no stronger fit cleared the shortlist.",
-    ).strip()
+    return _shared_clean_property_candidate_copy(value)
 
 
 def _property_title_price_fallback(title: object) -> str:
@@ -1294,6 +1557,7 @@ def _property_lookup_candidate_across_runs(
             continue
         if not isinstance(run_payload, dict):
             continue
+        run_payload = _propertyquarry_prepare_run_payload(product=product, run_payload=run_payload)
         candidate = _property_lookup_candidate(
             property_context={"run": run_payload},
             candidate_ref=normalized_candidate_ref,
@@ -1899,11 +2163,11 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
         elif run_id:
             billing_target = "/app/billing"
         else:
-            billing_target = "/app/account#delivery"
+            billing_target = _property_billing_fallback_href()
     else:
         billing_target = "/app/billing"
         if request.url.path == "/app/search":
-            billing_target = "/app/account#delivery"
+            billing_target = _property_billing_fallback_href()
 
     billing_href = billing_target
     if not re.match(r"^https?://", billing_target, flags=re.IGNORECASE):
@@ -2052,11 +2316,13 @@ def _property_console_context(
     principal_id: str,
     status: dict[str, object],
     run_id: str = "",
+    selected_candidate_ref: str = "",
     selected_agent_id: str = "",
     surface_mode: str = "properties",
 ) -> dict[str, object]:
     product = build_product_service(container)
     surface_scope = PropertySurfaceScope.for_section(surface_mode)
+    prefer_saved_brief_only = surface_scope.section in {"search", "agents", "alerts", "account", "billing", "settings"}
     wants_run_state = surface_scope.wants_run_state
     wants_recent_runs = surface_scope.wants_recent_runs
     wants_recent_matches = surface_scope.wants_recent_matches
@@ -2205,7 +2471,7 @@ def _property_console_context(
                 run_payload = active_run if isinstance(active_run, dict) else {}
         else:
             run_payload = dict(active_run or run_payload or {})
-    if run_payload:
+    if run_payload and not prefer_saved_brief_only:
         run_preferences_payload = (
             dict(run_payload.get("property_search_preferences") or run_payload.get("preferences") or {})
             if isinstance(run_payload.get("property_search_preferences") or run_payload.get("preferences"), dict)
@@ -2241,7 +2507,13 @@ def _property_console_context(
                     )
                 )
             country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
-    run_payload = _propertyquarry_normalize_run_public_tour_targets(run_payload)
+    run_payload = _propertyquarry_prepare_run_payload(product=product, run_payload=run_payload)
+    if selected_candidate_ref and surface_scope.section in {"properties", "shortlist"}:
+        run_payload = _propertyquarry_refresh_run_candidate_preview_if_needed(
+            product=product,
+            run_payload=run_payload,
+            candidate_ref=selected_candidate_ref,
+        )
     run_status_value = str(run_payload.get("status") or "").strip().lower()
     enrich_run_candidates_with_feedback = (
         wants_run_state
@@ -2634,9 +2906,9 @@ def propertyquarry_landing_handoff(
 def property_billing_commercial_lane() -> HTMLResponse:
     handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
     if not handoff.get("available"):
-        return RedirectResponse("/app/billing", status_code=307)
+        return RedirectResponse(_property_billing_fallback_href(), status_code=303)
     open_href = str(handoff.get("open_href") or "").strip()
-    return RedirectResponse(open_href or "/app/billing", status_code=307)
+    return RedirectResponse(open_href or _property_billing_fallback_href(), status_code=303)
 
 
 @router.get("/app/api/property/billing/bridge-launch", include_in_schema=False, response_class=HTMLResponse)
@@ -2659,7 +2931,7 @@ def property_billing_bridge_launch(
             return RedirectResponse(login_url, status_code=303)
     handoff = _property_brilliant_directories_billing_handoff()
     if str(handoff.get("status") or "").strip().lower() != "bridge_ready":
-        return RedirectResponse("/app/billing", status_code=303)
+        return RedirectResponse(_property_billing_fallback_href(), status_code=303)
     try:
         bridge_url = brilliant_directories_service.build_brilliant_directories_billing_sso_bridge_launch_url(
             principal_id=context.principal_id,
@@ -2667,7 +2939,7 @@ def property_billing_bridge_launch(
             return_to=str(request.query_params.get("return_to") or "/app/account").strip() or "/app/account",
         )
     except RuntimeError:
-        return RedirectResponse("/app/billing", status_code=303)
+        return RedirectResponse(_property_billing_fallback_href(), status_code=303)
     return RedirectResponse(bridge_url, status_code=303)
 
 
@@ -2944,7 +3216,7 @@ def pricing_page(
         or _workspace_session_payload(request, container) is not None
     )
     account_nav = _account_nav_context(request=request, context=context)
-    pricing_signed_in_billing_href = str(account_nav.get("billing_href") or "/app/account#delivery").strip() or "/app/account#delivery"
+    pricing_signed_in_billing_href = str(account_nav.get("billing_href") or _property_billing_fallback_href()).strip() or _property_billing_fallback_href()
     if checkout_session_ready and request_brand(request)["key"] == "propertyquarry":
         billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
         pricing_signed_in_billing_href = (
@@ -2968,7 +3240,7 @@ def pricing_page(
                 "pricing_order_endpoints_by_plan": checkout_order_endpoints_by_plan,
                 "pricing_checkout_session_ready": checkout_session_ready,
                 "pricing_signed_in_billing_href": pricing_signed_in_billing_href,
-                "meta_description": "Choose a PropertyQuarry plan by search breadth, shortlist density, research depth, and the quality of the property review page.",
+                "meta_description": "Choose a PropertyQuarry plan by provider coverage, research depth, 3D options, and the quality of the property review page.",
                 "structured_data_json": [
                     {
                         "@context": "https://schema.org",
@@ -3333,7 +3605,6 @@ def sign_in_page(
                 "sign_in_facebook_error": facebook_error,
                 "sign_in_id_austria_error": id_austria_error,
                 "sign_in_connected_provider": connected_provider,
-                "sign_in_show_disabled_provider_fixture": _request_hostname(request).strip().lower() == "propertyquarry.com",
                 "sign_in_google_enabled": _google_sign_in_enabled(),
                 "sign_in_facebook_enabled": _facebook_sign_in_enabled(),
                 "sign_in_id_austria_configured": id_austria_configured,
@@ -3814,6 +4085,7 @@ def property_research_packet(
         principal_id=context.principal_id,
         status=status,
         run_id=run_id,
+        selected_candidate_ref=candidate_ref,
         surface_mode="research",
     )
     normalized_candidate_ref = str(candidate_ref or "").strip()
@@ -3833,18 +4105,26 @@ def property_research_packet(
         if candidate is not None and matched_run_id and matched_run_id != resolved_run_id:
             resolved_run_id = matched_run_id
             with contextlib.suppress(Exception):
-                property_context["run"] = dict(
-                    product.get_property_search_run_status(
-                        principal_id=context.principal_id,
-                        run_id=resolved_run_id,
-                    )
-                    or {}
+                property_context["run"] = _propertyquarry_prepare_run_payload(
+                    product=product,
+                    run_payload=dict(
+                        product.get_property_search_run_status(
+                            principal_id=context.principal_id,
+                            run_id=resolved_run_id,
+                        )
+                        or {}
+                    ),
                 )
     if candidate is None:
         candidate = _property_lookup_candidate_in_saved_shortlist(
             product,
             principal_id=context.principal_id,
             candidate_ref=normalized_candidate_ref,
+        )
+    if candidate is not None:
+        candidate = _propertyquarry_refresh_candidate_preview_if_needed(
+            product=product,
+            candidate=candidate,
         )
     if candidate is not None and not resolved_run_id:
         resolved_run_id = str(candidate.get("saved_from_run_id") or "").strip()
@@ -4211,23 +4491,8 @@ def property_research_packet(
     hero_actions: list[dict[str, object]] = []
     if property_url:
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
-    generated_reconstruction_href = str(research_media.get("generated_reconstruction_href") or "").strip()
-    generated_reconstruction_walkthrough_href = str(research_media.get("generated_reconstruction_walkthrough_href") or "").strip()
     if hosted_tour_ready and tour_action_href:
         hero_actions.append({"href": tour_action_href, "label": str(research_media.get("primary_label") or "Open 3D tour").strip(), "external": False})
-    elif generated_reconstruction_href:
-        hero_actions.append(
-            {
-                "kind": "generated_reconstruction",
-                "href": generated_reconstruction_href,
-                "label": "Open generated model",
-                "external": False,
-                "state": "ready",
-                "status_detail": str(research_media.get("generated_reconstruction_status_detail") or "").strip(),
-            }
-        )
-        if property_url:
-            hero_actions.append({"kind": "tour", "label": "Build 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Create a Matterport, 3DVista, or Pano2VR tour."})
     elif tour_url and not hosted_tour_ready and property_url:
         hero_actions.append({"kind": "tour", "label": "Rebuild 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Hosted viewer unavailable. Rebuild it here."})
     elif tour_status in {"queued", "pending"} and property_url:
@@ -4235,28 +4500,40 @@ def property_research_packet(
     elif tour_status in {"processing", "running", "in_progress", "started"} and property_url:
         hero_actions.append({"kind": "tour", "label": "3D tour rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(tour_progress_pct, 58), "eta_label": tour_eta_label, "status_detail": "Still rendering. Taking longer than usual." if tour_eta_label.startswith("delayed") else f"Rendering{f' · about {eta_raw} min' if eta_raw else ''}."})
     elif tour_status in {"blocked", "failed", "skipped", "not_applicable"} and property_url:
-        hero_actions.append({"kind": "tour", "label": "Tour not ready", "property_url": property_url, "state": tour_status, "progress_pct": 0, "eta_label": "", "status_detail": _property_visual_unavailable_detail(request_kind="tour", reason=str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip())})
+        hero_actions.append(
+            {
+                "kind": "tour",
+                "label": "Retry 3D tour" if tour_status in {"blocked", "failed"} else "Request 3D tour",
+                "property_url": property_url,
+                "state": "idle",
+                "progress_pct": 0,
+                "eta_label": "",
+                "status_detail": _property_visual_unavailable_detail(
+                    request_kind="tour",
+                    reason=str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip(),
+                ),
+            }
+        )
     elif property_url:
         hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if flythrough_url:
         hero_actions.append({"href": flythrough_url, "label": "Open walkthrough", "external": False})
-    elif generated_reconstruction_walkthrough_href:
-        hero_actions.append(
-            {
-                "kind": "generated_reconstruction_walkthrough",
-                "href": generated_reconstruction_walkthrough_href,
-                "label": "Open generated walkthrough",
-                "external": False,
-                "state": "ready",
-                "status_detail": "Walkthrough is playable here. The final MagicFit render is still pending.",
-            }
-        )
     elif flythrough_status in {"queued", "pending"} and property_url:
         hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": "Still queued. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Queued. This page updates automatically."})
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:
         hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": flythrough_eta_label, "status_detail": "Still rendering. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Rendering now. Opens here when ready."})
     elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Walkthrough not ready", "property_url": property_url, "state": flythrough_status, "progress_pct": 0, "eta_label": "", "status_detail": _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason)})
+        hero_actions.append(
+            {
+                "kind": "flythrough",
+                "label": "Retry walkthrough" if flythrough_status in {"blocked", "failed"} else "Request walkthrough",
+                "property_url": property_url,
+                "state": "idle",
+                "progress_pct": 0,
+                "eta_label": "",
+                "status_detail": _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason),
+            }
+        )
     elif property_url:
         hero_actions.append({"kind": "flythrough", "label": "Request walkthrough", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if str(candidate.get("packet_url") or review_url or "").strip():
@@ -4590,6 +4867,8 @@ def app_shell(
     run_id: str = Query(default=""),
     candidate: str = Query(default=""),
     agent_id: str = Query(default=""),
+    load_agent: str = Query(default=""),
+    run_agent: str = Query(default=""),
     packet_missing: str = Query(default=""),
     missing_candidate_ref: str = Query(default=""),
     stale_run: str = Query(default=""),
@@ -4622,7 +4901,7 @@ def app_shell(
         "channel-loop": "/app/account",
         "automation": "/app/agents",
         "automations": "/app/agents",
-        "channels": "/app/account#delivery",
+        "channels": _property_billing_fallback_href(),
         "profile": "/app/account",
         "settings": "/app/account",
         "usage": "/app/settings/usage",
@@ -4676,6 +4955,7 @@ def app_shell(
     }
     status = container.onboarding.status(principal_id=context.principal_id)
     normalized_run_id = str(run_id or "").strip()
+    requested_agent_id = str(load_agent or run_agent or agent_id or "").strip()
     if property_brand and resolved_section in {"properties", "shortlist", "research"} and normalized_run_id:
         product = build_product_service(container)
         route_run = dict(
@@ -4825,7 +5105,8 @@ def app_shell(
                 principal_id=context.principal_id,
                 status=status,
                 run_id=run_id,
-                selected_agent_id=agent_id,
+                selected_candidate_ref=candidate,
+                selected_agent_id=requested_agent_id,
                 surface_mode=resolved_section,
             )
             if resolved_section in property_sections or resolved_section == "properties"
@@ -4847,6 +5128,7 @@ def app_shell(
                 return RedirectResponse(target, status_code=307)
         if property_context is not None and property_brand:
             property_context["surface_mode"] = current_nav
+            property_context["requested_run_id"] = normalized_run_id
             if str(stale_run or "").strip().lower() in {"1", "true", "yes"}:
                 recovered_run_id = str(missing_run_id or "").strip()
                 route_action_labels = {
@@ -4893,7 +5175,10 @@ def app_shell(
                     "action_label": "Stay on shortlist",
                     "tone": "warn",
                 }
-            if PropertySurfaceScope.for_section(resolved_section).section == "shortlist":
+            resolved_property_section = PropertySurfaceScope.for_section(resolved_section).section
+            if resolved_property_section == "shortlist" or (
+                resolved_property_section == "properties" and bool(normalized_run_id)
+            ):
                 with contextlib.suppress(Exception):
                     property_context["saved_shortlist_candidates"] = [
                         _propertyquarry_normalize_public_tour_candidate(candidate)
@@ -4922,7 +5207,7 @@ def app_shell(
                 actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
             )
         if property_brand and resolved_section in property_sections:
-            if property_context is not None and property_payload_section == "properties":
+            if property_context is not None and property_payload_section in {"properties", "shortlist"}:
                 property_context["selected_candidate_ref"] = str(candidate or "").strip()
             payload = _property_workspace_payload(
                 property_payload_section,
@@ -4962,40 +5247,7 @@ def app_shell(
             ).strip()
             if billing_handoff.get("available") and billing_open_href:
                 return RedirectResponse(billing_open_href, status_code=303)
-            billing_handoff_status = str(billing_handoff.get("status") or "").strip().lower()
-            billing_summary = "The billing portal is still being connected. Your PropertyQuarry access stays active from the account page."
-            if billing_handoff_status == "login_required":
-                billing_summary = "This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now. Your PropertyQuarry access stays active from the account page."
-            elif billing_handoff_status == "bridge_ready":
-                billing_summary = "The billing bridge is ready, but this launch still needs a signed session. Open billing again from your signed-in account if you want to continue."
-            elif billing_handoff_status == "unresolved":
-                billing_summary = "The billing account host is not ready yet. Your PropertyQuarry access stays active from the account page."
-            return HTMLResponse(
-                (
-                    "<!doctype html><html><head><meta charset=\"utf-8\">"
-                    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-                    "<meta name=\"robots\" content=\"noindex, nofollow\">"
-                    "<title>Billing portal unavailable</title>"
-                    "<style>"
-                    ":root{color-scheme:light dark;--pq-bg:#f6f2ea;--pq-card:#fffaf0;--pq-ink:#201a12;--pq-muted:#6d6254;--pq-border:#e0d5c4;--pq-accent:#9a5a22}"
-                    "@media(prefers-color-scheme:dark){:root{--pq-bg:#15120e;--pq-card:#201a13;--pq-ink:#fff7ea;--pq-muted:#cbbda8;--pq-border:#3a3025;--pq-accent:#e3aa62}}"
-                    "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 20% 0%,rgba(154,90,34,.16),transparent 34%),var(--pq-bg);color:var(--pq-ink);font:16px/1.5 ui-serif,Georgia,serif}"
-                    "main{width:min(100%,520px);padding:28px;border:1px solid var(--pq-border);border-radius:28px;background:color-mix(in srgb,var(--pq-card) 92%,transparent);box-shadow:0 24px 60px rgba(32,26,18,.12)}"
-                    ".eyebrow{margin:0 0 10px;color:var(--pq-accent);font:700 12px/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}"
-                    "h1{margin:0 0 12px;font-size:clamp(30px,8vw,46px);line-height:.95;letter-spacing:-.04em}"
-                    "p{margin:0 0 18px;color:var(--pq-muted);max-width:36rem}"
-                    "a{display:inline-flex;min-height:48px;align-items:center;justify-content:center;border-radius:999px;padding:0 18px;background:var(--pq-ink);color:var(--pq-card);font:700 14px/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none}"
-                    "</style></head>"
-                    "<body><main aria-labelledby=\"billing-handoff-title\">"
-                    "<p class=\"eyebrow\">PropertyQuarry account</p>"
-                    "<h1 id=\"billing-handoff-title\">Billing portal unavailable</h1>"
-                    f"<p>{html.escape(billing_summary)}</p>"
-                    "<a href=\"/app/account\">Back to account</a>"
-                    "</main></body></html>"
-                ),
-                status_code=503,
-                headers={"Cache-Control": "no-store"},
-            )
+            return RedirectResponse(_property_billing_fallback_href(), status_code=303)
         property_template = "app/property_decision_workbench.html"
         return _render_public_template(
             request,

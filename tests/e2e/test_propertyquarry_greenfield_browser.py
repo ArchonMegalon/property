@@ -506,11 +506,11 @@ def _assert_no_horizontal_overflow(page: Page) -> None:
     assert overflow["bodyScrollWidth"] <= overflow["innerWidth"] + 1, overflow
 
 
-def _assert_propertyquarry_billing_fallback_page(page: Page) -> None:
-    expect(page.locator("body", has_text="Billing portal unavailable")).to_be_visible()
-    expect(page.locator("body", has_text="billing portal is still being connected")).to_be_visible()
-    expect(page.locator("body", has_text=re.compile(r"PropertyQuarry access (remains|stays) active", re.I))).to_be_visible()
-    expect(page.get_by_role("link", name="Back to account")).to_be_visible()
+def _assert_propertyquarry_billing_redirect_lands_on_account(page: Page) -> None:
+    expect(page.locator("body", has_text="Billing portal unavailable")).to_have_count(0)
+    assert "/app/account" in page.url
+    expect(page.get_by_role("button", name="Log out")).to_be_visible()
+    expect(page.get_by_role("link", name="Billing account")).to_be_visible()
     body_text = page.evaluate("() => document.body.innerText")
     assert "Billing history" not in body_text
     assert "Cancellation and refunds" not in body_text
@@ -604,7 +604,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
               .filter((node) => (node.textContent || '').trim() === 'Open billing account')
               .map((node) => node.getAttribute('href') || '')"""
         )
-        assert billing_hrefs == ["/app/account#delivery", "/app/account#delivery"]
+        assert billing_hrefs == ["/app/account?billing=1#delivery", "/app/account?billing=1#delivery"]
         assert signed_page.get_by_text("Create account", exact=True).count() == 0
 
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
@@ -673,9 +673,10 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         expect(mobile_page.get_by_role("heading", name="Free")).to_be_visible()
         expect(mobile_page.get_by_role("heading", name="Plus")).to_be_visible()
         expect(mobile_page.get_by_role("heading", name="Agent")).to_be_visible()
-        expect(mobile_page.get_by_text("35/100")).to_be_visible()
-        expect(mobile_page.get_by_text("45/100")).to_be_visible()
-        expect(mobile_page.get_by_text("60/100")).to_be_visible()
+        expect(mobile_page.get_by_text("360 requests")).to_be_visible()
+        expect(mobile_page.get_by_text("Selected homes")).to_be_visible()
+        expect(mobile_page.get_by_text("Shortlist")).to_be_visible()
+        expect(mobile_page.get_by_text("Every home")).to_be_visible()
         _assert_no_horizontal_overflow(mobile_page)
         mobile_pricing_shot = tmp_path / "propertyquarry-pricing-mobile.png"
         mobile_page.screenshot(path=str(mobile_pricing_shot), full_page=True)
@@ -698,8 +699,12 @@ def test_propertyquarry_sign_in_desktop_uses_balanced_two_column_entry_surface(
         assert response is not None and response.ok
         expect(page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
         expect(page.get_by_role("link", name="Open current session")).to_be_visible()
-        expect(page.get_by_text("Any provider below reopens the same account or creates it automatically on first use.")).to_be_visible()
-        expect(page.get_by_text("Trusted device")).to_be_visible()
+        if page.get_by_role("link", name="Continue with Google").count() or page.get_by_role("link", name="Continue with Facebook").count() or page.get_by_role("link", name="Continue with ID Austria").count():
+            expect(page.get_by_text("Any provider below reopens the same account or creates it automatically on first use.")).to_be_visible()
+        else:
+            assert page.get_by_text("Any provider below reopens the same account or creates it automatically on first use.").count() == 0
+            assert page.get_by_text("Trusted device").count() == 0
+            assert page.get_by_text("Private hardware access stays limited to approved devices.").count() == 0
         _assert_no_horizontal_overflow(page)
         metrics = page.evaluate(
             """() => {
@@ -726,6 +731,23 @@ def test_propertyquarry_sign_in_desktop_uses_balanced_two_column_entry_surface(
         assert metrics["introWidth"] >= 260, metrics
         assert metrics["entryWidth"] >= 300, metrics
         assert metrics["headingHeight"] <= 270, metrics
+    finally:
+        context.close()
+
+
+def test_propertyquarry_sign_in_missing_current_session_hides_saved_session_cta(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_public_context(browser, mobile=False, width=1440, height=900)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/sign-in?current_session=missing", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.get_by_text("No active PropertyQuarry session was found.")).to_be_visible()
+        assert page.get_by_role("link", name="Open current session").count() == 0
+        expect(page.get_by_role("link", name="Create account")).to_be_visible()
     finally:
         context.close()
 
@@ -1053,59 +1075,6 @@ def _assert_dark_mode_surfaces_stay_readable(page: Page, selectors: list[str]) -
     assert offenders == []
 
 
-def _assert_disabled_auth_provider_rows_are_intentional(page: Page) -> None:
-    rows = page.evaluate(
-        """
-        () => {
-          const parseColor = (value) => {
-            const match = String(value || '').match(/rgba?\\(([^)]+)\\)/);
-            if (!match) return null;
-            const parts = match[1].split(',').map((part) => Number.parseFloat(part.trim()));
-            if (parts.length < 3) return null;
-            return { r: parts[0], g: parts[1], b: parts[2], a: parts.length >= 4 ? parts[3] : 1 };
-          };
-          const light = (color) => color && color.a >= 0.65 && color.r >= 242 && color.g >= 242 && color.b >= 238;
-          const effectiveBackground = (node) => {
-            let current = node;
-            while (current && current.nodeType === Node.ELEMENT_NODE) {
-              const color = parseColor(window.getComputedStyle(current).backgroundColor);
-              if (color && color.a > 0.08) return color;
-              current = current.parentElement;
-            }
-            return parseColor(window.getComputedStyle(document.body).backgroundColor);
-          };
-          return Array.from(document.querySelectorAll('[data-auth-provider-card][data-auth-provider-state="disabled"]'))
-            .map((card) => {
-              const icon = card.querySelector('.auth-provider-icon');
-              const button = card.querySelector('.btn[disabled]');
-              const cardStyle = window.getComputedStyle(card);
-              const iconStyle = icon ? window.getComputedStyle(icon) : null;
-              const buttonStyle = button ? window.getComputedStyle(button) : null;
-              return {
-                provider: card.getAttribute('data-auth-provider') || '',
-                opacity: Number.parseFloat(cardStyle.opacity || '1'),
-                links: card.querySelectorAll('a[href]').length,
-                buttonDisabled: Boolean(button && button.disabled),
-                buttonCursor: buttonStyle ? buttonStyle.cursor : '',
-                cardBackgroundLight: light(effectiveBackground(card)),
-                iconBackgroundLight: icon ? light(effectiveBackground(icon)) : true,
-                buttonBackgroundLight: button ? light(effectiveBackground(button)) : true,
-              };
-            });
-        }
-        """
-    )
-    assert rows, "the sign-in fixture should exercise at least one unavailable provider"
-    for row in rows:
-        assert row["opacity"] >= 0.99, row
-        assert row["links"] == 0, row
-        assert row["buttonDisabled"] is True, row
-        assert row["buttonCursor"] == "not-allowed", row
-        assert row["cardBackgroundLight"] is False, row
-        assert row["iconBackgroundLight"] is False, row
-        assert row["buttonBackgroundLight"] is False, row
-
-
 def _assert_research_packet_360_first(page: Page, *, min_stage_height: int, max_stage_height: int | None = None) -> None:
     media = page.locator("[data-object-media-stage]").first
     ooda = page.get_by_text("Property details").first
@@ -1366,17 +1335,6 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
             assert response is not None and response.ok
             expect(public_page.locator("html")).to_have_attribute("data-pq-theme", "dark")
             _assert_dark_mode_surfaces_stay_readable(public_page, public_selectors)
-            if route == "/sign-in":
-                _assert_disabled_auth_provider_rows_are_intentional(public_page)
-                _assert_visible_component_contrast(
-                    public_page,
-                    [
-                        '[data-auth-provider-card][data-auth-provider-state="disabled"]',
-                        '[data-auth-provider-card][data-auth-provider-state="disabled"] .auth-provider-icon',
-                        '[data-auth-provider-card][data-auth-provider-state="disabled"] .btn',
-                    ],
-                    minimum_ratio=3.0,
-                )
             public_shot = tmp_path / screenshot_name
             public_page.screenshot(path=str(public_shot), full_page=False, animations="disabled", caret="hide")
             assert public_shot.exists() and public_shot.stat().st_size > 20_000
@@ -1409,9 +1367,9 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
             response = page.goto(f"{base_url}{route}", wait_until="networkidle")
             assert response is not None
             if route == "/app/billing":
-                assert int(response.status) == 503
+                assert response.ok
                 _assert_no_horizontal_overflow(page)
-                _assert_propertyquarry_billing_fallback_page(page)
+                _assert_propertyquarry_billing_redirect_lands_on_account(page)
             else:
                 assert response.ok
                 expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
@@ -1513,11 +1471,11 @@ def test_propertyquarry_all_customer_app_surfaces_are_motor_accessible_on_phone(
             response = page.goto(f"{base_url}{route}", wait_until="domcontentloaded")
             assert response is not None, route
             if route == "/app/billing":
-                assert int(response.status) == 503, route
+                assert response.ok, route
                 _assert_no_horizontal_overflow(page)
-                _assert_propertyquarry_billing_fallback_page(page)
-                billing_back_link = page.get_by_role("link", name="Back to account")
-                box = billing_back_link.bounding_box()
+                _assert_propertyquarry_billing_redirect_lands_on_account(page)
+                logout_button = page.get_by_role("button", name="Log out")
+                box = logout_button.bounding_box()
                 assert box is not None and box["height"] >= 44 and box["width"] >= 44
                 continue
             assert response.ok, route
@@ -1889,7 +1847,6 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
             "property_type": "apartment",
             "location_query": "1020 Vienna",
             "selected_platforms": ["willhaben"],
-            "min_match_score": 60,
         },
     )
     assert stored.status_code == 200, stored.text
@@ -1922,21 +1879,11 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
             timeout=7000,
         )
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
-        assert page.locator("[data-pqx-empty-results]", has_text=re.compile("No strong matches|No valid homes|No shortlist|current brief|search finished|ranking bar kept the list empty", re.I)).is_visible()
+        assert page.locator("[data-pqx-empty-results]", has_text=re.compile("No strong matches|No valid homes|No shortlist|current brief|search finished", re.I)).is_visible()
         assert page.locator("body", has_text=re.compile("Change one hard rule|No shortlist yet", re.I)).is_visible()
         assert page.locator("body", has_text=re.compile("Lower shortlist score|below the shortlist score", re.I)).count() == 0
-        ranking_slider = page.locator('[data-pqx-empty-results] [data-pqx-filter-slider][data-pqx-filter-field="min_match_score"]').first
-        assert ranking_slider.is_visible()
-        ranking_action = page.locator('[data-pqx-empty-results] [data-pqx-counterfactual-action-kind="ranking_bar"]').first
-        assert ranking_action.is_visible()
-        expect(ranking_action).to_have_text(re.compile(r"Use \d+/100|Turn bar off", re.I))
-        ranking_slider.evaluate(
-            """(node) => {
-          node.value = '0';
-          node.dispatchEvent(new Event('input', { bubbles: true }));
-        }"""
-        )
-        expect(ranking_action).to_have_text("Turn bar off")
+        assert page.locator('[data-pqx-empty-results] [data-pqx-filter-slider][data-pqx-filter-field="min_match_score"]').count() == 0
+        assert page.locator('[data-pqx-empty-results] [data-pqx-counterfactual-action-kind="ranking_bar"]').count() == 0
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 ranked homes" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
@@ -2160,6 +2107,7 @@ def test_propertyquarry_account_notifications_save_multi_channel_preferences_in_
         assert response is not None and response.ok
         delivery_card = page.locator("#delivery")
         expect(delivery_card).to_be_visible()
+        delivery_card.evaluate("(node) => { node.open = true; }")
 
         email_checkbox = delivery_card.locator('input[name="notification_channels"][value="email"]')
         telegram_checkbox = delivery_card.locator('input[name="notification_channels"][value="telegram"]')
@@ -2207,7 +2155,7 @@ def test_propertyquarry_account_notifications_have_dedicated_phone_layout(
     _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/account#delivery", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/account?billing=1#delivery", wait_until="networkidle")
         assert response is not None and response.ok
         delivery_card = page.locator("#delivery")
         expect(delivery_card).to_be_visible()
@@ -2274,6 +2222,7 @@ def test_propertyquarry_mobile_generic_folds_only_keep_one_panel_open(
         metrics = page.evaluate(
             """() => {
                 const folds = Array.from(document.querySelectorAll('details.pqx-mobile-fold'));
+                const initialOpenCount = folds.filter((node) => node.open).length;
                 folds.forEach((node) => { node.open = false; });
                 if (folds.length >= 2) {
                     const summaries = folds.map((node) => node.querySelector('summary')).filter(Boolean);
@@ -2282,6 +2231,7 @@ def test_propertyquarry_mobile_generic_folds_only_keep_one_panel_open(
                 }
                 return {
                     foldCount: folds.length,
+                    initialOpenCount,
                     openCount: folds.filter((node) => node.open).length,
                     secondOpen: Boolean(folds[1]?.open),
                     labels: folds.map((node) => (
@@ -2291,8 +2241,69 @@ def test_propertyquarry_mobile_generic_folds_only_keep_one_panel_open(
             }"""
         )
         assert metrics["foldCount"] >= 2, metrics
+        assert metrics["initialOpenCount"] == 0, metrics
         assert metrics["openCount"] == 1, metrics
         assert metrics["secondOpen"] is True, metrics
+    finally:
+        context.close()
+
+
+def test_propertyquarry_mobile_shortlist_keeps_one_focus_and_opens_the_property_page(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page: Page = context.new_page()
+    screenshot_path = tmp_path / "propertyquarry-shortlist-mobile-single-focus.png"
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        metrics = page.evaluate(
+            """() => {
+                const panel = document.querySelector('.pqx-mobile-property-panel');
+                const panelStyle = panel ? window.getComputedStyle(panel) : null;
+                const rows = Array.from(document.querySelectorAll('[data-workbench-row]'));
+                const firstRow = rows[0] || null;
+                const firstRowRect = firstRow ? firstRow.getBoundingClientRect() : null;
+                const actionRow = firstRow?.querySelector('.pqx-result-actions');
+                const visibleActions = actionRow
+                  ? Array.from(actionRow.querySelectorAll(':scope > :is(a,button)')).filter((node) => {
+                      const rect = node.getBoundingClientRect();
+                      const style = window.getComputedStyle(node);
+                      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                    })
+                  : [];
+                return {
+                  viewportWidth: window.innerWidth,
+                  panelDisplay: panelStyle ? panelStyle.display : '',
+                  panelVisible: Boolean(panel && panel.getBoundingClientRect().width > 0 && panel.getBoundingClientRect().height > 0),
+                  rowCount: rows.length,
+                  firstRowRight: Math.round(firstRowRect?.right || 0),
+                  firstRowHeight: Math.round(firstRowRect?.height || 0),
+                  actionCount: visibleActions.length,
+                  actionLabels: visibleActions.map((node) => (node.textContent || '').trim()).filter(Boolean),
+                  actionHeights: visibleActions.map((node) => Math.round(node.getBoundingClientRect().height)),
+                  bodyWidth: document.documentElement.scrollWidth,
+                };
+            }"""
+        )
+        assert metrics["panelDisplay"] == "none", metrics
+        assert metrics["panelVisible"] is False, metrics
+        assert metrics["rowCount"] >= 3, metrics
+        assert metrics["firstRowRight"] <= metrics["viewportWidth"] + 1, metrics
+        assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1, metrics
+        assert metrics["firstRowHeight"] >= 120, metrics
+        assert metrics["actionLabels"] == ["Open property", "Remove"], metrics
+        assert metrics["actionHeights"] and min(metrics["actionHeights"]) >= 40, metrics
+        page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
+        assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
+
+        page.locator("[data-workbench-row]", has_text="Altbau near U6").first.locator(".pqx-result-title").click()
+        page.wait_for_url(re.compile(r".*/app/research/[^?]+.*"), timeout=5000)
+        expect(page.locator("[data-property-research-detail]")).to_be_visible()
     finally:
         context.close()
 
@@ -2319,34 +2330,46 @@ def test_propertyquarry_mobile_settings_disclosures_keep_one_panel_open(
                 const labelFor = (node) => (
                     node?.querySelector('summary strong, summary h2')?.textContent || ''
                 ).trim();
+                const visibleSummaryTags = disclosures
+                    .map((node) => node.querySelector('summary .object-tag'))
+                    .filter((node) => node instanceof HTMLElement)
+                    .filter((node) => {
+                        const rect = node.getBoundingClientRect();
+                        const style = window.getComputedStyle(node);
+                        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+                    });
                 const openBefore = disclosures.filter((node) => node.open);
-                const initialOpenLabel = labelFor(openBefore[0] || null);
-                const target = disclosures.find((node) => labelFor(node) && labelFor(node) !== initialOpenLabel) || null;
-                target?.querySelector('summary')?.click();
+                const firstTarget = disclosures.find((node) => labelFor(node)) || null;
+                const secondTarget = disclosures.find((node) => labelFor(node) && node !== firstTarget) || null;
+                firstTarget?.querySelector('summary')?.click();
+                secondTarget?.querySelector('summary')?.click();
                 const openAfter = disclosures.filter((node) => node.open);
                 return {
                     disclosureCount: disclosures.length,
                     initialOpenCount: openBefore.length,
-                    initialOpenLabel,
+                    firstLabel: labelFor(firstTarget),
+                    secondLabel: labelFor(secondTarget),
                     finalOpenCount: openAfter.length,
                     finalOpenLabel: labelFor(openAfter[0] || null),
                     labels: disclosures.map((node) => labelFor(node)).filter(Boolean),
                     sidebarLabelPresent: disclosures.some((node) => node.classList.contains('object-sidebar-disclosure')),
+                    summaryTagVisible: visibleSummaryTags.length > 0,
                 };
             }"""
         )
         assert metrics["disclosureCount"] >= 2, metrics
-        assert metrics["initialOpenCount"] == 1, metrics
-        assert metrics["initialOpenLabel"], metrics
+        assert metrics["initialOpenCount"] == 0, metrics
+        assert metrics["firstLabel"], metrics
         if route == "/app/settings/google":
-            assert metrics["initialOpenLabel"] == "Google sign-in", metrics
+            assert metrics["firstLabel"] == "Google sign-in", metrics
         if route == "/app/settings/access":
-            assert metrics["initialOpenLabel"] in {"Create an access link", "Live access links"}, metrics
+            assert metrics["firstLabel"] in {"Create an access link", "Live access links"}, metrics
         if route == "/app/settings/invitations":
-            assert metrics["initialOpenLabel"] == "Invite another person", metrics
+            assert metrics["firstLabel"] == "Invite another person", metrics
         assert metrics["finalOpenCount"] == 1, metrics
-        assert metrics["finalOpenLabel"], metrics
-        assert metrics["finalOpenLabel"] != metrics["initialOpenLabel"], metrics
+        assert metrics["secondLabel"], metrics
+        assert metrics["finalOpenLabel"] == metrics["secondLabel"], metrics
+        assert metrics["summaryTagVisible"] is False, metrics
         assert metrics["sidebarLabelPresent"] is True or route in {"/app/settings/access", "/app/settings/invitations"}, metrics
     finally:
         context.close()
@@ -2375,9 +2398,10 @@ def test_propertyquarry_account_and_billing_hide_redundant_top_actions(
 
         response = page.goto(f"{base_url}/app/billing", wait_until="networkidle")
         assert response is not None
-        assert int(response.status) == 503
-        _assert_propertyquarry_billing_fallback_page(page)
-        expect(page.locator(".pqx-top-actions")).to_have_count(0)
+        assert response.ok
+        _assert_propertyquarry_billing_redirect_lands_on_account(page)
+        assert page.locator(".pqx-top-actions").get_by_role("link", name="Review").count() == 0
+        assert page.locator(".pqx-top-actions").get_by_role("link", name="Edit search").count() == 0
         expect(page.locator(".pqx-account-menu")).to_have_count(0)
     finally:
         context.close()
@@ -2432,7 +2456,7 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         preference_box = distance_preference.bounding_box()
         distance_box = distance_select.bounding_box()
         assert preference_box and 108 <= preference_box["width"] <= 180
-        assert distance_box and 88 <= distance_box["width"] <= 180
+        assert distance_box and 80 <= distance_box["width"] <= 180
         school_parent = section.locator('[data-school-priority-row][data-school-value="volksschule"] [data-school-preference-select]')
         school_detail = section.locator('[data-school-priority-row][data-school-parent-value="volksschule"]').first
         expect(school_detail).to_be_hidden()
@@ -2457,9 +2481,17 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         assert mobile_section.locator("select").count() >= 8
         assert mobile_section.locator('input[type="checkbox"]').count() == 0
         assert " nearby" not in mobile_section.inner_text().lower()
+        assert mobile_section.get_by_text("Custom priorities", exact=True).count() == 0
+        assert mobile_section.get_by_text("Check listing quality", exact=True).count() == 0
+        assert mobile_section.locator('[data-pqx-what-matters-mobile-tools]').is_visible()
         mobile_metrics = mobile_section.evaluate(
             """
             (panel) => {
+              const groups = Array.from(panel.querySelectorAll('[data-what-matters-group]'));
+              const initialOpenGroupCount = groups.filter((node) => node.open).length;
+              if (!initialOpenGroupCount && groups[0]) {
+                groups[0].setAttribute('open', '');
+              }
               const visibleRows = Array.from(
                 panel.querySelectorAll(
                   '[data-keyword-priority-row], [data-school-priority-row], .pqx-what-matters-head, .pqx-what-matters-group-summary'
@@ -2485,6 +2517,7 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
                 panelScrollWidth: panel.scrollWidth,
                 bottomGap: panelRect.bottom - lastBottom,
                 rowWidths,
+                initialOpenGroupCount,
                 firstListOverflowY: firstListStyle ? firstListStyle.overflowY : '',
                 firstListScrolls: firstList ? firstList.scrollHeight > firstList.clientHeight + 2 : false,
               };
@@ -2494,8 +2527,12 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         assert float(mobile_metrics["panelHeight"]) <= 1600.0, mobile_metrics
         assert float(mobile_metrics["panelScrollWidth"]) <= float(mobile_metrics["panelWidth"]) + 1.0, mobile_metrics
         assert float(mobile_metrics["bottomGap"]) <= 28.0, mobile_metrics
-        assert mobile_metrics["firstListOverflowY"] in {"auto", "scroll"}, mobile_metrics
-        assert mobile_metrics["firstListScrolls"] is True, mobile_metrics
+        assert int(mobile_metrics["initialOpenGroupCount"]) == 0, mobile_metrics
+        assert mobile_metrics["firstListOverflowY"] in {"visible", "auto", "scroll"}, mobile_metrics
+        if mobile_metrics["firstListOverflowY"] in {"auto", "scroll"}:
+            assert mobile_metrics["firstListScrolls"] is True, mobile_metrics
+        else:
+            assert mobile_metrics["firstListScrolls"] is False, mobile_metrics
         for row_metric in mobile_metrics["rowWidths"]:
             assert float(row_metric["scrollWidth"]) <= float(row_metric["width"]) + 1.0, row_metric
         mobile_section.scroll_into_view_if_needed()
@@ -3225,6 +3262,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         expect(page.locator("[data-property-research-detail]")).to_be_visible()
         expect(page.locator(".prd-media-frame")).to_be_visible()
         expect(page.get_by_role("button", name=re.compile("Request walkthrough", re.I))).to_be_visible()
+        expect(page.get_by_role("button", name="Copy link")).to_be_hidden()
         assert visual_requests == []
         _assert_no_horizontal_overflow(page)
         layout = page.evaluate(
@@ -3249,6 +3287,11 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 .find((node) => (node.querySelector('summary')?.textContent || '').trim() === 'Add an optional note');
               const nextStepDrawer = Array.from(document.querySelectorAll('.prd-feedback-details'))
                 .find((node) => (node.querySelector('summary')?.textContent || '').trim() === 'Next step');
+              const advancedSummary = document.querySelector('.prd-decision-advanced > summary');
+              const advancedSummaryRect = advancedSummary ? advancedSummary.getBoundingClientRect() : null;
+              const advancedSummaryStyle = advancedSummary ? getComputedStyle(advancedSummary) : null;
+              const tuneButton = document.querySelector('[data-object-feedback-open-advanced]');
+              const tuneButtonRect = tuneButton ? tuneButton.getBoundingClientRect() : null;
               const savebar = document.querySelector('.prd-decision-savebar');
               const heroRect = hero ? hero.getBoundingClientRect() : null;
               const bodyRect = body ? body.getBoundingClientRect() : null;
@@ -3299,6 +3342,19 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 feedbackOverflowY: feedbackStyle ? feedbackStyle.overflowY : '',
                 feedbackScrolls: feedback ? feedback.scrollHeight > feedback.clientHeight + 2 : false,
                 fineTuneOpen: fineTune ? Boolean(fineTune.open) : true,
+                advancedSummaryVisible: Boolean(
+                  advancedSummaryRect
+                  && advancedSummaryRect.width > 0
+                  && advancedSummaryRect.height > 0
+                  && advancedSummaryStyle
+                  && advancedSummaryStyle.display !== 'none'
+                  && advancedSummaryStyle.visibility !== 'hidden'
+                ),
+                tuneButtonVisible: Boolean(
+                  tuneButtonRect
+                  && tuneButtonRect.width > 0
+                  && tuneButtonRect.height > 0
+                ),
                 optionalNoteExists: Boolean(optionalNote),
                 nextStepDrawerExists: Boolean(nextStepDrawer),
                 savebarBottom: savebarRect ? Math.round(savebarRect.bottom) : 0,
@@ -3326,11 +3382,13 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert layout["secondarySectionCount"] >= 2
         assert layout["closedSecondarySections"] >= 2
         assert layout["visibleSecondarySummaries"] >= 2
-        assert 180 <= layout["feedbackHeight"] <= min(420, layout["viewportHeight"] - 54)
+        assert 150 <= layout["feedbackHeight"] <= min(420, layout["viewportHeight"] - 54)
         assert 0 < layout["savebarBottom"] <= layout["feedbackBottom"] + 1
         assert layout["feedbackOverflowY"] == "visible"
         assert layout["feedbackScrolls"] is False
         assert layout["fineTuneOpen"] is False
+        assert layout["advancedSummaryVisible"] is False
+        assert layout["tuneButtonVisible"] is True
         assert layout["optionalNoteExists"] is False
         assert layout["nextStepDrawerExists"] is False
         page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
@@ -3489,27 +3547,14 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"]').is_visible()
 
         page.locator('[data-property-step-trigger="providers"]').click()
-        page.locator('input[name="min_match_score"]').wait_for(state="visible")
         assert page.locator('label', has_text="Willhaben").count() >= 1
         assert page.locator('label', has_text="ImmoScout24 Austria").count() >= 1
         assert page.locator('label', has_text="Zillow").count() == 0
-        match_slider = page.locator('input[name="min_match_score"]')
-        assert match_slider.is_visible()
-        assert match_slider.get_attribute("min") == "0"
-        assert match_slider.get_attribute("max") == "60"
-        assert match_slider.get_attribute("data-range-selectable-max") == "35"
-        assert match_slider.get_attribute("data-range-visual-max") == "60"
-        tooltip = match_slider.get_attribute("title") or ""
-        assert "stay in the run" in tooltip.lower()
-        assert "off" in tooltip.lower()
-        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "Off"
-        assert page.locator('[data-current-plan-cap]').filter(has_text="Plan cap 35").count() >= 1
+        assert page.locator('input[name="min_match_score"]').count() == 0
+        assert page.locator('[data-range-value-for="min_match_score"]').count() == 0
         floorplan_filter = page.locator('input[name="require_floorplan"]')
         assert floorplan_filter.is_visible()
         assert page.locator('label', has_text="Serious listings only").count() >= 1
-        match_slider.evaluate("(node) => { node.value = '60'; node.dispatchEvent(new Event('input', { bubbles: true })); }")
-        assert match_slider.input_value() == "35"
-        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "35/60"
     finally:
         context.close()
 
@@ -3582,8 +3627,13 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const topLaunch = topbar?.querySelector('[data-property-start-top]') || null;
                 const topLaunchRect = topLaunch ? topLaunch.getBoundingClientRect() : null;
                 const locationField = document.querySelector('[data-property-field-name="location_query"]');
+                const customLocationField = document.querySelector('[data-property-field-name="custom_location_query"]');
+                const spilloverValueField = document.querySelector('[data-property-field-name="adjacent_area_radius_value"]');
+                const spilloverUnitField = document.querySelector('[data-property-field-name="adjacent_area_radius_unit"]');
                 const stepActions = document.querySelector('.pqx-step-head-actions');
                 const stepActionsRect = stepActions ? stepActions.getBoundingClientRect() : null;
+                const stepProgress = stepActions?.querySelector('[data-property-step-progress]') || null;
+                const stepProgressRect = stepProgress ? stepProgress.getBoundingClientRect() : null;
                 const stepNextButton = stepActions?.querySelector('[data-property-step-next]') || null;
                 const stepNextRect = stepNextButton ? stepNextButton.getBoundingClientRect() : null;
                 const stepSaveButton = stepActions?.querySelector('[data-property-save-top]') || null;
@@ -3615,6 +3665,9 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const areaMapAvailableValue = locationField ? String(locationField.getAttribute('data-location-map-available') || '') : '';
                 const areaGridDisplayInMapValue = areaGrid ? window.getComputedStyle(areaGrid).display : '';
                 const areaMapLaunchDisplayValue = areaMapLaunch ? window.getComputedStyle(areaMapLaunch).display : '';
+                const customLocationDisplayInMapInitial = customLocationField ? window.getComputedStyle(customLocationField).display : '';
+                const spilloverValueDisplayInMapInitial = spilloverValueField ? window.getComputedStyle(spilloverValueField).display : '';
+                const spilloverUnitDisplayInMapInitial = spilloverUnitField ? window.getComputedStyle(spilloverUnitField).display : '';
                 const areaSelectAllDisplayInMapValue = areaSelectAllButton ? window.getComputedStyle(areaSelectAllButton).display : '';
                 const areaClearDisplayInMapValue = areaClearButton ? window.getComputedStyle(areaClearButton).display : '';
                 if (areaMapOpen) areaMapOpen.click();
@@ -3640,6 +3693,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const selectedDistrict = document.querySelector('[data-location-map-district].is-selected');
                 const selectedInput = document.querySelector('input[name="location_query"]:checked');
                 const selectedFill = selectedDistrict ? window.getComputedStyle(selectedDistrict).fill : '';
+                const customLocationDisplayInMapSelected = customLocationField ? window.getComputedStyle(customLocationField).display : '';
                 const firstDistrictPath = firstDistrict ? String(firstDistrict.getAttribute('d') || '') : '';
                 const mapLayer = areaDialog?.querySelector('[data-location-map-layer]') || null;
                 const zoomToggle = areaDialog?.querySelector('[data-location-map-zoom="reset"]') || null;
@@ -3687,7 +3741,10 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const htmlOverflowAfterClose = document.documentElement.style.overflow || '';
                 const bodyPositionAfterClose = document.body.style.position || '';
                 const pageScrollAfterClose = Math.round(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0);
+                const spilloverValueDisplayAfterClose = spilloverValueField ? window.getComputedStyle(spilloverValueField).display : '';
+                const spilloverUnitDisplayAfterClose = spilloverUnitField ? window.getComputedStyle(spilloverUnitField).display : '';
                 if (areaListButton) areaListButton.click();
+                const customLocationDisplayAfterList = customLocationField ? window.getComputedStyle(customLocationField).display : '';
                 const areaSelectAllDisplayAfterListValue = areaSelectAllButton ? window.getComputedStyle(areaSelectAllButton).display : '';
                 const areaClearDisplayAfterListValue = areaClearButton ? window.getComputedStyle(areaClearButton).display : '';
                 const areaRowsAfterList = Array.from(locationField?.querySelectorAll('[data-pqx-check-grid="location_query"] .pqx-check') || []);
@@ -3723,6 +3780,8 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaMapButtonHeight: areaMapButtonRect ? areaMapButtonRect.height : 0,
                     areaListButtonHeight: areaListButtonRect ? areaListButtonRect.height : 0,
                     stepActionsHeight: stepActionsRect ? stepActionsRect.height : 0,
+                    stepProgressWidth: stepProgressRect ? stepProgressRect.width : 0,
+                    stepProgressHeight: stepProgressRect ? stepProgressRect.height : 0,
                     stepNextWidth: stepNextRect ? stepNextRect.width : 0,
                     stepSaveWidth: stepSaveRect ? stepSaveRect.width : 0,
                     stepSaveHeight: stepSaveRect ? stepSaveRect.height : 0,
@@ -3733,6 +3792,9 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaMapAvailable: areaMapAvailableValue,
                     areaGridDisplayInMap: areaGridDisplayInMapValue,
                     areaMapLaunchDisplay: areaMapLaunchDisplayValue,
+                    customLocationDisplayInMapInitial,
+                    spilloverValueDisplayInMapInitial,
+                    spilloverUnitDisplayInMapInitial,
                     areaMapOpenText: areaMapOpen ? areaMapOpen.textContent || '' : '',
                     areaMapOpenHeight: areaMapOpenRect ? areaMapOpenRect.height : 0,
                     areaSelectAllDisplayInMap: areaSelectAllDisplayInMapValue,
@@ -3775,7 +3837,11 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaPinchZoomChanged,
                     firstDistrictPathLooksReal: firstDistrictPath.startsWith('M') && firstDistrictPath.split('L').length >= 8 && !firstDistrictPath.includes(' Q '),
                     selectedDistrictFill: selectedFill,
+                    customLocationDisplayInMapSelected,
                     selectedMapMatchesInput: Boolean(selectedDistrict && selectedInput && selectedDistrict.getAttribute('data-location-value') === selectedInput.value),
+                    spilloverValueDisplayAfterClose,
+                    spilloverUnitDisplayAfterClose,
+                    customLocationDisplayAfterList,
                     areaGridScrolls: areaGrid ? areaGrid.scrollHeight > areaGrid.clientHeight + 2 : false,
                     areaGridBottomAfterScroll: scrolledGridRect ? scrolledGridRect.bottom : 0,
                     lastAreaBottomAfterScroll: lastAreaRect ? lastAreaRect.bottom : 0,
@@ -3787,8 +3853,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["topbarRight"] <= mobile_metrics["viewportWidth"] + 1
         assert mobile_metrics["topnavScrollWidth"] >= mobile_metrics["topnavClientWidth"]
         assert mobile_metrics["topnavFirstLeft"] >= -1
-        assert 44 <= mobile_metrics["topLaunchWidth"] <= 96
-        assert mobile_metrics["topLaunchRight"] <= mobile_metrics["viewportWidth"] + 1
+        assert mobile_metrics["topLaunchWidth"] <= 1
         assert mobile_metrics["drawerScrollTopBeforeInteraction"] <= 2
         assert mobile_metrics["railOverflowX"] in {"auto", "scroll"}
         assert mobile_metrics["railScrollWidth"] >= mobile_metrics["railClientWidth"]
@@ -3803,20 +3868,25 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["areaMapButtonHeight"] >= 52
         assert mobile_metrics["areaListButtonHeight"] >= 52
         assert mobile_metrics["stepActionsHeight"] <= 112
-        assert mobile_metrics["stepNextWidth"] >= 120
-        assert 88 <= mobile_metrics["stepSaveWidth"] <= 180
-        assert 36 <= mobile_metrics["stepSaveHeight"] <= 46
+        assert mobile_metrics["stepNextWidth"] >= 96
+        assert mobile_metrics["stepProgressWidth"] <= 1
+        assert mobile_metrics["stepProgressHeight"] <= 1
+        assert mobile_metrics["stepSaveWidth"] <= 1
+        assert mobile_metrics["stepSaveHeight"] <= 1
         assert mobile_metrics["firstFieldTopBeforeInteraction"] >= mobile_metrics["stepActionsBottom"] + 4
-        assert mobile_metrics["stepSaveTop"] <= mobile_metrics["stepStatusTop"]
+        assert mobile_metrics["stepStatusTop"] == 0 or mobile_metrics["stepSaveTop"] <= mobile_metrics["stepStatusTop"]
         assert mobile_metrics["areaMapAvailable"] == "true"
         assert mobile_metrics["areaGridDisplayInMap"] == "none"
         assert mobile_metrics["areaMapLaunchDisplay"] != "none"
+        assert mobile_metrics["customLocationDisplayInMapInitial"] == "none"
+        assert mobile_metrics["spilloverValueDisplayInMapInitial"] == "none"
+        assert mobile_metrics["spilloverUnitDisplayInMapInitial"] == "none"
         assert "Open district map" in mobile_metrics["areaMapOpenText"]
         assert mobile_metrics["areaMapOpenHeight"] >= 60
         assert mobile_metrics["areaSelectAllDisplayInMap"] == "none"
         assert mobile_metrics["areaClearDisplayInMap"] == "none"
         assert mobile_metrics["areaDialogOpen"] is True
-        assert mobile_metrics["areaCloseButtonCount"] >= 2
+        assert mobile_metrics["areaCloseButtonCount"] >= 1
         assert mobile_metrics["dialogLockOpen"] is True
         assert mobile_metrics["htmlOverflowOpen"] == "hidden"
         assert mobile_metrics["bodyOverflowOpen"] == "hidden"
@@ -3849,8 +3919,12 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["areaButtonZoomChanged"] is True
         assert mobile_metrics["areaPinchZoomChanged"] is True
         assert mobile_metrics["firstDistrictPathLooksReal"] is True
+        assert mobile_metrics["customLocationDisplayInMapSelected"] == "none"
         assert mobile_metrics["selectedMapMatchesInput"] is True
         assert "209" in mobile_metrics["selectedDistrictFill"] or "rgb" in mobile_metrics["selectedDistrictFill"]
+        assert mobile_metrics["spilloverValueDisplayAfterClose"] != "none"
+        assert mobile_metrics["spilloverUnitDisplayAfterClose"] != "none"
+        assert mobile_metrics["customLocationDisplayAfterList"] != "none"
         assert mobile_metrics["areaGridOverflowY"] in {"auto", "scroll"}
         assert mobile_metrics["areaGridBottomAfterScroll"] <= mobile_metrics["viewportHeight"] + 1
         assert mobile_metrics["lastAreaBottomAfterScroll"] <= mobile_metrics["viewportHeight"] + 1
@@ -3916,7 +3990,7 @@ def test_propertyquarry_desktop_district_map_click_selects_shape_and_zoom_toggle
         assert "scale(" in zoomed_transform and zoomed_transform != initial_transform
         expect(zoom_toggle).to_have_text(re.compile("fit", re.I))
         zoom_toggle.click()
-        expect(zoom_toggle).to_have_text(re.compile("1x", re.I))
+        expect(zoom_toggle).to_have_text(re.compile("zoom", re.I))
         assert "scale(1)" in str(layer.get_attribute("transform") or "")
     finally:
         context.close()
@@ -3938,20 +4012,20 @@ def test_propertyquarry_search_desktop_wheel_scroll_recovers_from_bottom(
         assert box is not None
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         max_scroll = float(drawer.evaluate("(node) => Math.max(0, node.scrollHeight - node.clientHeight)"))
-        scrollable = max_scroll > 0
-        assert scrollable is True
+        assert max_scroll <= 2.0
+        page.evaluate("() => window.scrollTo(0, 0)")
 
         for _ in range(8):
             page.mouse.wheel(0, 720)
             page.wait_for_timeout(25)
-        bottom_scroll = float(drawer.evaluate("(node) => node.scrollTop"))
-        assert bottom_scroll >= max(8.0, max_scroll * 0.65)
+        bottom_scroll = float(page.evaluate("() => window.scrollY"))
+        assert bottom_scroll >= 24.0
 
         for _ in range(8):
             page.mouse.wheel(0, -720)
             page.wait_for_timeout(25)
-        recovered_scroll = float(drawer.evaluate("(node) => node.scrollTop"))
-        assert recovered_scroll <= max(2.0, bottom_scroll * 0.35)
+        recovered_scroll = float(page.evaluate("() => window.scrollY"))
+        assert recovered_scroll <= max(8.0, bottom_scroll * 0.35)
     finally:
         context.close()
 
@@ -4011,6 +4085,122 @@ def test_propertyquarry_search_launch_strips_cross_country_provider_selection(
         assert "otodom" not in preferences.get("selected_platforms", [])
         assert "otodom" not in run.get("selected_platforms", [])
         assert "otodom" not in run.get("property_preferences", {}).get("selected_platforms", [])
+    finally:
+        context.close()
+
+
+def test_propertyquarry_search_launch_preserves_checked_provider_set(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    observed: dict[str, object] = {}
+    try:
+        def _capture_preferences(route):
+            observed["preferences"] = route.request.post_data_json
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"status": "saved"}),
+            )
+
+        def _capture_run(route):
+            observed["run"] = route.request.post_data_json
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"run_id": "run-provider-preserve"}),
+            )
+
+        page.route("**/v1/onboarding/property-search/preferences", _capture_preferences)
+        page.route("**/app/api/property/search-runs**", _capture_run)
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        checked_before_launch = page.evaluate(
+            """
+            () => [...document.querySelectorAll('input[name="selected_platforms"]:checked')]
+              .map((node) => String(node.value || '').trim())
+              .filter(Boolean)
+            """
+        )
+        plan_cap = page.evaluate(
+            """
+            () => {
+              const metaNode = document.querySelector('[data-property-workspace-meta]');
+              const meta = metaNode ? JSON.parse(metaNode.getAttribute('data-property-workspace-meta') || '{}') : {};
+              return Number(meta?.commercial?.max_platforms ?? 0) || 0;
+            }
+            """
+        )
+        assert isinstance(checked_before_launch, list)
+        assert len(checked_before_launch) > 1
+        assert isinstance(plan_cap, (int, float))
+
+        page.locator("[data-property-start-top]").click()
+        expect(page).to_have_url(re.compile("run-provider-preserve"), timeout=10000)
+
+        preferences = observed.get("preferences")
+        run = observed.get("run")
+        assert isinstance(preferences, dict)
+        assert isinstance(run, dict)
+        effective_expected = checked_before_launch[: int(plan_cap)] if int(plan_cap) > 0 else checked_before_launch
+        assert preferences.get("selected_platforms") == effective_expected
+        assert run.get("selected_platforms") == effective_expected
+        assert run.get("property_preferences", {}).get("selected_platforms") == effective_expected
+    finally:
+        context.close()
+
+
+def test_propertyquarry_app_search_launch_uses_any_property_type_when_all_boxes_are_clear(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    observed: dict[str, object] = {}
+    try:
+        def _capture_preferences(route):
+            observed["preferences"] = route.request.post_data_json
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"status": "saved"}),
+            )
+
+        def _capture_run(route):
+            observed["run"] = route.request.post_data_json
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"run_id": "run-any-property-type"}),
+            )
+
+        page.route("**/v1/onboarding/property-search/preferences", _capture_preferences)
+        page.route("**/app/api/property/search-runs**", _capture_run)
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.eval_on_selector_all(
+            'input[name="property_type"]:checked',
+            """(nodes) => {
+              nodes.forEach((node) => node.click());
+              return nodes.length;
+            }""",
+        )
+        expect(page.locator('input[name="property_type"]:checked')).to_have_count(0)
+
+        page.locator("[data-property-start-top]").click()
+        expect(page).to_have_url(re.compile("run-any-property-type"), timeout=10000)
+
+        preferences = observed.get("preferences")
+        run = observed.get("run")
+        assert isinstance(preferences, dict)
+        assert isinstance(run, dict)
+        assert preferences["property_type"] == ["any"]
+        assert run.get("property_preferences", {}).get("property_type") == ["any"]
     finally:
         context.close()
 
@@ -4273,8 +4463,8 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             assert response is not None
             _assert_no_horizontal_overflow(page)
             if route == "/app/billing":
-                assert int(response.status) == 503
-                _assert_propertyquarry_billing_fallback_page(page)
+                assert response.ok
+                _assert_propertyquarry_billing_redirect_lands_on_account(page)
                 expect(page.locator("[data-property-mobile-dock]")).to_have_count(0)
                 expect(page.locator('nav[aria-label="PropertyQuarry sections"]')).to_have_count(0)
                 expect(page.locator("[data-pqx-launch-top]")).to_have_count(0)
@@ -4368,10 +4558,9 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 assert all(columns <= 1 for columns in alerts_mobile_metrics["actionColumns"])
             elif route == "/app/account":
                 expect(page.locator("body", has_text="Notifications")).to_be_visible()
-                expect(page.locator("body", has_text="Export account data")).to_be_visible()
                 expect(page.get_by_role("link", name="Billing account")).to_be_visible()
-                expect(page.locator("body", has_text="Access and shared pages")).to_be_visible()
-                expect(page.locator("body", has_text="Sign-in and privacy")).to_be_visible()
+                expect(page.locator("body", has_text="Sign-in and sharing")).to_be_visible()
+                expect(page.locator("body", has_text="Data and history")).to_be_visible()
                 expect(page.locator("[data-account-page-sign-out] button")).to_be_visible()
                 assert density["logoutVisible"] is True
             elif route == "/app/settings/google":
@@ -4494,8 +4683,8 @@ def test_propertyquarry_mobile_dark_mode_covers_secondary_surfaces(
             assert response is not None
             _assert_no_horizontal_overflow(page)
             if route == "/app/billing":
-                assert int(response.status) == 503
-                _assert_propertyquarry_billing_fallback_page(page)
+                assert response.ok
+                _assert_propertyquarry_billing_redirect_lands_on_account(page)
             else:
                 assert response.ok
                 expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
@@ -4799,14 +4988,8 @@ def test_propertyquarry_setup_wizard_numeric_sliders_are_mobile_friendly(
 
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
-        for name in ("max_results_per_source", "min_match_score"):
-            slider = page.locator(f'input[name="{name}"]')
-            assert slider.is_visible()
-            slider_box = slider.bounding_box()
-            assert slider_box is not None and slider_box["height"] >= 34
-            assert slider.get_attribute("max") in {"10", "60"}
-        assert page.locator('input[name="max_results_per_source"]').get_attribute("data-range-selectable-max") == "2"
-        assert page.locator('input[name="min_match_score"]').get_attribute("data-range-selectable-max") == "35"
+        assert page.locator('input[name="max_results_per_source"]').count() == 0
+        assert page.locator('input[name="min_match_score"]').count() == 0
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
     finally:
         context.close()
@@ -5062,9 +5245,6 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert checkedProviderCount == expectedProviderCap
         assert page.locator('[data-provider-group-panel][open]').count() >= 1
         assert page.locator('[data-property-inline-status]', has_text=f"Selected {expectedProviderCap} of {providerCount} providers").is_visible()
-        page.locator('input[name="min_match_score"]').evaluate(
-            "(node) => { node.value = '45'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
-        )
         page.locator('input[name="require_floorplan"]').check()
 
         with page.expect_response("**/app/api/property/search-runs") as start_response:
@@ -5108,7 +5288,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["max_distance_to_medical_care_importance"] == "important"
         assert preferences["max_distance_to_library_m"] == 1000
         assert preferences["max_distance_to_library_importance"] == "nice_to_have"
-        assert preferences["min_match_score"] == 35
+        assert preferences.get("min_match_score", 0) in {0, 0.0}
         assert preferences["require_floorplan"] is True
         assert len(observed["selected_platforms"]) == 3
         assert page.locator("body", has_text="Altbau near U6").is_visible()

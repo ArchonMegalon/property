@@ -297,6 +297,53 @@ def test_preference_profile_service_uses_factual_neutral_copy_for_midrange_dista
     assert not any("needs verification" in item for item in assessment["unknowns_json"])
 
 
+def test_preference_profile_service_names_confirmed_midrange_and_weaker_distance_signals() -> None:
+    service = _service()
+    service.ensure_profile(
+        principal_id="pref-principal",
+        person_id="self",
+        consent_mode="behavioral_learning",
+        learning_enabled=True,
+    )
+    for key in (
+        "prefer_subway_nearby",
+        "prefer_supermarket_nearby",
+        "prefer_pharmacy_nearby",
+    ):
+        service.upsert_preference_node(
+            principal_id="pref-principal",
+            person_id="self",
+            domain="willhaben",
+            category="soft_preference",
+            key=key,
+            value_json=True,
+            confidence=1.0,
+        )
+
+    assessment = service.assess_candidate(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="willhaben",
+        object_type="listing",
+        object_id="listing-named-distance-facts",
+        object_payload={
+            "nearest_subway_m": 900.0,
+            "nearest_subway_name": "U2 Messe-Prater",
+            "nearest_supermarket_m": 1300.0,
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "nearest_pharmacy_m": 1400.0,
+            "nearest_pharmacy_name": "Marien Apotheke",
+        },
+        persist=False,
+        require_existing_profile=True,
+    )
+
+    assert assessment is not None
+    assert "Underground access via U2 Messe-Prater is about 900 m away." in assessment["unknowns_json"]
+    assert "Supermarket access via BILLA Praterstern is about 1300 m away, which is weaker than preferred." in assessment["mismatch_reasons_json"]
+    assert "Pharmacy access via Marien Apotheke is about 1400 m away, which is weaker than preferred." in assessment["mismatch_reasons_json"]
+
+
 def test_preference_profile_service_partial_profile_update_keeps_existing_flags() -> None:
     service = _service()
 

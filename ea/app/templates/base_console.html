@@ -1105,9 +1105,17 @@
         width: 100%;
       }
       .account-menu-panel {
-        left: 0;
-        right: 0;
+        position: fixed;
+        top: calc(58px + env(safe-area-inset-top, 0px));
+        left: 10px;
+        right: 10px;
+        width: calc(100vw - 20px);
+        max-width: calc(100vw - 20px);
         min-width: 0;
+        max-height: calc(100dvh - 74px);
+        overflow: auto;
+        box-sizing: border-box;
+        z-index: 90;
       }
       main, .console-main { padding-top: 24px; }
       .console-main {
@@ -1228,6 +1236,16 @@
       }
       .pq-rail-pulse {
         grid-template-columns: 1fr;
+      }
+      .pq-stage:has(.object-grid.is-settings-surface) .pq-appbar {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .pq-stage:has(.object-grid.is-settings-surface) .pq-appbar-mobile-nav {
+        grid-column: 1;
+        grid-row: 1;
+      }
+      .pq-stage:has(.object-grid.is-settings-surface) .pq-topbar-actions {
+        display: none;
       }
     }
     @media (pointer: coarse) {

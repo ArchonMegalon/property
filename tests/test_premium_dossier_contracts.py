@@ -170,6 +170,7 @@ def test_premium_dossier_html_omits_comparison_snapshot_even_with_comparison_row
     assert "Comparison snapshot" not in html
     assert "comparison-table" not in html
     assert "Ranked alternative A" not in html
+    assert "Chosen ahead of the next option because" not in html
 
 
 def test_premium_dossier_prefers_scene_render_as_hero_over_stock_gallery_order() -> None:

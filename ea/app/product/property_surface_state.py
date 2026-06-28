@@ -71,6 +71,28 @@ _CUSTOMER_SAFE_FAILURE_PREFIXES = (
 _ACTIVE_REPAIR_STATUSES = {"repairing", "queued", "pending", "assigned", "retrying", "existing"}
 _ACTIVE_REPAIR_TASK_STATUSES = {"opened", "assigned", "running", "repairing", "pending", "existing", "queued"}
 _TERMINAL_REPAIR_TASK_STATUSES = {"returned", "failed", "done", "resolved", "completed", "closed"}
+_PROPERTY_RUN_DIRECT_ETA_RE = re.compile(
+    r"^(?:about|under|less than|around|roughly)\s+\d+(?:[.,]\d+)?\s*"
+    r"(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)"
+    r"(?:\s+\d+(?:[.,]\d+)?\s*(?:m|min|mins|minute|minutes|h|hr|hrs|hour|hours))?$",
+    flags=re.IGNORECASE,
+)
+_PROPERTY_RUN_BARE_ETA_RE = re.compile(
+    r"^\d+(?:[.,]\d+)?\s*"
+    r"(?:s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)"
+    r"(?:\s+\d+(?:[.,]\d+)?\s*(?:m|min|mins|minute|minutes|h|hr|hrs|hour|hours))?$",
+    flags=re.IGNORECASE,
+)
+_PROPERTY_RUN_DELAYED_ETA_RE = re.compile(
+    r"^delayed\s*[·\-]\s*\d+(?:[.,]\d+)?\s*"
+    r"(?:m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\s+so\s+far$",
+    flags=re.IGNORECASE,
+)
+_PROPERTY_RUN_ALLOWED_ETA_PHRASES = {
+    "new shortlist already ready",
+    "start a fresh run after changing one provider or rule",
+}
+_PROPERTY_RUN_SUPPRESSED_RESOLUTION_RE = re.compile(r"\bsuppressed_[a-z0-9_]+\b", flags=re.IGNORECASE)
 
 
 def _positive_int(value: object, *, default: int = 0) -> int:
@@ -79,6 +101,20 @@ def _positive_int(value: object, *, default: int = 0) -> int:
     except Exception:
         parsed = 0
     return parsed if parsed > 0 else default
+
+
+def property_run_public_eta_label(value: object) -> str:
+    text = " ".join(str(value or "").replace("\u2026", "...").split()).strip()
+    if not text:
+        return ""
+    if len(text) > 64:
+        return ""
+    normalized = text.lower().strip(" .")
+    if normalized in _PROPERTY_RUN_ALLOWED_ETA_PHRASES:
+        return text.strip(" .")
+    if _PROPERTY_RUN_DIRECT_ETA_RE.fullmatch(text) or _PROPERTY_RUN_BARE_ETA_RE.fullmatch(text) or _PROPERTY_RUN_DELAYED_ETA_RE.fullmatch(text):
+        return text
+    return ""
 
 
 def _property_run_distance_subject(value: object) -> str:
@@ -293,7 +329,7 @@ def property_run_status_copy(status_value: object, message_value: object = "") -
     if status == "completed_partial":
         return ("Finished with partial coverage", safe_message or "The shortlist is ready, but one or more sources finished degraded.")
     if status == "failed":
-        return ("Search paused", safe_message or "The search paused before ranking finished.")
+        return ("Search interrupted", safe_message or "The search stopped before ranking finished.")
     if status == "cancelled":
         return ("Stopped", safe_message or "This search was stopped before it finished.")
     if status == "noop":
@@ -356,15 +392,15 @@ def property_run_customer_safe_status_detail(
             return _join_customer_sentences(customer_status, repair_reason)
         return customer_status
     if repair_step and raw_failure_like:
-        return calm_repair_copy or _join_customer_sentences("Repair is retrying the interrupted provider checks", repair_reason)
+        return calm_repair_copy or _join_customer_sentences("PropertyQuarry is checking the affected providers again", repair_reason)
     if raw_failure_like and repair_status:
         return calm_repair_copy or _join_customer_sentences(f"Recovery: {repair_status}", repair_reason)
     if status == "failed" and raw_failure_like:
-        return calm_repair_copy or _join_customer_sentences("Search paused before a stable shortlist was ready", repair_reason)
+        return calm_repair_copy or _join_customer_sentences("The search stopped before the shortlist settled", repair_reason)
     if status == "failed" and repair_flags.get("active"):
-        return customer_status or calm_repair_copy or "Repair is retrying the saved search."
+        return customer_status or calm_repair_copy or "PropertyQuarry is checking the saved search again."
     if status == "failed" and repair_flags.get("failed"):
-        return customer_status or calm_repair_copy or "Search paused before a usable shortlist was ready."
+        return customer_status or calm_repair_copy or "The search stopped before a usable shortlist was ready."
     return customer_status or message
 
 
@@ -523,6 +559,7 @@ def _customer_status_is_internal_failure_copy(value: object) -> bool:
     return lowered.startswith(
         (
             "no source completed cleanly enough",
+            "the search could not confirm a usable shortlist from the available source pages",
             "search failed before ranking",
             "search paused before a stable shortlist was ready",
         )
@@ -599,6 +636,8 @@ def property_run_event_is_internal_noise(event: dict[str, object]) -> bool:
         "suppressed_generic_listing_page" in message
         or resolution == "suppressed_generic_listing_page"
     ):
+        return True
+    if step != "repair_receipt" and _PROPERTY_RUN_SUPPRESSED_RESOLUTION_RE.search(message):
         return True
     if step == "status_refresh" and (
         "could not load property search status" in message
@@ -701,6 +740,46 @@ def _property_run_repair_receipt_message(receipt: dict[str, object]) -> str:
     return f"{source_label}: {normalized}."
 
 
+def _property_run_event_resolution(event: dict[str, object]) -> str:
+    resolution = str(event.get("resolution") or "").strip().lower()
+    if resolution:
+        return resolution
+    message = str(event.get("message") or "").strip().lower()
+    match = _PROPERTY_RUN_SUPPRESSED_RESOLUTION_RE.search(message)
+    if match:
+        return str(match.group(0) or "").strip().lower()
+    return ""
+
+
+def _property_run_customer_event_message(
+    event: dict[str, object],
+    *,
+    summary: dict[str, object],
+    status: str,
+) -> str:
+    step = str(event.get("step") or "").strip().lower()
+    resolution = _property_run_event_resolution(event)
+    raw_message = str(event.get("message") or "").strip()
+    if step == "repair_receipt":
+        if resolution == "suppressed_generic_listing_page":
+            return ""
+        if status not in {"failed", "completed_partial"}:
+            return ""
+        receipt = dict(event)
+        if resolution and not str(receipt.get("resolution") or "").strip():
+            receipt["resolution"] = resolution
+        return _property_run_repair_receipt_message(receipt)
+    safe_message = property_run_customer_safe_status_detail(
+        event.get("status") or event.get("step") or status,
+        raw_message,
+        summary=summary,
+        prefer_repair_step=True,
+    )
+    if resolution.startswith("suppressed_"):
+        return safe_message
+    return safe_message or raw_message
+
+
 def property_run_customer_visible_events(
     *,
     run_payload: dict[str, object] | None = None,
@@ -726,12 +805,9 @@ def property_run_customer_visible_events(
             if property_run_event_is_internal_noise(event):
                 continue
             row = dict(event)
-            row["message"] = property_run_customer_safe_status_detail(
-                row.get("status") or row.get("step") or status,
-                row.get("message") or "",
-                summary=summary,
-                prefer_repair_step=True,
-            ) or str(row.get("message") or "").strip()
+            row["message"] = _property_run_customer_event_message(row, summary=summary, status=status)
+            if not str(row.get("message") or "").strip():
+                continue
             visible_events.append(row)
         current_event = _current_progress_event()
         if current_event.get("message"):
@@ -789,10 +865,10 @@ def build_property_run_health_snapshot(
     )
     status = str(payload.get("status") or summary.get("status") or "not_started").strip().lower() or "not_started"
     raw_message = str(payload.get("message") or summary.get("message") or "").strip()
-    status_label, status_note = property_run_status_copy(
-        status,
-        property_run_customer_safe_status_detail(status, raw_message, summary=summary, prefer_repair_step=True),
-    )
+    customer_safe_message = property_run_customer_safe_status_detail(status, raw_message, summary=summary, prefer_repair_step=True)
+    status_label, status_note = property_run_status_copy(status, customer_safe_message)
+    if status in {"queued", "starting", "running", "in_progress", "processing", "scanning"}:
+        status_note = _property_run_summary_message(payload, summary)
     held_back_total = _positive_int(summary.get("held_back_total"))
     if not held_back_total:
         held_back_total = (
@@ -812,7 +888,7 @@ def build_property_run_health_snapshot(
         message=status_note or raw_message,
         progress=_positive_int(payload.get("progress")),
         status_url=str(payload.get("status_url") or "").strip(),
-        eta_label=str(payload.get("eta_label") or "").strip(),
+        eta_label=property_run_public_eta_label(payload.get("eta_label") or summary.get("eta_label")),
         in_progress=status not in {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not_started", "not started"},
         source_total=_positive_int(summary.get("sources_total")),
         listing_total=_positive_int(summary.get("listing_total") or summary.get("raw_listing_total")),
@@ -847,7 +923,8 @@ def build_property_run_repair_snapshot(
     next_useful_eta = str(summary.get("next_useful_update_eta_label") or "").strip()
     if not next_useful_eta and timing.get("first_shortlist_ready_at") and results_total > 0:
         next_useful_eta = "new shortlist already ready"
-    final_eta = str(payload.get("eta_label") or summary.get("eta_label") or "").strip()
+    next_useful_eta = property_run_public_eta_label(next_useful_eta)
+    final_eta = property_run_public_eta_label(payload.get("eta_label") or summary.get("eta_label"))
     eta_confidence = str(summary.get("eta_confidence") or "").strip().lower()
     if not eta_confidence:
         if final_eta and progress >= 20:
@@ -891,7 +968,7 @@ def build_property_run_repair_snapshot(
             repair_outcome_summary = (
                 property_run_customer_safe_status_detail(status, payload.get("message") or "", summary=summary)
                 or calm_repair_copy
-                or "Search paused before a usable shortlist was ready."
+                or "The search stopped before a usable shortlist was ready."
             )
             if latest_repair_timestamp:
                 repair_outcome_summary = f"{repair_outcome_summary} Last real update: {latest_repair_timestamp}."
@@ -964,7 +1041,7 @@ def build_property_run_reliability_snapshot(
                     repair_reason,
                 )
             elif repair_reason:
-                customer_status = _join_customer_sentences("Repair is retrying the saved search", repair_reason)
+                customer_status = _join_customer_sentences("PropertyQuarry is checking the saved search again", repair_reason)
             else:
                 customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
@@ -1014,6 +1091,7 @@ def build_property_run_reliability_snapshot(
     filtered_label = ""
     if filtered_total > 0:
         filtered_label = f"{filtered_total} filtered by active rules"
+    final_eta_label = property_run_public_eta_label(payload.get("eta_label") or summary.get("eta_label"))
     return PropertyRunReliabilitySnapshot(
         health_label=health_label,
         health_tone=health_tone,
@@ -1022,7 +1100,7 @@ def build_property_run_reliability_snapshot(
         filtered_label=filtered_label,
         repair_step_label=str(repair.get("repair_step_label") or "").strip(),
         next_useful_update_eta_label=str(repair.get("next_useful_update_eta_label") or "").strip(),
-        final_eta_label=str(payload.get("eta_label") or summary.get("eta_label") or "").strip(),
+        final_eta_label=final_eta_label,
         eta_confidence_label=str(repair.get("eta_confidence_label") or "Unknown").strip() or "Unknown",
         customer_status_message=customer_status,
         repair=repair,
@@ -1086,6 +1164,23 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
             "source_label": _canonical_property_run_source_label(provider_failed_match.group(1)),
             "phase_label": _compact_run_message(text),
         }
+    compact_lines = [line.strip() for line in re.split(r"[\r\n]+", text) if str(line or "").strip()]
+    for line in reversed(compact_lines):
+        segments = [segment.strip() for segment in line.split("·") if segment.strip()]
+        if len(segments) < 3:
+            continue
+        fraction_match = re.fullmatch(r"(\d+)\s*/\s*(\d+)", segments[-1])
+        if not fraction_match:
+            continue
+        prefix_text = " ".join(segments[:-2]).lower()
+        if not any(token in prefix_text for token in ("provider", "homes reviewed", "checking")):
+            continue
+        return {
+            "raw": text,
+            "fraction_label": f"{fraction_match.group(1)} / {fraction_match.group(2)}",
+            "source_label": _canonical_property_run_source_label(segments[-2]),
+            "phase_label": _compact_run_message(line),
+        }
     preview_match = re.search(r"^(?:Checking listing previews from|Prepared \d+ listing preview\(s\) from|Prepared preview queue for)\s+(.+?)\.?$", text, flags=re.IGNORECASE)
     if preview_match:
         return {
@@ -1119,11 +1214,12 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
         }
     shortlist_match = re.search(r"^Built shortlist of\s+(\d+)\s+listing\(s\)\s+for\s+(.+)\.$", text, flags=re.IGNORECASE)
     if shortlist_match:
+        shortlist_total = str(shortlist_match.group(1) or "").strip() or "0"
         return {
             "raw": text,
             "fraction_label": "",
             "source_label": _canonical_property_run_source_label(shortlist_match.group(2)),
-            "phase_label": "Shortlist ready",
+            "phase_label": f"Shortlist ready · {shortlist_total} home{'' if shortlist_total == '1' else 's'}",
         }
     prepared_match = re.search(r"^Prepared property page for\s+.+\.$", text, flags=re.IGNORECASE)
     if prepared_match:
@@ -1398,6 +1494,76 @@ def _run_snapshot_provider_total(source_rows: list[dict[str, object]]) -> int:
         if key:
             provider_keys.add(key)
     return len(provider_keys)
+
+
+def _property_run_provider_display_total(payload: dict[str, object], summary: dict[str, object]) -> int:
+    explicit_display_total = _positive_int(payload.get("provider_display_total"))
+    if explicit_display_total > 0:
+        return explicit_display_total
+    explicit_provider_total = _positive_int(summary.get("provider_total"))
+    source_variant_total = _positive_int(summary.get("source_variant_total") or summary.get("sources_total"))
+    selected_platforms = [
+        str(value or "").strip().lower()
+        for value in list(payload.get("selected_platforms") or dict(payload.get("brief") or {}).get("providers") or ())
+        if str(value or "").strip()
+    ]
+    selected_provider_total = len(dict.fromkeys(selected_platforms))
+    source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    inferred_provider_total = max(selected_provider_total, _run_snapshot_provider_total(source_rows))
+    if inferred_provider_total > 0 and explicit_provider_total > inferred_provider_total:
+        if not source_variant_total or explicit_provider_total >= source_variant_total or explicit_provider_total > selected_provider_total * 3:
+            return inferred_provider_total
+    return max(explicit_provider_total, inferred_provider_total)
+
+
+def _property_run_summary_message(payload: dict[str, object], summary: dict[str, object]) -> str:
+    status = str(payload.get("status") or summary.get("status") or "").strip().lower()
+    repair_status = str(summary.get("repair_status") or summary.get("repair_status_label") or "").strip().lower()
+    replacement_run_id = str(summary.get("repair_replacement_run_id") or "").strip()
+    raw_customer_status = str(summary.get("customer_status_message") or "").strip()
+    repair_flags = _repair_summary_flags(summary)
+    repair_reason = _resolved_customer_repair_reason(summary, message_value=payload.get("message") or "")
+    calm_repair_copy = _calm_customer_repair_copy(
+        repair_reason,
+        replacement_run_id=replacement_run_id,
+        repair_active=bool(repair_flags.get("active")),
+        repair_failed=bool(repair_flags.get("failed")),
+    )
+    customer_status = calm_repair_copy if _customer_status_is_internal_failure_copy(raw_customer_status) and calm_repair_copy else raw_customer_status
+    effective_repair_reason = "" if calm_repair_copy else repair_reason
+    if replacement_run_id:
+        return customer_status or calm_repair_copy or "A replacement search run is checking the saved brief."
+    if status == "failed" or repair_status in {"repairing", "repair failed", "degraded"}:
+        if customer_status and effective_repair_reason and effective_repair_reason.lower() not in customer_status.lower():
+            return _join_customer_sentences(customer_status, effective_repair_reason)
+        if customer_status or calm_repair_copy or effective_repair_reason:
+            return customer_status or calm_repair_copy or effective_repair_reason
+
+    sources_total = _positive_int(summary.get("sources_total"))
+    completed_sources = _positive_int(summary.get("sources_completed") or summary.get("completed_sources"))
+    provider_display_total = _property_run_provider_display_total(payload, summary)
+    source_variant_total = _positive_int(summary.get("source_variant_total"), default=sources_total)
+    reviewed_total = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
+    checked_label = f"{reviewed_total} homes reviewed" if reviewed_total > 0 else "checking"
+    source_progress_label = (
+        f"{completed_sources} of {source_variant_total} provider checks"
+        if source_variant_total > provider_display_total and completed_sources > 0
+        else ""
+    )
+    scan_label = source_progress_label or (f"{provider_display_total} providers · {checked_label}" if provider_display_total > 0 else checked_label)
+    no_floorplans = _positive_int(summary.get("filtered_floorplan_total"))
+    current_step = str(payload.get("current_step") or "").strip().lower()
+    packet_prepared = _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total"))
+    shortlist_ready = _property_summary_ranked_total(summary)
+    live_info = _latest_property_run_fraction_info(payload)
+    if live_info.get("source_label") and live_info.get("fraction_label"):
+        return f"Now: {_compact_property_provider_label(live_info.get('source_label'))} · {live_info.get('fraction_label')} · {scan_label}"
+    if current_step == "source_review_packet" and packet_prepared > 0:
+        return f"{scan_label} · {packet_prepared} property pages prepared"
+    if current_step == "source_shortlist" and shortlist_ready > 0:
+        suffix = "" if shortlist_ready == 1 else "s"
+        return f"{scan_label} · {shortlist_ready} ranked home{suffix} ready"
+    return f"{scan_label}{f' · {no_floorplans} still waiting on floorplans' if no_floorplans > 0 else ''}"
 
 
 def build_property_run_live_board_snapshot(
@@ -1933,6 +2099,7 @@ def build_property_empty_outcome_summary(
         or run_summary.get("filtered_low_fit_total")
         or 0
     )
+    legacy_ranking_gate_empty = score_demoted_total > 0 and filtered_total <= 0
     source_total = int(run_summary.get("sources_total") or len(run_sources) or 0)
     source_completed = int(
         run_summary.get("sources_completed")
@@ -1977,8 +2144,8 @@ def build_property_empty_outcome_summary(
         run_message,
         summary=run_summary,
     )
-    if safe_failed_message.lower().startswith("search paused"):
-        safe_failed_message = "Search paused before a usable shortlist was ready."
+    if safe_failed_message.lower().startswith("search interrupted") or safe_failed_message.lower().startswith("the search stopped"):
+        safe_failed_message = "The search stopped before a usable shortlist was ready."
     strongest_relax = next((row for row in (counterfactual_rows or []) if row.get("adjustments")), {})
     active_rule = ""
     if strongest_relax:
@@ -1987,11 +2154,22 @@ def build_property_empty_outcome_summary(
         active_rule = str((suppression_rows[0] or {}).get("title") or "").strip()
     if status_value == "failed" and replacement_run_id:
         happened = calm_repair_copy or "A replacement search run is checking the saved brief."
-        stopped_context = "This page will move to the replacement run when it has a usable update."
+        if legacy_ranking_gate_empty:
+            stopped_context = (
+                f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still ranked "
+                "in the interrupted pass. This page will move to the replacement run when it has a usable update."
+            )
+        else:
+            stopped_context = "This page will move to the replacement run when it has a usable update."
     elif status_value == "failed":
         if repair_failed:
-            happened = safe_failed_message or calm_repair_copy or "Search paused before a usable shortlist was ready."
-            if source_total or listing_total:
+            happened = safe_failed_message or calm_repair_copy or "The search stopped before a usable shortlist was ready."
+            if legacy_ranking_gate_empty:
+                stopped_context = (
+                    f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still ranked "
+                    "for the saved brief before the repair stopped."
+                )
+            elif source_total or listing_total:
                 listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
                 stopped_context = (
                     f"The last pass inspected {listing_label} before the repair stopped."
@@ -2003,42 +2181,52 @@ def build_property_empty_outcome_summary(
         elif source_total or listing_total:
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if repair_task_open or repair_step_label or repair_status_label:
-                happened = safe_failed_message or calm_repair_copy or "Repair is retrying the saved search."
+                happened = safe_failed_message or calm_repair_copy or "PropertyQuarry is checking the saved search again."
             else:
-                happened = "Search paused before a stable shortlist was ready."
+                happened = "The search stopped before the shortlist settled."
             if source_completed <= 0 and listing_total <= 0:
                 stopped_context = "Repair took over before any listing inspection completed."
+            elif legacy_ranking_gate_empty:
+                stopped_context = (
+                    f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still ranked "
+                    "for the saved brief before repair took over."
+                )
             else:
                 stopped_context = f"The interrupted pass inspected {listing_label} before repair took over."
         else:
             if repair_task_open or repair_step_label or repair_status_label:
-                happened = safe_failed_message or calm_repair_copy or "Repair is retrying the saved search."
+                happened = safe_failed_message or calm_repair_copy or "PropertyQuarry is checking the saved search again."
                 stopped_context = "Repair took over before any listing inspection completed."
             else:
-                happened = safe_failed_message or "Search paused before a stable shortlist was ready."
+                happened = safe_failed_message or "The search stopped before the shortlist settled."
                 stopped_context = ""
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
-        happened = "No shortlist yet inside the selected area."
+        happened = "Nothing landed in the selected area yet."
         stopped_context = (
             f"{filtered_total} candidate{'s' if filtered_total != 1 else ''} were held back; "
             "most conflicted with the selected-area rule or were provider overview pages."
         )
-    elif score_demoted_total > 0 and listing_total == 0:
-        happened = "Homes were scored, but the current ranking bar kept the list empty."
+    elif legacy_ranking_gate_empty:
+        happened = "No ranked homes were saved from this older run."
         stopped_context = (
-            f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still scored in this run."
+            f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still scored in the earlier pass."
         )
     elif filtered_total > 0:
-        happened = "No shortlist yet."
+        happened = "No homes in scope yet."
     else:
-        happened = "No shortlist yet."
+        happened = "No homes in scope yet."
     if status_value == "failed" and replacement_run_id:
-        still_worked = "The brief was saved; the replacement run is now active."
+        still_worked = (
+            f"The brief was saved; {score_demoted_total} home{'s' if score_demoted_total != 1 else ''} "
+            "were still ranked in the interrupted pass while the replacement run is now active."
+            if legacy_ranking_gate_empty
+            else "The brief was saved; the replacement run is now active."
+        )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
             f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected providers."
         )
-    elif score_demoted_total > 0 and listing_total == 0:
+    elif legacy_ranking_gate_empty:
         still_worked = (
             f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still ranked for the brief."
         )
@@ -2049,15 +2237,27 @@ def build_property_empty_outcome_summary(
             else "The brief and selected providers were still saved."
         )
     if status_value == "failed" and replacement_run_id:
-        next_move = "Wait for repair; this page switches to the usable run when one is ready."
+        next_move = (
+            "Start a fresh search, or wait for repair; this page switches to the usable run when one is ready."
+            if legacy_ranking_gate_empty
+            else "Wait for repair; this page switches to the usable run when one is ready."
+        )
     elif status_value == "failed" and repair_task_open:
-        next_move = "Wait for repair; this page switches to the usable run when one is ready."
+        next_move = (
+            "Start a fresh search, or wait for repair; this page switches to the usable run when one is ready."
+            if legacy_ranking_gate_empty
+            else "Wait for repair; this page switches to the usable run when one is ready."
+        )
     elif status_value == "failed":
-        next_move = "Start a fresh search or change one provider or rule before retrying the same brief."
+        next_move = (
+            "Start a fresh search to rebuild the full ranking."
+            if legacy_ranking_gate_empty
+            else "Start a fresh search or change one provider or rule before retrying the same brief."
+        )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
-    elif score_demoted_total > 0 and listing_total == 0:
-        next_move = "Lower the ranking bar or turn it off if you want one uninterrupted ranking."
+    elif legacy_ranking_gate_empty:
+        next_move = "Start a fresh search to rebuild one uninterrupted ranking."
     else:
         next_move = (
             str(strongest_relax.get("detail") or "").strip()
@@ -2083,6 +2283,8 @@ def build_property_empty_outcome_summary(
         eta_feedback = f"Estimated remaining time: {eta_label}."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         eta_feedback = stopped_context
+    elif legacy_ranking_gate_empty:
+        eta_feedback = "Start a fresh search to rebuild the full ranking on this page."
     elif source_total:
         eta_feedback = "Change one rule and rerun for a fresh read."
     elif status_value == "failed":

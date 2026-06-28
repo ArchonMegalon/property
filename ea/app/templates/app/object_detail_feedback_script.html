@@ -175,6 +175,16 @@
     });
   };
   renderFollowups(payload.followup_rows || []);
+  const syncAdvancedToggleButtons = () => {
+    const isOpen = advancedDetails instanceof HTMLDetailsElement && advancedDetails.open;
+    advancedToggleButtons.forEach((button) => {
+      button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    });
+  };
+  if (advancedDetails instanceof HTMLDetailsElement) {
+    advancedDetails.addEventListener('toggle', syncAdvancedToggleButtons);
+    syncAdvancedToggleButtons();
+  }
   const recordDecisionState = async (decisionState) => {
     if (!decisionState) return;
     if (decisionStateStatus) decisionStateStatus.textContent = 'Recording decision state...';
@@ -514,8 +524,10 @@
   advancedToggleButtons.forEach((button) => {
     button.addEventListener('click', () => {
       if (!(advancedDetails instanceof HTMLDetailsElement)) return;
-      advancedDetails.open = true;
-      advancedDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const willOpen = !advancedDetails.open;
+      advancedDetails.open = willOpen;
+      syncAdvancedToggleButtons();
+      if (willOpen) advancedDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   });
   root.querySelector('[data-object-feedback-save]')?.addEventListener('click', async () => {

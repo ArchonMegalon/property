@@ -75,6 +75,7 @@ _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS = (
     "source_variant_failed_total",
     "listing_total",
     "raw_listing_total",
+    "scanned_listing_total",
     "reviewed_listing_total",
     "ranked_total",
     "ranked_candidate_total",
@@ -92,6 +93,7 @@ _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS = (
     "filtered_listing_mode_total",
     "location_mismatch_total",
     "min_score",
+    "score_demoted_total",
     "eta_label",
     "eta_confidence_label",
     "started_at",
@@ -144,6 +146,7 @@ _PROPERTY_SEARCH_RUN_COMPACT_SOURCE_KEYS = (
     "filtered_generic_page_total",
     "filtered_listing_mode_total",
     "filtered_low_fit_total",
+    "score_demoted_total",
     "floorplan_recovered_total",
     "provider_repair_task_opened_total",
     "provider_repair_task_existing_total",
@@ -199,6 +202,219 @@ def _quote_pg_identifier(value: str) -> str:
     return '"' + str(value or "").replace('"', '""') + '"'
 
 
+def _property_search_run_canonicalize_record(record: dict[str, object]) -> dict[str, object]:
+    payload = dict(record or {})
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    if not summary:
+        return payload
+
+    def _coerce_non_negative_int(value: object, *, default: int = 0) -> int:
+        try:
+            return max(0, int(float(str(value or "").strip())))
+        except Exception:
+            return default
+
+    blocked_statuses = {
+        "dismissed",
+        "filtered",
+        "filtered_out",
+        "hard_filtered",
+        "maybe_false",
+        "maybe_false_positive",
+        "false_positive",
+        "not_a_listing",
+        "repair_only",
+        "queued_for_repair",
+    }
+    hard_filter_reasons = {
+        "area_mismatch",
+        "availability_mismatch",
+        "generic_listing_page",
+        "listing_mode_mismatch",
+        "location_mismatch",
+        "location_scope",
+        "outside_selected_area",
+        "property_location_conflicts_with_active_search",
+        "property_missing_concrete_location",
+        "property_type_mismatch",
+        "transaction_mismatch",
+        "wrong_listing_mode",
+        "wrong_property_type",
+    }
+
+    def _candidate_is_rankable(candidate: dict[str, object]) -> bool:
+        for field in ("status", "review_status", "candidate_status", "filter_status", "repair_status"):
+            if str(candidate.get(field) or "").strip().lower() in blocked_statuses:
+                return False
+        for flag in (
+            "maybe_false",
+            "maybe_false_positive",
+            "false_positive",
+            "flagged_for_repair",
+            "repair_only",
+            "filtered_out",
+            "hard_filtered",
+            "not_a_listing",
+        ):
+            value = candidate.get(flag)
+            if isinstance(value, bool) and value:
+                return False
+            if str(value or "").strip().lower() in {"1", "true", "yes", "on"}:
+                return False
+        if str(candidate.get("hard_filter_reason") or "").strip():
+            return False
+        filter_reason = str(candidate.get("filter_reason") or "").strip().lower()
+        if filter_reason in hard_filter_reasons:
+            return False
+        return True
+
+    def _candidate_identity(candidate: dict[str, object], source_label: str) -> str:
+        explicit_ref = str(candidate.get("candidate_ref") or candidate.get("research_candidate_ref") or "").strip()
+        if explicit_ref:
+            return explicit_ref
+        property_url = urllib.parse.urldefrag(str(candidate.get("property_url") or "").strip())[0]
+        if property_url:
+            return property_url
+        review_url = str(candidate.get("review_url") or "").strip()
+        if review_url:
+            return review_url
+        title = str(candidate.get("title") or "").strip()
+        return "|".join(part for part in (source_label, title) if part).strip()
+
+    def _merge_candidate_rows(current: dict[str, object], incoming: dict[str, object]) -> dict[str, object]:
+        merged = dict(current)
+        for key, value in incoming.items():
+            if key == "property_facts":
+                current_facts = dict(merged.get("property_facts") or {}) if isinstance(merged.get("property_facts"), dict) else {}
+                incoming_facts = dict(value or {}) if isinstance(value, dict) else {}
+                if incoming_facts:
+                    current_facts.update(incoming_facts)
+                    merged["property_facts"] = current_facts
+                continue
+            if merged.get(key) in (None, "", [], {}):
+                merged[key] = value
+        return merged
+
+    sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    ranked_candidates = [
+        dict(row)
+        for row in list(summary.get("ranked_candidates") or [])
+        if isinstance(row, dict) and _candidate_is_rankable(row)
+    ]
+
+    source_ranked_candidates: list[dict[str, object]] = []
+    if sources:
+        deduped_source_candidates: dict[str, dict[str, object]] = {}
+        source_candidate_order: list[str] = []
+        for source in sources:
+            source_label = str(source.get("source_label") or source.get("label") or "").strip()
+            candidate_rows = [
+                dict(row)
+                for row in list(source.get("research_candidates") or source.get("top_candidates") or [])
+                if isinstance(row, dict)
+            ]
+            candidate_total = 0
+            for candidate in candidate_rows:
+                if not _candidate_is_rankable(candidate):
+                    continue
+                candidate.setdefault("source_label", source_label)
+                identity = _candidate_identity(candidate, source_label)
+                if not identity:
+                    continue
+                if identity in deduped_source_candidates:
+                    deduped_source_candidates[identity] = _merge_candidate_rows(deduped_source_candidates[identity], candidate)
+                else:
+                    deduped_source_candidates[identity] = dict(candidate)
+                    source_candidate_order.append(identity)
+                candidate_total += 1
+            if candidate_total > 0:
+                source["ranked_total"] = max(
+                    _coerce_non_negative_int(source.get("ranked_total")),
+                    _coerce_non_negative_int(source.get("listing_total")),
+                    candidate_total,
+                )
+                source["listing_total"] = max(
+                    _coerce_non_negative_int(source.get("listing_total")),
+                    _coerce_non_negative_int(source.get("ranked_total")),
+                    candidate_total,
+                )
+                source["scanned_listing_total"] = max(
+                    _coerce_non_negative_int(source.get("scanned_listing_total")),
+                    _coerce_non_negative_int(source.get("reviewed_listing_total")),
+                    _coerce_non_negative_int(source.get("listing_total")),
+                    candidate_total,
+                )
+                source["reviewed_listing_total"] = max(
+                    _coerce_non_negative_int(source.get("reviewed_listing_total")),
+                    _coerce_non_negative_int(source.get("scanned_listing_total")),
+                    _coerce_non_negative_int(source.get("listing_total")),
+                    candidate_total,
+                )
+        source_ranked_candidates = [deduped_source_candidates[key] for key in source_candidate_order if key in deduped_source_candidates]
+
+    if not ranked_candidates and source_ranked_candidates:
+        ranked_candidates = [dict(row) for row in source_ranked_candidates]
+        summary["ranked_candidates"] = ranked_candidates
+
+    raw_listing_total = sum(_coerce_non_negative_int(source.get("raw_listing_total")) for source in sources)
+    scanned_listing_total = sum(
+        max(
+            _coerce_non_negative_int(source.get("scanned_listing_total")),
+            _coerce_non_negative_int(source.get("reviewed_listing_total")),
+            _coerce_non_negative_int(source.get("listing_total")),
+        )
+        for source in sources
+    )
+    score_demoted_total = sum(_coerce_non_negative_int(source.get("score_demoted_total")) for source in sources)
+    if raw_listing_total > 0:
+        summary["raw_listing_total"] = max(_coerce_non_negative_int(summary.get("raw_listing_total")), raw_listing_total)
+    if scanned_listing_total > 0:
+        summary["scanned_listing_total"] = max(
+            _coerce_non_negative_int(summary.get("scanned_listing_total")),
+            _coerce_non_negative_int(summary.get("reviewed_listing_total")),
+            scanned_listing_total,
+        )
+        summary["reviewed_listing_total"] = max(
+            _coerce_non_negative_int(summary.get("reviewed_listing_total")),
+            _coerce_non_negative_int(summary.get("scanned_listing_total")),
+            scanned_listing_total,
+        )
+    if score_demoted_total > 0:
+        summary["score_demoted_total"] = max(_coerce_non_negative_int(summary.get("score_demoted_total")), score_demoted_total)
+    elif _coerce_non_negative_int(summary.get("filtered_low_fit_total")) > 0:
+        summary["score_demoted_total"] = max(
+            _coerce_non_negative_int(summary.get("score_demoted_total")),
+            _coerce_non_negative_int(summary.get("filtered_low_fit_total")),
+        )
+
+    ranked_candidate_total = len(ranked_candidates)
+    if ranked_candidate_total > 0:
+        for key in (
+            "ranked_total",
+            "ranked_candidate_total",
+            "results_total",
+            "survivor_total",
+            "listing_total",
+            "scanned_listing_total",
+            "reviewed_listing_total",
+        ):
+            summary[key] = max(_coerce_non_negative_int(summary.get(key)), ranked_candidate_total)
+
+    held_back_total = _coerce_non_negative_int(summary.get("held_back_total"))
+    filtered_total = _coerce_non_negative_int(summary.get("filtered_total"))
+    if held_back_total > 0 and filtered_total <= 0:
+        summary["filtered_total"] = held_back_total
+    elif filtered_total > 0 and held_back_total <= 0:
+        summary["held_back_total"] = filtered_total
+
+    if sources:
+        summary["sources"] = sources
+    payload["summary"] = summary
+    if not str(payload.get("status") or "").strip() and str(summary.get("status") or "").strip():
+        payload["status"] = str(summary.get("status") or "").strip()
+    return payload
+
+
 def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, object]:
     def _compact_provider_cache_row(value: object) -> dict[str, object]:
         payload = dict(value or {}) if isinstance(value, dict) else {}
@@ -252,7 +468,7 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
             ]
         return compact_row
 
-    payload = dict(record or {})
+    payload = _property_search_run_canonicalize_record(dict(record or {}))
     compact = {
         key: payload[key]
         for key in _PROPERTY_SEARCH_RUN_COMPACT_TOP_LEVEL_KEYS
@@ -296,7 +512,7 @@ def _compact_property_search_run_record_with_row_timestamps(
 ) -> dict[str, object] | None:
     if not isinstance(payload, dict):
         return None
-    compact = dict(payload or {})
+    compact = _property_search_run_canonicalize_record(dict(payload or {}))
 
     def _timestamp_text(value: object) -> str:
         if isinstance(value, datetime):
@@ -524,13 +740,14 @@ def _store_property_search_run_record(record: dict[str, object]) -> None:
     if not _property_search_run_database_url():
         return
     _ensure_property_search_run_schema()
-    run_id = str(record.get("run_id") or "").strip()
-    principal_id = str(record.get("principal_id") or "").strip()
+    normalized_record = _property_search_run_canonicalize_record(dict(record or {}))
+    run_id = str(normalized_record.get("run_id") or "").strip()
+    principal_id = str(normalized_record.get("principal_id") or "").strip()
     if not run_id or not principal_id:
         return
     from psycopg.types.json import Json
 
-    compact_record = _compact_property_search_run_record(record)
+    compact_record = _compact_property_search_run_record(normalized_record)
     status_value = str(compact_record.get("status") or "").strip() or None
     with _property_search_run_connect() as conn:
         with conn.cursor() as cur:
@@ -550,11 +767,11 @@ def _store_property_search_run_record(record: dict[str, object]) -> None:
                 (
                     run_id,
                     principal_id,
-                    Json(record),
+                    Json(normalized_record),
                     status_value,
                     Json(compact_record),
-                    str(record.get("created_at") or _now_iso()).strip() or _now_iso(),
-                    str(record.get("updated_at") or _now_iso()).strip() or _now_iso(),
+                    str(normalized_record.get("created_at") or _now_iso()).strip() or _now_iso(),
+                    str(normalized_record.get("updated_at") or _now_iso()).strip() or _now_iso(),
                 ),
             )
 
@@ -576,7 +793,11 @@ def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[
             row = cur.fetchone()
     if not row:
         return None
-    return dict(row[0] or {}) if isinstance(row[0], dict) else None
+    return (
+        _property_search_run_canonicalize_record(dict(row[0] or {}))
+        if isinstance(row[0], dict)
+        else None
+    )
 
 
 def _load_property_search_run_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:

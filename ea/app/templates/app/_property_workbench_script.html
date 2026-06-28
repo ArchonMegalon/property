@@ -298,7 +298,7 @@
       const normalized = String(planKey || 'free').trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
       return ['agent', 'agency', 'agency_tier', 'agency_lifetime', 'agency_tier_lifetime', 'agent_lifetime', 'agent_tier_lifetime'].includes(normalized);
     };
-    const hasUnlimitedProviderResults = () => isAgentPlanKey(currentPlanKey()) && currentResultCap() <= 0;
+    const hasUnlimitedProviderResults = () => currentResultCap() <= 0;
     const limitRowsForPlan = (rows, limit) => {
       const normalized = Array.isArray(rows) ? rows : [];
       return hasUnlimitedProviderResults() ? normalized.slice() : normalized.slice(0, limit);
@@ -388,7 +388,13 @@
     const finetuneToggleNode = root.querySelector('[data-pw-finetune-toggle]');
     const followupsNode = root.querySelector('[data-pw-followups]');
     const followupStatusNode = root.querySelector('[data-pw-followup-status]');
-    const visualRequestStatusNode = root.querySelector('[data-pw-visual-request-status]');
+    const setVisualRequestStatus = (message) => {
+      const text = String(message || '').trim();
+      if (!text) return;
+      root.querySelectorAll('[data-pw-visual-request-status]').forEach((node) => {
+        node.textContent = text;
+      });
+    };
     const householdNode = root.querySelector('[data-pw-household]');
     const householdScoreNode = root.querySelector('[data-pw-household-score]');
     const householdLabelNode = root.querySelector('[data-pw-household-label]');
@@ -422,7 +428,7 @@
       const isOpen = Boolean(open);
       finetunePanelNode.hidden = !isOpen;
       finetuneToggleNode.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-      finetuneToggleNode.textContent = isOpen ? 'Hide search settings' : 'Adjust my search';
+      finetuneToggleNode.textContent = isOpen ? 'Hide search settings' : 'Tune search';
     };
     finetuneToggleNode?.addEventListener('click', () => {
       setFinetunePanelOpen(finetunePanelNode?.hidden);
@@ -533,27 +539,11 @@
         next_action: 'Open the shared shortlist and review the top homes first.',
       };
     };
-    const counterfactualOnlyAdjustsRankingBar = (adjustments) => {
-      if (!adjustments || typeof adjustments !== 'object' || Array.isArray(adjustments)) return false;
-      const keys = Object.keys(adjustments).filter((key) => key && adjustments[key] !== undefined);
-      return keys.length === 1 && keys[0] === 'min_match_score';
-    };
-    const counterfactualApplyLabel = (adjustments) => (
-      counterfactualOnlyAdjustsRankingBar(adjustments) ? 'Updating ranking bar...' : 'Applying broader search...'
-    );
-    const counterfactualSaveErrorLabel = (adjustments) => (
-      counterfactualOnlyAdjustsRankingBar(adjustments) ? 'Could not update the ranking bar.' : 'Could not apply the broader search.'
-    );
-    const counterfactualRestartLabel = (adjustments) => (
-      counterfactualOnlyAdjustsRankingBar(adjustments)
-        ? 'Restarting search with the new ranking bar...'
-        : 'Restarting search...'
-    );
-    const counterfactualRestartErrorLabel = (adjustments) => (
-      counterfactualOnlyAdjustsRankingBar(adjustments)
-        ? 'Could not restart the search with the new ranking bar.'
-        : 'Could not restart property search.'
-    );
+    const counterfactualApplyLabel = (_adjustments) => 'Applying broader search...';
+    const counterfactualSaveErrorLabel = (_adjustments) => 'Could not apply the broader search.';
+    const counterfactualRefreshLabel = (_adjustments) => 'Restarting search...';
+    const counterfactualRestartLabel = (_adjustments) => 'Restarting search...';
+    const counterfactualRestartErrorLabel = (_adjustments) => 'Could not restart property search.';
     const saveCounterfactualBrief = async (adjustments) => {
       const endpoint = String(meta.preferences_endpoint || data.endpoints?.preferences || '').trim();
       if (!endpoint) throw new Error('Brief endpoint missing.');
@@ -641,6 +631,11 @@
         await pollRun(String(runBody.status_url || ''));
       }
     };
+    const refreshCurrentSurface = (statusNode) => {
+      if (statusNode) statusNode.textContent = counterfactualRefreshLabel({});
+      const currentUrl = new URL(window.location.href);
+      window.location.href = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+    };
     const recordDecisionState = async (candidate, decisionState, statusNode) => {
       if (!candidate) return;
       if (statusNode) statusNode.textContent = 'Recording decision state...';
@@ -688,7 +683,7 @@
     };
     const shortlistEmptyCtaHref = () => '/app/search';
     const shortlistEmptyResultsMarkup = () => (
-      `<div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state><strong>No shortlist yet.</strong><span class="pqx-actions"><a class="pqx-button primary" href="${escapeHtml(shortlistEmptyCtaHref())}" data-pw-shortlist-empty-cta>Start search</a></span></div>`
+      `<div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state><strong>Nothing on the shortlist yet.</strong><span class="pqx-actions"><a class="pqx-button primary" href="${escapeHtml(shortlistEmptyCtaHref())}" data-pw-shortlist-empty-cta>Start search</a></span></div>`
     );
     const rankedTotalFromSummary = (summary) => {
       const normalizedSummary = summary && typeof summary === 'object' ? summary : {};
@@ -725,9 +720,28 @@
       if (topCandidates.length) return Math.max(explicitTotal, topCandidates.length);
       return explicitTotal;
     };
+    const ensureShortlistReviewEmptyState = () => {
+      let emptyState = root.querySelector('[data-pw-shortlist-empty-state]');
+      if (emptyState) return emptyState;
+      const template = root.querySelector('template[data-pw-shortlist-empty-state-template]');
+      if (!template || !template.content) return null;
+      const reviewContent = root.querySelector('[data-pw-review-content]');
+      const fragment = template.content.cloneNode(true);
+      if (reviewContent?.parentNode) {
+        reviewContent.parentNode.insertBefore(fragment, reviewContent);
+      } else if (template.parentNode) {
+        template.parentNode.insertBefore(fragment, template.nextSibling);
+      } else {
+        root.appendChild(fragment);
+      }
+      emptyState = root.querySelector('[data-pw-shortlist-empty-state]');
+      return emptyState;
+    };
     const setShortlistReviewEmptyState = (isEmpty) => {
       const reviewContent = root.querySelector('[data-pw-review-content]');
-      const emptyState = root.querySelector('[data-pw-shortlist-empty-state]');
+      const emptyState = isEmpty
+        ? ensureShortlistReviewEmptyState()
+        : root.querySelector('[data-pw-shortlist-empty-state]');
       if (reviewContent) reviewContent.hidden = Boolean(isEmpty);
       if (emptyState) emptyState.hidden = !isEmpty;
       if (isEmpty) setMode('results');
@@ -941,9 +955,7 @@
                 button.removeAttribute('aria-disabled');
                 button.setAttribute('data-pw-visual-ready-url', nextReadyUrl);
               }
-              if (visualRequestStatusNode && nextDetail) {
-                visualRequestStatusNode.textContent = nextDetail;
-              }
+              if (nextDetail) setVisualRequestStatus(nextDetail);
             })
             .catch(() => null);
         }, pollSeconds * 1000);
@@ -958,7 +970,7 @@
       }
       const propertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
       if (!propertyUrl) {
-        if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
+        setVisualRequestStatus('No listing URL is available for this home.');
         return;
       }
       const requestKind = String(kind || 'tour').trim().toLowerCase();
@@ -967,11 +979,11 @@
         button.disabled = true;
         button.textContent = requestKind === 'flythrough' ? 'Requesting walkthrough...' : 'Requesting 3D tour...';
       }
-      if (visualRequestStatusNode) {
-        visualRequestStatusNode.textContent = requestKind === 'flythrough'
+      setVisualRequestStatus(
+        requestKind === 'flythrough'
           ? 'Requesting a walkthrough...'
-          : 'Requesting a 3D tour...';
-      }
+          : 'Requesting a 3D tour...'
+      );
       let requestSucceeded = false;
       let keepButtonDisabled = false;
       try {
@@ -1030,11 +1042,22 @@
               : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus)
                 ? 'Walkthrough is rendering now.'
                 : '')));
-        const flythroughProgress = nextFlythroughUrl
-          ? 100
-          : ((nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending')
-            ? 18
-            : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus) ? 64 : 0));
+        const nextProgressRaw = Number(payload.progress_pct);
+        const nextProgress = Number.isFinite(nextProgressRaw)
+          ? Math.max(0, Math.min(100, nextProgressRaw))
+          : (requestKind === 'flythrough'
+            ? (nextFlythroughUrl ? 100 : 0)
+            : (nextTourUrl ? 100 : 0));
+        const flythroughProgress = requestKind === 'flythrough'
+          ? nextProgress
+          : Number(candidate.flythrough?.progress_pct || 0) || 0;
+        const tourProgress = requestKind === 'tour'
+          ? nextProgress
+          : Number(candidate.tour?.progress_pct || 0) || 0;
+        const tourEtaLabel = requestKind === 'tour' ? String(payload.eta_label || '').trim() : String(candidate.tour?.eta_label || '').trim();
+        const tourDetail = requestKind === 'tour'
+          ? String(payload.status_detail || '').trim()
+          : String(candidate.tour?.detail || '').trim();
         candidate.flythrough = {
           ...(candidate.flythrough && typeof candidate.flythrough === 'object' ? candidate.flythrough : {}),
           url: nextFlythroughUrl,
@@ -1050,9 +1073,21 @@
           eta_label: flythroughEtaLabel,
           progress_pct: flythroughProgress,
         };
-        if (visualRequestStatusNode) {
-          visualRequestStatusNode.textContent = String(payload.status_detail || 'Visual request recorded.').trim();
-        }
+        candidate.tour = {
+          ...(candidate.tour && typeof candidate.tour === 'object' ? candidate.tour : {}),
+          url: nextTourUrl,
+          status: nextTourStatus,
+          label: nextTourUrl
+            ? 'Open 3D tour'
+            : ((requestKind === 'tour' && String(payload.status_label || '').trim())
+              || candidate.tour?.label
+              || '3D tour queued'),
+          detail: tourDetail,
+          eta_label: tourEtaLabel,
+          embed_url: nextTourUrl,
+          progress_pct: tourProgress,
+        };
+        setVisualRequestStatus(String(payload.status_detail || 'Visual request recorded.').trim());
         requestSucceeded = true;
         if (button) {
           if (requestKind === 'flythrough') {
@@ -1064,6 +1099,10 @@
           const requestedStatus = requestKind === 'flythrough' ? nextFlythroughStatus : nextTourStatus;
           const requestIsWaiting = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'].includes(requestedStatus);
           button.setAttribute('data-pw-visual-state', requestedReadyUrl ? 'ready' : requestedStatus);
+          button.setAttribute('data-pw-visual-progress', String(nextProgress));
+          button.setAttribute('data-pw-visual-eta', String(payload.eta_label || '').trim());
+          button.setAttribute('data-pw-visual-detail', String(payload.status_detail || '').trim());
+          button.style.setProperty('--pqx-fill', `${nextProgress}%`);
           if (requestedReadyUrl) {
             button.setAttribute('data-pw-visual-ready-url', requestedReadyUrl);
             button.classList.remove('is-processing');
@@ -1084,7 +1123,7 @@
           if (selectedNode) selectCandidate(String(candidate.candidate_ref || '').trim());
         }
       } catch (error) {
-        if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
+        setVisualRequestStatus(error instanceof Error ? error.message : 'Could not request the visual.');
       } finally {
         if (button) {
           button.disabled = keepButtonDisabled;
@@ -1149,6 +1188,21 @@
         const sourceLabel = canonicalSourceLabel(providerFailedMatch[1] || '');
         return { raw: text, fraction: '', sourceLabel, phaseLabel: compactRunMessage(text) };
       }
+      const compactLines = String(text || '').split(/\r?\n+/).map((line) => String(line || '').trim()).filter(Boolean);
+      for (const line of compactLines.slice().reverse()) {
+        const segments = line.split('·').map((segment) => String(segment || '').trim()).filter(Boolean);
+        if (segments.length < 3) continue;
+        const fractionMatch = String(segments[segments.length - 1] || '').match(/^(\d+)\s*\/\s*(\d+)$/);
+        if (!fractionMatch) continue;
+        const prefixText = segments.slice(0, -2).join(' ').toLowerCase();
+        if (!['provider', 'homes reviewed', 'checking'].some((token) => prefixText.includes(token))) continue;
+        return {
+          raw: text,
+          fraction: `${fractionMatch[1]} / ${fractionMatch[2]}`,
+          sourceLabel: canonicalSourceLabel(segments[segments.length - 2] || ''),
+          phaseLabel: compactRunMessage(line),
+        };
+      }
       const previewMatch = text.match(/^(?:Checking listing previews from|Prepared \d+ listing preview\(s\) from|Prepared preview queue for)\s+(.+?)\.?$/i);
       if (previewMatch) {
         const sourceLabel = canonicalSourceLabel(previewMatch[1] || '');
@@ -1172,7 +1226,7 @@
           raw: text,
           fraction: '',
           sourceLabel: String(shortlistMatch[2] || '').trim(),
-          phaseLabel: 'Shortlist ready',
+          phaseLabel: `Shortlist ready · ${shortlistMatch[1]} home${String(shortlistMatch[1]) === '1' ? '' : 's'}`,
         };
       }
       if (/^Prepared property page for\s+.+\.$/i.test(text)) {
@@ -2094,7 +2148,7 @@
       const shortlistReady = rankedTotalFromSummary(summary);
       const title = status === 'processed' || status === 'completed' || status === 'completed_partial'
         ? 'Results are ready'
-        : (status === 'failed' ? 'Search paused' : 'Search in progress');
+        : (status === 'failed' ? 'Search interrupted' : 'Search in progress');
       const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
       const progressFill = status === 'processed' || status === 'completed' || status === 'completed_partial' ? 100 : (progress > 0 ? progress : 4);
@@ -2459,7 +2513,10 @@
         const tourDetail = String(tour.detail || (tourUrl ? '3D tour ready' : 'Tour is on the way.')).trim();
         const tourEta = String(tour.eta_label || '').trim();
         const tourTooltip = [tourDetail, tourEta ? `ETA ${tourEta}` : ''].filter(Boolean).join(' · ');
-        const tourProgress = Math.max(0, Math.min(100, Number(tour.progress_pct || (tourPending ? 18 : (tourUrl ? 100 : 0))) || 0));
+        const tourProgressRaw = Number(tour.progress_pct);
+        const tourProgress = Number.isFinite(tourProgressRaw)
+          ? Math.max(0, Math.min(100, tourProgressRaw))
+          : (tourUrl ? 100 : 0);
         const flythrough = (candidate?.flythrough && typeof candidate.flythrough === 'object') ? candidate.flythrough : {};
         const flythroughUrl = String(candidate?.flythrough_url || flythrough.url || '').trim();
         const flythroughStatus = String(candidate?.flythrough_status || flythrough.status || '').trim().toLowerCase();
@@ -2474,7 +2531,10 @@
         ).trim();
         const flythroughEta = String(flythrough.eta_label || '').trim();
         const flythroughTooltip = [flythroughDetail, flythroughEta ? `ETA ${flythroughEta}` : ''].filter(Boolean).join(' · ');
-        const flythroughProgress = Math.max(0, Math.min(100, Number(flythrough.progress_pct || (flythroughPending ? 18 : (flythroughUrl ? 100 : 0))) || 0));
+        const flythroughProgressRaw = Number(flythrough.progress_pct);
+        const flythroughProgress = Number.isFinite(flythroughProgressRaw)
+          ? Math.max(0, Math.min(100, flythroughProgressRaw))
+          : (flythroughUrl ? 100 : 0);
         const factChips = [
           layout ? `<span class="pqx-result-fact">${escapeHtml(layout)}</span>` : '',
           tourUrl
@@ -2935,6 +2995,51 @@
     };
     initializeMobileFoldAccordions();
     window.addEventListener('resize', initializeMobileFoldAccordions);
+    const resolveMobileFoldTarget = () => {
+      const hash = String(window.location.hash || '').trim().replace(/^#/, '');
+      if (!hash) return null;
+      const target = root.querySelector(`#${CSS.escape(hash)}`);
+      if (target instanceof HTMLDetailsElement && target.matches('details.pqx-mobile-fold')) return target;
+      const fold = target?.closest?.('details.pqx-mobile-fold');
+      return fold instanceof HTMLDetailsElement ? fold : null;
+    };
+    const initializeCompactMobileSurfaceFolds = () => {
+      if (!window.matchMedia('(max-width: 760px)').matches) return;
+      const surface = String(root.dataset.pqxSurface || '').trim().toLowerCase();
+      if (!['account', 'alerts'].includes(surface)) return;
+      const folds = [...root.querySelectorAll('details.pqx-mobile-fold')].filter((node) => node instanceof HTMLDetailsElement);
+      if (!folds.length) return;
+      const targetFold = resolveMobileFoldTarget();
+      if (targetFold instanceof HTMLDetailsElement) {
+        folds.forEach((details) => {
+          details.open = details === targetFold;
+        });
+        syncMobileDetailsAccordion({
+          selector: 'details.pqx-mobile-fold',
+          openedPanel: targetFold,
+          container: root,
+          forceSingleOpen: true,
+        });
+        return;
+      }
+      folds.forEach((details) => {
+        details.open = false;
+      });
+    };
+    initializeCompactMobileSurfaceFolds();
+    window.addEventListener('hashchange', initializeCompactMobileSurfaceFolds);
+    window.addEventListener('resize', initializeCompactMobileSurfaceFolds);
+    const normalizeBillingRedirectAccountTopnav = () => {
+      if (!window.matchMedia('(max-width: 760px)').matches) return;
+      const surface = String(root.dataset.pqxSurface || '').trim().toLowerCase();
+      if (surface !== 'account') return;
+      const hash = String(window.location.hash || '').trim().toLowerCase();
+      if (hash !== '#delivery') return;
+      root.querySelector('[data-pqx-mobile-nav-menu]')?.remove();
+      root.querySelector('nav[aria-label="PropertyQuarry sections"]')?.remove();
+    };
+    normalizeBillingRedirectAccountTopnav();
+    window.addEventListener('hashchange', normalizeBillingRedirectAccountTopnav);
     const normalizeMobileTopNavigation = () => {
       if (!window.matchMedia('(max-width: 760px)').matches) return;
       const menu = root.querySelector('[data-pqx-mobile-nav-menu]');
@@ -3037,6 +3142,7 @@
       const summary = root.querySelector('[data-property-step-summary]');
       const back = root.querySelector('[data-property-step-back]');
       const next = root.querySelector('[data-property-step-next]');
+      const saveTop = root.querySelector('[data-property-save-top]');
       const actions = root.querySelector('[data-property-actions]');
       const stepNav = form.querySelector('[data-property-step-nav]');
       let current = 0;
@@ -3100,12 +3206,24 @@
           }
         });
         refreshStepLabels();
-        if (progress) progress.textContent = `${presentation.label} ${current + 1}/${visibleSteps.length}`;
+        const isMobileSearch = window.matchMedia('(max-width: 760px)').matches;
+        if (progress) {
+          progress.textContent = `${presentation.label} ${current + 1}/${visibleSteps.length}`;
+          progress.hidden = isMobileSearch;
+          progress.setAttribute('aria-hidden', isMobileSearch ? 'true' : 'false');
+        }
         if (summary) summary.textContent = presentation.detail;
         if (back) back.hidden = current === 0;
+        if (saveTop) {
+          const saveHidden = isMobileSearch;
+          saveTop.hidden = saveHidden;
+          saveTop.setAttribute('aria-hidden', saveHidden ? 'true' : 'false');
+        }
         if (next) {
-          next.hidden = current >= visibleSteps.length - 1;
-          next.textContent = current === visibleSteps.length - 2 ? 'Review launch' : 'Next';
+          const isFinalStep = current >= visibleSteps.length - 1;
+          next.hidden = false;
+          next.dataset.pqxStepMode = isFinalStep ? 'launch' : 'advance';
+          next.textContent = isFinalStep ? 'Search' : current === visibleSteps.length - 2 ? 'Review' : 'Next';
         }
         if (actions) actions.hidden = current !== visibleSteps.length - 1;
         if (!silent && stepNav && typeof stepNav.scrollIntoView === 'function') {
@@ -3125,8 +3243,16 @@
         goToStepByKey(trigger.getAttribute('data-property-step-trigger') || '');
       }, true);
       back?.addEventListener('click', () => applyStep(current - 1));
-      next?.addEventListener('click', () => applyStep(current + 1));
+      next?.addEventListener('click', () => {
+        const visibleSteps = activeSteps();
+        if (current >= visibleSteps.length - 1) {
+          startSearch();
+          return;
+        }
+        applyStep(current + 1);
+      });
       form.addEventListener('propertyquarry:wizardrefresh', () => applyStep(current, { silent: true }));
+      window.addEventListener('resize', () => applyStep(current, { silent: true }));
       fieldNodes.forEach((node) => {
         node.hidden = false;
       });
@@ -3264,8 +3390,8 @@
       ].filter(Boolean);
       const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
       const searchAgentEnabledField = form.querySelector('input[name="search_agent_enabled"]');
-      const saveWhatMattersButton = form.querySelector('[data-pqx-save-what-matters]');
-      const loadWhatMattersButton = form.querySelector('[data-pqx-load-what-matters]');
+      const saveWhatMattersButtons = [...form.querySelectorAll('[data-pqx-save-what-matters]')];
+      const loadWhatMattersButtons = [...form.querySelectorAll('[data-pqx-load-what-matters]')];
       const searchAgentDetailWraps = [
         form.querySelector('[data-property-field-name="search_agent_duration_days"]'),
         form.querySelector('[data-property-field-name="search_agent_notification_limit"]'),
@@ -3273,6 +3399,10 @@
       ].filter(Boolean);
       const fullRegionScopeFieldWrap = form.querySelector('[data-property-field-name="full_region_scope"]');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
+      const customLocationFieldWrap = form.querySelector('[data-property-field-name="custom_location_query"]');
+      const adjacentAreaRadiusValueWrap = form.querySelector('[data-property-field-name="adjacent_area_radius_value"]');
+      const adjacentAreaRadiusUnitWrap = form.querySelector('[data-property-field-name="adjacent_area_radius_unit"]');
+      const customLocationField = form.querySelector('[name="custom_location_query"]');
       const whatMattersFieldSelector = '[data-property-field-step="children"]';
       const locationMapPicker = form.querySelector('[data-location-map-picker]');
       const locationMapDialog = form.querySelector('[data-location-map-dialog]');
@@ -3392,7 +3522,7 @@
         locationMapPanY = Math.max(-maxPan, Math.min(maxPan, locationMapPanY));
         locationMapLayer.setAttribute('transform', `translate(${locationMapPanX} ${locationMapPanY}) scale(${boundedScale})`);
         locationMapPicker?.querySelectorAll('[data-location-map-zoom="reset"]').forEach((button) => {
-          button.textContent = boundedScale <= 1.02 ? '1x' : 'Fit';
+          button.textContent = boundedScale <= 1.02 ? 'Zoom' : 'Fit';
           button.setAttribute('aria-label', boundedScale <= 1.02 ? 'Zoom map' : 'Reset map zoom');
         });
       };
@@ -3416,6 +3546,7 @@
       };
       const setLocationSelectionMode = (mode) => {
         if (!locationFieldWrap) return;
+        const previousMode = String(locationFieldWrap.dataset.locationMode || '').trim().toLowerCase();
         const normalizedMode = String(mode || '').trim().toLowerCase() === 'list' ? 'list' : 'map';
         const mapAvailable = String(locationFieldWrap.dataset.locationMapAvailable || 'true') !== 'false';
         const nextMode = normalizedMode === 'map' && !mapAvailable ? 'list' : normalizedMode;
@@ -3434,6 +3565,15 @@
           button.classList.toggle('is-active', active);
           button.setAttribute('aria-pressed', active ? 'true' : 'false');
         });
+        if (
+          nextMode === 'map'
+          && previousMode !== 'map'
+          && customLocationField instanceof HTMLInputElement
+          && String(customLocationField.value || '').trim()
+        ) {
+          customLocationField.value = '';
+          customLocationField.dispatchEvent(new Event('input', { bubbles: true }));
+        }
         if (nextMode === 'list' && locationMapDialog instanceof HTMLDialogElement && locationMapDialog.open) {
           locationMapDialog.close();
           setLocationMapDialogOpenState(false);
@@ -3485,6 +3625,12 @@
         });
         return changed;
       };
+      const locationTagOverflowLabel = (selectedLocations, maxVisible = 4) => {
+        const overflowTotal = Math.max(0, selectedLocations.length - maxVisible);
+        if (!overflowTotal) return '';
+        if (maxVisible === 4) return `+${selectedLocations.length - 4} more`;
+        return `+${overflowTotal} more`;
+      };
       const renderLocationTagRail = (
         node,
         selectedLocations,
@@ -3526,7 +3672,7 @@
         if (selectedLocations.length > maxVisible) {
           const overflow = document.createElement('span');
           overflow.className = overflowClass;
-          overflow.textContent = `+${selectedLocations.length - maxVisible} more`;
+          overflow.textContent = locationTagOverflowLabel(selectedLocations, maxVisible);
           node.appendChild(overflow);
         }
       };
@@ -3585,7 +3731,8 @@
         if (locationFieldWrap) {
           locationFieldWrap.dataset.locationMapAvailable = mapAvailable ? 'true' : 'false';
           if (!locationFieldWrap.dataset.locationMode) {
-            locationFieldWrap.dataset.locationMode = mapAvailable ? 'map' : 'list';
+            const prefersListMode = customLocationField instanceof HTMLInputElement && String(customLocationField.value || '').trim();
+            locationFieldWrap.dataset.locationMode = !mapAvailable || prefersListMode ? 'list' : 'map';
           }
         }
         if (locationMapLaunch) locationMapLaunch.hidden = !mapAvailable;
@@ -3624,6 +3771,7 @@
           event.preventDefault();
           const mode = String(button.getAttribute('data-location-mode-button') || '').trim();
           setLocationSelectionMode(mode);
+          syncAreaScopeControls();
         });
       });
       locationMapOpenButton?.addEventListener('click', (event) => {
@@ -3810,7 +3958,7 @@
       });
       const initializeMobileWhatMattersAccordion = () => {
         if (!window.matchMedia('(max-width: 760px)').matches) return;
-        const firstOpen = form.querySelector('details[data-what-matters-group][open]') || form.querySelector('details[data-what-matters-group]');
+        const firstOpen = form.querySelector('details[data-what-matters-group][open]');
         if (firstOpen instanceof HTMLDetailsElement) {
           firstOpen.open = true;
           syncMobileWhatMattersAccordion(firstOpen);
@@ -3994,10 +4142,18 @@
         const isInvestment = String(searchGoalField?.value || 'home').trim().toLowerCase() === 'investment';
         return isInvestment ? 'buy' : (String(listingModeField?.value || 'rent').trim().toLowerCase() === 'buy' ? 'buy' : 'rent');
       };
+      const optionSupportsListingMode = (option, listingMode) => {
+        const normalizedMode = String(listingMode || 'rent').trim().toLowerCase() || 'rent';
+        const supportedModes = Array.isArray(option?.supported_listing_modes)
+          ? option.supported_listing_modes.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+          : [];
+        return !supportedModes.length || supportedModes.includes(normalizedMode);
+      };
       const syncProviderOptionsForMarket = () => {
         const selectedCountry = String(countryField?.value || 'AT').trim();
+        const selectedListingMode = effectiveListingMode();
         const catalog = meta.platform_catalog_by_country || {};
-        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
+        const options = (Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : []).filter((option) => optionSupportsListingMode(option, selectedListingMode));
         const currentSelection = checkedValues(form, 'selected_platforms');
         const availableValues = new Set(
           options
@@ -4006,7 +4162,7 @@
             .filter(Boolean)
         );
         const preservedSelection = currentSelection.filter((value) => availableValues.has(String(value || '').trim()));
-        const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, effectiveListingMode(), options);
+        const defaultSelection = defaultPlatformsForCountryMode(meta, selectedCountry, selectedListingMode, options);
         renderCheckboxOptions(form, 'selected_platforms', options, preservedSelection.length ? preservedSelection : defaultSelection);
         syncSelectAllButtons(form, planPlatformCap);
       };
@@ -4178,6 +4334,7 @@
         const isSearchStep = !activeStep || activeStep === 'search' || activeStep === 'areas';
         const hasAreaOptions = form.querySelectorAll('input[name="location_query"]').length > 0;
         const selectedLocations = checkedValues(form, 'location_query');
+        const customLocationValue = String(customLocationField?.value || '').trim();
         const locationLabels = new Map(
           locationOptionRows().map((row) => [String(row.value || '').trim(), String(row.label || row.value || '').trim()])
         );
@@ -4196,6 +4353,21 @@
           });
         });
         renderLocationMapPicker();
+        const mapAvailable = locationFieldWrap ? String(locationFieldWrap.dataset.locationMapAvailable || 'true') !== 'false' : false;
+        const locationModeRaw = String(locationFieldWrap?.dataset.locationMode || '').trim().toLowerCase();
+        const locationMode = locationModeRaw === 'list' || (!mapAvailable && locationModeRaw !== 'map')
+          ? 'list'
+          : 'map';
+        const hasExplicitLocationScope = selectedLocations.length > 0 || Boolean(customLocationValue);
+        const showCustomLocationField = isSearchStep && (!hasAreaOptions || locationMode === 'list');
+        const showAdjacentAreaRadiusFields = isSearchStep && hasExplicitLocationScope && !allLocationsSelected;
+        if (locationFieldWrap) {
+          locationFieldWrap.dataset.locationMode = locationMode;
+          locationFieldWrap.dataset.locationScopeReady = showAdjacentAreaRadiusFields ? 'true' : 'false';
+        }
+        setConditionalWrapVisibility(customLocationFieldWrap, showCustomLocationField, 'area_scope');
+        setConditionalWrapVisibility(adjacentAreaRadiusValueWrap, showAdjacentAreaRadiusFields, 'area_scope');
+        setConditionalWrapVisibility(adjacentAreaRadiusUnitWrap, showAdjacentAreaRadiusFields, 'area_scope');
         setConditionalWrapVisibility(fullRegionScopeFieldWrap, false, 'redundant_full_region_scope');
         if (!hasAreaOptions && fullRegionScopeField) fullRegionScopeField.checked = false;
         if (fullRegionScopeField) fullRegionScopeField.checked = allLocationsSelected;
@@ -4330,9 +4502,9 @@
         refreshRegionAndLocationChoices();
         syncMarketAwareFields(form, meta);
       });
-      form.querySelector('[name="custom_location_query"]')?.addEventListener('input', markManualGeographySelection);
-      form.querySelector('[name="custom_location_query"]')?.addEventListener('input', () => {
-        if (fullRegionScopeField && String(form.querySelector('[name="custom_location_query"]')?.value || '').trim()) {
+      customLocationField?.addEventListener('input', markManualGeographySelection);
+      customLocationField?.addEventListener('input', () => {
+        if (fullRegionScopeField && String(customLocationField?.value || '').trim()) {
           fullRegionScopeField.checked = false;
         }
         syncAreaScopeControls();
@@ -4456,25 +4628,35 @@
       form.querySelector('input[name="include_public_housing_signals"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelector('input[name="include_distressed_sale_signals"]')?.addEventListener('change', syncSearchGoalControls);
       searchAgentEnabledField?.addEventListener('change', syncSearchGoalControls);
-      saveWhatMattersButton?.addEventListener('click', async () => {
-        const status = root.querySelector('[data-property-inline-status]');
-        const error = root.querySelector('[data-property-inline-error]');
-        try {
-          if (status) status.textContent = 'Saving what matters...';
-          if (error) error.textContent = '';
-          await savePreferences();
-          savedWhatMattersSnapshot = captureWhatMattersSnapshot();
-          if (status) status.textContent = 'Saved what matters.';
-        } catch (err) {
-          if (error) error.textContent = err instanceof Error ? err.message : 'Could not save what matters.';
-        }
+      const closeWhatMattersActionMenu = (button) => {
+        const menu = button?.closest?.('details');
+        if (menu instanceof HTMLDetailsElement) menu.removeAttribute('open');
+      };
+      saveWhatMattersButtons.forEach((button) => {
+        button.addEventListener('click', async () => {
+          const status = root.querySelector('[data-property-inline-status]');
+          const error = root.querySelector('[data-property-inline-error]');
+          try {
+            if (status) status.textContent = 'Saving what matters...';
+            if (error) error.textContent = '';
+            await savePreferences();
+            savedWhatMattersSnapshot = captureWhatMattersSnapshot();
+            if (status) status.textContent = 'Saved what matters.';
+            closeWhatMattersActionMenu(button);
+          } catch (err) {
+            if (error) error.textContent = err instanceof Error ? err.message : 'Could not save what matters.';
+          }
+        });
       });
-      loadWhatMattersButton?.addEventListener('click', () => {
-        applyWhatMattersSnapshot(savedWhatMattersSnapshot);
-        const status = root.querySelector('[data-property-inline-status]');
-        const error = root.querySelector('[data-property-inline-error]');
-        if (error) error.textContent = '';
-        if (status) status.textContent = 'Loaded saved what matters.';
+      loadWhatMattersButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          applyWhatMattersSnapshot(savedWhatMattersSnapshot);
+          const status = root.querySelector('[data-property-inline-status]');
+          const error = root.querySelector('[data-property-inline-error]');
+          if (error) error.textContent = '';
+          if (status) status.textContent = 'Loaded saved what matters.';
+          closeWhatMattersActionMenu(button);
+        });
       });
       resyncSearchFormState();
       syncKeywordDistanceSelects(form);
@@ -4738,7 +4920,6 @@
         'min_area_m2',
         'available_within_years',
         'max_results_per_source',
-        'min_match_score',
         'search_agent_duration_days',
         'search_agent_notification_limit',
         'search_agent_notification_period',
@@ -4870,8 +5051,10 @@
       let rowPayload = {};
       try { rowPayload = JSON.parse(String(row?.getAttribute('data-search-agent-payload') || '{}')); } catch (_) { rowPayload = {}; }
       const loadResponse = await updateSearchAgent(agentId, 'load', {});
-      const canonicalPayload = loadResponse?.property_search_preferences && typeof loadResponse.property_search_preferences === 'object'
-        ? loadResponse.property_search_preferences
+      const canonicalPayload = loadResponse?.loaded_property_search_preferences && typeof loadResponse.loaded_property_search_preferences === 'object'
+        ? loadResponse.loaded_property_search_preferences
+        : loadResponse?.property_search_preferences && typeof loadResponse.property_search_preferences === 'object'
+          ? loadResponse.property_search_preferences
         : rowPayload;
       applySearchAgentPayloadToForm(canonicalPayload);
       showLoadedSearchAgent(row, canonicalPayload);
@@ -5121,9 +5304,16 @@
     filteredDialog?.addEventListener('click', (event) => {
       if (event.target === filteredDialog) closeFilteredDialog();
     });
-    const evidenceFactsForCandidate = (candidate) => (
-      candidate?.property_facts && typeof candidate.property_facts === 'object' ? candidate.property_facts : {}
-    );
+    const evidenceFactsForCandidate = (candidate) => {
+      const facts = candidate?.property_facts && typeof candidate.property_facts === 'object' ? candidate.property_facts : {};
+      const snapshot = facts?.listing_research_snapshot && typeof facts.listing_research_snapshot === 'object'
+        ? facts.listing_research_snapshot
+        : {};
+      return {
+        ...facts,
+        ...snapshot,
+      };
+    };
     const officialRiskSourcesForCandidate = (candidate, riskKeys = []) => {
       const facts = evidenceFactsForCandidate(candidate);
       const evidence = facts?.official_risk_evidence && typeof facts.official_risk_evidence === 'object'
@@ -5175,7 +5365,7 @@
         candidate?.tour?.url ? { source_label: candidate?.tour?.provider_label || '3D tour', url: candidate.tour.url, freshness_label: 'ready' } : null,
         candidate?.flythrough?.url ? { source_label: candidate?.flythrough?.provider_label || 'Rendered walkthrough', url: candidate.flythrough.url, freshness_label: 'ready' } : null,
       ].filter(Boolean);
-      const environmentRows = officialRiskSourcesForCandidate(candidate, ['air_quality_risk', 'noise_risk', 'heat_risk', 'flood_risk']);
+      const environmentRows = officialRiskSourcesForCandidate(candidate, ['air_quality_risk', 'noise_risk', 'heat_risk', 'heat_resilience', 'cooling_corridor', 'flood_risk']);
       const mobilityValues = [
         facts.nearest_subway_m ? `Subway ${Math.round(Number(facts.nearest_subway_m))} m` : '',
         facts.nearest_tram_bus_m ? `Transit ${Math.round(Number(facts.nearest_tram_bus_m))} m` : '',
@@ -5206,8 +5396,8 @@
           state: environmentRows.length ? 'verified' : 'unavailable',
           title: environmentRows.length ? 'Environmental context available' : 'Environmental layer not indexed',
           summary: environmentRows.length
-            ? 'Official/cached environmental evidence is attached for this micro-location. Treat risk labels as context, not as a neighborhood score.'
-            : 'Air, heat, flood, and noise context must come from cached official/Teable evidence before it can be shown.',
+            ? 'Official/cached environmental evidence is attached for this micro-location, including local summer-cooling context where available. Treat risk labels as context, not as a neighborhood score.'
+            : 'Air, heat, flood, noise, and local cooling-corridor context must come from cached official/Teable evidence before it can be shown.',
           rows: environmentRows,
           source: sourceChip(environmentRows, 'Teable environmental rollup missing'),
           freshness: freshness(environmentRows),
@@ -5487,9 +5677,6 @@
       const counterfactualActionLabel = (value) => {
         const amount = Math.max(0, Number(value || 0) || 0);
         const fallbackLabel = String(actionButton?.getAttribute('data-pqx-counterfactual-action-default') || actionButton?.textContent || '').trim();
-        if (kind === 'ranking_bar') {
-          return amount <= 0 ? 'Turn bar off' : `Use ${Math.round(amount)}/100`;
-        }
         if (kind === 'radius') {
           return `Use ${Math.round(amount).toLocaleString(undefined, { maximumFractionDigits: 0 })} m radius`;
         }
@@ -5534,6 +5721,10 @@
         if (localStatusNode) localStatusNode.textContent = counterfactualApplyLabel(adjustments);
         try {
           const nextPreferences = await saveCounterfactualBrief(adjustments);
+          if (counterfactualOnlyAdjustsRankingBar(adjustments)) {
+            refreshCurrentSurface(localStatusNode);
+            return;
+          }
           await startSearchWithPreferences(nextPreferences, localStatusNode, adjustments);
         } catch (error) {
           if (localStatusNode) localStatusNode.textContent = error instanceof Error ? error.message : counterfactualSaveErrorLabel(adjustments);

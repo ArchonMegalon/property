@@ -108,8 +108,8 @@
       </p>
       <ul class="tier-facts">
         <li><span>Sources</span><strong>{% if plan.max_platforms > 0 %}{{ plan.max_platforms }}{% else %}All{% endif %}</strong></li>
-        <li><span>Per provider</span><strong>{% if plan.max_results_per_source > 0 %}{{ plan.max_results_per_source }}{% else %}All ranked{% endif %}</strong></li>
-        <li><span>Score ceiling</span><strong>{{ plan.max_match_score }}/100</strong></li>
+        <li><span>360 requests</span><strong>{% if plan.auto_tour_policy == 'all_opt_in' %}Every home{% elif plan.auto_tour_policy == 'shortlist_opt_in' %}Shortlist{% else %}Selected homes{% endif %}</strong></li>
+        <li><span>Interior styles</span><strong>{{ plan.furniture_style_limit }}</strong></li>
         <li><span>Research</span><strong>{{ plan.research_depth }}</strong></li>
         <li><span>Saved searches</span><strong>{% if plan.search_agent_limit > 0 %}{{ plan.search_agent_limit }}{% else %}Unlimited{% endif %}</strong></li>
       </ul>
@@ -135,7 +135,7 @@
         <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="pricing_sign_in_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_to_upgrade" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to upgrade</a>
         <span class="tier-provider">Secure checkout.</span>
         {% elif pricing_checkout_session_ready %}
-        <a class="btn ghost" href="{{ pricing_signed_in_billing_href or '/app/account#delivery' }}" data-analytics-event="pricing_billing_{{ plan.plan_key }}" data-rybbit-event="pricing_open_billing_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Open billing account</a>
+        <a class="btn ghost" href="{{ pricing_signed_in_billing_href or '/app/account?billing=1#delivery' }}" data-analytics-event="pricing_billing_{{ plan.plan_key }}" data-rybbit-event="pricing_open_billing_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Open billing account</a>
         <span class="tier-provider">Use your active account lane.</span>
         {% else %}
         <a class="btn ghost" href="/sign-in?signing_in=1" data-analytics-event="pricing_account_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to start</a>

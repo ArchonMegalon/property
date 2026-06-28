@@ -64,15 +64,32 @@
         }
       });
     };
+    const resolveMobileFoldTarget = () => {
+      const hash = String(window.location.hash || '').trim().replace(/^#/, '');
+      if (!hash) return null;
+      const target = root.querySelector(`#${CSS.escape(hash)}`);
+      if (target instanceof HTMLDetailsElement && target.matches('details.pqx-mobile-fold')) return target;
+      const fold = target?.closest?.('details.pqx-mobile-fold');
+      return fold instanceof HTMLDetailsElement ? fold : null;
+    };
     const initializeMobileFoldAccordions = () => {
       bindMobileFoldPanels();
       if (!window.matchMedia('(max-width: 760px)').matches) return;
-      const firstOpen = root.querySelector('details.pqx-mobile-fold[open]') || root.querySelector('details.pqx-mobile-fold');
-      if (firstOpen instanceof HTMLDetailsElement) {
-        firstOpen.open = true;
-        syncMobileDetailsAccordion(firstOpen, true);
+      const folds = [...root.querySelectorAll('details.pqx-mobile-fold')].filter((node) => node instanceof HTMLDetailsElement);
+      if (!folds.length) return;
+      const targetFold = resolveMobileFoldTarget();
+      if (targetFold instanceof HTMLDetailsElement) {
+        folds.forEach((details) => {
+          details.open = details === targetFold;
+        });
+        syncMobileDetailsAccordion(targetFold, true);
+        return;
       }
+      folds.forEach((details) => {
+        details.open = false;
+      });
     };
     initializeMobileFoldAccordions();
     window.addEventListener('resize', initializeMobileFoldAccordions);
+    window.addEventListener('hashchange', initializeMobileFoldAccordions);
   })();

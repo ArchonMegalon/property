@@ -289,7 +289,7 @@ def test_property_search_agent_management_rows_edit_in_search_editor() -> None:
     assert rows[0]["secondary_action_href"] == "/app/search?load_agent=agent-vienna&run_id=run-live-42"
 
 
-def test_property_search_agent_loads_saved_filters_into_current_preferences() -> None:
+def test_property_search_agent_load_returns_saved_filters_without_overwriting_current_preferences() -> None:
     client = build_property_client(principal_id="exec-property-search-agent-load")
     start_workspace(client, mode="personal", workspace_name="Property office")
 
@@ -364,18 +364,26 @@ def test_property_search_agent_loads_saved_filters_into_current_preferences() ->
     loaded = client.post(f"/v1/onboarding/property-search/agents/{second_agent_id}", json={"action": "load"})
     assert loaded.status_code == 200, loaded.text
     preferences = loaded.json()["property_search_preferences"]
-    assert preferences["active_search_agent_id"] == second_agent_id
-    assert preferences["country_code"] == "CR"
-    assert preferences["region_code"] == "puntarenas"
-    assert preferences["location_query"] == "Monteverde"
-    assert preferences["property_type"] == "land"
-    assert preferences["selected_platforms"] == ["re_cr_mls"]
-    assert preferences["min_area_m2"] == 1200
-    assert preferences["max_price_eur"] == 350000
-    assert preferences["keywords"] == "seezugang, jungle"
-    assert preferences["search_agent_duration_days"] == 365
-    assert preferences["search_agent_notification_limit"] == 6
-    assert preferences["search_agent_notification_period"] == "week"
+    loaded_preferences = loaded.json()["loaded_property_search_preferences"]
+    assert preferences["country_code"] == "AT"
+    assert preferences["region_code"] == "vienna"
+    assert preferences["location_query"] == "1020 Wien"
+    assert preferences["property_type"] == "apartment"
+    assert preferences["selected_platforms"] == ["willhaben"]
+    assert preferences["min_area_m2"] == 70
+    assert preferences["max_price_eur"] == 650000
+    assert loaded.json()["loaded_search_agent_id"] == second_agent_id
+    assert loaded_preferences["country_code"] == "CR"
+    assert loaded_preferences["region_code"] == "puntarenas"
+    assert loaded_preferences["location_query"] == "Monteverde"
+    assert loaded_preferences["property_type"] == ["land"]
+    assert loaded_preferences["selected_platforms"] == ["re_cr_mls"]
+    assert loaded_preferences["min_area_m2"] == 1200
+    assert loaded_preferences["max_price_eur"] == 350000
+    assert loaded_preferences["keywords"] == "seezugang, jungle"
+    assert loaded_preferences["search_agent_duration_days"] == 365
+    assert loaded_preferences["search_agent_notification_limit"] == 6
+    assert loaded_preferences["search_agent_notification_period"] == "week"
 
 
 def test_agent_saved_search_payload_drops_stale_result_cap_on_save_and_load() -> None:
@@ -426,7 +434,7 @@ def test_agent_saved_search_payload_drops_stale_result_cap_on_save_and_load() ->
     assert loaded.json()["property_search_preferences"].get("max_results_per_source") is None
 
 
-def test_plus_saved_search_payload_clamps_stale_result_cap_on_save_and_load() -> None:
+def test_plus_saved_search_payload_drops_stale_result_cap_on_save_and_load() -> None:
     client = build_property_client(principal_id="exec-property-plus-search-agent-max-results")
     start_workspace(client, mode="personal", workspace_name="Property office")
 
@@ -467,11 +475,11 @@ def test_plus_saved_search_payload_clamps_stale_result_cap_on_save_and_load() ->
         for agent in saved.json()["property_search_preferences"]["search_agents"]
         if agent["agent_id"] == agent_id
     )
-    assert saved_agent["preferences_json"]["max_results_per_source"] == 5
+    assert "max_results_per_source" not in saved_agent["preferences_json"]
 
     loaded = client.post(f"/v1/onboarding/property-search/agents/{agent_id}", json={"action": "load"})
     assert loaded.status_code == 200, loaded.text
-    assert loaded.json()["property_search_preferences"].get("max_results_per_source") == 5
+    assert loaded.json()["property_search_preferences"].get("max_results_per_source") is None
 
 
 def test_saved_search_load_payload_prefers_saved_preferences_over_current_brief_defaults() -> None:
@@ -558,7 +566,7 @@ def test_agent_saved_search_format_payload_drops_stale_result_cap() -> None:
     assert "max_results_per_source" not in formatted["load_payload"]
 
 
-def test_plus_saved_search_format_payload_clamps_stale_result_cap() -> None:
+def test_plus_saved_search_format_payload_drops_stale_result_cap() -> None:
     formatted = format_property_search_agent(
         {
             "name": "Vienna rent watch",
@@ -598,7 +606,7 @@ def test_plus_saved_search_format_payload_clamps_stale_result_cap() -> None:
         },
     )
 
-    assert formatted["load_payload"]["max_results_per_source"] == 5
+    assert "max_results_per_source" not in formatted["load_payload"]
 
 
 def test_investment_saved_search_snapshot_forces_buy_and_investment_labels() -> None:
@@ -842,6 +850,34 @@ def test_property_search_agent_payloads_do_not_embed_other_agents() -> None:
         assert "active_search_agent_id" not in payload
         assert "raw_preferences" not in payload
         assert "property_commercial" not in payload
+
+
+def test_property_search_preferences_drop_removed_match_bar_from_saved_preferences_and_agent_payloads() -> None:
+    normalized = OnboardingService._normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "min_match_score": 35,
+            "search_agent_enabled": True,
+            "search_agents": [
+                {
+                    "agent_id": "agent-vienna",
+                    "country_code": "AT",
+                    "location_query": "Vienna",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "location_query": "Vienna",
+                        "min_match_score": 20,
+                    },
+                }
+            ],
+        }
+    )
+
+    assert "min_match_score" not in normalized
+    assert "min_match_score" not in normalized["raw_preferences"]
+    assert "min_match_score" not in normalized["search_agents"][0]["preferences_json"]
 
 
 def test_property_search_preferences_recover_paid_commercial_state_from_teable(monkeypatch) -> None:

@@ -49,14 +49,17 @@ def test_property_notification_preview_html_contains_action_surface_links() -> N
             assert action in html, f"{action!r} missing from {key}"
 
 
-def test_search_results_ready_preview_includes_compare_reason() -> None:
+def test_search_results_ready_preview_uses_fit_note_language() -> None:
     preview = property_notification_preview("search_results_ready")
     text = str(preview.get("text") or "")
     html = str(preview.get("html") or "")
 
-    assert "Why it won:" in text
-    assert "Why it won" in html
-    assert "scored 5 points higher" in text or "includes a floorplan" in text
+    assert "Fit note:" in text
+    assert "Fit note" in html
+    assert "Why it won" not in text
+    assert "Why it won" not in html
+    assert "ahead of the next option" not in text
+    assert "A floorplan is already available." in text
 
 
 def test_property_notification_preview_plaintext_never_exposes_raw_urls() -> None:

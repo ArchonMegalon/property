@@ -71,18 +71,44 @@ def _rollup_rows(payload: dict[str, object]) -> list[dict[str, object]]:
     return []
 
 
+def _facts_with_snapshot(facts: dict[str, object]) -> dict[str, object]:
+    snapshot = (
+        dict(facts.get("listing_research_snapshot") or {})
+        if isinstance(facts.get("listing_research_snapshot"), dict)
+        else {}
+    )
+    return {**snapshot, **dict(facts or {})}
+
+
 def _candidate_lookup_values(facts: dict[str, object], candidate: dict[str, object]) -> dict[str, str]:
+    merged_facts = _facts_with_snapshot(dict(facts or {}))
     values: dict[str, str] = {}
     for key in ("candidate_ref", "property_url", "source_ref", "source_url"):
-        value = _string(candidate.get(key) or facts.get(key))
+        value = _string(candidate.get(key) or merged_facts.get(key))
         if value:
             values[key] = value.casefold()
     for key in ("postal_code", "postal_name", "district", "neighborhood", "street", "street_address", "address"):
-        value = _string(facts.get(key) or candidate.get(key))
+        value = _string(merged_facts.get(key) or candidate.get(key))
         if value:
             values[key] = value.casefold()
-    lat = _string(facts.get("lat") or facts.get("latitude") or candidate.get("lat") or candidate.get("latitude"))
-    lon = _string(facts.get("lon") or facts.get("lng") or facts.get("longitude") or candidate.get("lon") or candidate.get("lng") or candidate.get("longitude"))
+    lat = _string(
+        merged_facts.get("map_lat")
+        or merged_facts.get("lat")
+        or merged_facts.get("latitude")
+        or candidate.get("map_lat")
+        or candidate.get("lat")
+        or candidate.get("latitude")
+    )
+    lon = _string(
+        merged_facts.get("map_lng")
+        or merged_facts.get("lon")
+        or merged_facts.get("lng")
+        or merged_facts.get("longitude")
+        or candidate.get("map_lng")
+        or candidate.get("lon")
+        or candidate.get("lng")
+        or candidate.get("longitude")
+    )
     if lat and lon:
         values["property_coordinate"] = f"{lat},{lon}".casefold()
     return values
@@ -160,6 +186,77 @@ def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, st
     }
 
 
+def _first_official_source(facts: dict[str, object], risk_keys: set[str]) -> dict[str, object]:
+    official = (
+        dict(facts.get("official_risk_evidence") or {})
+        if isinstance(facts.get("official_risk_evidence"), dict)
+        else {}
+    )
+    for row in list(official.get("sources") or []):
+        if not isinstance(row, dict):
+            continue
+        risk_key = _string(row.get("risk_key") or row.get("key")).casefold()
+        if risk_key in risk_keys:
+            return dict(row)
+    return {}
+
+
+def _derived_summer_heat_overlay(layer: dict[str, object], facts: dict[str, object]) -> dict[str, object] | None:
+    merged_facts = _facts_with_snapshot(dict(facts or {}))
+    cooling_summary = _string(merged_facts.get("cooling_corridor_summary"))
+    cooling_signal = _string(merged_facts.get("cooling_corridor_signal")).casefold()
+    heat_risk = _string(
+        merged_facts.get("heat_resilience_risk")
+        or merged_facts.get("urban_heat_risk")
+        or merged_facts.get("summer_heat_risk")
+    ).casefold()
+    official_source = _first_official_source(merged_facts, {"heat_resilience", "cooling_corridor"})
+    official_summary = _string(official_source.get("summary"))
+    if not any((cooling_summary, cooling_signal, heat_risk, official_summary, merged_facts.get("tree_shade_signal"), merged_facts.get("green_shade_signal"))):
+        return None
+    summary = (
+        cooling_summary
+        or official_summary
+        or (
+            "Nearby tree or courtyard shade can soften summer heat for this address."
+            if bool(merged_facts.get("tree_shade_signal") or merged_facts.get("green_shade_signal"))
+            else "Summer heat context is attached for this address."
+        )
+    )
+    uncertainty = "attached climate evidence"
+    if cooling_signal in {"strong", "moderate", "weak"}:
+        uncertainty = f"microclimate hint ({cooling_signal})"
+    source_name = (
+        _string(official_source.get("source_label"))
+        or _string(official_source.get("provider"))
+        or "Attached climate evidence"
+    )
+    detail_parts = [summary, f"source: {source_name}", f"uncertainty: {uncertainty}"]
+    return {
+        "layer_key": _string(layer.get("layer_key")),
+        "title": _string(layer.get("title")) or "Summer heat",
+        "ui_state": "verified",
+        "tag": "Ready",
+        "detail": " | ".join(part for part in detail_parts if part),
+        "source_name": source_name,
+        "source_url": _string(official_source.get("source_url")),
+        "article_url": "",
+        "cache_updated_at": "",
+        "source_updated_at": "",
+        "uncertainty_label": uncertainty,
+        "teable_table": _string(layer.get("teable_table")),
+        "read_model": _string(layer.get("read_model")),
+        "search_policy": _string(layer.get("search_policy")),
+    }
+
+
+def _derived_overlay_for_layer(layer: dict[str, object], facts: dict[str, object]) -> dict[str, object] | None:
+    layer_key = _string(layer.get("layer_key"))
+    if layer_key == "summer_heat":
+        return _derived_summer_heat_overlay(layer, facts)
+    return None
+
+
 def build_property_evidence_overlay_rows(
     *,
     facts: dict[str, object],
@@ -186,5 +283,5 @@ def build_property_evidence_overlay_rows(
         if matched:
             rows.append(_overlay_from_rollup(layer, matched, stale_after_days=stale_after_days))
         else:
-            rows.append(_unavailable_overlay(layer))
+            rows.append(_derived_overlay_for_layer(layer, facts) or _unavailable_overlay(layer))
     return rows

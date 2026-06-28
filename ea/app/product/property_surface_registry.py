@@ -192,7 +192,7 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         routes=(
             "/app/account",
             "/app/account#profile",
-            "/app/account#delivery",
+            "/app/account?billing=1#delivery",
             "/app/profile",
             "/app/alerts",
             "/app/settings/access",
@@ -262,14 +262,14 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="email_delivery",
         group="delivery",
         label="Email alerts and digests",
-        routes=("/app/account#delivery", "/app/api/channel-loop"),
+        routes=("/app/account?billing=1#delivery", "/app/api/channel-loop"),
         artifacts=("email digest", "delivery receipt"),
     ),
     PropertySurface(
         key="telegram_delivery",
         group="delivery",
         label="Telegram review messages",
-        routes=("/app/account#delivery", "/v1/channels/telegram/ingest", "/v1/channels/telegram/ingest/:bot_key"),
+        routes=("/app/account?billing=1#delivery", "/v1/channels/telegram/ingest", "/v1/channels/telegram/ingest/:bot_key"),
         artifacts=("Telegram alert", "appendix link"),
     ),
     PropertySurface(
@@ -277,7 +277,7 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         group="delivery",
         label="WhatsApp alerts and template messages",
         routes=(
-            "/app/account#delivery",
+            "/app/account?billing=1#delivery",
             "/v1/integrations/heyy/whatsapp/webhook",
             "/app/api/integrations/heyy/notifications/property-match",
             "/app/api/integrations/heyy/notifications/search-agent-digest",

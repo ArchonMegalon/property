@@ -313,15 +313,9 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert alerts.status_code == 200
     assert "Recent outbound property follow-ups" in alerts.text
 
-    billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=property_headers)
-    assert billing.status_code == 503
-    assert "Billing portal unavailable" in billing.text
-    assert "Your plan" not in billing.text
-    assert "Current search access" not in billing.text
-    assert "Current commercial state" not in billing.text
-    assert "Plan posture" not in billing.text
-    assert "Commercial decision" not in billing.text
-    assert "Plus checkout" not in billing.text
+    billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=property_headers, follow_redirects=False)
+    assert billing.status_code == 303
+    assert billing.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
@@ -338,7 +332,6 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
             "property_type": "apartment",
             "location_query": "Vienna",
             "selected_platforms": ["willhaben"],
-            "min_match_score": 80,
         },
     )
     assert stored.status_code == 200, stored.text
@@ -347,17 +340,12 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
     assert response.status_code == 200
     assert 'data-console-form-variant="property_search"' in response.text
 
-
-    assert 'name="min_match_score"' in response.text
-    assert 'type="range"' in response.text
-    assert 'max="60"' in response.text
-    assert 'data-range-selectable-max="35"' in response.text
-    assert 'data-range-visual-max="60"' in response.text
-    assert 'data-range-value-for="min_match_score"' in response.text
+    assert 'name="min_match_score"' not in response.text
+    assert 'data-range-value-for="min_match_score"' not in response.text
     assert 'data-range-control="max_price_eur"' in response.text
     assert 'data-range-control="min_rooms"' in response.text
     assert 'data-range-control="min_area_m2"' in response.text
-    assert 'data-range-control="max_results_per_source"' in response.text
+    assert 'data-range-control="max_results_per_source"' not in response.text
     assert 'name="search_agent_enabled"' in response.text
     assert 'name="search_agent_duration_days"' in response.text
     assert 'name="search_agent_notification_limit"' in response.text
@@ -365,21 +353,17 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
     assert 'data-range-format="currency_eur"' in response.text
     assert 'data-range-format="rooms"' in response.text
     assert 'data-range-format="area_m2"' in response.text
-    assert 'data-range-format="count"' in response.text
+    assert 'data-range-format="count"' not in response.text
     assert 'data-range-format="agent_duration_days"' in response.text
     assert 'data-range-format="notification_count"' in response.text
     assert 'data-range-empty-label="Any budget"' in response.text
     assert 'data-range-preset="listing_mode_price"' in response.text
     assert "Max budget" in response.text
     assert "Min area" in response.text
-    assert "Plan cap 35" in response.text
-    assert "Agent unlocks 60" in response.text
-    assert "Ranking bar" in response.text
     assert "Search agent" in response.text
     assert "Messages per" in response.text
-    assert "It does not remove homes from the run" in response.text
-    assert "Set it to Off when you want one broad ranked list" in response.text
-    assert "min_match_score: integerValue(form, 'min_match_score')" in response.text
+    assert "Ranking bar" not in response.text
+    assert "min_match_score: integerValue(form, 'min_match_score')" not in response.text
 
 
 def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(monkeypatch) -> None:

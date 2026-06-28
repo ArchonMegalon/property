@@ -10,6 +10,7 @@ from app.services.property_market_catalog import (
     default_platforms_for_country,
     default_platforms_for_country_listing_mode,
     evidence_source_options,
+    filter_selectable_property_platform_details,
     filter_selectable_property_platforms,
     generated_source_specs,
     country_options,
@@ -148,6 +149,9 @@ def test_normalize_property_search_preferences_filters_unselectable_providers() 
     assert payload["selected_platforms"] == ["willhaben"]
     assert payload["provider_selection_filter_applied"] is True
     assert payload["provider_selection_filter_removed"] == ["community_signals_at", "rightmove"]
+    removed_details = {row["platform"]: row for row in payload["provider_selection_filter_removed_details"]}
+    assert removed_details["community_signals_at"]["reason"] == "not_search_ready"
+    assert removed_details["rightmove"]["reason"] == "wrong_country"
 
 
 def test_normalize_property_search_preferences_defaults_to_at_and_drops_foreign_providers() -> None:
@@ -163,6 +167,11 @@ def test_normalize_property_search_preferences_defaults_to_at_and_drops_foreign_
     assert payload["selected_platforms"] == ["willhaben"]
     assert payload["provider_selection_filter_applied"] is True
     assert payload["provider_selection_filter_removed"] == ["realestate_au", "otodom"]
+    removed_details = {row["platform"]: row for row in payload["provider_selection_filter_removed_details"]}
+    assert removed_details["realestate_au"]["reason"] == "wrong_country"
+    assert removed_details["realestate_au"]["provider_country_code"] == "AU"
+    assert removed_details["otodom"]["reason"] == "wrong_country"
+    assert removed_details["otodom"]["provider_country_code"] == "PL"
 
 
 def test_filter_selectable_property_platforms_honors_mode_country_and_readiness() -> None:
@@ -174,6 +183,19 @@ def test_filter_selectable_property_platforms_honors_mode_country_and_readiness(
 
     assert kept == ()
     assert removed == ("willhaben", "community_signals_at", "rightmove", "corporate_landlords_de")
+    kept_details, removed_details = filter_selectable_property_platform_details(
+        ("willhaben", "community_signals_at", "rightmove", "corporate_landlords_de"),
+        country_code="DE",
+        listing_mode="buy",
+    )
+    assert kept_details == ()
+    removal_reasons = {row["platform"]: row["reason"] for row in removed_details}
+    assert removal_reasons == {
+        "willhaben": "wrong_country",
+        "community_signals_at": "wrong_country",
+        "rightmove": "wrong_country",
+        "corporate_landlords_de": "listing_mode_unsupported",
+    }
 
 
 def test_normalize_property_search_preferences_investment_goal_forces_buy_without_forcing_underwriting_on() -> None:
@@ -322,7 +344,7 @@ def test_normalize_property_search_preferences_clamps_search_agent_controls() ->
     assert payload["search_agent_notification_period"] == "week"
 
 
-def test_normalize_property_search_preferences_preserves_zero_match_bar() -> None:
+def test_normalize_property_search_preferences_drops_removed_match_bar() -> None:
     payload = normalize_property_search_preferences(
         {
             "country_code": "AT",
@@ -332,7 +354,7 @@ def test_normalize_property_search_preferences_preserves_zero_match_bar() -> Non
         }
     )
 
-    assert payload["min_match_score"] == 0
+    assert "min_match_score" not in payload
 
 
 def test_normalize_property_search_preferences_scopes_full_region_backend_runs() -> None:

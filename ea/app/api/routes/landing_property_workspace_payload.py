@@ -30,6 +30,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_candidate_route_evidence,
     _property_candidate_display_facts,
     _property_postal_codes_from_text,
+    _property_postal_names_from_text,
     _property_counterfactual_rows,
     _property_family_filters_active,
     _property_market_filter_capabilities,
@@ -51,9 +52,15 @@ from app.product.property_surface_state import (
     property_mode_visibility_label,
     property_run_customer_safe_status_detail,
     property_run_customer_visible_events,
+    property_run_public_eta_label,
 )
 from app.product.property_score_methodology import build_property_score_methodology
 from app.product.property_delivery_governance import property_delivery_governance_rows
+from app.product.service import (
+    _property_visual_eta_label,
+    _property_visual_progress_pct,
+    _property_visual_terminal_status_for_reason,
+)
 from app.services.property_billing import normalize_property_plan_key
 
 
@@ -472,6 +479,43 @@ def property_workspace_payload(
     billing_handoff = dict(property_state.get("billing_handoff") or {})
     saved_property_preferences = dict(property_state.get("preferences") or {})
     preference_bundle = dict(property_state.get("preference_bundle") or {})
+    if wants_agent_views and not property_search_agents:
+        raw_saved_agents = [
+            dict(agent)
+            for agent in list(saved_property_preferences.get("search_agents") or [])
+            if isinstance(agent, dict)
+        ]
+        normalized_saved_agents: list[dict[str, object]] = []
+        selected_agent_hint = str(property_state.get("selected_agent_id") or "").strip()
+        for index, raw_agent in enumerate(raw_saved_agents):
+            agent_row = dict(raw_agent)
+            agent_id = str(agent_row.get("agent_id") or "current").strip() or "current"
+            scope_label = str(
+                agent_row.get("scope_label")
+                or agent_row.get("location_query")
+                or agent_row.get("area_label")
+                or "No scope saved"
+            ).strip() or "No scope saved"
+            enabled = bool(agent_row.get("enabled"))
+            is_active = bool(agent_row.get("is_active"))
+            if not is_active and selected_agent_hint and agent_id == selected_agent_hint:
+                is_active = True
+            if not is_active and not selected_agent_hint and index == 0:
+                is_active = True
+            agent_row.setdefault("agent_id", agent_id)
+            agent_row.setdefault("scope_label", scope_label)
+            agent_row.setdefault("status_label", "Active" if enabled else "Paused")
+            agent_row.setdefault("delivery_label", "Set a daily or weekly cap.")
+            agent_row.setdefault("notification_label", "Budget")
+            agent_row.setdefault("run_label", "Waiting for the first run.")
+            agent_row["is_active"] = is_active
+            normalized_saved_agents.append(agent_row)
+        if normalized_saved_agents:
+            property_search_agents = normalized_saved_agents
+            property_search_agent = next(
+                (agent for agent in property_search_agents if agent.get("is_active")),
+                property_search_agents[0],
+            )
     raw_preference_nodes = (
         [
             dict(row)
@@ -548,7 +592,11 @@ def property_workspace_payload(
         property_meta = trimmed_meta
     run_payload = dict(property_state.get("run") or {})
     run_property_preferences = dict(run_payload.get("property_search_preferences") or {}) if isinstance(run_payload.get("property_search_preferences"), dict) else {}
-    property_preferences = {**saved_property_preferences, **run_property_preferences}
+    property_preferences = (
+        dict(saved_property_preferences)
+        if normalized_section in {"search", "agents", "alerts", "account", "billing", "settings"}
+        else {**saved_property_preferences, **run_property_preferences}
+    )
     preference_person_id = str(property_state.get("preference_person_id") or property_preferences.get("preference_person_id") or "self").strip() or "self"
     brief_preferences_payload = dict(property_preferences)
     for heavy_key in (
@@ -583,7 +631,20 @@ def property_workspace_payload(
     route_recovery = dict(property_state.get("route_recovery") or {})
     run_events = property_run_customer_visible_events(run_payload=run_payload)
     raw_run_summary = dict(run_payload.get("summary") or {})
-    run_summary = _property_customer_run_summary(raw_run_summary)
+    run_summary = _property_customer_run_summary(raw_run_summary, preferences=property_preferences)
+    run_eta_label = property_run_public_eta_label(
+        run_health.get("eta_label") or run_summary.get("eta_label") or run_payload.get("eta_label")
+    )
+    run_next_useful_eta_label = property_run_public_eta_label(run_summary.get("next_useful_update_eta_label"))
+    run_summary = dict(run_summary)
+    if run_eta_label:
+        run_summary["eta_label"] = run_eta_label
+    else:
+        run_summary.pop("eta_label", None)
+    if run_next_useful_eta_label:
+        run_summary["next_useful_update_eta_label"] = run_next_useful_eta_label
+    else:
+        run_summary.pop("next_useful_update_eta_label", None)
 
     def _plan_label_from_key(plan_key: object) -> str:
         normalized_plan_key = normalize_property_plan_key(plan_key or "free")
@@ -607,6 +668,7 @@ def property_workspace_payload(
         **run_payload,
         "summary": run_summary,
         "message": str(run_health.get("message") or run_payload.get("message") or "").strip(),
+        "eta_label": run_eta_label,
         "events": run_events,
     }
 
@@ -651,23 +713,32 @@ def property_workspace_payload(
         if isinstance(candidate, dict)
         and _property_candidate_is_rankable(candidate)
     ]
-    if normalized_section in {"properties", "shortlist", "research"} and ranked_candidates:
-        shortlist_candidates = _dedupe_shortlist_candidates([*ranked_candidates, *shortlist_candidates])
-    if not shortlist_candidates:
-        if ranked_candidates:
-            shortlist_candidates = ranked_candidates
+    synthesized_ranked_candidates: list[dict[str, object]] = []
+    if not ranked_candidates:
+        for source in raw_run_sources:
+            source_label = str(source.get("source_label") or source.get("label") or "").strip()
+            for candidate in [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]:
+                if not _property_candidate_is_rankable(candidate):
+                    continue
+                candidate["_active_run_ranked"] = True
+                candidate.setdefault("source_label", source_label)
+                synthesized_ranked_candidates.append(candidate)
+        synthesized_ranked_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+    active_run_candidates = ranked_candidates or synthesized_ranked_candidates
+    explicit_run_surface = bool(str(run_payload.get("run_id") or "").strip())
+    if normalized_section in {"properties", "shortlist", "research"} and active_run_candidates:
+        if explicit_run_surface:
+            shortlist_candidates = list(active_run_candidates)
         else:
-            synthesized_candidates: list[dict[str, object]] = []
-            for source in raw_run_sources:
-                source_label = str(source.get("source_label") or source.get("label") or "").strip()
-                for candidate in [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]:
-                    if not _property_candidate_is_rankable(candidate):
-                        continue
-                    candidate["_active_run_ranked"] = True
-                    candidate.setdefault("source_label", source_label)
-                    synthesized_candidates.append(candidate)
-            synthesized_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
-            shortlist_candidates = synthesized_candidates
+            shortlist_candidates = _dedupe_shortlist_candidates([*active_run_candidates, *shortlist_candidates])
+    elif not shortlist_candidates:
+        shortlist_candidates = list(active_run_candidates)
+    if not management_surface and active_run_candidates and not list(run_summary_for_surface.get("ranked_candidates") or []):
+        run_summary_for_surface = {
+            **dict(run_summary_for_surface),
+            "ranked_candidates": [dict(candidate) for candidate in active_run_candidates],
+        }
+        run_payload_for_surface = {**run_payload_for_surface, "summary": run_summary_for_surface}
 
     def _normalize_verified_candidate_tour(candidate: dict[str, object]) -> dict[str, object]:
         normalized = dict(candidate)
@@ -833,6 +904,23 @@ def property_workspace_payload(
         except Exception:
             pass
         return 0
+
+    def _run_homes_checked_total(summary: dict[str, object] | None) -> int:
+        summary_row = dict(summary or {})
+        return _local_int(
+            summary_row.get("reviewed_listing_total")
+            or summary_row.get("raw_listing_total")
+            or summary_row.get("listing_total")
+        )
+
+    def _run_outcome_compact_detail(run_row: dict[str, object] | None) -> str:
+        row = dict(run_row or {})
+        return (
+            f"Ranked {_local_int(row.get('ranked_total'))}"
+            f" | Sent {_local_int(row.get('sent_total'))}"
+            f" | Outside brief {_local_int(row.get('held_back_total'))}"
+        )
+
     fleet_digest_stats = dict(fleet_digest.get("stats") or {}) if isinstance(fleet_digest.get("stats"), dict) else {}
     active_fleet_lanes = _local_int(fleet_digest_stats.get("active_lanes"))
     queued_fleet_lanes = _local_int(fleet_digest_stats.get("queued_lanes"))
@@ -896,7 +984,7 @@ def property_workspace_payload(
         )
         for index, row in enumerate(list(property_state.get("recent_search_runs") or []))
         if isinstance(row, dict) and str(row.get("run_id") or "").strip()
-    ] if wants_search_runs else []
+    ] if (wants_search_runs or wants_agent_views) else []
     if wants_search_runs or wants_agent_views:
         selected_agent_context = select_property_search_agent(
             property_search_agents,
@@ -974,8 +1062,16 @@ def property_workspace_payload(
             counterfactual_rows=counterfactual_rows,
             recent_packets=[],
             previous_search_runs=[],
-            search_agents=[],
-            search_agent={},
+            search_agents=(
+                property_search_agents
+                if normalized_section != "search" or bool(str(property_state.get("selected_agent_id") or "").strip())
+                else []
+            ),
+            search_agent=(
+                property_search_agent
+                if normalized_section != "search" or bool(str(property_state.get("selected_agent_id") or "").strip())
+                else {}
+            ),
             results=[],
             search_guard_rows=[],
             suppression_rows=[],
@@ -1212,6 +1308,69 @@ def property_workspace_payload(
             return f"Blocked | {blocked_reason.replace('_', ' ')}"
         return f"Unavailable | {_tour_source_gap_detail(candidate)}"
 
+    _pending_visual_states = {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
+
+    def _visual_runtime_payload(
+        candidate: dict[str, object],
+        *,
+        request_kind: str,
+        status: object,
+        ready_url: object = "",
+        eta_minutes: object = "",
+        reason: object = "",
+    ) -> dict[str, object]:
+        normalized_kind = "flythrough" if str(request_kind or "").strip().lower() == "flythrough" else "tour"
+        normalized_status = str(status or "").strip().lower()
+        ready_href = str(ready_url or "").strip()
+        normalized_reason = str(reason or "").strip()
+        if normalized_reason:
+            terminal_status = _property_visual_terminal_status_for_reason(
+                request_kind=normalized_kind,
+                reason=normalized_reason,
+            )
+            if terminal_status and not ready_href and normalized_status in _pending_visual_states:
+                normalized_status = terminal_status
+                eta_minutes = ""
+        requested_at_key = "flythrough_requested_at" if normalized_kind == "flythrough" else "tour_requested_at"
+        updated_at_key = "flythrough_status_updated_at" if normalized_kind == "flythrough" else "tour_status_updated_at"
+        progress_key = "flythrough_progress_pct" if normalized_kind == "flythrough" else "tour_progress_pct"
+        requested_at = str(candidate.get(requested_at_key) or "").strip()
+        status_updated_at = str(candidate.get(updated_at_key) or "").strip()
+        try:
+            progress_pct = (
+                int(float(str(candidate.get(progress_key) or "").strip()))
+                if str(candidate.get(progress_key) or "").strip()
+                else 0
+            )
+        except Exception:
+            progress_pct = 0
+        eta_label = _property_visual_eta_label(
+            request_kind=normalized_kind,
+            status=normalized_status,
+            eta_minutes=eta_minutes,
+            requested_at=requested_at,
+            status_updated_at=status_updated_at,
+        )
+        if progress_pct <= 0:
+            progress_pct = _property_visual_progress_pct(
+                request_kind=normalized_kind,
+                status=normalized_status,
+                ready_url=ready_href,
+                eta_minutes=eta_minutes,
+                requested_at=requested_at,
+                status_updated_at=status_updated_at,
+            )
+        if normalized_status == "repairing" and not ready_href:
+            progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
+            eta_label = "refreshing"
+        return {
+            "status": normalized_status,
+            "progress_pct": progress_pct,
+            "eta_label": eta_label,
+            "requested_at": requested_at,
+            "status_updated_at": status_updated_at,
+        }
+
     def _distance_line(candidate: dict[str, object]) -> str:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         family_filters_active = _property_family_filters_active(property_preferences)
@@ -1345,7 +1504,7 @@ def property_workspace_payload(
             ("air_quality_risk", "Risk", "Air quality needs explicit verification for this micro-location."),
             ("crime_risk", "Risk", "Crime and safety burden need explicit verification for this quarter."),
             ("parking_pressure_risk", "Risk", "Parking pressure still needs clarification if no garage is included."),
-            ("heat_resilience_risk", "Check", "Summer heat resilience needs verification for this home."),
+            ("heat_resilience_risk", "Check", "Summer heat resilience needs verification for this home, including shade, cooling, and local cooling-corridor context."),
             ("drinking_water_risk", "Risk", "Water source and groundwater burden still need verification."),
             ("cesspit_risk", "Risk", "Senkgrube or septic burden still needs verification."),
             ("winter_access_risk", "Risk", "Winter driving access still needs verification."),
@@ -1391,7 +1550,7 @@ def property_workspace_payload(
             ("air_quality_risk", "Air quality", "Location-risk research should verify pollution burden and recurring exposure."),
             ("crime_risk", "Crime burden", "Quarter-level safety pattern still needs verification."),
             ("parking_pressure_risk", "Parking pressure", "Street-parking burden still needs verification where no garage is included."),
-            ("heat_resilience_risk", "Summer heat", "Check whether the home can stay cooler through longer heat periods using climate, floor, orientation, cooling, shade, and facade-shading evidence."),
+            ("heat_resilience_risk", "Summer heat", "Check whether the home can stay cooler through longer heat periods using climate, floor, orientation, cooling, shade, facade-shading, and local cooling-corridor evidence."),
             ("drinking_water_risk", "Water quality", "Drinking-water source and groundwater burden still need verification."),
             ("cesspit_risk", "Senkgrube or septic", "Recurring cost, smell, or maintenance burden still need verification."),
             ("winter_access_risk", "Winter access", "Snow, slope, and seasonal driveability still need verification."),
@@ -1399,7 +1558,22 @@ def property_workspace_payload(
         ):
             if bool(facts.get(risk_key)):
                 rows.append({"title": title, "detail": detail, "tag": "Risk"})
-        for note in list(facts.get("austria_preference_notes") or [])[:2]:
+        austria_notes = [
+            str(note or "").strip()
+            for note in list(facts.get("austria_preference_notes") or [])
+            if str(note or "").strip()
+        ]
+        austria_notes.sort(
+            key=lambda note: (
+                0
+                if any(
+                    token in note.lower()
+                    for token in ("flowing water", "cooling-corridor", "summer heat", "local summer cooling")
+                )
+                else 1
+            )
+        )
+        for note in austria_notes[:2]:
             detail = str(note or "").strip()
             if detail:
                 rows.append({"title": "Austria fit rule", "detail": detail.capitalize(), "tag": "Eligibility"})
@@ -1597,12 +1771,19 @@ def property_workspace_payload(
                     if provider_key in verified_provider_keys
                     else "3D tour is live."
                 )
+                visual_runtime = _visual_runtime_payload(
+                    candidate,
+                    request_kind="tour",
+                    status="ready",
+                    ready_url=verified_tour_url,
+                )
                 return {
                     "status": "ready",
                     "label": "360 ready",
                     "url": verified_tour_url,
                     "embed_url": verified_tour_url,
-                    "eta_label": "",
+                    "eta_label": visual_runtime["eta_label"],
+                    "progress_pct": visual_runtime["progress_pct"],
                     "provider_label": provider_label,
                     "provider_key": provider_key,
                     "status_detail": status_detail,
@@ -1615,6 +1796,7 @@ def property_workspace_payload(
                 "url": "",
                 "embed_url": "",
                 "eta_label": "A live 3D tour is not available for this listing yet.",
+                "progress_pct": 0,
                 "provider_label": provider_label,
                 "provider_key": provider_key,
                 "status_detail": _hosted_tour_unavailable_detail(),
@@ -1629,12 +1811,19 @@ def property_workspace_payload(
             except Exception:
                 provider_key = ""
             provider_label = _visual_provider_label(provider_key) if provider_key else "Original tour"
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="tour",
+                status="ready",
+                ready_url=provider_tour_url,
+            )
             return {
                 "status": "source",
                 "label": "Original tour",
                 "url": provider_tour_url,
                 "embed_url": provider_tour_url,
                 "eta_label": "Original tour",
+                "progress_pct": visual_runtime["progress_pct"],
                 "provider_label": provider_label,
                 "provider_key": provider_key,
                 "status_detail": f"{provider_label} is available, but no in-page 3D tour is ready yet.",
@@ -1642,38 +1831,59 @@ def property_workspace_payload(
                 "control_label": f"Open {provider_label}" if provider_key else "Open original tour",
             }
         if status in {"queued", "pending"}:
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="tour",
+                status=status,
+                eta_minutes=eta_minutes,
+            )
             return {
-                "status": "queued",
+                "status": visual_runtime["status"],
                 "label": "360 queued",
                 "url": "",
                 "embed_url": "",
-                "eta_label": f"about {eta_minutes or '10'} min",
+                "eta_label": visual_runtime["eta_label"],
+                "progress_pct": visual_runtime["progress_pct"],
                 "provider_label": "",
                 "provider_key": "",
-                "status_detail": "Tour request queued.",
+                "status_detail": "Tour request is still queued. Taking longer than usual." if str(visual_runtime["eta_label"]).startswith("delayed") else "Tour request queued.",
                 "recovery_label": "",
                 "control_label": "",
             }
         if status in {"processing", "running", "in_progress", "started", "rendering"}:
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="tour",
+                status=status,
+                eta_minutes=eta_minutes,
+            )
             return {
-                "status": "processing",
+                "status": visual_runtime["status"],
                 "label": "360 rendering",
                 "url": "",
                 "embed_url": "",
-                "eta_label": f"about {eta_minutes or '5'} min",
+                "eta_label": visual_runtime["eta_label"],
+                "progress_pct": visual_runtime["progress_pct"],
                 "provider_label": "",
                 "provider_key": "",
-                "status_detail": "Tour is rendering now.",
+                "status_detail": "Tour is still rendering. Taking longer than usual." if str(visual_runtime["eta_label"]).startswith("delayed") else "Tour is rendering now.",
                 "recovery_label": "",
                 "control_label": "",
             }
         if status == "repairing":
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="tour",
+                status=status,
+                eta_minutes=eta_minutes,
+            )
             return {
-                "status": "processing",
+                "status": visual_runtime["status"],
                 "label": "360 repair running",
                 "url": "",
                 "embed_url": "",
-                "eta_label": "refreshing",
+                "eta_label": visual_runtime["eta_label"],
+                "progress_pct": visual_runtime["progress_pct"],
                 "provider_label": "",
                 "provider_key": "",
                 "status_detail": "Tour is being refreshed.",
@@ -1687,6 +1897,7 @@ def property_workspace_payload(
                 "url": "",
                 "embed_url": "",
                 "eta_label": _tour_source_gap_detail(candidate),
+                "progress_pct": 0,
                 "provider_label": "",
                 "provider_key": "",
                 "status_detail": _tour_source_gap_detail(candidate),
@@ -1700,6 +1911,7 @@ def property_workspace_payload(
             "url": "",
             "embed_url": "",
             "eta_label": gap_detail,
+            "progress_pct": 0,
             "provider_label": "",
             "provider_key": "",
             "status_detail": gap_detail,
@@ -1723,52 +1935,87 @@ def property_workspace_payload(
             published_flythrough_url = ""
         if verified_flythrough_url or published_flythrough_url:
             open_url = verified_flythrough_url or published_flythrough_url
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="flythrough",
+                status="ready",
+                ready_url=open_url,
+            )
             return {
                 "status": "ready",
                 "label": "Open walkthrough",
                 "url": open_url,
                 "detail": "Walkthrough ready",
-                "progress_pct": 100,
-                "eta_label": "",
+                "progress_pct": visual_runtime["progress_pct"],
+                "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
                 "status_detail": "Walkthrough ready on this page.",
                 "recovery_label": "",
             }
         if status in {"queued", "pending"}:
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="flythrough",
+                status=status,
+                eta_minutes=str(candidate.get("flythrough_eta_minutes") or "").strip(),
+                reason=reason,
+            )
             return {
-                "status": "queued",
+                "status": visual_runtime["status"],
                 "label": "Walkthrough queued",
                 "url": "",
                 "detail": "Queued after your request.",
-                "progress_pct": 18,
-                "eta_label": "about 10 min",
+                "progress_pct": visual_runtime["progress_pct"],
+                "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
-                "status_detail": f"{provider_label} render is queued behind the current visual batch." if provider_label else "Walkthrough is queued behind the current visual batch.",
+                "status_detail": (
+                    f"{provider_label} render is still queued. Taking longer than usual."
+                    if provider_label and str(visual_runtime["eta_label"]).startswith("delayed")
+                    else f"{provider_label} render is queued behind the current visual batch."
+                    if provider_label
+                    else "Walkthrough is still queued behind the current visual batch."
+                    if str(visual_runtime["eta_label"]).startswith("delayed")
+                    else "Walkthrough is queued behind the current visual batch."
+                ),
                 "recovery_label": "",
             }
         if status in {"processing", "running", "in_progress", "started", "rendering"}:
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="flythrough",
+                status=status,
+                eta_minutes=str(candidate.get("flythrough_eta_minutes") or "").strip(),
+                reason=reason,
+            )
             return {
-                "status": "processing",
+                "status": visual_runtime["status"],
                 "label": "Walkthrough in progress",
                 "url": "",
                 "detail": "Rendering after your request.",
-                "progress_pct": 64,
-                "eta_label": "about 5 min",
+                "progress_pct": visual_runtime["progress_pct"],
+                "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
-                "status_detail": "Walkthrough is rendering now.",
+                "status_detail": "Walkthrough is still rendering. Taking longer than usual." if str(visual_runtime["eta_label"]).startswith("delayed") else "Walkthrough is rendering now.",
                 "recovery_label": "",
             }
         if status == "repairing":
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="flythrough",
+                status=status,
+                eta_minutes=str(candidate.get("flythrough_eta_minutes") or "").strip(),
+                reason=reason,
+            )
             return {
-                "status": "processing",
+                "status": visual_runtime["status"],
                 "label": "Walkthrough in progress",
                 "url": "",
                 "detail": "The request stalled, so PropertyQuarry restarted the background render.",
-                "progress_pct": 72,
-                "eta_label": "refreshing",
+                "progress_pct": visual_runtime["progress_pct"],
+                "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
                 "status_detail": "Walkthrough is being refreshed.",
@@ -2136,6 +2383,51 @@ def property_workspace_payload(
         )
         return bool(_property_postal_codes_from_text(text, require_locality=True))
 
+    def _candidate_conflicts_selected_locality(
+        candidate: dict[str, object],
+        facts: dict[str, object],
+        *,
+        selected_locations: list[str],
+    ) -> bool:
+        requested_postal_codes = {
+            code
+            for value in selected_locations
+            for code in _property_postal_codes_from_text(value)
+            if code
+        }
+        requested_localities = {
+            str(label.split(" ", 1)[1] or "").strip().casefold()
+            for value in selected_locations
+            for label in _property_postal_names_from_text(value)
+            if " " in label
+        }
+        if not requested_localities:
+            return False
+        candidate_text = " ".join(
+            part
+            for part in (
+                str(candidate.get("title") or "").strip(),
+                str(candidate.get("summary") or "").strip(),
+                str(facts.get("district") or "").strip(),
+                str(facts.get("postal_name") or "").strip(),
+                str(facts.get("street_address") or "").strip(),
+                str(facts.get("exact_address") or "").strip(),
+                str(facts.get("address") or "").strip(),
+            )
+            if part
+        )
+        candidate_localities = {
+            str(label.split(" ", 1)[1] or "").strip().casefold()
+            for label in _property_postal_names_from_text(candidate_text)
+            if " " in label
+        }
+        candidate_postal_codes = {code for code in _property_postal_codes_from_text(candidate_text) if code}
+        if requested_postal_codes and candidate_postal_codes and not requested_postal_codes.isdisjoint(candidate_postal_codes):
+            return False
+        if not candidate_localities:
+            return False
+        return requested_localities.isdisjoint(candidate_localities)
+
     def _candidate_is_shortlist_admissible(
         candidate: dict[str, object],
         facts: dict[str, object],
@@ -2144,11 +2436,6 @@ def property_workspace_payload(
         selected_locations: list[str],
     ) -> bool:
         active_run_ranked = bool(candidate.get("_active_run_ranked"))
-        requested_postal_codes = {
-            code
-            for value in selected_locations
-            for code in _property_postal_codes_from_text(value, require_locality=False)
-        }
         source_family = str(candidate.get("source_family") or facts.get("source_family") or "").strip().lower()
         has_price_signal = bool(_candidate_price_signal(facts, listing_mode=listing_mode, title=candidate.get("title")))
         has_area_signal = bool(
@@ -2156,25 +2443,16 @@ def property_workspace_payload(
             or str(facts.get("area_sqm") or "").strip()
             or str(facts.get("usable_area_sqm") or "").strip()
         )
-        if active_run_ranked and requested_postal_codes:
-            listing_text = " ".join(
-                part
-                for part in (
-                    str(candidate.get("title") or "").strip(),
-                    str(candidate.get("summary") or "").strip(),
-                    str(candidate.get("property_url") or "").strip(),
-                )
-                if part
-            )
-            listing_postal_codes = set(_property_postal_codes_from_text(listing_text, require_locality=True))
-            if listing_postal_codes and not (listing_postal_codes & requested_postal_codes):
-                return False
-        if active_run_ranked:
-            return True
         if _candidate_is_non_residential(candidate, facts):
             return False
         if _candidate_is_generic_listing_page(candidate, facts):
             return False
+        if active_run_ranked:
+            return not _candidate_conflicts_selected_locality(
+                candidate,
+                facts,
+                selected_locations=selected_locations,
+            )
         if not active_run_ranked:
             if not _candidate_has_concrete_location_signal(candidate, facts):
                 return False
@@ -2442,7 +2720,7 @@ def property_workspace_payload(
         }
         def _surface_candidate_with_normalized_mismatches(candidate: dict[str, object]) -> dict[str, object]:
             candidate_row = dict(candidate)
-            candidate_facts = dict(candidate_row.get("property_facts") or {}) if isinstance(candidate_row.get("property_facts"), dict) else {}
+            candidate_facts = _property_candidate_display_facts(candidate_row)
             candidate_row["mismatch_reasons"] = _property_normalized_mismatch_reasons(
                 [_clean_property_candidate_copy(item) for item in list(candidate_row.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)],
                 facts=candidate_facts,
@@ -2553,7 +2831,7 @@ def property_workspace_payload(
         "research": [
             {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready for inspection.", "href": f"/app/research{run_suffix}"},
             {"label": "Tours", "value": str(tour_ready_total), "detail": "Candidates already backed by a live tour or original 360.", "href": f"/app/research{run_suffix}"},
-            {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Homes considered in the latest run.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Homes checked", "value": str(_run_homes_checked_total(run_summary)), "detail": "Homes checked in the latest run.", "href": f"/app/properties{run_suffix}"},
             {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest research pass.", "href": f"/app/properties{run_suffix}"},
         ],
         "profile": [
@@ -2578,7 +2856,7 @@ def property_workspace_payload(
             {"label": "Plan", "value": current_plan_label, "detail": "Active plan.", "href": signed_in_billing_href},
             {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "Research depth for each property.", "href": signed_in_billing_href},
             {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Portal allowance for the active plan.", "href": signed_in_billing_href},
-            {"label": "Per provider", "value": ("All ranked" if int(commercial.get("max_results_per_source") or 0) <= 0 else str(commercial.get("max_results_per_source") or 2)), "detail": "Maximum ranked homes per provider.", "href": signed_in_billing_href},
+            {"label": "Saved searches", "value": ("Unlimited" if int(commercial.get("search_agent_limit") or 0) <= 0 else str(commercial.get("search_agent_limit") or 1)), "detail": "Briefs that can keep running in the background.", "href": signed_in_billing_href},
         ],
         "settings": [
             {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
@@ -2776,9 +3054,12 @@ def property_workspace_payload(
     current_plan_key = normalize_property_plan_key(commercial.get("current_plan_key") or "free")
     current_plan_spec = next((plan for plan in plan_catalog if str(plan.get("plan_key") or "").strip().lower() == current_plan_key), {})
     current_platform_cap = int(current_plan_spec.get("max_platforms") or commercial.get("max_platforms") or 0)
-    current_result_cap = int(current_plan_spec.get("max_results_per_source") or commercial.get("max_results_per_source") or 0)
-    current_result_cap_label = "all ranked results per provider" if current_result_cap <= 0 else f"up to {current_result_cap} results per provider"
-    current_match_cap = int(current_plan_spec.get("max_match_score") or commercial.get("max_match_score") or 0)
+    current_search_agent_limit = int(current_plan_spec.get("search_agent_limit") or commercial.get("search_agent_limit") or 0)
+    current_search_agent_limit_label = (
+        "unlimited saved searches"
+        if current_search_agent_limit <= 0
+        else f"{current_search_agent_limit} saved search{'es' if current_search_agent_limit != 1 else ''}"
+    )
     commercial_state = dict(commercial.get("property_commercial") or {})
     commercial_status = str(commercial_state.get("status") or "").strip().lower()
     has_active_paid_plan = current_plan_key in {"plus", "agent"} and commercial_status in {"active", "trialing"}
@@ -2838,7 +3119,7 @@ def property_workspace_payload(
         ),
         row_item(
             "Coverage",
-            f"{commercial.get('max_platforms') or 'Multi'} providers | {current_result_cap_label}",
+            f"{commercial.get('max_platforms') or 'Multi'} providers | {current_search_agent_limit_label}",
             "Limits",
         ),
         row_item(
@@ -2901,12 +3182,14 @@ def property_workspace_payload(
         if not plan_key or plan_key == current_plan_key:
             continue
         platform_cap = int(plan.get("max_platforms") or 0)
-        result_cap = int(plan.get("max_results_per_source") or 0)
-        match_cap = int(plan.get("max_match_score") or 0)
+        search_agent_limit = int(plan.get("search_agent_limit") or 0)
         delta_parts = [
             f"{platform_cap} platforms" if platform_cap else "",
-            "all ranked results per provider" if result_cap <= 0 else f"{result_cap} results per provider",
-            f"{match_cap}/100 match ceiling" if match_cap else "",
+            (
+                "unlimited saved searches"
+                if search_agent_limit <= 0
+                else f"{search_agent_limit} saved search{'es' if search_agent_limit != 1 else ''}"
+            ),
             f"{str(plan.get('research_depth') or '').strip()} research".strip() if str(plan.get("research_depth") or "").strip() else "",
         ]
         improvement_parts = []
@@ -2914,12 +3197,10 @@ def property_workspace_payload(
             improvement_parts.append(f"+{platform_cap - current_platform_cap} more portals")
         elif platform_cap < current_platform_cap:
             improvement_parts.append(f"{current_platform_cap - platform_cap} fewer platforms, but a tighter working lane")
-        if result_cap <= 0 and current_result_cap > 0:
-            improvement_parts.append("unlimited ranked results per provider")
-        elif result_cap > current_result_cap:
-            improvement_parts.append(f"+{result_cap - current_result_cap} more results per provider")
-        if match_cap > current_match_cap:
-            improvement_parts.append(f"+{match_cap - current_match_cap} points of shortlist ceiling")
+        if search_agent_limit <= 0 and current_search_agent_limit > 0:
+            improvement_parts.append("unlimited saved searches")
+        elif search_agent_limit > current_search_agent_limit:
+            improvement_parts.append(f"+{search_agent_limit - current_search_agent_limit} more saved searches")
         billing_upgrade_rows.append(
             row_item(
                 str(plan.get("display_name") or "Plan"),
@@ -2933,14 +3214,14 @@ def property_workspace_payload(
         billing_upgrade_rows = [
             row_item(
                 "No live upgrade catalog available",
-                "Payment metadata is not loaded yet. The current plan still governs portals, shortlist density, and research depth.",
+                "Payment metadata is not loaded yet. The current plan still governs provider coverage, saved searches, and research depth.",
                 "Catalog",
             )
         ]
     billing_decision_rows = [
         row_item(
             "Stay on the current tier",
-            "Use the current plan until a real run needs more portals, more ranked homes, or deeper research.",
+            "Use the current plan until a real run needs broader provider coverage or deeper research.",
             "Decision",
         ),
         row_item(
@@ -2953,7 +3234,7 @@ def property_workspace_payload(
         billing_decision_rows.append(
             row_item(
                 "First paid move",
-                "Plus buys a denser working shortlist; Agent is the full-depth lane.",
+                "Plus adds deeper review on a wider provider set; Agent opens the full provider lane.",
                 "Next tier",
             )
         )
@@ -3041,7 +3322,7 @@ def property_workspace_payload(
     for candidate in admitted_shortlist_candidates[:6]:
         title = str(candidate.get("title") or "Research packet").strip() or "Research packet"
         reasons = list(candidate.get("match_reasons") or [])[:2]
-        candidate_facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        candidate_facts = _property_candidate_display_facts(candidate)
         mismatches = _property_normalized_mismatch_reasons(
             [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)],
             facts=candidate_facts,
@@ -3105,7 +3386,7 @@ def property_workspace_payload(
             "title": "Delivery path",
             "detail": "Email, Telegram, and WhatsApp stay quiet until the shortlist is credible enough to notify.",
             "tag": "Alerts",
-            "action_href": "/app/account#delivery",
+            "action_href": "/app/account?billing=1#delivery",
             "action_method": "get",
             "action_label": "Review delivery",
         },
@@ -3178,7 +3459,7 @@ def property_workspace_payload(
                         "detail": "Checking the saved brief.",
                     }
                 ),
-                {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
+                {"label": "Homes checked", "value": str(_run_homes_checked_total(run_summary)), "detail": "Homes checked so far."},
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
                 {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready now."},
@@ -3210,7 +3491,7 @@ def property_workspace_payload(
         },
         "research": {
             "title": "Research",
-            "summary": "Turn high-fit candidates into property dossiers with evidence, property pages, and hosted follow-ups.",
+            "summary": "Turn ranked candidates into property dossiers with evidence, property pages, and hosted follow-ups.",
             "hero_kicker": "Research pages",
             "hero_title": "Inspect the evidence before you open the raw listing.",
             "hero_summary": "This page should feel like a property dossier: fit reasons, open details, property pages, and live tours where they exist.",
@@ -3326,7 +3607,7 @@ def property_workspace_payload(
                             row_item(
                                 "Latest finished run",
                                 (
-                                    f"Ranked {str((selected_agent_latest_run or {}).get('ranked_total') or 0)} | Sent {str((selected_agent_latest_run or {}).get('sent_total') or 0)} | Filtered {str((selected_agent_latest_run or {}).get('held_back_total') or 0)}"
+                                    _run_outcome_compact_detail(selected_agent_latest_run)
                                     if selected_agent_latest_run
                                     else "No finished run for this saved search yet."
                                 ),
@@ -3353,7 +3634,7 @@ def property_workspace_payload(
                         row_item(
                             "Latest outcome",
                             (
-                                f"Ranked {str((selected_agent_latest_run or {}).get('ranked_total') or 0)} | Sent {str((selected_agent_latest_run or {}).get('sent_total') or 0)} | Filtered {str((selected_agent_latest_run or {}).get('held_back_total') or 0)}"
+                                _run_outcome_compact_detail(selected_agent_latest_run)
                                 if selected_agent_latest_run
                                 else "No finished recurring run has produced a delivery summary yet."
                             ),
@@ -3389,7 +3670,7 @@ def property_workspace_payload(
                         [
                             {
                                 "title": str(run.get("title") or "Saved search"),
-                                "detail": f"{str(run.get('status_label') or 'Run').strip()} | Ranked {str(run.get('ranked_total') or 0)} | Sent {str(run.get('sent_total') or 0)} | Filtered {str(run.get('held_back_total') or 0)}",
+                                "detail": f"{str(run.get('status_label') or 'Run').strip()} | {_run_outcome_compact_detail(run)}",
                                 "tag": str(run.get("top_fit_score") or 0),
                                 "action_href": str(run.get("href") or ""),
                                 "action_method": "get",
@@ -3397,7 +3678,7 @@ def property_workspace_payload(
                             }
                             for run in (selected_agent_runs[:3] if selected_agent_runs else previous_search_runs[:3])
                         ]
-                        or [row_item("No finished run yet", "The first completed sweep will show ranked, sent, and held-back counts here.", "Waiting")]
+                        or [row_item("No finished run yet", "The first completed run will show ranked, sent, and outside-brief totals here.", "Waiting")]
                     ),
                 },
                 run_card,
@@ -3674,7 +3955,7 @@ def property_workspace_payload(
                     "status": run_status_value or "not_started",
                     "progress": int(run_health.get("progress") or run_payload.get("progress") or 0),
                     "message": run_status_note or run_message,
-                    "eta_label": str(run_health.get("eta_label") or run_payload.get("eta_label") or "").strip(),
+                    "eta_label": run_eta_label,
                     "summary": run_summary_for_surface,
                 },
                 results_total=int(shortlist_snapshot.get("results_total") or len(workbench_results)),
@@ -3729,8 +4010,16 @@ def property_workspace_payload(
             if isinstance(item, dict)
         ],
         previous_search_runs=[] if normalized_section == "search" else previous_search_runs,
-        search_agents=[] if normalized_section == "search" else property_search_agents,
-        search_agent={} if normalized_section == "search" else property_search_agent,
+        search_agents=(
+            property_search_agents
+            if normalized_section != "search" or bool(str(property_state.get("selected_agent_id") or "").strip())
+            else []
+        ),
+        search_agent=(
+            property_search_agent
+            if normalized_section != "search" or bool(str(property_state.get("selected_agent_id") or "").strip())
+            else {}
+        ),
         results=workbench_results,
         search_guard_rows=[],
         suppression_rows=suppression_rows,
@@ -3746,13 +4035,17 @@ def property_workspace_payload(
         },
         selected_candidate_ref=str(shortlist_snapshot.get("selected_candidate_ref") or selected_result.get("candidate_ref") or "").strip(),
         selected=selected_result,
-        empty_outcome=build_property_empty_outcome_summary(
-            run_summary=run_summary,
-            run_sources=run_sources,
-            run_status_value=run_status_value,
-            run_message=run_message,
-            counterfactual_rows=counterfactual_rows,
-            suppression_rows=suppression_rows,
+        empty_outcome=(
+            {}
+            if bool(shortlist_snapshot.get("has_results"))
+            else build_property_empty_outcome_summary(
+                run_summary=run_summary,
+                run_sources=run_sources,
+                run_status_value=run_status_value,
+                run_message=run_message,
+                counterfactual_rows=counterfactual_rows,
+                suppression_rows=suppression_rows,
+            )
         ),
         packet_recovery=packet_recovery,
         route_recovery=route_recovery,

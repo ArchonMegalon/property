@@ -86,6 +86,7 @@ def property_search_run_default_summary(
         "filtered_generic_page_total": 0,
         "filtered_listing_mode_total": 0,
         "filtered_low_fit_total": 0,
+        "score_demoted_total": 0,
         "provider_cache_hit_total": 0,
         "provider_cache_refresh_total": 0,
         "public_property_cache_hit_total": 0,
@@ -98,6 +99,27 @@ def property_search_run_default_summary(
             str(value or "").strip()
             for value in list(preferences.get("provider_country_filter_removed") or [])
             if str(value or "").strip()
+        ],
+        "provider_country_filter_removed_details": [
+            {
+                "platform": str(dict(row).get("platform") or "").strip(),
+                "provider_label": str(dict(row).get("provider_label") or "").strip(),
+                "reason": str(dict(row).get("reason") or "").strip(),
+                "requested_country_code": str(dict(row).get("requested_country_code") or "").strip(),
+                "requested_country_label": str(dict(row).get("requested_country_label") or "").strip(),
+                "provider_country_code": str(dict(row).get("provider_country_code") or "").strip(),
+                "provider_country_label": str(dict(row).get("provider_country_label") or "").strip(),
+                "requested_listing_mode": str(dict(row).get("requested_listing_mode") or "").strip(),
+                "supported_listing_modes": [
+                    str(value or "").strip()
+                    for value in list(dict(row).get("supported_listing_modes") or [])
+                    if str(value or "").strip()
+                ],
+                "search_ready": bool(dict(row).get("search_ready")),
+                "market_readiness": str(dict(row).get("market_readiness") or "").strip(),
+            }
+            for row in list(preferences.get("provider_country_filter_removed_details") or [])
+            if isinstance(row, dict) and str(dict(row).get("platform") or "").strip()
         ],
         "watch_notified_total": 0,
         "top_fit_score": 0.0,

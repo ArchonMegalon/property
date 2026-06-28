@@ -3,6 +3,7 @@ from __future__ import annotations
 import urllib.parse
 
 from app.api.routes.landing_property_research import _property_normalized_mismatch_reasons
+from app.api.routes.landing_property_workspace_helpers import _property_candidate_display_facts
 from app.product.property_location_research import property_school_context_summary
 
 
@@ -163,7 +164,7 @@ def build_property_shortlist_panel(
     )
 
     for candidate in ranked_candidates:
-        candidate_facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        candidate_facts = _property_candidate_display_facts(candidate)
         source_label = str(candidate.get("source_label") or candidate.get("source_url") or "Source").strip()
         title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"
         detail_parts = [clean_candidate_copy(candidate.get("fit_summary") or "")]

@@ -30,7 +30,13 @@
       syncMarketAwareFields,
     } = (() => {
     const checkedValues = (form, name) => [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((node) => String(node.value || '').trim()).filter(Boolean);
-    const checkedProviderValuesForCountry = (form, countryCode) => {
+    const providerSupportsListingMode = (node, listingMode) => {
+      const normalizedMode = String(listingMode || 'rent').trim().toLowerCase() || 'rent';
+      const rawModes = String(node?.getAttribute?.('data-listing-modes') || '').trim().toLowerCase();
+      if (!rawModes) return true;
+      return rawModes.split(',').map((item) => String(item || '').trim()).filter(Boolean).includes(normalizedMode);
+    };
+    const checkedProviderValuesForCountry = (form, countryCode, listingMode = 'rent') => {
       const normalizedCountry = String(countryCode || 'AT').trim().toUpperCase();
       const seen = new Set();
       const values = [];
@@ -39,6 +45,7 @@
         if (!value || seen.has(value)) return;
         const providerCountry = String(node.getAttribute('data-country-code') || '').trim().toUpperCase();
         if (providerCountry && providerCountry !== normalizedCountry) return;
+        if (!providerSupportsListingMode(node, listingMode)) return;
         seen.add(value);
         values.push(value);
       });
@@ -49,7 +56,7 @@
       const parsed = Number.parseInt(fieldValue(form, name), 10);
       return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     };
-    const hasUnlimitedProviderResults = () => {% if (commercial.get('current_plan_key') in ['agent', 'agency', 'agency_tier', 'agency_lifetime', 'agency_tier_lifetime', 'agent_lifetime', 'agent_tier_lifetime']) and ((commercial.get('max_results_per_source') or 0)|int <= 0) %}true{% else %}false{% endif %};
+    const hasUnlimitedProviderResults = () => {% if (commercial.get('max_results_per_source') or 0)|int <= 0 %}true{% else %}false{% endif %};
     const maxResultsPerSourceValue = (form) => (
       hasUnlimitedProviderResults()
         ? null
@@ -165,14 +172,17 @@
       const groups = [...(form?.querySelectorAll('.pqx-what-matters-panel details[data-what-matters-group]') || [])];
       if (!groups.length) return;
       const mobile = Boolean(window.matchMedia('(max-width: 760px)').matches);
-      groups.forEach((group, index) => {
-        const active = group.dataset.activeDistanceRows === 'true'
-          || Boolean(group.querySelector('[data-preference-state]:not([data-preference-state="any"])'));
+      const activeGroups = groups.filter((group) => (
+        group.dataset.activeDistanceRows === 'true'
+        || Boolean(group.querySelector('[data-preference-state]:not([data-preference-state="any"])'))
+      ));
+      groups.forEach((group) => {
+        const active = activeGroups.includes(group);
         if (!mobile) {
           group.open = true;
           group.dataset.mobileOpenInitialized = '';
         } else if (reset || group.dataset.mobileOpenInitialized !== 'true') {
-          group.open = index === 0 || active;
+          group.open = activeGroups.length ? group === activeGroups[0] : false;
           group.dataset.mobileOpenInitialized = 'true';
         } else if (active) {
           group.open = true;
@@ -547,7 +557,7 @@
         developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
         distressed_sales: ['Court and auction', 'Court-published and auction-style listings that need extra legal review.'],
         community_signals: ['Community signals', 'Facebook, Telegram, and other lightly sourced off-market hints.'],
-        community_meta: ['Watch-tier meta', 'Long-tail meta or watch-tier sources with lower trust.'],
+        community_meta: ['Long-tail sources', 'Smaller or harder-to-verify sources that can still surface useful homes.'],
       };
       const renderOption = (option) => {
         const optionValue = String(option.value || '').trim();
@@ -574,7 +584,10 @@
           ? `<a class="pqx-provider-link" href="${escapeHtml(homepageUrl)}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>`
           : '';
         const countryAttr = option.country_code ? `data-country-code="${escapeHtml(option.country_code)}"` : '';
-        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${countryAttr} ${locationMapAttrs} ${searchReady && selected.has(optionValue) ? 'checked' : ''} ${searchReady ? '' : 'disabled'}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}${availabilityNote ? `<small>${escapeHtml(availabilityNote)}</small>` : ''}${homepageLink}</span></label>`;
+        const listingModeAttr = Array.isArray(option.supported_listing_modes) && option.supported_listing_modes.length
+          ? `data-listing-modes="${escapeHtml(option.supported_listing_modes.join(','))}"`
+          : '';
+        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${countryAttr} ${listingModeAttr} ${locationMapAttrs} ${searchReady && selected.has(optionValue) ? 'checked' : ''} ${searchReady ? '' : 'disabled'}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}${availabilityNote ? `<small>${escapeHtml(availabilityNote)}</small>` : ''}${homepageLink}</span></label>`;
       };
       const optionRows = Array.isArray(options) ? options : [];
       if (name === 'selected_platforms' && optionRows.some((option) => String(option?.family || '').trim())) {
@@ -917,14 +930,14 @@
       })();
       const rawPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
       const countryCode = fieldValue(form, 'country_code') || 'AT';
-      const selectedPlatforms = checkedProviderValuesForCountry(form, countryCode);
-      const platformCap = Number.isFinite(rawPlatformCap) && rawPlatformCap > 0 ? rawPlatformCap : selectedPlatforms.length;
-      const effectiveSelectedPlatforms = selectedPlatforms.slice(0, platformCap);
       const storedFeedbackPreferencesEnabled = false;
       const personId = 'self';
       const regionCode = fieldValue(form, 'region_code') || '';
       const searchGoal = fieldValue(form, 'search_goal') || 'home';
       const listingMode = searchGoal === 'investment' ? 'buy' : (fieldValue(form, 'listing_mode') || 'rent');
+      const selectedPlatforms = checkedProviderValuesForCountry(form, countryCode, listingMode);
+      const platformCap = Number.isFinite(rawPlatformCap) && rawPlatformCap > 0 ? rawPlatformCap : selectedPlatforms.length;
+      const effectiveSelectedPlatforms = selectedPlatforms.slice(0, platformCap);
       const rentMode = searchGoal !== 'investment' && String(listingMode || 'rent').trim().toLowerCase() !== 'buy';
       const buyMode = !rentMode;
       const selectedLocations = checkedValues(form, 'location_query');
@@ -1116,7 +1129,6 @@
           eigenmittel_max_eur: publicHousingSignalsEnabled ? integerValue(form, 'eigenmittel_max_eur') : null,
           application_window_days: publicHousingSignalsEnabled ? integerValue(form, 'application_window_days') : null,
           max_results_per_source: maxResultsPerSourceValue(form),
-          min_match_score: integerValue(form, 'min_match_score'),
           search_agent_enabled: searchAgentEnabled,
           search_agent_duration_days: searchAgentEnabled ? integerValue(form, 'search_agent_duration_days') : null,
           search_agent_notification_limit: searchAgentEnabled ? integerValue(form, 'search_agent_notification_limit') : null,

@@ -368,7 +368,7 @@
               selectedFeedbackReasonKeys.add(String(row.reason_key || ''));
               reasonButton.classList.add('active');
             }
-            if (feedbackStatusNode) feedbackStatusNode.textContent = `Marked ${String(row.detail || 'a reason').trim()} as the main reason. Save decision when ready.`;
+            if (feedbackStatusNode) feedbackStatusNode.textContent = `Marked ${String(row.detail || 'a reason').trim()} as the main reason. Save when ready.`;
             return;
           }
           if (action === 'ask_agent' && row.question) {

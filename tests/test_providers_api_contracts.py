@@ -4640,7 +4640,7 @@ def test_browser_shell_routes_and_nav_links_resolve() -> None:
         ("/app/memory", "/app/people"),
         ("/app/contacts", "/app/evidence"),
         ("/app/activity", "/app/account"),
-        ("/app/channels", "/app/account#delivery"),
+        ("/app/channels", "/app/account?billing=1#delivery"),
         ("/app/automations", "/app/agents"),
     ):
         page = user.get(path, follow_redirects=False)

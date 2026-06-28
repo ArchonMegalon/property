@@ -11,6 +11,8 @@ import html
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from app.services.property_customer_copy import normalize_property_fit_note
+
 
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
 DEFAULT_SENDER_EMAIL = "property@propertyquarry.com"
@@ -394,13 +396,17 @@ def _property_email_facts(row: dict[str, object]) -> list[tuple[str, str]]:
     return facts
 
 
-def _property_email_compare_reason_html(row: dict[str, object]) -> str:
-    compare_reason = str(row.get("compare_reason") or "").strip()
-    if not compare_reason:
+def _property_email_fit_note(row: dict[str, object]) -> str:
+    return normalize_property_fit_note(row.get("compare_reason"))
+
+
+def _property_email_fit_note_html(row: dict[str, object]) -> str:
+    fit_note = _property_email_fit_note(row)
+    if not fit_note:
         return ""
     return (
         '<div style="margin:8px 0 10px;font-size:13px;line-height:1.55;color:#3f4c46;">'
-        f'<strong>Why it won:</strong> {_html_escape(compare_reason)}'
+        f'<strong>Fit note:</strong> {_html_escape(fit_note)}'
         "</div>"
     )
 
@@ -451,7 +457,7 @@ def _property_search_results_ready_html(
             f'<td style="width:38px;vertical-align:top;padding:12px;border-top:1px solid #ded6c8;color:#6c675f;">#{index}</td>'
             '<td style="vertical-align:top;padding:12px;border-top:1px solid #ded6c8;">'
             f'<div style="font-weight:700;margin-bottom:8px;">{_html_link(href=primary_url, label=title)}</div>'
-            f"{_property_email_compare_reason_html(row)}"
+            f"{_property_email_fit_note_html(row)}"
             '<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
             f"{facts_html}</table>"
             f'<div style="margin-top:10px;font-size:13px;">{action_html}</div>'
@@ -1103,7 +1109,7 @@ def send_property_search_results_ready_email(
     best_row = property_rows[0] if property_rows else {}
     best_title = str(best_row.get("title") or "No ranked property yet").strip() or "No ranked property yet"
     best_fit_summary = str(best_row.get("fit_summary") or "").strip()
-    best_compare_reason = str(best_row.get("compare_reason") or "").strip()
+    best_fit_note = _property_email_fit_note(best_row)
     best_facts = " | ".join(
         part
         for part in (
@@ -1129,7 +1135,7 @@ def send_property_search_results_ready_email(
                 "Research summary:",
                 f"- Best current match: {best_title}",
                 f"- Assessment: {best_fit_summary or 'A ranked shortlist is ready for review.'}",
-                f"- Why it won: {best_compare_reason or 'It stayed closest to the current brief on the available facts.'}",
+                f"- Fit note: {best_fit_note or 'It stayed closest to the current brief.'}",
                 f"- Key facts: {best_facts or 'Open the packet for the structured facts.'}",
             ]
         )
@@ -1139,7 +1145,7 @@ def send_property_search_results_ready_email(
             title = str(row.get("title") or "Property match").strip() or "Property match"
             source = str(row.get("source_label") or "").strip()
             fit_summary = str(row.get("fit_summary") or "").strip()
-            compare_reason = str(row.get("compare_reason") or "").strip()
+            fit_note = _property_email_fit_note(row)
             price_label = str(row.get("price_label") or "").strip()
             area_label = str(row.get("area_label") or "").strip()
             rooms_label = str(row.get("rooms_label") or "").strip()
@@ -1154,8 +1160,8 @@ def send_property_search_results_ready_email(
             details = [part for part in (fit_summary, source, f"360: {tour_status}") if part]
             if details:
                 body.append(f"   {' | '.join(details)}")
-            if compare_reason:
-                body.append(f"   Why it won: {compare_reason}")
+            if fit_note:
+                body.append(f"   Fit note: {fit_note}")
             facts_line = " | ".join(part for part in (price_label, area_label, rooms_label, location_label) if part)
             if facts_line:
                 body.append(f"   Facts: {facts_line}")
@@ -1171,7 +1177,7 @@ def send_property_search_results_ready_email(
     for row in property_rows[:5]:
         title = html.escape(str(row.get("title") or "Property match").strip() or "Property match")
         fit_summary = html.escape(str(row.get("fit_summary") or "").strip() or "Ranked and ready for review.")
-        compare_reason = html.escape(str(row.get("compare_reason") or "").strip())
+        fit_note = html.escape(_property_email_fit_note(row))
         source = html.escape(str(row.get("source_label") or "").strip())
         facts_line = " | ".join(
             html.escape(part)
@@ -1212,7 +1218,7 @@ def send_property_search_results_ready_email(
                 source or "PropertyQuarry shortlist",
                 title,
                 fit_summary,
-                f'<div style="font-size:13px;line-height:1.55;color:#3f4c46;margin-bottom:10px;"><strong>Why it won:</strong> {compare_reason}</div>' if compare_reason else "",
+                f'<div style="font-size:13px;line-height:1.55;color:#3f4c46;margin-bottom:10px;"><strong>Fit note:</strong> {fit_note}</div>' if fit_note else "",
                 f'<div style="font-size:13px;line-height:1.5;color:#7d7468;margin-bottom:12px;">{facts_line}</div>' if facts_line else "",
                 "&nbsp;".join(actions),
             )
@@ -1232,7 +1238,7 @@ def send_property_search_results_ready_email(
                 <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#7d7468;margin-bottom:6px;">Quick take</div>
                 <div style="font-size:18px;line-height:1.35;font-weight:700;color:#242321;margin-bottom:8px;">{html.escape(best_title)}</div>
                 <div style="font-size:14px;line-height:1.6;color:#51493f;">{html.escape(best_fit_summary or 'A ranked shortlist is ready for review.')}</div>
-                {f'<div style="font-size:13px;line-height:1.55;color:#3f4c46;margin-top:10px;"><strong>Why it won:</strong> {html.escape(best_compare_reason)}</div>' if best_compare_reason else ''}
+                {f'<div style="font-size:13px;line-height:1.55;color:#3f4c46;margin-top:10px;"><strong>Fit note:</strong> {html.escape(best_fit_note)}</div>' if best_fit_note else ''}
                 {f'<div style="font-size:13px;line-height:1.5;color:#7d7468;margin-top:10px;">{html.escape(best_facts)}</div>' if best_facts else ''}
               </div>
               <div style="padding-top:18px;">
@@ -1321,7 +1327,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                 "Hosted tours ready: 1\n\n"
                 f"Research summary:\n- Best current match: {best_row['title']}\n"
                 f"- Assessment: {best_row['fit_summary']}\n"
-                f"- Why it won: {best_row['compare_reason']}\n"
+                f"- Fit note: {normalize_property_fit_note(best_row['compare_reason'])}\n"
                 "- Key facts: EUR 420,000 | 78 m2 | 3 rooms | Berlin Mitte\n\n"
                 "Open the shortlist with the titled button in this email.\n"
             ),

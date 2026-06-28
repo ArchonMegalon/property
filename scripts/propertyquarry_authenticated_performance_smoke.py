@@ -138,6 +138,7 @@ FORBIDDEN_BILLING_SURFACE_TOKENS = (
     "invoice handoff",
     "invoices",
     "open pricing",
+    "view plans",
     "payfunnels",
     "payfunnels/order",
     "plan and limits",

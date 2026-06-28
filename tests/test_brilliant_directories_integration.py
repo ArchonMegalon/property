@@ -732,9 +732,8 @@ def test_property_billing_route_fails_closed_when_billing_handoff_has_cloudflare
 
     response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 503
-    assert "Billing portal unavailable" in response.text
-    assert "billing.propertyquarry.com/account" not in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_property_billing_route_fails_closed_when_brilliant_directories_host_does_not_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -760,9 +759,8 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_host_doe
 
     response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 503
-    assert "Billing portal unavailable" in response.text
-    assert "billing.propertyquarry.com/account" not in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_property_billing_route_fails_closed_when_brilliant_directories_requires_second_login(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -790,11 +788,8 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_requires
 
     response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 503
-    assert "Billing portal unavailable" in response.text
-    assert "still opens another sign-in" in response.text
-    assert "still being connected" not in response.text
-    assert "propertyquarry.directoryup.com/account" not in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_property_billing_route_uses_sso_bridge_when_direct_handoff_requires_second_login(
@@ -1357,7 +1352,7 @@ def test_billing_handoff_worker_includes_propertyquarry_bridge_consumer() -> Non
     assert "title: 'Billing ready'" in source
     assert "'x-pq-billing-worker-branch': 'bridge-ready'" in source
     assert "Back to PropertyQuarry" in source
-    assert "Open pricing" in source
+    assert "View plans" in source
 
 
 def test_brilliant_directories_receipt_records_billing_as_advisory_white_label_handoff(

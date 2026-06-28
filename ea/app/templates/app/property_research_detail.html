@@ -98,6 +98,12 @@
   .prd-primary-nav::-webkit-scrollbar {
     display: none;
   }
+  .prd-mobile-nav-menu {
+    display: contents;
+  }
+  .prd-mobile-nav-menu > summary {
+    display: none;
+  }
   .prd-primary-nav a,
   .prd-primary-nav span {
     display: inline-flex;
@@ -214,32 +220,32 @@
   .prd-shell {
     width: min(1180px, calc(100vw - 32px));
     margin: 0 auto;
-    padding: 10px 0 24px;
-    gap: 8px;
+    padding: 8px 0 22px;
+    gap: 6px;
   }
   .prd-hero {
     grid-template-columns: minmax(0, 0.95fr) minmax(300px, 0.55fr);
     align-items: start;
-    gap: 14px;
+    gap: 12px;
   }
   .prd-hero-side {
     grid-column: 2;
     grid-row: 1 / span 2;
     display: grid;
     align-content: start;
-    gap: 12px;
+    gap: 10px;
     min-width: 0;
   }
   .prd-media-stack {
     grid-column: 1;
     grid-row: 1 / span 2;
     align-content: start;
-    gap: 12px;
+    gap: 10px;
   }
   .prd-body {
     grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
     align-items: start;
-    gap: 18px;
+    gap: 16px;
   }
   .prd-body > .prd-decision-workspace,
   .prd-body > .prd-wide-context {
@@ -293,7 +299,7 @@
     position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
+    gap: 10px;
     align-items: start;
   }
   .prd-decision-intro {
@@ -326,7 +332,7 @@
   .prd-decision-form {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    gap: 8px;
     align-items: start;
     min-width: 0;
   }
@@ -370,10 +376,16 @@
     min-width: 0;
   }
   .prd-decision-save-actions {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
-    align-items: center;
+    align-items: stretch;
+  }
+  .prd-decision-save-actions .console-action {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+    white-space: normal;
   }
   .prd-decision-savebar .object-copy {
     margin: 0;
@@ -450,8 +462,8 @@
   .prd-decision-workspace .object-feedback-row,
   .prd-decision-workspace .object-actions,
   .prd-decision-workspace .object-feedback-reasons {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 8px;
   }
   .prd-decision-workspace .object-feedback-button,
@@ -556,6 +568,22 @@
     line-height: 1.1;
     padding: 8px 10px;
   }
+  .prd-headline-panel .prd-actions .prd-action-primary {
+    display: inline-flex;
+    width: 100%;
+    align-items: center;
+    justify-content: flex-start;
+    padding-left: 0;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text);
+    font-weight: 780;
+    text-decoration: none;
+  }
+  .prd-headline-panel .prd-actions .prd-action-secondary {
+    background: transparent;
+  }
   @media (pointer: coarse) {
     .prd-actions .console-action,
     .prd-actions .pqx-button,
@@ -606,8 +634,8 @@
   }
   @media (min-width: 1081px) {
     .prd-media-frame.prd-media-frame-live {
-      min-height: clamp(228px, 34vh, 340px);
-      max-height: 380px;
+      min-height: clamp(206px, 30vh, 288px);
+      max-height: 336px;
     }
   }
   .prd-media-frame iframe,
@@ -624,6 +652,74 @@
     place-items: center;
     padding: 24px;
     color: var(--text-soft);
+  }
+  .prd-inline-viewer-placeholder {
+    display: none;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    padding: 18px;
+    border: 0;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, white), color-mix(in srgb, var(--panel-2) 94%, var(--prd-gold-soft))),
+      var(--panel);
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .prd-inline-viewer-art {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    opacity: 0.18;
+  }
+  .prd-inline-viewer-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    filter: saturate(0.88);
+  }
+  .prd-inline-viewer-copy,
+  .prd-inline-viewer-action {
+    position: relative;
+    z-index: 1;
+  }
+  .prd-inline-viewer-copy {
+    display: grid;
+    gap: 6px;
+    max-width: 28ch;
+  }
+  .prd-inline-viewer-copy strong {
+    font-size: 1rem;
+    line-height: 1.14;
+  }
+  .prd-inline-viewer-copy span:last-child {
+    color: var(--text-soft);
+    font-size: 0.84rem;
+    line-height: 1.35;
+  }
+  .prd-inline-viewer-kicker {
+    color: color-mix(in srgb, var(--text) 74%, var(--prd-gold-deep));
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .prd-inline-viewer-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    margin-top: 14px;
+    padding: 0 14px;
+    border: 1px solid color-mix(in srgb, var(--prd-gold) 32%, var(--line));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--panel) 92%, white);
+    font-size: 0.82rem;
+    font-weight: 760;
   }
   .prd-media-frame.prd-media-image-failed::before {
     content: "Preview unavailable";
@@ -709,7 +805,7 @@
   .prd-visual-console {
     display: grid;
     gap: 8px;
-    padding: 12px;
+    padding: 10px;
     border: 1px solid color-mix(in srgb, var(--line) 84%, var(--prd-gold) 16%);
     border-radius: 8px;
     background:
@@ -742,7 +838,7 @@
   }
   .prd-visual-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 8px;
   }
   .prd-visual-card {
@@ -1152,16 +1248,16 @@
     gap: 6px;
   }
   .prd-open-checks {
-    gap: 12px;
+    gap: 10px;
   }
   .prd-open-checks-summary {
     margin: 0;
     color: var(--text-soft);
-    font-size: 0.85rem;
-    line-height: 1.38;
+    font-size: 0.82rem;
+    line-height: 1.34;
   }
   .prd-open-checks-chips {
-    gap: 8px;
+    gap: 6px;
   }
   .prd-gate-item {
     display: grid;
@@ -1574,7 +1670,7 @@
       padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     }
     .prd-topbar {
-      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       grid-template-areas: "brand nav actions";
       align-items: center;
       gap: 6px;
@@ -1586,6 +1682,8 @@
     .prd-brand {
       grid-area: brand;
       gap: 8px;
+      min-height: 40px;
+      align-items: center;
     }
     .prd-brand-mark {
       width: 24px;
@@ -1599,19 +1697,83 @@
     .prd-brand-copy span {
       display: none;
     }
-    .prd-primary-nav {
+    .prd-mobile-nav-menu {
+      display: block;
+      position: relative;
       grid-area: nav;
-      justify-content: flex-start;
+      justify-self: end;
+    }
+    .prd-mobile-nav-menu > summary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid color-mix(in srgb, var(--prd-gold) 22%, var(--line));
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--panel) 96%, white);
+      color: var(--text);
+      font-size: 0.72rem;
+      font-weight: 700;
+      line-height: 1;
+      list-style: none;
+    }
+    .prd-mobile-nav-menu > summary .prd-mobile-nav-label {
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+    }
+    .prd-mobile-nav-menu > summary::-webkit-details-marker {
+      display: none;
+    }
+    .prd-mobile-nav-menu > summary::after {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-right: 1.5px solid currentColor;
+      border-bottom: 1.5px solid currentColor;
+      transform: rotate(45deg) translateY(-1px);
+      transform-origin: center;
+    }
+    .prd-mobile-nav-menu[open] > summary {
+      background: color-mix(in srgb, var(--prd-gold) 10%, var(--panel));
+      border-color: color-mix(in srgb, var(--prd-gold) 32%, var(--line));
+    }
+    .prd-mobile-nav-menu[open] > summary::after {
+      transform: rotate(225deg) translateY(-1px);
+    }
+    .prd-primary-nav {
+      display: none;
+      position: fixed;
+      top: calc(50px + env(safe-area-inset-top, 0px));
+      left: 8px;
+      right: 8px;
+      width: auto;
       margin: 0;
       min-width: 0;
-      padding: 0;
+      padding: 8px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      overflow: visible;
+      border: 1px solid color-mix(in srgb, var(--prd-gold) 16%, var(--line));
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--panel) 98%, white);
+      box-shadow: 0 16px 30px rgba(36, 29, 20, 0.12);
+      z-index: 46;
+      justify-content: stretch;
+    }
+    .prd-mobile-nav-menu[open] .prd-primary-nav {
+      display: grid;
     }
     .prd-primary-nav a,
     .prd-primary-nav span {
-      height: 26px;
-      min-height: 26px;
-      padding: 0 8px;
-      font-size: 0.68rem;
+      width: 100%;
+      height: 40px;
+      min-height: 40px;
+      justify-content: flex-start;
+      padding: 0 12px;
+      border-radius: 10px;
+      font-size: 0.76rem;
       line-height: 1;
     }
     .prd-top-context {
@@ -1749,6 +1911,12 @@
     .prd-decision-savebar {
       grid-template-columns: 1fr;
       gap: 6px;
+    }
+    .prd-decision-save-actions {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .prd-decision-save-actions > :last-child {
+      grid-column: 1 / -1;
     }
     .prd-decision-savebar .object-copy {
       min-height: 18px;
@@ -1968,9 +2136,36 @@
       gap: 8px;
     }
     .prd-visual-card {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "header action"
+        "evidence evidence";
+      align-items: start;
       padding: 7px;
-      gap: 6px;
+      gap: 6px 8px;
       border-radius: 12px;
+    }
+    .prd-visual-card-header {
+      grid-area: header;
+    }
+    .prd-visual-evidence {
+      grid-area: evidence;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--text-soft);
+      font-size: 11px;
+      font-weight: 620;
+      line-height: 1.3;
+    }
+    .prd-visual-card .prd-actions {
+      grid-area: action;
+      align-content: start;
+      justify-content: end;
+    }
+    .prd-visual-card .prd-actions .console-action {
+      min-width: 132px;
     }
     .prd-visual-toolbar {
       align-items: center;
@@ -2212,10 +2407,47 @@
       grid-template-columns: 1fr;
       gap: 5px;
     }
+    .prd-decision-save-actions {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: stretch;
+    }
     .prd-decision-savebar .object-copy {
       min-height: 0;
       font-size: 11px;
       line-height: 1.22;
+    }
+    .prd-decision-save-actions .prd-decision-save-primary {
+      font-weight: 760;
+    }
+    .prd-decision-save-actions .prd-decision-save-brief {
+      display: none;
+    }
+    .prd-decision-advanced {
+      margin-top: 0;
+    }
+    .prd-decision-advanced:not([open]) {
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    .prd-decision-advanced[open] {
+      margin-top: 4px;
+    }
+    .prd-decision-advanced > summary {
+      display: none;
+    }
+    .prd-headline-panel .prd-actions {
+      grid-template-columns: 1fr;
+    }
+    .prd-headline-panel .prd-actions .prd-action-secondary {
+      display: none;
+    }
+    .prd-headline-panel > .prd-kicker,
+    .prd-visual-heading .prd-kicker,
+    .prd-decision-heading .prd-kicker,
+    .prd-mobile-secondary-toggle .prd-kicker,
+    .prd-collapse summary .prd-kicker {
+      display: none;
     }
     .prd-feedback-details > summary {
       min-height: 40px !important;
@@ -2236,6 +2468,46 @@
     .prd-media-frame.prd-media-frame-live {
       height: min(54vw, 208px);
       min-height: 152px;
+    }
+    .prd-media-frame.prd-media-frame-inline-gated {
+      min-height: 152px;
+    }
+    .prd-media-frame.prd-media-frame-inline-gated iframe[data-prd-inline-viewer] {
+      display: none;
+    }
+    .prd-media-frame.prd-media-frame-inline-gated .prd-inline-viewer-placeholder {
+      display: grid;
+      align-content: end;
+      min-height: 152px;
+      padding: 12px;
+    }
+    .prd-media-frame.prd-media-frame-inline-gated:not(.is-inline-viewer-active) .prd-media-gradient,
+    .prd-media-frame.prd-media-frame-inline-gated:not(.is-inline-viewer-active) .prd-media-caption {
+      display: none;
+    }
+    .prd-media-frame.prd-media-frame-inline-gated.is-inline-viewer-active iframe[data-prd-inline-viewer] {
+      display: block;
+    }
+    .prd-media-frame.prd-media-frame-inline-gated.is-inline-viewer-active .prd-inline-viewer-placeholder {
+      display: none;
+    }
+    .prd-inline-viewer-copy {
+      gap: 5px;
+      max-width: none;
+    }
+    .prd-inline-viewer-copy strong {
+      font-size: 0.94rem;
+      line-height: 1.12;
+    }
+    .prd-inline-viewer-copy span:last-child {
+      font-size: 0.76rem;
+      line-height: 1.28;
+    }
+    .prd-inline-viewer-action {
+      min-height: 36px;
+      margin-top: 10px;
+      padding: 0 12px;
+      font-size: 0.78rem;
     }
     .prd-headline-panel h1 {
       font-size: 1rem;
@@ -2282,15 +2554,85 @@
     }
     .prd-visual-console {
       order: 3;
+      gap: 2px;
+      padding: 8px 10px;
     }
     .prd-visual-toolbar {
       gap: 6px;
+      margin-bottom: 2px;
     }
     .prd-visual-grid {
-      gap: 6px;
+      gap: 0;
+    }
+    .prd-visual-rail {
+      display: none;
+    }
+    .prd-visual-rail.is-active {
+      display: none;
+    }
+    .prd-visual-rail.is-active[data-prd-visual-state="pending"],
+    .prd-visual-rail.is-active[data-prd-visual-state="queued"],
+    .prd-visual-rail.is-active[data-prd-visual-state="processing"],
+    .prd-visual-rail.is-active[data-prd-visual-state="running"],
+    .prd-visual-rail.is-active[data-prd-visual-state="in_progress"],
+    .prd-visual-rail.is-active[data-prd-visual-state="started"],
+    .prd-visual-rail.is-active[data-prd-visual-state="rendering"],
+    .prd-visual-rail.is-active[data-prd-visual-state="repairing"],
+    .prd-visual-rail.is-active[data-prd-visual-state="blocked"],
+    .prd-visual-rail.is-active[data-prd-visual-state="failed"],
+    .prd-visual-rail.is-active[data-prd-visual-state="skipped"],
+    .prd-visual-rail.is-active[data-prd-visual-state="unavailable"],
+    .prd-visual-rail.is-active[data-prd-visual-state="not_applicable"] {
+      display: grid;
+    }
+    .prd-visual-rail.is-active {
+      gap: 4px;
+      padding-top: 8px;
+      border-top: 1px solid color-mix(in srgb, var(--line) 86%, var(--prd-gold) 14%);
+    }
+    .prd-visual-card {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "header action";
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0;
+      border: 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 86%, var(--prd-gold) 14%);
+      border-radius: 0;
+      background: transparent;
+    }
+    .prd-visual-card:first-child {
+      padding-top: 0;
+    }
+    .prd-visual-card:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
     }
     .prd-visual-card-header {
-      gap: 6px;
+      gap: 3px;
+    }
+    .prd-visual-card-header strong {
+      font-size: 0.92rem;
+      line-height: 1.12;
+    }
+    .prd-visual-card-header span {
+      font-size: 10px;
+      letter-spacing: 0.04em;
+    }
+    .prd-visual-evidence {
+      display: none;
+    }
+    .prd-visual-card .prd-actions {
+      grid-area: action;
+      align-content: start;
+      justify-content: end;
+    }
+    .prd-visual-card .prd-actions .console-action {
+      min-width: 122px;
+      min-height: 40px !important;
+      padding: 0 10px;
+      font-size: 11px;
+      line-height: 1.15;
     }
     .prd-row,
     .prd-gate-item,
@@ -2321,6 +2663,64 @@
       grid-template-columns: 1fr;
     }
   }
+  @media (max-width: 760px) {
+    .prd-topbar {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "nav actions";
+      gap: 8px;
+      padding: calc(6px + env(safe-area-inset-top, 0px)) 10px 6px;
+    }
+    .prd-brand {
+      display: none !important;
+    }
+    .prd-mobile-nav-menu {
+      justify-self: start;
+    }
+    .prd-primary-nav {
+      gap: 4px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .prd-primary-nav::-webkit-scrollbar {
+      display: none;
+    }
+    .prd-primary-nav a,
+    .prd-primary-nav span {
+      min-height: 30px;
+      height: 30px;
+      padding: 0 9px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+    }
+    .prd-top-actions {
+      gap: 6px;
+    }
+    .prd-top-actions .prd-run-chip {
+      display: none;
+    }
+    .prd-route-recovery {
+      display: none;
+    }
+    .prd-shell {
+      width: calc(100vw - 16px);
+      padding: 8px 0 18px;
+      gap: 6px;
+    }
+    .prd-hero,
+    .prd-body {
+      gap: 10px;
+    }
+    .prd-shell :is(.prd-panel, .prd-band, .prd-visual-card, .prd-map-card, .prd-meta-card) {
+      border-radius: 12px;
+      box-shadow: none;
+    }
+    .prd-actions,
+    .prd-media-actions,
+    .object-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+  }
 </style>
 
 {% set research_query_suffix = ('?run_id=' ~ (research_run_id|urlencode)) if research_run_id else '' %}
@@ -2330,7 +2730,7 @@
   {'href': '/app/research' ~ research_query_suffix, 'label': 'Research', 'key': 'research'},
   {'href': '/app/account' ~ research_query_suffix, 'label': 'Account', 'key': 'account'},
 ) %}
-<header class="prd-topbar pqx-topbar" data-property-research-topnav>
+<header class="prd-topbar pqx-topbar" data-property-research-topnav data-property-console-topnav>
   <a class="prd-brand" href="/app/properties{{ research_query_suffix }}" aria-label="PropertyQuarry search">
     <span class="prd-brand-mark">PQ</span>
     <span class="prd-brand-copy">
@@ -2338,15 +2738,18 @@
       <span>Research desk</span>
     </span>
   </a>
-  <nav class="prd-primary-nav" aria-label="PropertyQuarry sections">
-    {% for item in research_topnav_items %}
-      {% if item.key == current_nav or (item.key == 'account' and current_nav in ['agents', 'alerts', 'billing', 'settings']) %}
-      <span class="is-active" aria-current="page">{{ item.label }}</span>
-      {% else %}
-      <a href="{{ item.href }}">{{ item.label }}</a>
-      {% endif %}
-    {% endfor %}
-  </nav>
+  <details class="prd-mobile-nav-menu" data-prd-mobile-nav-menu data-pqx-mobile-nav-menu>
+    <summary><span class="prd-mobile-nav-label is-active" aria-current="page">{% if current_nav == 'research' %}Research{% elif current_nav in ['account', 'agents', 'alerts', 'billing', 'settings'] %}Account{% else %}Search{% endif %}</span></summary>
+    <nav class="prd-primary-nav" aria-label="PropertyQuarry sections">
+      {% for item in research_topnav_items %}
+        {% if item.key == current_nav or (item.key == 'account' and current_nav in ['agents', 'alerts', 'billing', 'settings']) %}
+        <span class="is-active" aria-current="page">{{ item.label }}</span>
+        {% else %}
+        <a href="{{ item.href }}">{{ item.label }}</a>
+        {% endif %}
+      {% endfor %}
+    </nav>
+  </details>
   <div class="prd-top-context">
     {% if research_run_id %}
     <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}" title="Run {{ research_run_id }}">Back to run</a>
@@ -2385,6 +2788,20 @@
   document.addEventListener('DOMContentLoaded', () => {
     const legacyAppbar = document.querySelector('.pq-shell[data-property-app-shell] .pq-appbar');
     if (legacyAppbar) legacyAppbar.remove();
+    const mobileNavMenu = document.querySelector('[data-prd-mobile-nav-menu]');
+    if (mobileNavMenu instanceof HTMLDetailsElement) {
+      mobileNavMenu.querySelectorAll('.prd-primary-nav a').forEach((link) => {
+        link.addEventListener('click', () => {
+          mobileNavMenu.open = false;
+        });
+      });
+      document.addEventListener('click', (event) => {
+        if (!window.matchMedia('(max-width: 760px)').matches) return;
+        if (!mobileNavMenu.open) return;
+        if (mobileNavMenu.contains(event.target instanceof Node ? event.target : null)) return;
+        mobileNavMenu.open = false;
+      });
+    }
   });
 </script>
 
@@ -2409,7 +2826,8 @@
 <section class="prd-shell" data-property-research-detail>
   <section class="prd-hero" data-pqx-screenfit-target="research-detail-hero">
     <section class="prd-media-stack">
-      <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live{% endif %}" data-object-media-stage>
+      {% set inline_media_preview = research_preview_image or research_location_preview.get('image_url') or '' %}
+      <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live prd-media-frame-inline-gated{% endif %}" data-object-media-stage{% if research_media.get('embed_href') %} data-prd-inline-viewer-stage{% endif %}>
         <div class="prd-media-badge">
           {% if research_media.get('show_status_line') %}
             {{ research_media.get('status_label') or 'Media' }}
@@ -2422,7 +2840,18 @@
           {% endif %}
         </div>
         {% if research_media.get('embed_href') %}
-        <iframe src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+        <iframe data-prd-inline-viewer data-prd-inline-viewer-src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+        <button class="prd-inline-viewer-placeholder" type="button" data-prd-inline-viewer-launch aria-label="Load 3D viewer">
+          {% if inline_media_preview %}
+          <span class="prd-inline-viewer-art" aria-hidden="true"><img src="{{ inline_media_preview }}" alt="" loading="lazy"></span>
+          {% endif %}
+          <span class="prd-inline-viewer-copy">
+            <span class="prd-inline-viewer-kicker">{{ research_media.get('provider_label') or '3D tour' }}</span>
+            <strong>{{ research_media.get('status_label') or '3D tour ready' }}</strong>
+            <span>{{ research_media.get('status_detail') or 'Open the live viewer only when you want it.' }}</span>
+          </span>
+          <span class="prd-inline-viewer-action">Load viewer</span>
+        </button>
         {% elif research_preview_image %}
         <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image data-prd-hero-fallback-src="{{ research_location_preview.get('image_url') or '' }}">
         {% elif research_location_preview.get('image_url') %}
@@ -2451,7 +2880,7 @@
     {% set visual_actions = namespace(items=[]) %}
     {% for action in research_actions %}
       {% set action_label = (action.get('label') or '')|lower %}
-      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough', 'open generated model', 'open generated walkthrough', 'open original tour'] or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
+      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough', 'open original tour'] or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
         {% set visual_actions.items = visual_actions.items + [action] %}
       {% endif %}
     {% endfor %}
@@ -2460,10 +2889,8 @@
       {% set action_label = (action.get('label') or '')|lower %}
       {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
         {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': research_media.get('provider_label') or ('3D tour' if action.get('href') else '3D tour pending'), 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open the tour or rebuild it from this page.', 'action': action}] %}
-      {% elif action.get('kind') == 'generated_reconstruction' or 'generated model' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'generated_reconstruction', 'eyebrow': 'Generated model', 'title': 'Generated reconstruction', 'copy': action.get('status_detail') or research_media.get('generated_reconstruction_status_detail') or 'Open the generated reconstruction while the live tour is still missing.', 'action': action}] %}
       {% elif action.get('kind') == 'flythrough' or 'walkthrough' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': ('Generated walkthrough' if action.get('kind') == 'generated_reconstruction_walkthrough' else ('MagicFit walkthrough' if action.get('href') else 'MagicFit walkthrough pending')), 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': ('MagicFit walkthrough' if action.get('href') else 'MagicFit walkthrough pending'), 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
       {% endif %}
     {% endfor %}
     {% set visual_status = namespace(active=None) %}
@@ -2484,7 +2911,7 @@
       {% set headline_actions = namespace(items=[]) %}
       {% for action in research_actions %}
         {% set action_label = (action.get('label') or '')|lower %}
-        {% if action.get('copy') or (action.get('href') and action_label not in ['open 3d tour', 'open walkthrough', 'open generated model', 'open generated walkthrough']) %}
+        {% if action.get('copy') or (action.get('href') and action_label not in ['open 3d tour', 'open walkthrough'] and 'matterport' not in action_label and '3dvista' not in action_label and 'original tour' not in action_label) %}
           {% set headline_actions.items = headline_actions.items + [action] %}
         {% endif %}
       {% endfor %}
@@ -2502,9 +2929,9 @@
         <div class="prd-actions" style="margin-top:10px;">
           {% for action in headline_actions.items %}
             {% if action.get('href') and action.get('copy') %}
-            <button class="console-action" type="button" data-prd-copy-link="{{ action.get('href') }}">Copy link</button>
+            <button class="console-action prd-action-secondary" type="button" data-prd-copy-link="{{ action.get('href') }}">Copy link</button>
             {% elif action.get('href') %}
-            <a class="console-action" href="{{ action.get('href') }}"{% if action.get('external') %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ action.get('label') }}</a>
+            <a class="console-action prd-action-primary" href="{{ action.get('href') }}"{% if action.get('external') %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ action.get('label') }}</a>
             {% endif %}
           {% endfor %}
         </div>
@@ -2591,7 +3018,7 @@
         <div class="prd-visual-toolbar">
         <div class="prd-visual-heading">
           <div class="prd-kicker">3D and walkthrough</div>
-          <p class="prd-copy">Open the tour here, or ask for one if this listing still needs it.</p>
+          <p class="prd-copy">Open or request visuals from here.</p>
         </div>
         {% if research_media.get('show_status_line') %}
         <span class="prd-status-badge">{{ research_media.get('status_label') or 'Review ready' }}</span>
@@ -2616,15 +3043,9 @@
             No 3D tour is published yet.
             {% endif %}
           </p>
-          {% elif visual_card.get('key') == 'generated_reconstruction' %}
-          <p class="prd-visual-evidence" data-prd-visual-evidence="generated-reconstruction">
-            Built from listing photos or floorplans, not from a live tour.
-          </p>
           {% elif visual_card.get('key') == 'walkthrough' %}
           <p class="prd-visual-evidence" data-prd-visual-evidence="walkthrough">
-            {% if action.get('kind') == 'generated_reconstruction_walkthrough' %}
-            Generated from the current listing, not published by the provider.
-            {% elif action.get('href') %}
+            {% if action.get('href') %}
             Walkthrough ready on this page.
             {% else %}
             No playable walkthrough is published yet.
@@ -2641,7 +3062,7 @@
           >{{ action.get('label') }}</a>
           {% else %}
           {% set action_state = (action.get('state') or 'idle')|lower %}
-          {% set is_walkthrough_request = action.get('kind') in ['flythrough', 'generated_reconstruction_walkthrough'] %}
+          {% set is_walkthrough_request = action.get('kind') == 'flythrough' %}
           <button
             class="console-action prd-visual-hero-action"
             type="button"
@@ -2656,7 +3077,7 @@
             data-pw-visual-detail="{{ action.get('status_detail') or '' }}"
             data-pw-visual-poll-seconds="{% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
             {% if is_walkthrough_request %}data-pw-walkthrough-provider="magicfit"{% endif %}
-            {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] %}disabled aria-disabled="true"{% endif %}
+            {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}disabled aria-disabled="true"{% endif %}
             aria-label="{{ action.get('label') or 'Request visual review' }}"
           >{{ action.get('label') }}</button>
           {% endif %}
@@ -2694,49 +3115,62 @@
     <section class="prd-sections">
       {% set open_check_rows = (research_missing_rows + research_investment_risk_rows)[:6] %}
       {% if open_check_rows %}
-      <section class="prd-band prd-open-checks">
-        <div class="prd-kicker">Open checks</div>
-        <h2 class="prd-section-title">Still unconfirmed</h2>
-        <p class="prd-open-checks-summary">
-          {{ open_check_rows|length }} item{% if open_check_rows|length != 1 %}s{% endif %} still need verification before this property is fully decision-ready.
-        </p>
-        <div class="prd-facts prd-open-checks-chips">
-          {% for item in open_check_rows[:4] %}
-          <span class="prd-chip">{{ item.get('title') }}</span>
-          {% endfor %}
-        </div>
-        <details class="prd-feedback-details prd-open-checks-more">
-          <summary>Show details</summary>
-          <div class="prd-feedback-body">
-            <div class="prd-gate-list">
-              {% for item in open_check_rows %}
-              <div class="prd-gate-item">
-                <div>
-                  <strong>{{ item.get('title') }}</strong>
-                  <span>{{ item.get('detail') }}</span>
-                </div>
-                <span class="prd-tag">{{ item.get('tag') }}</span>
-              </div>
-              {% endfor %}
-            </div>
+      <details class="prd-band prd-open-checks prd-mobile-secondary" open data-prd-mobile-secondary="open-checks">
+        <summary>
+          <span class="prd-mobile-secondary-toggle">
+            <span class="prd-kicker">Open checks</span>
+            <strong>Still unconfirmed</strong>
+          </span>
+          <span class="prd-tag">{{ open_check_rows|length }} item{% if open_check_rows|length != 1 %}s{% endif %}</span>
+        </summary>
+        <div class="prd-collapse-body">
+          <div class="prd-kicker">Open checks</div>
+          <h2 class="prd-section-title">Still unconfirmed</h2>
+          <p class="prd-open-checks-summary">
+            {{ open_check_rows|length }} item{% if open_check_rows|length != 1 %}s{% endif %} still need verification before this property is fully decision-ready.
+          </p>
+          <div class="prd-facts prd-open-checks-chips">
+            {% for item in open_check_rows[:4] %}
+            <span class="prd-chip">{{ item.get('title') }}</span>
+            {% endfor %}
           </div>
-        </details>
-      </section>
+          <div class="prd-gate-list">
+            {% for item in open_check_rows %}
+            <div class="prd-gate-item">
+              <div>
+                <strong>{{ item.get('title') }}</strong>
+                <span>{{ item.get('detail') }}</span>
+              </div>
+              <span class="prd-tag">{{ item.get('tag') }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
       {% endif %}
 
       {% if research_score_rows %}
-      <section class="prd-band">
-        <div class="prd-kicker">Confirmed facts</div>
-        <h2 class="prd-section-title">What PropertyQuarry confirmed automatically</h2>
-        <div class="object-list">
-          {% for row in research_score_rows[:5] %}
-          <div class="prd-row">
-            <div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div>
-            <span class="prd-tag">{{ row.get('tag') }}</span>
+      <details class="prd-band prd-mobile-secondary" open data-prd-mobile-secondary="confirmed">
+        <summary>
+          <span class="prd-mobile-secondary-toggle">
+            <span class="prd-kicker">Confirmed facts</span>
+            <strong>What we confirmed</strong>
+          </span>
+          <span class="prd-tag">{{ research_score_rows[:5]|length }} item{% if research_score_rows[:5]|length != 1 %}s{% endif %}</span>
+        </summary>
+        <div class="prd-collapse-body">
+          <div class="prd-kicker">Confirmed facts</div>
+          <h2 class="prd-section-title">What we confirmed</h2>
+          <div class="object-list">
+            {% for row in research_score_rows[:5] %}
+            <div class="prd-row">
+              <div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div>
+              <span class="prd-tag">{{ row.get('tag') }}</span>
+            </div>
+            {% endfor %}
           </div>
-          {% endfor %}
         </div>
-      </section>
+      </details>
       {% endif %}
 
       <section class="prd-split">
@@ -2917,7 +3351,6 @@
     <aside class="prd-side-stack">
       {% if research_ranked_run_rows %}
       <section class="prd-panel" data-research-ranking-list>
-        <div class="prd-kicker">Run ranking</div>
         <h2>Ranking from this run</h2>
         <div class="object-list">
           {% for row in research_ranked_run_rows %}
@@ -2947,7 +3380,7 @@
           <div class="prd-decision-heading">
             <div class="prd-kicker">Decision</div>
             <h2>Next move</h2>
-            <p class="object-copy">Save one quick reaction first. Open the follow-up controls only if they change what happens next.</p>
+            <p class="object-copy">Save one quick reaction. Open the rest only if it changes what happens next.</p>
           </div>
           {% if research_decision_rows or (research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings'))) %}
           <details class="prd-feedback-details prd-decision-context">
@@ -2989,9 +3422,9 @@
       </section>
       <div class="prd-decision-savebar">
         <div class="object-actions prd-decision-save-actions">
-          <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
-          <button class="console-action" type="button" data-object-feedback-open-advanced>Adjust my search</button>
-          <a class="console-action" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Open active search</a>
+          <button class="console-action prd-decision-save-primary" type="button" data-object-feedback-save aria-label="Save decision">Save</button>
+          <button class="console-action prd-decision-save-secondary" type="button" data-object-feedback-open-advanced>Tune search</button>
+          <a class="console-action prd-decision-save-brief" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Search brief</a>
         </div>
         <p class="object-copy" data-object-feedback-status></p>
       </div>
@@ -3230,6 +3663,44 @@
       markFailed();
     }
   });
+  const inlineViewerStage = document.querySelector('[data-prd-inline-viewer-stage]');
+  const inlineViewerFrame = inlineViewerStage?.querySelector('[data-prd-inline-viewer]');
+  const inlineViewerLaunch = inlineViewerStage?.querySelector('[data-prd-inline-viewer-launch]');
+  const inlineViewerQuery = window.matchMedia('(max-width: 760px)');
+  const activateInlineViewer = () => {
+    if (!(inlineViewerStage instanceof HTMLElement) || !(inlineViewerFrame instanceof HTMLIFrameElement)) return;
+    const src = String(inlineViewerFrame.getAttribute('data-prd-inline-viewer-src') || '').trim();
+    if (src && !String(inlineViewerFrame.getAttribute('src') || '').trim()) {
+      inlineViewerFrame.setAttribute('src', src);
+    }
+    inlineViewerStage.classList.add('is-inline-viewer-active');
+    inlineViewerFrame.hidden = false;
+    if (inlineViewerLaunch instanceof HTMLElement) inlineViewerLaunch.hidden = true;
+  };
+  const syncInlineViewer = () => {
+    if (!(inlineViewerStage instanceof HTMLElement) || !(inlineViewerFrame instanceof HTMLIFrameElement)) return;
+    const mobile = inlineViewerQuery.matches;
+    const activated = inlineViewerStage.dataset.prdInlineViewerActivated === '1';
+    if (!mobile || activated) {
+      activateInlineViewer();
+      return;
+    }
+    inlineViewerStage.classList.remove('is-inline-viewer-active');
+    inlineViewerFrame.hidden = true;
+    inlineViewerFrame.removeAttribute('src');
+    if (inlineViewerLaunch instanceof HTMLElement) inlineViewerLaunch.hidden = false;
+  };
+  inlineViewerLaunch?.addEventListener('click', () => {
+    if (!(inlineViewerStage instanceof HTMLElement)) return;
+    inlineViewerStage.dataset.prdInlineViewerActivated = '1';
+    activateInlineViewer();
+  });
+  syncInlineViewer();
+  if (typeof inlineViewerQuery.addEventListener === 'function') {
+    inlineViewerQuery.addEventListener('change', syncInlineViewer);
+  } else if (typeof inlineViewerQuery.addListener === 'function') {
+    inlineViewerQuery.addListener(syncInlineViewer);
+  }
   const applyVisualButtonState = (button, state) => {
     if (!(button instanceof HTMLButtonElement)) return;
     const normalized = state && typeof state === 'object' ? state : {};
@@ -3260,10 +3731,9 @@
       button.removeAttribute('data-pw-visual-href');
     }
     const isWaiting = visualPendingStates.includes(nextState);
-    const isTerminal = visualTerminalStates.includes(nextState);
-    button.disabled = isWaiting || isTerminal;
+    button.disabled = isWaiting;
     button.classList.toggle('is-processing', isWaiting);
-    if (isWaiting || isTerminal) {
+    if (isWaiting) {
       button.setAttribute('aria-disabled', 'true');
     } else {
       button.removeAttribute('aria-disabled');
@@ -3289,14 +3759,23 @@
     }
     if (visualRequestStatusNode) visualRequestStatusNode.textContent = detail;
   };
-  const isWalkthroughRequestKind = (requestKind) => ['flythrough', 'generated_reconstruction_walkthrough'].includes(String(requestKind || '').trim().toLowerCase());
+  const isWalkthroughRequestKind = (requestKind) => String(requestKind || '').trim().toLowerCase() === 'flythrough';
   const visualStateFromPayload = (requestKind, payload, fallbackLabel = '') => {
     const kind = String(requestKind || 'tour').trim().toLowerCase();
     if (isWalkthroughRequestKind(kind)) {
       const state = String(payload?.flythrough_url ? 'ready' : payload?.status || payload?.flythrough_status || 'pending').trim().toLowerCase();
+      const retryableTerminal = visualTerminalStates.includes(state) && !String(payload?.flythrough_url || '').trim();
       return {
-        state,
-        label: String(payload?.flythrough_url ? 'Open walkthrough' : payload?.status_label || fallbackLabel || 'Walkthrough queued').trim(),
+        state: retryableTerminal ? 'idle' : state,
+        label: String(
+          payload?.flythrough_url
+            ? 'Open walkthrough'
+            : (
+                retryableTerminal
+                  ? (['blocked', 'failed'].includes(state) ? 'Retry walkthrough' : 'Request walkthrough')
+                  : (payload?.status_label || fallbackLabel || 'Walkthrough queued')
+              )
+        ).trim(),
         href: String(payload?.flythrough_url || '').trim(),
         detail: String(payload?.status_detail || '').trim(),
         eta: String(payload?.eta_label || '').trim(),
@@ -3307,9 +3786,18 @@
     const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
     const verifiedTourUrl = String(payload?.verified_tour_url || (rawTourState === 'ready' ? payload?.tour_url : '') || '').trim();
     const state = String(verifiedTourUrl ? 'ready' : payload?.status || payload?.tour_status || 'pending').trim().toLowerCase();
+    const retryableTerminal = visualTerminalStates.includes(state) && !verifiedTourUrl;
     return {
-      state,
-      label: String(verifiedTourUrl ? 'Open 3D tour' : payload?.status_label || fallbackLabel || '3D tour queued').trim(),
+      state: retryableTerminal ? 'idle' : state,
+      label: String(
+        verifiedTourUrl
+          ? 'Open 3D tour'
+          : (
+              retryableTerminal
+                ? (['blocked', 'failed'].includes(state) ? 'Retry 3D tour' : 'Request 3D tour')
+                : (payload?.status_label || fallbackLabel || '3D tour queued')
+            )
+      ).trim(),
       href: verifiedTourUrl,
       detail: String(payload?.status_detail || '').trim(),
       eta: String(payload?.eta_label || '').trim(),
@@ -3399,12 +3887,6 @@
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'Walkthrough request is already in progress for this home.';
         return;
       }
-      if (visualTerminalStates.includes(currentState)) {
-        if (visualRequestStatusNode) {
-          visualRequestStatusNode.textContent = String(button.getAttribute('data-pw-visual-detail') || button.getAttribute('title') || 'Tour media is still missing here.').trim();
-        }
-        return;
-      }
       if (!propertyUrl) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
         return;
@@ -3419,7 +3901,7 @@
           ? 'Queued. Estimating timing...'
           : 'Queued. Estimating timing...',
         eta: '',
-        progress: isWalkthroughRequest ? 18 : 14,
+        progress: 0,
       });
       let requestSucceeded = false;
       try {
@@ -3455,7 +3937,7 @@
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
       } finally {
         const currentState = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
-        button.disabled = visualPendingStates.includes(currentState) || visualTerminalStates.includes(currentState);
+        button.disabled = visualPendingStates.includes(currentState);
         if (!requestSucceeded && !String(button.getAttribute('data-pw-visual-href') || '').trim()) {
           button.textContent = original;
         }

@@ -248,6 +248,190 @@ def test_propertyquarry_e2e_soft_preferences_preserve_search_hits(monkeypatch) -
     )
 
 
+def test_propertyquarry_e2e_targeted_listing_survives_strict_and_soft_runs(monkeypatch) -> None:
+    principal_id = "exec-property-e2e-targeted-recovery"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Targeted Recovery E2E")
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1020-leopoldstadt"
+    target_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/targeted-recovery-match/"
+    same_scope_alt_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/targeted-recovery-alt/"
+    off_scope_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1220-donaustadt/targeted-recovery-off-scope/"
+    listing_urls = [target_url, same_scope_alt_url, off_scope_url]
+
+    facts_by_url = {
+        target_url: {
+            "postal_name": "1020 Wien",
+            "property_type": "apartment",
+            "area_sqm": 78,
+            "rooms": 3,
+            "total_rent_eur": 1650,
+            "nearest_library_m": 1400,
+            "nearest_playground_m": 850,
+            "nearest_shopping_center_m": 180,
+            "nearest_theatre_m": 920,
+            "nearest_supermarket_m": 520,
+        },
+        same_scope_alt_url: {
+            "postal_name": "1020 Wien",
+            "property_type": "apartment",
+            "area_sqm": 82,
+            "rooms": 3,
+            "total_rent_eur": 1680,
+            "nearest_library_m": 260,
+            "nearest_playground_m": 180,
+            "nearest_shopping_center_m": 420,
+            "nearest_theatre_m": 240,
+            "nearest_supermarket_m": 140,
+        },
+        off_scope_url: {
+            "postal_name": "1220 Wien",
+            "property_type": "apartment",
+            "area_sqm": 81,
+            "rooms": 3,
+            "total_rent_eur": 1620,
+            "nearest_library_m": 180,
+            "nearest_playground_m": 140,
+            "nearest_shopping_center_m": 230,
+            "nearest_theatre_m": 220,
+            "nearest_supermarket_m": 90,
+        },
+    }
+
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1020 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 5,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": list(listing_urls),
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:e2e-targeted-recovery"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+
+    def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
+        facts = dict(facts_by_url[property_url])
+        listing_id = property_url.rstrip("/").rsplit("/", 1)[-1]
+        return {
+            "listing_id": listing_id,
+            "title": f"Mietwohnung in {facts['postal_name']} | {facts['area_sqm']} m2 | {facts['rooms']} Zimmer",
+            "summary": "Balkonwohnung mit Lift und guter Anbindung.",
+            "property_facts_json": facts,
+        }
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview_with_timeout", _fake_preview)
+
+    def _fake_fit(**kwargs) -> dict[str, object]:
+        property_url = str(kwargs.get("property_url") or "")
+        score = 43.0 if property_url == target_url else 57.0
+        if property_url == off_scope_url:
+            score = 94.0
+        return {
+            "fit_score": score,
+            "recommendation": "review",
+            "match_reasons_json": ["Hard basics match the requested listing brief."],
+            "mismatch_reasons_json": ["Optional preferences differ."],
+            "unknowns_json": [],
+        }
+
+    monkeypatch.setattr(product_service, "_property_alert_personal_fit_from_facts", _fake_fit)
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review_with_timeout",
+        lambda self, **kwargs: {
+            "status": "opened",
+            "editor_url": f"/app/research/{str(kwargs.get('source_ref') or 'candidate').split(':')[-1]}",
+        },
+    )
+
+    strict_preferences = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "location_query": "1020 Vienna",
+        "selected_districts": ["1020 Vienna"],
+        "property_type": "apartment",
+        "search_mode": "discovery",
+        "max_price_eur": 1700,
+        "min_area_m2": 70,
+        "min_rooms": 3,
+        "min_match_score": 95,
+        "require_floorplan": False,
+        "property_commercial": {
+            "active_plan_key": "agent",
+            "status": "active",
+            "active_until": "2999-01-01T00:00:00+00:00",
+        },
+    }
+    soft_preferences = {
+        **strict_preferences,
+        "max_distance_to_library_m": 400,
+        "max_distance_to_library_importance": "strong_wish",
+        "max_distance_to_playground_m": 250,
+        "max_distance_to_playground_importance": "nice_to_have",
+        "max_distance_to_theatre_m": 350,
+        "max_distance_to_theatre_importance": "strong_wish",
+        "max_distance_to_supermarket_m": 200,
+        "max_distance_to_supermarket_importance": "nice_to_have",
+        "avoid_noise_risk_area": True,
+        "require_high_speed_internet_evidence": True,
+    }
+
+    run_statuses: dict[str, dict[str, object]] = {}
+    for label, preferences in (("strict", strict_preferences), ("soft", soft_preferences)):
+        started = client.post(
+            "/app/api/property/search-runs",
+            json={
+                "selected_platforms": ["willhaben"],
+                "property_preferences": preferences,
+                "force_refresh": True,
+                "max_results_per_source": 5,
+            },
+        )
+        assert started.status_code == 200, started.text
+        run_statuses[label] = _poll_search_run(client, started.json()["run_id"])
+
+    strict_status = run_statuses["strict"]
+    soft_status = run_statuses["soft"]
+    assert strict_status["status"] == "processed"
+    assert soft_status["status"] == "processed"
+
+    strict_urls = _candidate_urls(strict_status)
+    soft_urls = _candidate_urls(soft_status)
+    assert target_url in strict_urls
+    assert target_url in soft_urls
+    assert same_scope_alt_url in strict_urls
+    assert same_scope_alt_url in soft_urls
+    assert off_scope_url not in strict_urls
+    assert off_scope_url not in soft_urls
+    assert any(
+        str(row.get("property_url") or "") == target_url
+        and dict(row.get("property_facts") or {}).get("score_demoted_by_match_threshold") is True
+        for row in _candidate_fact_rows(strict_status)
+    )
+    assert any(
+        str(row.get("property_url") or "") == target_url
+        and dict(row.get("property_facts") or {}).get("distance_preference_notes")
+        for row in _candidate_fact_rows(soft_status)
+    )
+
+
 def test_propertyquarry_e2e_exact_district_selection_remains_a_hard_filter(monkeypatch) -> None:
     principal_id = "exec-property-e2e-location-hard-filter"
     client = build_property_client(principal_id=principal_id)

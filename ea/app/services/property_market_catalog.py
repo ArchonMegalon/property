@@ -3209,6 +3209,7 @@ def provider_options(*, country_code: str | None = None) -> list[dict[str, objec
                 "country_label": country_label,
                 "family": provider.family,
                 "family_label": family_label,
+                "supported_listing_modes": list(provider.supported_listing_modes),
                 "trust_tier": provider.trust_tier,
                 "trust_label": trust_label,
                 "coverage": provider.coverage,
@@ -3269,34 +3270,86 @@ def filter_selectable_property_platforms(
     listing_mode: object | None = None,
     include_distressed_sale_signals: object = False,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    selectable = set(
-        selectable_property_platform_keys(
-            country_code=country_code,
-            listing_mode=listing_mode,
-            include_distressed_sale_signals=include_distressed_sale_signals,
-        )
+    kept, removed_details = filter_selectable_property_platform_details(
+        selected_platforms,
+        country_code=country_code,
+        listing_mode=listing_mode,
+        include_distressed_sale_signals=include_distressed_sale_signals,
+    )
+    return kept, tuple(str(row.get("platform") or "").strip() for row in removed_details if str(row.get("platform") or "").strip())
+
+
+def filter_selectable_property_platform_details(
+    selected_platforms: object,
+    *,
+    country_code: object,
+    listing_mode: object | None = None,
+    include_distressed_sale_signals: object = False,
+) -> tuple[tuple[str, ...], tuple[dict[str, object], ...]]:
+    normalized_country = normalize_country_code(country_code)
+    normalized_mode = normalize_listing_mode(listing_mode) if listing_mode is not None else ""
+    allow_distressed_fallback = (
+        include_distressed_sale_signals is True
+        or str(include_distressed_sale_signals or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
     )
     kept: list[str] = []
-    removed: list[str] = []
+    removed_details: list[dict[str, object]] = []
+    removed_platforms: set[str] = set()
     if isinstance(selected_platforms, (list, tuple, set)):
         candidates = tuple(selected_platforms)
     elif selected_platforms is None:
         candidates = ()
     else:
         candidates = (selected_platforms,)
+
+    def _append_removed(platform_key: str, *, provider: PropertyProviderSpec | None, reason: str) -> None:
+        normalized_platform_key = str(platform_key or "").strip()
+        if not normalized_platform_key or normalized_platform_key in removed_platforms:
+            return
+        removed_platforms.add(normalized_platform_key)
+        removed_details.append(
+            {
+                "platform": normalized_platform_key,
+                "provider_label": str(getattr(provider, "label", "") or normalized_platform_key).strip(),
+                "reason": reason,
+                "requested_country_code": normalized_country,
+                "requested_country_label": country_label(normalized_country),
+                "provider_country_code": str(getattr(provider, "country_code", "") or "").strip().upper(),
+                "provider_country_label": (
+                    country_label(getattr(provider, "country_code", ""))
+                    if str(getattr(provider, "country_code", "") or "").strip()
+                    else ""
+                ),
+                "requested_listing_mode": normalized_mode,
+                "supported_listing_modes": list(getattr(provider, "supported_listing_modes", ()) or ()),
+                "search_ready": bool(getattr(provider, "search_ready", False)),
+                "market_readiness": str(getattr(provider, "market_readiness", "") or "").strip(),
+            }
+        )
+
     for item in candidates:
         current = normalize_property_platform(item)
         if not current or current == "all":
-            if current and current not in removed:
-                removed.append(current)
+            if current:
+                _append_removed(current, provider=None, reason="non_specific_selection")
             continue
-        if current in selectable:
-            if current not in kept:
-                kept.append(current)
+        provider = _PROVIDER_INDEX.get(current)
+        if provider is None:
+            _append_removed(current, provider=None, reason="unknown_provider")
             continue
-        if current not in removed:
-            removed.append(current)
-    return tuple(kept), tuple(removed)
+        if provider.country_code != normalized_country:
+            _append_removed(current, provider=provider, reason="wrong_country")
+            continue
+        if not provider.search_ready:
+            _append_removed(current, provider=provider, reason="not_search_ready")
+            continue
+        if normalized_mode and normalized_mode not in provider.supported_listing_modes and not allow_distressed_fallback:
+            _append_removed(current, provider=provider, reason="listing_mode_unsupported")
+            continue
+        if current in kept:
+            continue
+        kept.append(current)
+    return tuple(kept), tuple(removed_details)
 
 
 def evidence_source_options(*, country_code: str | None = None) -> list[dict[str, object]]:
@@ -3792,7 +3845,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         single_channel = str(raw_alert_channels or "").strip().lower()
         alert_channels = [single_channel] if single_channel in ALERT_CHANNEL_KEYS else []
     payload["alert_channels"] = alert_channels or ["telegram"]
-    selected_platforms, removed_platforms = filter_selectable_property_platforms(
+    selected_platforms, removed_platform_details = filter_selectable_property_platform_details(
         tuple(
             dict.fromkeys(
                 normalize_property_platform(item)
@@ -3805,9 +3858,14 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         include_distressed_sale_signals=payload.get("include_distressed_sale_signals"),
     )
     payload["selected_platforms"] = list(selected_platforms)
-    if removed_platforms:
+    if removed_platform_details:
         payload["provider_selection_filter_applied"] = True
-        payload["provider_selection_filter_removed"] = list(removed_platforms)
+        payload["provider_selection_filter_removed"] = [
+            str(row.get("platform") or "").strip()
+            for row in removed_platform_details
+            if str(row.get("platform") or "").strip()
+        ]
+        payload["provider_selection_filter_removed_details"] = [dict(row) for row in removed_platform_details]
     try:
         from app.services.property_billing import property_commercial_snapshot, property_plan_has_unlimited_provider_results
 
@@ -3907,14 +3965,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
                 payload[numeric_key] = numeric_value
         else:
             payload.pop(numeric_key, None)
-    try:
-        min_match_score = int(float(str(payload.get("min_match_score") or "").strip()))
-    except Exception:
-        min_match_score = 0
-    if "min_match_score" in payload:
-        payload["min_match_score"] = max(0, min(100, min_match_score))
-    else:
-        payload.pop("min_match_score", None)
+    payload.pop("min_match_score", None)
     raw_flatbee_penalty = payload.get("use_flatbee_reputation_penalty")
     payload["use_flatbee_reputation_penalty"] = not (
         raw_flatbee_penalty is False

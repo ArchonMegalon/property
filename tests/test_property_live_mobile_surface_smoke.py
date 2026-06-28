@@ -117,6 +117,18 @@ def test_live_mobile_smoke_accepts_fail_closed_billing_recovery() -> None:
     assert _failed_names("/app/billing", metrics) == set()
 
 
+def test_live_mobile_smoke_accepts_internal_account_fallback_redirect() -> None:
+    metrics = _base_metrics()
+    metrics.update(
+        {
+            "status_code": 303,
+            "redirect_location": "/app/account?billing=1#delivery",
+        }
+    )
+
+    assert _failed_names("/app/billing", metrics) == set()
+
+
 def test_live_mobile_smoke_accepts_login_required_fail_closed_billing_recovery() -> None:
     metrics = _base_metrics()
     metrics.update(
@@ -134,7 +146,7 @@ def test_live_mobile_smoke_rejects_local_billing_page() -> None:
     metrics.update(
         {
             "status_code": 503,
-            "billing_visible_text": "PropertyQuarry Plan Agent Billing history Compare plans Open pricing",
+            "billing_visible_text": "PropertyQuarry Plan Agent Billing history Compare plans View plans",
         }
     )
 

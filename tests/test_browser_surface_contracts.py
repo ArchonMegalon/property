@@ -35,7 +35,7 @@ LEGACY_APP_ROUTE_REDIRECTS = {
     "/app/follow-ups": "/app/commitments",
     "/app/memory": "/app/people",
     "/app/contacts": "/app/evidence",
-    "/app/channels": "/app/account#delivery",
+    "/app/channels": "/app/account?billing=1#delivery",
     "/app/automation": "/app/agents",
     "/app/automations": "/app/agents",
 }
@@ -158,8 +158,9 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
 
     sign_in = client.get("/sign-in", headers={"host": "propertyquarry.com"})
     assert sign_in.status_code == 200
-    assert "Private hardware sign-in lane for approved devices." in sign_in.text
-    assert ">Restricted<" in sign_in.text
+    assert "Trusted device" not in sign_in.text
+    assert "Private hardware sign-in lane for approved devices." not in sign_in.text
+    assert ">Restricted<" not in sign_in.text
     assert "verified rollout" not in sign_in.text.lower()
     assert ">Invite only<" not in sign_in.text
     assert "Join waitlist" not in sign_in.text
@@ -478,7 +479,7 @@ def test_propertyquarry_core_surface_internal_links_resolve() -> None:
     for path in paths:
         response = client.get(path, headers={"host": "propertyquarry.com", "accept": "text/html"}, follow_redirects=True)
         if path == "/app/billing":
-            assert response.status_code in {303, 503}, path
+            assert response.status_code == 200, path
             continue
         assert response.status_code == 200, path
         _assert_internal_links_resolve(client, source_path=path, html=response.text)

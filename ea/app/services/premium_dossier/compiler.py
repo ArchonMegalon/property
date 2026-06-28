@@ -22,6 +22,7 @@ from app.services.fliplink.pdf_renderer import (
     _resolve_pdf_review_url,
     _text_items,
 )
+from app.services.property_customer_copy import normalize_property_fit_note
 from app.services.premium_dossier.models import PremiumDossierCompileResult, PremiumFactCard
 
 
@@ -276,7 +277,9 @@ def compile_premium_dossier(
         if isinstance(redacted_payload.get("score_methodology"), dict)
         else {}
     )
-    compare_reason = str(redacted_payload.get("compare_reason") or (compare_rows[0].get("compare_reason") if compare_rows else "") or "").strip()
+    compare_reason = normalize_property_fit_note(
+        redacted_payload.get("compare_reason") or (compare_rows[0].get("compare_reason") if compare_rows else "")
+    )
     property_narrative = [
         *[
             str(row.get("body") or "").strip()

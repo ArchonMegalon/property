@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover - optional image appendix support
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.fliplink.privacy import REDACTION_POLICY_VERSION, redact_property_packet
 from app.product.property_location_research import property_school_context_summary
+from app.services.property_customer_copy import normalize_property_fit_note
 
 
 PDF_RENDERER_VERSION = "v7_agency_comparison_dossier_pdf"
@@ -81,21 +82,16 @@ def _clean_sentence(value: object) -> str:
 
 
 def _localize_compare_reason(value: object) -> str:
-    text = " ".join(str(value or "").split()).strip()
+    text = normalize_property_fit_note(value)
     if not text:
         return ""
     replacements = {
-        "Chosen ahead of the next option because": "Vor der nächstbesten Alternative liegt dieses Objekt, weil",
-        "it scored": "es",
-        "points higher on the current brief": "Punkte höher auf das aktuelle Suchprofil scored",
-        "it includes a floorplan while the next option does not": "ein Grundriss vorliegt, während der nächsten Alternative dieser fehlt",
-        "it offers more usable room count": "die Zimmerstruktur besser nutzbar wirkt",
-        "next option": "nächstbesten Alternative",
+        "It stayed closest to the current brief": "Es bleibt am nächsten am aktuellen Suchprofil",
+        "A floorplan is already available": "Ein brauchbarer Grundriss liegt bereits vor",
+        "It offers more usable room count": "Die Zimmerstruktur wirkt besser nutzbar",
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
-    text = text.replace(" scored", " bewertet wurde")
-    text = text.replace("Punkte höher auf das aktuelle Suchprofil scored", "Punkte höher auf das aktuelle Suchprofil bewertet wurde")
     return _clean_sentence(text)
 
 

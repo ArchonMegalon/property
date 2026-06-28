@@ -1286,7 +1286,7 @@
           </small>
           <small class="console-run-note">
             {% if (commercial.get('max_platforms') or 0)|int <= 0 %}All providers{% else %}{{ commercial.get('max_platforms') }} provider{{ '' if (commercial.get('max_platforms') or 1) == 1 else 's' }}{% endif %}
-            | {% if (commercial.get('max_results_per_source') or 0)|int <= 0 %}all ranked results per provider{% else %}up to {{ commercial.get('max_results_per_source') or 2 }} results per provider{% endif %}
+            | {% if (commercial.get('search_agent_limit') or 0)|int <= 0 %}unlimited saved searches{% else %}{{ commercial.get('search_agent_limit') or 1 }} saved search{{ '' if (commercial.get('search_agent_limit') or 1) == 1 else 'es' }}{% endif %}
           </small>
           <div class="console-inline-status" data-property-billing-status></div>
           <div class="console-inline-error" data-property-billing-error></div>
@@ -1468,7 +1468,7 @@
   };
 
   {% set commercial_ctx = commercial if commercial is defined and commercial else ((property_meta.get('commercial') or {}) if property_meta is defined and property_meta else {}) %}
-  const hasUnlimitedProviderResults = () => {% if (commercial_ctx.get('current_plan_key') in ['agent', 'agency', 'agency_tier', 'agency_lifetime', 'agency_tier_lifetime', 'agent_lifetime', 'agent_tier_lifetime']) and ((commercial_ctx.get('max_results_per_source') or 0)|int <= 0) %}true{% else %}false{% endif %};
+  const hasUnlimitedProviderResults = () => {% if (commercial_ctx.get('max_results_per_source') or 0)|int <= 0 %}true{% else %}false{% endif %};
 
   const maxResultsPerSourceValue = (form) => (
     form?.querySelector('[name="max_results_per_source"]')
@@ -1476,12 +1476,24 @@
       : null
   );
 
+  const providerSupportsListingMode = (node, listingMode) => {
+    const normalizedMode = String(listingMode || 'rent').trim().toLowerCase() || 'rent';
+    const rawModes = String(node?.getAttribute?.('data-listing-modes') || '').trim().toLowerCase();
+    if (!rawModes) return true;
+    return rawModes.split(',').map((item) => String(item || '').trim()).filter(Boolean).includes(normalizedMode);
+  };
+
   const selectedPlatformsForForm = (form) => {
     const selectedCountry = String(fieldValue(form, 'country_code') || 'AT').trim().toUpperCase();
+    const searchGoal = String(fieldValue(form, 'search_goal') || 'home').trim().toLowerCase();
+    const selectedListingMode = searchGoal === 'investment'
+      ? 'buy'
+      : (String(fieldValue(form, 'listing_mode') || 'rent').trim().toLowerCase() || 'rent');
     return [...form.querySelectorAll('input[name="selected_platforms"]:checked')]
       .filter((node) => {
         const providerCountry = String(node.getAttribute('data-country-code') || '').trim().toUpperCase();
-        return !providerCountry || !selectedCountry || providerCountry === selectedCountry;
+        return (!providerCountry || !selectedCountry || providerCountry === selectedCountry)
+          && providerSupportsListingMode(node, selectedListingMode);
       })
       .map((node) => String(node.value || '').trim())
       .filter(Boolean);
@@ -1499,15 +1511,18 @@
       developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
       distressed_sales: ['Distressed and judicial', 'Auction, forced-sale, and judicial lanes.'],
       community_signals: ['Community signals', 'Facebook, Telegram, and other lightly sourced off-market hints.'],
-      community_meta: ['Watch-tier meta', 'Long-tail meta or watch-tier sources with lower trust.'],
+      community_meta: ['Long-tail sources', 'Smaller or harder-to-verify sources that can still surface useful homes.'],
     };
     const renderOption = (option) => {
       const value = String(option.value || '').trim();
       const label = String(option.label || value || 'Provider').trim();
       const detail = String(option.detail || option.description || '').trim();
-      return `
+        const listingModeAttr = Array.isArray(option.supported_listing_modes) && option.supported_listing_modes.length
+          ? `data-listing-modes="${escapeHtml(option.supported_listing_modes.join(','))}"`
+          : '';
+        return `
         <label class="console-choice">
-          <input type="checkbox" name="${name}" value="${value}" ${option.country_code ? `data-country-code="${escapeHtml(option.country_code)}"` : ''} ${nextSelected.has(value) ? 'checked' : ''}>
+          <input type="checkbox" name="${name}" value="${value}" ${option.country_code ? `data-country-code="${escapeHtml(option.country_code)}"` : ''} ${listingModeAttr} ${nextSelected.has(value) ? 'checked' : ''}>
           <span>
             <span class="console-choice-label">${label}</span>
             ${detail ? `<span class="console-choice-detail">${detail}</span>` : ''}
@@ -1753,7 +1768,6 @@
         min_rooms: integerValue(form, 'min_rooms'),
         min_area_m2: integerValue(form, 'min_area_m2'),
         max_results_per_source: parsedMaxResults,
-        min_match_score: integerValue(form, 'min_match_score'),
         search_agent_enabled: Boolean(form.querySelector('input[name="search_agent_enabled"]')?.checked),
         search_agent_duration_days: integerValue(form, 'search_agent_duration_days'),
         search_agent_notification_limit: integerValue(form, 'search_agent_notification_limit'),
@@ -1973,9 +1987,15 @@
     sourceNode.innerHTML = sources.slice(0, 6).map((source) => {
       const label = String(source.source_label || source.source_url || 'Source');
       const pushdown = source.provider_filter_pushdown && typeof source.provider_filter_pushdown === 'object' ? source.provider_filter_pushdown : {};
+      const ranked = Math.max(
+        0,
+        Number(source.ranked_total || 0),
+        Number(source.ranked_candidate_total || 0),
+        Number(source.high_fit_total || 0),
+      );
       const detail = [
         `${Number(source.listing_total || 0)} listings`,
-        `${Number(source.high_fit_total || 0)} high-fit`,
+        `${ranked} ranked`,
         `${Number(source.tour_created_total || 0)} new tours`,
         `${Number(source.notified_total || 0)} client alerts`,
         Number(source.email_notified_total || 0) > 0 ? `${Number(source.email_notified_total || 0)} email` : '',
@@ -2213,7 +2233,13 @@
         const catalog = meta.platform_catalog_by_country || {};
         const defaultLanguageByCountry = meta.default_language_by_country || {};
         const selectedCountry = String(countryField.value || '').trim();
-        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
+        const selectedListingMode = String(fieldValue(form, 'listing_mode') || 'rent').trim().toLowerCase() || 'rent';
+        const options = (Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : []).filter((option) => {
+          const supportedModes = Array.isArray(option?.supported_listing_modes)
+            ? option.supported_listing_modes.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+            : [];
+          return !supportedModes.length || supportedModes.includes(selectedListingMode);
+        });
         const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, planPlatformCap);
         const languageField = form.querySelector('select[name="language_code"]');
         const nextLanguage = String(defaultLanguageByCountry[selectedCountry] || '').trim();

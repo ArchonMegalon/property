@@ -245,7 +245,7 @@ def test_propertyquarry_surface_processor_policy_flags_any_non_public_optimizer(
                 key="delivery_bad",
                 group="delivery",
                 label="Delivery payload",
-                routes=("/app/account#delivery",),
+                routes=("/app/account?billing=1#delivery",),
                 clickrank_allowed=True,
             ),
         ),

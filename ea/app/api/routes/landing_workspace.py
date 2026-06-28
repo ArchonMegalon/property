@@ -1065,43 +1065,40 @@ def settings_support_detail(
             object_sidebar_title="Support at a glance",
             object_sidebar_copy="This view answers what failed, what is already usable, and what to do next.",
             object_sidebar_rows=[
-                _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
-                _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
-                _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
-                _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
-                _object_detail_row("Support center", "Open the public support page for contact options.", "Support", action_href="/support", action_label="Open support", action_method="get"),
+                _object_detail_row("Latest run", str(property_usage["latest_status"]), "", href=str(property_usage["latest_href"])),
+                _object_detail_row("Support center", "Open the public support page for contact options.", "", action_href="/support", action_label="Open support", action_method="get"),
             ],
             object_sections=[
                 {
                     "eyebrow": "Repair",
                     "title": "Repair and run health",
                     "items": [
-                        _object_detail_row("Recovery", str(property_usage["repair_status"]), "Repair"),
-                        _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
-                        _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
-                        _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), "Search"),
-                        _object_detail_row("Partial runs", str(property_usage["partial_total"]), "Coverage"),
+                        _object_detail_row("Recovery", str(property_usage["repair_status"]), ""),
+                        _object_detail_row("Source failures", str(property_usage["failed_source_total"]), ""),
+                        _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), ""),
+                        _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), ""),
+                        _object_detail_row("Partial runs", str(property_usage["partial_total"]), ""),
                     ],
                 },
                 {
                     "eyebrow": "Usable results",
                     "title": "What is ready while support works",
                     "items": [
-                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
-                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
-                        _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
+                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), ""),
+                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), ""),
+                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), ""),
+                        _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), ""),
                     ],
                 },
                 {
                     "eyebrow": "Account",
                     "title": "Billing and plan support",
                     "items": [
-                        _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
-                        _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), "Billing"),
-                        _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), "Billing"),
-                        _object_detail_row("Upgrade path", str(commercial.get("upgrade_path_label") or "Stay on current plan"), "Upgrade"),
-                        _object_detail_row("Blocked action message", _propertyquarry_copy(commercial.get("blocked_action_message"), fallback="No current commercial blocks."), "Support"),
+                        _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), ""),
+                        _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), ""),
+                        _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), ""),
+                        _object_detail_row("Upgrade path", str(commercial.get("upgrade_path_label") or "Stay on current plan"), ""),
+                        _object_detail_row("Blocked action message", _propertyquarry_copy(commercial.get("blocked_action_message"), fallback="No current commercial blocks."), ""),
                     ],
                 },
             ],
@@ -1127,81 +1124,6 @@ def settings_support_detail(
     public_guide_freshness = dict(product_control.get("public_guide_freshness") or {})
     route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
     journey_highlights = [dict(value) for value in list(product_control.get("journey_highlights") or [])]
-    if is_property_brand:
-        property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
-        return _render_console_object_detail(
-            request=request,
-            context=context,
-            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
-            page_title="PropertyQuarry support",
-            current_nav="settings",
-            console_title="Support",
-            console_summary="See what failed, what still works, and the next useful action.",
-            object_kind="Support",
-            object_title=str(property_usage["repair_status"]),
-            object_summary=(
-                f"{property_usage['failed_source_total']} source failures · "
-                f"{property_usage['ranked_total']} ranked homes · "
-                f"{str(billing.get('support_tier') or 'standard').title()} support"
-            ),
-            object_meta=[
-                {"label": "Source failures", "value": str(property_usage["failed_source_total"])},
-                {"label": "Sources retrying", "value": str(property_usage["repairing_source_total"])},
-                {"label": "Partial runs", "value": str(property_usage["partial_total"])},
-                {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
-            ],
-            object_sidebar_title="Support at a glance",
-            object_sidebar_copy="This view answers what failed, what is already usable, and what to do next.",
-            object_sidebar_rows=[
-                _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
-                _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
-                _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
-                _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
-                _object_detail_row(
-                    "Support center",
-                    "Open the public support page for contact options.",
-                    "Support",
-                    action_href="/support",
-                    action_label="Open support",
-                    action_method="get",
-                ),
-            ],
-            object_sections=[
-                {
-                    "eyebrow": "Repair",
-                    "title": "Repair and run health",
-                    "items": [
-                        _object_detail_row("Recovery", str(property_usage["repair_status"]), "Repair"),
-                        _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
-                        _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
-                        _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), "Search"),
-                        _object_detail_row("Partial runs", str(property_usage["partial_total"]), "Coverage"),
-                        _object_detail_row("Provider review", "No provider review is currently due." if not str(route_stewardship.get("review_due") or "").strip() else "Provider review is due.", "Provider"),
-                    ],
-                },
-                {
-                    "eyebrow": "Usable results",
-                    "title": "What is ready while support works",
-                    "items": [
-                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
-                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
-                        _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
-                    ],
-                },
-                {
-                    "eyebrow": "Account",
-                    "title": "Billing and plan support",
-                    "items": [
-                        _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
-                        _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), "Billing"),
-                        _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), "Billing"),
-                        _object_detail_row("Upgrade path", str(commercial.get("upgrade_path_label") or "Stay on current plan"), "Upgrade"),
-                        _object_detail_row("Blocked action message", _propertyquarry_copy(commercial.get("blocked_action_message"), fallback="No current commercial blocks."), "Support"),
-                    ],
-                },
-            ],
-        )
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1870,17 +1792,9 @@ def settings_google_detail(
     if is_property_brand:
         object_sidebar_rows = [
             _object_detail_row(
-                "Google sign-in",
-                "Google creates or opens your PropertyQuarry account with one secure action.",
-                "Google",
-                action_href=connect_another_href,
-                action_label=add_account_label,
-                action_method="get",
-            ),
-            _object_detail_row(
-                "Account action",
+                "Next step",
                 action["detail"],
-                "Action",
+                "",
                 href="/app/settings/google",
                 action_href=action["href"],
                 action_label=action["label"],
@@ -1925,9 +1839,9 @@ def settings_google_detail(
             ]
             object_sidebar_rows = [
                 _object_detail_row(
-                    "Google sign-in",
+                    "Connect on this device",
                     "Connect Google on this device. First-time Google sign-in still creates the same PropertyQuarry account automatically.",
-                    "Action",
+                    "",
                     href="/app/settings/google",
                     action_href=connect_another_href,
                     action_label="Connect Google",
@@ -2077,7 +1991,7 @@ def settings_google_detail(
         object_meta=object_meta,
         object_sidebar_title="Google sign-in" if is_property_brand else "What this view answers",
         object_sidebar_copy=(
-            "Use Google to create or reopen the same PropertyQuarry account. No extra inbox scope is required here."
+            "Use Google to open the same PropertyQuarry account on this device. No extra inbox scope is required here."
             if is_property_brand
             else "This view shows which inbox is primary, what additional Google inboxes are attached to the same workspace, when the last sync completed, and whether the office needs reauth before the next loop."
         ),
@@ -2371,7 +2285,7 @@ def settings_access_detail(
                 )
                 + f" · {('/app/agents' if is_property_brand and str(item.get('default_target') or '') == '/admin/office' else str(item.get('default_target') or '/app/properties'))} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}"
             ),
-            str(item.get("source_kind") or "workspace_access").replace("_", " ").title(),
+            "" if is_property_brand else str(item.get("source_kind") or "workspace_access").replace("_", " ").title(),
             action_href=f"/app/actions/access-sessions/{urllib.parse.quote(str(item.get('session_id') or '').strip(), safe='')}/revoke",
             action_label="Revoke",
             action_method="post",
@@ -2387,16 +2301,16 @@ def settings_access_detail(
             _object_detail_row(
                 "More active links",
                 f"{hidden_active_total} additional active access link{'s' if hidden_active_total != 1 else ''}. Use search or revoke from the full ledger when needed.",
-                "Hidden",
+                "" if is_property_brand else "Hidden",
             )
         )
     if not active_access_items:
-        active_access_items = [_object_detail_row("No active access sessions", "Issue an account access link when someone needs direct entry into PropertyQuarry.", "Clear")]
+        active_access_items = [_object_detail_row("No active access sessions", "Issue an account access link when someone needs direct entry into PropertyQuarry.", "" if is_property_brand else "Clear")]
     revoked_section_items = [
         _object_detail_row(
             str(item.get("email") or "unknown"),
             f"revoked by {str(item.get('revoked_by') or 'workspace')} · {str(item.get('revoked_at') or '')[:19] or 'n/a'}",
-            "Revoked",
+            "" if is_property_brand else "Revoked",
         )
         for item in visible_revoked_sessions
     ]
@@ -2423,11 +2337,12 @@ def settings_access_detail(
                 ],
             }
         )
-    access_sidebar_rows = [
-        _object_detail_row("Active links", str(len(active_sessions)), "Access"),
-        _object_detail_row("Latest access action", access_detail, "Access"),
-    ]
+    access_sidebar_rows: list[dict[str, str]] = []
     if not is_property_brand:
+        access_sidebar_rows = [
+            _object_detail_row("Active links", str(len(active_sessions)), "Access"),
+            _object_detail_row("Latest access action", access_detail, "Access"),
+        ]
         access_sidebar_rows.insert(1, _object_detail_row("Revoked links", str(len(revoked_sessions)), "Access"))
         access_sidebar_rows.append(
             _object_detail_row(
@@ -2475,6 +2390,7 @@ def settings_access_detail(
             "title": "Create an access link",
             "copy": "Issue a direct account or collaborator access link without dropping into the API.",
             "open": bool(issue_status or issue_error or not active_sessions),
+            "summary_label": "New",
             "submit_label": "Issue access link",
             "fields": [
                 {"type": "hidden", "name": "return_to", "value": "/app/settings/access"},

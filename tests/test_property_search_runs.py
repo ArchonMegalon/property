@@ -138,6 +138,49 @@ def test_property_search_defined_max_results_value_preserves_explicit_zero() -> 
     ) == 0
 
 
+def test_property_search_run_default_summary_carries_provider_filter_details() -> None:
+    summary = product_service._property_search_run_default_summary(  # type: ignore[attr-defined]
+        {
+            "country_code": "AT",
+            "provider_country_filter_applied": True,
+            "provider_country_filter_removed": ["realestate_au"],
+            "provider_country_filter_removed_details": [
+                {
+                    "platform": "realestate_au",
+                    "provider_label": "realestate.com.au",
+                    "reason": "wrong_country",
+                    "requested_country_code": "AT",
+                    "requested_country_label": "Austria",
+                    "provider_country_code": "AU",
+                    "provider_country_label": "Australia",
+                    "requested_listing_mode": "rent",
+                    "supported_listing_modes": ["rent", "buy"],
+                    "search_ready": True,
+                    "market_readiness": "private_beta",
+                }
+            ],
+        }
+    )
+
+    assert summary["provider_country_filter_applied"] is True
+    assert summary["provider_country_filter_removed"] == ["realestate_au"]
+    assert summary["provider_country_filter_removed_details"] == [
+        {
+            "platform": "realestate_au",
+            "provider_label": "realestate.com.au",
+            "reason": "wrong_country",
+            "requested_country_code": "AT",
+            "requested_country_label": "Austria",
+            "provider_country_code": "AU",
+            "provider_country_label": "Australia",
+            "requested_listing_mode": "rent",
+            "supported_listing_modes": ["rent", "buy"],
+            "search_ready": True,
+            "market_readiness": "private_beta",
+        }
+    ]
+
+
 def test_property_notification_price_signal_uses_catalog_currencies() -> None:
     assert product_service._property_candidate_notification_price_signal(  # type: ignore[attr-defined]
         {},
@@ -229,6 +272,81 @@ def test_property_search_compact_run_preserves_run_entitlements() -> None:
     assert summary["max_results_per_source"] == 0
     assert summary["provider_workers"] == {"worker_concurrency": 4, "warm_limit": 3}
     assert preferences["property_commercial"]["active_plan_key"] == "agent"
+
+
+def test_property_search_compact_run_backfills_ranked_summary_counts() -> None:
+    compact = property_search_storage._compact_property_search_run_record(  # type: ignore[attr-defined]
+        {
+            "run_id": "ranked-run",
+            "principal_id": "ranked-principal",
+            "status": "completed_partial",
+            "summary": {
+                "status": "completed_partial",
+                "listing_total": 0,
+                "reviewed_listing_total": 0,
+                "scanned_listing_total": 0,
+                "ranked_total": 0,
+                "ranked_candidate_total": 0,
+                "ranked_candidates": [
+                    {"candidate_ref": "cand-1", "title": "Ranked One", "property_url": "https://example.test/one"},
+                    {"candidate_ref": "cand-2", "title": "Ranked Two", "property_url": "https://example.test/two"},
+                    {"candidate_ref": "cand-3", "title": "Ranked Three", "property_url": "https://example.test/three"},
+                ],
+            },
+        }
+    )
+
+    summary = dict(compact["summary"])
+    assert summary["listing_total"] == 3
+    assert summary["ranked_total"] == 3
+    assert summary["ranked_candidate_total"] == 3
+    assert summary["reviewed_listing_total"] == 3
+    assert summary["scanned_listing_total"] == 3
+
+
+def test_property_search_compact_run_synthesizes_ranked_candidates_from_source_rows() -> None:
+    compact = property_search_storage._compact_property_search_run_record(  # type: ignore[attr-defined]
+        {
+            "run_id": "source-ranked-run",
+            "principal_id": "source-ranked-principal",
+            "status": "completed_partial",
+            "summary": {
+                "status": "completed_partial",
+                "listing_total": 0,
+                "reviewed_listing_total": 0,
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "listing_total": 0,
+                        "reviewed_listing_total": 0,
+                        "top_candidates": [
+                            {
+                                "candidate_ref": "cand-1",
+                                "title": "Ranked One",
+                                "property_url": "https://example.test/one",
+                                "fit_score": 61,
+                            },
+                            {
+                                "candidate_ref": "cand-2",
+                                "title": "Ranked Two",
+                                "property_url": "https://example.test/two",
+                                "fit_score": 57,
+                            },
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+
+    summary = dict(compact["summary"])
+    assert len(summary["ranked_candidates"]) == 2
+    assert summary["listing_total"] == 2
+    assert summary["ranked_total"] == 2
+    assert summary["ranked_candidate_total"] == 2
+    assert summary["reviewed_listing_total"] == 2
+    assert summary["sources"][0]["listing_total"] == 2
+    assert summary["sources"][0]["reviewed_listing_total"] == 2
 
 
 def test_property_search_compact_run_backfills_missing_row_timestamps() -> None:
@@ -3477,6 +3595,23 @@ def test_property_location_match_rejects_reported_off_scope_austrian_hits(
     )
 
 
+def test_property_text_enrichment_does_not_infer_postal_from_price_only_sparse_card() -> None:
+    enriched = product_service._property_enrich_facts_from_listing_text(
+        facts={
+            "source_scope_location": "1010 Vienna",
+            "source_postal_code": "1010",
+            "source_city": "Vienna",
+        },
+        title="#W2 Moderne Schone Zwei-Zimmer Wohnung",
+        summary="78 m2, 2 Zimmer, Gesamtmiete EUR 1.450.",
+        listing_mode="rent",
+        property_url="https://example.invalid/propertyquarry/source-scope-only-sparse-city-card",
+    )
+
+    assert str(enriched.get("postal_name") or "").strip() == ""
+    assert list(enriched.get("listing_postal_evidence") or []) == []
+
+
 def test_property_url_location_probe_rejects_off_scope_willhaben_detail_paths() -> None:
     salzburg_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-1631373932/"
     vienna_1220_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1220-donaustadt/demo-1631373932/"
@@ -4953,6 +5088,102 @@ def test_property_search_sources_resolved_preseeds_queued_source_rows(monkeypatc
         }
     )
     assert int(result["sources_total"]) == int(result["source_variant_total"]) == len(source_rows)
+    source_completed_events = [item for item in events if item.get("step") == "source_completed"]
+    assert source_completed_events
+    assert all(
+        "listing_total" not in dict(item.get("summary_updates") or {})
+        for item in source_completed_events
+    )
+
+
+def test_property_search_source_completed_progress_does_not_overwrite_listing_total(monkeypatch) -> None:
+    principal_id = "exec-property-source-progress-listing-total"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Source Progress Listing Total Office")
+    service = ProductService(client.app.state.container)
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1020-leopoldstadt"
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/listing-total-guard/"
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1020 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 1,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": [listing_url],
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:listing-total-guard"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview_with_timeout",
+        lambda property_url, *, prefer_fast=False: {
+            "listing_id": "listing-total-guard",
+            "title": "Mietwohnung in 1020 Wien mit Balkon",
+            "summary": "78 m2, 3 Zimmer, Gesamtmiete EUR 1.650, Balkon.",
+            "property_facts_json": {
+                "postal_name": "1020 Wien",
+                "area_sqm": 78,
+                "rooms": 3,
+                "total_rent_eur": 1650,
+                "has_balcony": True,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {
+            "fit_score": 72.0,
+            "recommendation": "review",
+            "match_reasons_json": [],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+        },
+    )
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+
+    events: list[dict[str, object]] = []
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "min_match_score": 0,
+            "require_floorplan": False,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+        progress_callback=lambda **payload: events.append(json.loads(json.dumps(payload, default=str))),
+    )
+
+    assert result["listing_total"] == 1
+    source_completed_events = [item for item in events if item.get("step") == "source_completed"]
+    assert source_completed_events
+    assert all(
+        "listing_total" not in dict(item.get("summary_updates") or {})
+        for item in source_completed_events
+    )
 
 
 def test_scheduler_property_results_finalize_processes_provider_repair_tasks(monkeypatch) -> None:
@@ -6120,14 +6351,105 @@ def test_property_search_keeps_review_candidate_when_only_score_threshold_fails(
     assert result["listing_total"] == 1
     assert result["high_fit_total"] == 0
     assert result["filtered_low_fit_total"] == 0
+    assert result["score_demoted_total"] == 1
+    assert result["sources"][0]["score_demoted_total"] == 1
     candidate = dict(result["sources"][0]["top_candidates"][0])
     assert candidate["property_url"] == listing_url
     assert 0 < float(candidate["fit_score"]) < 95
     assert candidate["recommendation"] == "review"
     assert candidate["score_demoted"] is True
     assert candidate["below_match_threshold"] is True
-    assert "kept lower in ranking" in candidate["score_demotion_reason"]
+    assert candidate["score_demotion_reason"] == "Lower-ranked for this source; kept visible in the full ranking."
     assert dict(candidate["property_facts"])["score_demoted_by_match_threshold"] is True
+
+
+def test_property_search_finds_expected_listing_when_hard_filters_match(monkeypatch) -> None:
+    principal_id = "exec-property-pinned-listing"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Pinned Listing Office")
+    service = ProductService(client.app.state.container)
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1020-leopoldstadt"
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/pinned-listing-1/"
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1020 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 1,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": [listing_url],
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:pinned-listing"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview_with_timeout",
+        lambda property_url, *, prefer_fast=False: {
+            "listing_id": "pinned-listing-1",
+            "title": "Mietwohnung in 1020 Wien mit Balkon",
+            "summary": "78 m2, 3 Zimmer, Gesamtmiete EUR 1.650, Balkon.",
+            "property_facts_json": {
+                "postal_name": "1020 Wien",
+                "property_type": "apartment",
+                "area_sqm": 78,
+                "rooms": 3,
+                "total_rent_eur": 1650,
+                "has_balcony": True,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {
+            "fit_score": 84.0,
+            "recommendation": "strong_fit",
+            "match_reasons_json": ["Matches the target district, size, and rent cap."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+        },
+    )
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "max_price_eur": 1700,
+            "min_area_m2": 70,
+            "require_floorplan": False,
+            "min_match_score": 0,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 1
+    assert result["sources"][0]["listing_total"] == 1
+    candidate = dict(result["sources"][0]["top_candidates"][0])
+    assert candidate["property_url"] == listing_url
+    assert candidate["title"] == "Mietwohnung in 1020 Wien mit Balkon"
 
 
 def test_property_search_alert_scoring_respects_stored_feedback_toggle(monkeypatch) -> None:
@@ -6339,7 +6661,7 @@ def test_property_search_keeps_demoted_soft_mismatch_candidates_in_remaining_sho
     assert result["sources"][0]["top_candidates"][1]["below_match_threshold"] is True
 
 
-def test_property_search_ranking_bar_does_not_reorder_provider_results(monkeypatch) -> None:
+def test_property_search_ranking_rules_do_not_reorder_provider_results(monkeypatch) -> None:
     principal_id = "exec-property-ranking-bar-ordering-only"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Ranking Bar Ordering Office")
@@ -6410,7 +6732,7 @@ def test_property_search_ranking_bar_does_not_reorder_provider_results(monkeypat
             "confidence": 0.71,
             "predicted_reaction": "review",
             "recommendation": "review",
-            "match_reasons_json": ["Ranking adjustments still keep this high in the order."],
+            "match_reasons_json": ["Provider ranking still keeps this high in the order."],
             "mismatch_reasons_json": [],
             "unknowns_json": [],
             "blocking_constraints_json": [],
@@ -6452,8 +6774,110 @@ def test_property_search_ranking_bar_does_not_reorder_provider_results(monkeypat
 
     titles = [row["title"] for row in result["sources"][0]["top_candidates"]]
     assert titles == ["Ranked first listing", "Assessment strong listing"]
-    assert result["sources"][0]["top_candidates"][0]["below_match_threshold"] is True
-    assert result["sources"][0]["top_candidates"][1]["below_match_threshold"] is False
+    assert result["sources"][0]["top_candidates"][0]["property_url"] == ranked_url
+    assert result["sources"][0]["top_candidates"][1]["property_url"] == strong_url
+
+
+def test_property_search_resolve_max_results_honors_explicit_cap_even_on_unlimited_plan() -> None:
+    assert product_service._property_search_resolve_max_results_per_source({}, 1) == 1
+    assert product_service._property_search_resolve_max_results_per_source({}, "3") == 3
+    assert product_service._property_search_resolve_max_results_per_source({}, 0) is None
+
+
+def test_property_search_defaults_to_all_ranked_results_when_no_cap_requested(monkeypatch) -> None:
+    principal_id = "exec-property-default-all-ranked"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Default All Ranked Office")
+    service = ProductService(client.app.state.container)
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1020-leopoldstadt"
+    listing_urls = [
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/default-all-ranked-1/",
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/default-all-ranked-2/",
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/default-all-ranked-3/",
+    ]
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1020 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 2,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": list(listing_urls),
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:default-all-ranked"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+
+    def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
+        ordinal = listing_urls.index(property_url) + 1
+        return {
+            "listing_id": f"default-all-ranked-{ordinal}",
+            "title": f"Ranked listing {ordinal}",
+            "summary": f"2 rooms | {60 + ordinal} m2 | 1020 Wien",
+            "property_facts_json": {
+                "postal_name": "1020 Wien",
+                "area_sqm": 60 + ordinal,
+                "rooms": 2,
+                "total_rent_eur": 1500 + (ordinal * 10),
+            },
+        }
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview_with_timeout", _fake_preview)
+
+    def _fake_fit(**kwargs) -> dict[str, object]:
+        property_url = str(kwargs.get("property_url") or "")
+        ordinal = listing_urls.index(property_url) + 1
+        score = 70.0 - ordinal
+        return {
+            "fit_score": score,
+            "recommendation": "review",
+            "match_reasons_json": [f"Ranked candidate {ordinal} stays admissible."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+        }
+
+    monkeypatch.setattr(product_service, "_property_alert_personal_fit_from_facts", _fake_fit)
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "require_floorplan": False,
+        },
+        max_results_per_source=None,
+        force_refresh=True,
+    )
+
+    assert result["max_results_per_source"] == 0
+    assert result["listing_total"] == 3
+    assert len(result["sources"][0]["top_candidates"]) == 3
+    assert [row["title"] for row in result["sources"][0]["top_candidates"]] == [
+        "Ranked listing 1",
+        "Ranked listing 2",
+        "Ranked listing 3",
+    ]
+    assert len(list(result.get("ranked_candidates") or [])) == 3
 
 
 def test_property_search_provider_cap_applies_after_final_ranking(monkeypatch) -> None:
@@ -6564,7 +6988,9 @@ def test_property_search_provider_cap_applies_after_final_ranking(monkeypatch) -
 
     source = dict(result["sources"][0])
     assert result["listing_total"] == 1
+    assert result["reviewed_listing_total"] == 2
     assert source["listing_total"] == 1
+    assert source["reviewed_listing_total"] == 2
     assert [row["title"] for row in source["top_candidates"]] == ["Late final winner"]
 
 
@@ -7133,6 +7559,148 @@ def test_property_search_full_region_does_not_treat_generated_district_source_as
     assert result["listing_total"] == 1
     source = dict(result["sources"][0])
     assert source["filtered_area_total"] == 0
+    assert source["location_mismatch_candidate_total"] == 0
+    assert [row["property_url"] for row in source["research_candidates"]] == [listing_url]
+
+
+def test_property_search_area_keeps_source_scope_only_candidate_for_broad_city_scope() -> None:
+    hints = _property_search_location_hints(
+        {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "full_region_scope": True,
+        }
+    )
+
+    assert product_service._property_candidate_matches_search_area(
+        location_hints=hints,
+        request_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "full_region_scope": True,
+        },
+        source_spec={"country_code": "AT"},
+        property_url="https://www.willhaben.at/iad/object?adId=1775972917",
+        title="#W2 Moderne Schone Zwei-Zimmer Wohnung",
+        summary="Provider card from a Vienna source scope.",
+        property_facts={
+            "source_scope_location": "1020 Vienna",
+            "source_postal_code": "1020",
+            "source_city": "Vienna",
+        },
+    ) is True
+    assert product_service._property_candidate_matches_search_area(
+        location_hints=hints,
+        request_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "full_region_scope": True,
+        },
+        source_spec={"country_code": "AT"},
+        property_url="https://www.willhaben.at/iad/object?adId=1775972918",
+        title="Moderne Wohnung mit Seeblick in Gmunden",
+        summary="Provider card from a Vienna source scope.",
+        property_facts={
+            "source_scope_location": "1020 Vienna",
+            "source_postal_code": "1020",
+            "source_city": "Vienna",
+        },
+    ) is False
+
+
+def test_property_search_full_region_keeps_source_scope_only_sparse_city_card(monkeypatch) -> None:
+    principal_id = "exec-property-run-full-region-source-scope-sparse-card"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Run Full Region Sparse Scope Office")
+    service = ProductService(client.app.state.container)
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen?isNavigation=true&q=1010+Vienna"
+    listing_url = "https://example.invalid/propertyquarry/source-scope-only-sparse-city-card"
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1010 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 1,
+                "notify_telegram": False,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": [listing_url],
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:full-region-source-scope-sparse-card"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview_with_timeout",
+        lambda property_url, *, prefer_fast=False: {
+            "listing_id": "full-region-sparse-1020",
+            "title": "#W2 Moderne Schone Zwei-Zimmer Wohnung",
+            "summary": "78 m2, 2 Zimmer, Gesamtmiete EUR 1.450.",
+            "property_facts_json": {
+                "area_sqm": 78,
+                "rooms": 2,
+                "total_rent_eur": 1450,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {
+            "fit_score": 68.0,
+            "recommendation": "review",
+            "match_reasons_json": ["The source scope stays inside Vienna."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+        },
+    )
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review_with_timeout",
+        lambda self, **kwargs: {
+            "status": "opened",
+            "editor_url": "/app/research/full-region-sparse-1020",
+        },
+    )
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "Vienna",
+            "full_region_scope": True,
+            "property_type": "apartment",
+            "min_match_score": 50,
+            "require_floorplan": False,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 1
+    source = dict(result["sources"][0])
     assert source["location_mismatch_candidate_total"] == 0
     assert [row["property_url"] for row in source["research_candidates"]] == [listing_url]
 
@@ -8560,12 +9128,124 @@ def test_property_search_run_status_synthesizes_ranked_candidates_and_filtered_t
     assert int(summary.get("held_back_total") or 0) == 0
     assert int(summary.get("filtered_total") or 0) == 0
     assert int(summary.get("filtered_low_fit_total") or 0) == 5
+    assert int(summary.get("score_demoted_total") or 0) == 5
     assert int(summary.get("raw_listing_total") or 0) == 12
     assert int(summary.get("scanned_listing_total") or 0) == 11
     assert int(summary.get("location_mismatch_candidate_total") or 0) == 3
     ranked = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
     assert len(ranked) == 1
     assert ranked[0]["title"] == "Altbau near U6"
+
+
+def test_property_search_run_status_backfills_live_counts_from_ranked_candidates() -> None:
+    principal_id = "exec-property-search-live-count-backfill"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"live-count-backfill-{uuid.uuid4().hex}"
+    candidate = {
+        "title": "Broad Vienna shortlist candidate",
+        "property_url": "https://example.com/vienna-shortlist-1",
+        "fit_score": 53,
+        "ranking_score": 53,
+    }
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "in_progress",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["willhaben", "immoscout_at"],
+            "progress": 72,
+            "current_step": "source_shortlist",
+            "message": "Built shortlist of 1 listing(s) for Willhaben.",
+            "summary": {
+                "sources_total": 2,
+                "provider_total": 2,
+                "listing_total": 0,
+                "reviewed_listing_total": 0,
+                "scanned_listing_total": 0,
+                "ranked_total": 0,
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "platform": "willhaben",
+                        "status": "repaired",
+                        "listing_total": 0,
+                        "reviewed_listing_total": 0,
+                        "scanned_listing_total": 0,
+                        "top_candidates": [dict(candidate)],
+                    }
+                ],
+            },
+            "events": [],
+            "property_search_preferences": {},
+        }
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    summary = dict(status.get("summary") or {})
+    assert int(summary.get("listing_total") or 0) == 1
+    assert int(summary.get("reviewed_listing_total") or 0) == 1
+    assert int(summary.get("scanned_listing_total") or 0) == 1
+    assert int(summary.get("ranked_total") or 0) == 1
+    assert int(summary.get("ranked_candidate_total") or 0) == 1
+    ranked = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
+    assert len(ranked) == 1
+    assert ranked[0]["title"] == "Broad Vienna shortlist candidate"
+    sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    assert len(sources) == 1
+    assert int(sources[0].get("listing_total") or 0) == 1
+    assert int(sources[0].get("reviewed_listing_total") or 0) == 1
+    assert int(sources[0].get("scanned_listing_total") or 0) == 1
+    assert int(sources[0].get("ranked_total") or 0) == 1
+
+
+def test_property_search_run_status_backfills_live_reviewed_total_from_progress_message() -> None:
+    principal_id = "exec-property-search-live-progress-count"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"live-progress-count-{uuid.uuid4().hex}"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "in_progress",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["willhaben"],
+            "progress": 32,
+            "current_step": "source_previewing",
+            "message": "Reviewing candidate 20 of 30 for Willhaben.",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 0,
+                "reviewed_listing_total": 0,
+                "scanned_listing_total": 0,
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "platform": "willhaben",
+                        "status": "warming",
+                        "listing_total": 0,
+                        "reviewed_listing_total": 0,
+                        "scanned_listing_total": 0,
+                    }
+                ],
+            },
+            "events": [],
+            "property_search_preferences": {},
+        }
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    summary = dict(status.get("summary") or {})
+    assert int(summary.get("reviewed_listing_total") or 0) == 19
+    assert int(summary.get("scanned_listing_total") or 0) == 19
 
 
 def test_property_search_run_status_rederives_ranked_candidates_from_source_scope_rows(monkeypatch) -> None:
@@ -8737,6 +9417,7 @@ def test_property_search_run_status_api_synthesizes_ranked_candidates_from_sourc
     assert int(payload["summary"].get("held_back_total") or 0) == 0
     assert int(payload["summary"].get("filtered_total") or 0) == 0
     assert int(payload["summary"].get("filtered_low_fit_total") or 0) == 7
+    assert int(payload["summary"].get("score_demoted_total") or 0) == 7
     ranked = [dict(row) for row in list(payload["summary"].get("ranked_candidates") or []) if isinstance(row, dict)]
     assert len(ranked) == 60
     assert ranked[0]["title"] == "Altbau near U6 #0"
@@ -9085,7 +9766,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
     assert observed["force_refresh"] is True
     assert observed["max_results_per_source"] == 2
     assert observed["property_search_preferences"]["preference_person_id"] == "elisabeth"
-    assert observed["property_search_preferences"]["min_match_score"] == 35.0
+    assert observed["property_search_preferences"]["min_match_score"] == 0.0
     assert observed["property_search_preferences"]["require_floorplan"] is True
 
 
@@ -9170,6 +9851,7 @@ def test_property_search_run_api_passes_normalized_merged_preferences_to_worker(
     payload = dict(observed["property_search_preferences"])
     assert observed["selected_platforms"] == ("willhaben",)
     assert payload["property_type"] == ["land"]
+    assert payload["min_match_score"] == 0.0
     assert payload["require_floorplan"] is False
     assert payload["require_energy_certificate"] is False
     assert payload["require_operating_cost_statement"] is False
@@ -11328,7 +12010,7 @@ def test_agent_property_search_preferences_drop_stale_result_cap_when_saved() ->
     assert stored.json()["property_search_preferences"]["max_results_per_source"] is None
 
 
-def test_plus_property_search_preferences_clamp_stale_result_cap_when_saved() -> None:
+def test_plus_property_search_preferences_drop_stale_result_cap_when_saved() -> None:
     principal_id = "exec-property-plus-preferences-clamped"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Plus Clamp")
@@ -11347,7 +12029,7 @@ def test_plus_property_search_preferences_clamp_stale_result_cap_when_saved() ->
     )
 
     assert stored.status_code == 200, stored.text
-    assert stored.json()["property_search_preferences"]["max_results_per_source"] == 5
+    assert stored.json()["property_search_preferences"]["max_results_per_source"] is None
 
 
 def test_property_search_preferences_persist_full_region_scope_as_hard_location_scope() -> None:
@@ -11500,6 +12182,21 @@ def test_direct_property_scout_filters_cross_country_platforms_from_runtime_pref
     assert observed["preferences"]["selected_platforms"] == ["willhaben"]
     assert observed["preferences"]["provider_country_filter_applied"] is True
     assert observed["preferences"]["provider_country_filter_removed"] == ["realestate_au"]
+    assert observed["preferences"]["provider_country_filter_removed_details"] == [
+        {
+            "platform": "realestate_au",
+            "provider_label": "realestate.com.au",
+            "reason": "wrong_country",
+            "requested_country_code": "AT",
+            "requested_country_label": "Austria",
+            "provider_country_code": "AU",
+            "provider_country_label": "Australia",
+            "requested_listing_mode": "rent",
+            "supported_listing_modes": ["rent", "buy"],
+            "search_ready": True,
+            "market_readiness": "private_beta",
+        }
+    ]
 
 
 def test_property_search_run_uses_saved_platforms_before_family_toggles(monkeypatch) -> None:
@@ -11953,10 +12650,10 @@ def test_property_search_execution_preferences_relax_only_floorplan_for_discover
     assert execution_policy["discovery_relaxed_filters"] == ["require_floorplan", "min_area_m2"]
 
 
-def test_property_search_effective_min_match_score_allows_zero_and_keeps_requested_value() -> None:
+def test_property_search_effective_min_match_score_always_disables_the_removed_bar() -> None:
     assert product_service._property_search_effective_min_match_score({}) == 0.0
     assert product_service._property_search_effective_min_match_score({"min_match_score": 0}) == 0.0
-    assert product_service._property_search_effective_min_match_score({"search_mode": "discovery", "min_match_score": 20}) == 20.0
+    assert product_service._property_search_effective_min_match_score({"search_mode": "discovery", "min_match_score": 20}) == 0.0
 
 
 def test_property_search_run_rejects_saved_out_of_scope_country_preferences(monkeypatch) -> None:
@@ -12099,6 +12796,10 @@ def test_property_search_run_drops_saved_unready_and_mode_mismatched_providers(m
     preferences = observed["property_search_preferences"]
     assert preferences["provider_selection_filter_applied"] is True
     assert set(preferences["provider_selection_filter_removed"]) == {"corporate_landlords_de", "community_signals_at"}
+    removed_details = {row["platform"]: row for row in preferences["provider_selection_filter_removed_details"]}
+    assert removed_details["corporate_landlords_de"]["reason"] == "listing_mode_unsupported"
+    assert removed_details["corporate_landlords_de"]["requested_listing_mode"] == "buy"
+    assert removed_details["community_signals_at"]["reason"] == "wrong_country"
 
 
 def test_reconcile_property_search_results_delivery_completes_unsent_ready_run(monkeypatch) -> None:
@@ -12839,26 +13540,19 @@ def test_property_search_run_lightweight_status_keeps_slim_sources_for_worker_st
     summary = dict(status.get("summary") or {})
     assert summary["provider_total"] == 4
     assert summary["provider_workers"] == {"worker_concurrency": 4, "warm_limit": 3}
-    assert summary["sources"] == [
-        {
-            "source_label": "Willhaben",
-            "status": "warming",
-            "provider_cache": {"status": "warming", "cache_key": "willhaben:1010"},
-            "provider_repair_tasks": [{"status": "opened", "filter_key": "source_fetch", "queue_item_ref": "human_task:1"}],
-        },
-        {
-            "source_label": "immmo",
-            "status": "warming",
-        },
-        {
-            "source_label": "DER STANDARD Immobilien",
-            "status": "warming",
-        },
-        {
-            "source_label": "FindMyHome.at",
-            "status": "warming",
-        },
+    assert [row["source_label"] for row in summary["sources"]] == [
+        "Willhaben",
+        "immmo",
+        "DER STANDARD Immobilien",
+        "FindMyHome.at",
     ]
+    assert summary["sources"][0]["status"] == "warming"
+    assert summary["sources"][0]["provider_cache"] == {"status": "warming", "cache_key": "willhaben:1010"}
+    assert summary["sources"][0]["provider_repair_tasks"] == [
+        {"status": "opened", "filter_key": "source_fetch", "queue_item_ref": "human_task:1"}
+    ]
+    assert "top_candidates" not in summary["sources"][0]
+    assert "source_html" not in summary["sources"][0]
 
 
 def test_property_search_run_lightweight_status_backfills_live_sources_from_registry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -12933,6 +13627,157 @@ def test_property_search_run_lightweight_status_backfills_live_sources_from_regi
     ]
 
 
+def test_property_search_run_lightweight_status_prefers_richer_live_registry_sources_over_partial_compact_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-run-lightweight-richer-live-registry"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"lightweight-richer-live-registry-{uuid.uuid4().hex}"
+
+    compact_run = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "in_progress",
+        "progress": 18,
+        "current_step": "source_previewing",
+        "selected_platforms": ["willhaben", "immmo", "derstandard_at", "findmyhome_at"],
+        "summary": {
+            "provider_total": 4,
+            "source_variant_total": 4,
+            "sources_total": 4,
+            "reviewed_listing_total": 2,
+            "provider_workers": {"worker_concurrency": 4},
+            "sources": [
+                {"source_label": "Willhaben", "status": "running"},
+            ],
+        },
+    }
+
+    live_run = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "in_progress",
+        "progress": 31,
+        "current_step": "source_previewing",
+        "message": "29 providers · 102 homes reviewed · RE/MAX Austria · 1 / 1",
+        "summary": {
+            "current_plan_key": "agent",
+            "current_plan_label": "Agent",
+            "research_depth": "deep",
+            "max_results_per_source": 0,
+            "provider_total": 4,
+            "source_variant_total": 4,
+            "sources_total": 4,
+            "reviewed_listing_total": 19,
+            "provider_workers": {"worker_concurrency": 4},
+            "sources": [
+                {"source_label": "Willhaben", "status": "running"},
+                {"source_label": "immmo", "status": "warming"},
+                {"source_label": "DER STANDARD Immobilien", "status": "warming"},
+                {"source_label": "FindMyHome.at", "status": "warming"},
+            ],
+        },
+    }
+
+    def _fake_load_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
+        if str(run_id or "").strip() == compact_run["run_id"] and str(principal_id or "").strip() == compact_run["principal_id"]:
+            return property_search_storage._compact_property_search_run_record(compact_run)
+        return None
+
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", _fake_load_compact_record)
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(live_run)
+
+    status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=run_id,
+        lightweight=True,
+    )
+
+    assert status is not None
+    assert int(status.get("progress") or 0) == 31
+    summary = dict(status.get("summary") or {})
+    assert int(summary.get("reviewed_listing_total") or 0) == 19
+    assert [row["source_label"] for row in summary["sources"]] == [
+        "Willhaben",
+        "immmo",
+        "DER STANDARD Immobilien",
+        "FindMyHome.at",
+    ]
+
+
+def test_property_search_run_lightweight_status_prefers_live_ranked_preview_when_compact_snapshot_has_no_current_best(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-run-lightweight-live-current-best"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"lightweight-live-current-best-{uuid.uuid4().hex}"
+
+    compact_run = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "in_progress",
+        "progress": 31,
+        "current_step": "source_previewing",
+        "selected_platforms": ["willhaben"],
+        "summary": {
+            "provider_total": 1,
+            "sources_total": 1,
+            "reviewed_listing_total": 19,
+            "sources": [
+                {"source_label": "Willhaben", "status": "running"},
+            ],
+        },
+    }
+    live_candidate = {
+        "candidate_ref": "cand-live-1",
+        "title": "Live current best",
+        "property_url": "https://example.test/live-current-best",
+        "fit_score": 81,
+    }
+    live_run = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "in_progress",
+        "progress": 31,
+        "current_step": "source_previewing",
+        "message": "1 provider · 19 homes reviewed · Willhaben · 1 / 1",
+        "summary": {
+            "provider_total": 1,
+            "sources_total": 1,
+            "reviewed_listing_total": 19,
+            "ranked_candidates": [dict(live_candidate)],
+            "sources": [
+                {"source_label": "Willhaben", "status": "running"},
+            ],
+        },
+    }
+
+    def _fake_load_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
+        if str(run_id or "").strip() == compact_run["run_id"] and str(principal_id or "").strip() == compact_run["principal_id"]:
+            return property_search_storage._compact_property_search_run_record(compact_run)
+        return None
+
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", _fake_load_compact_record)
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(live_run)
+
+    status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=run_id,
+        lightweight=True,
+    )
+
+    assert status is not None
+    summary = dict(status.get("summary") or {})
+    ranked = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
+    assert len(ranked) == 1
+    assert ranked[0]["candidate_ref"] == "cand-live-1"
+    assert ranked[0]["title"] == "Live current best"
+
+
 def test_property_search_run_lightweight_status_preserves_agent_unlimited_cap_from_compact_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -12983,6 +13828,54 @@ def test_property_search_run_lightweight_status_preserves_agent_unlimited_cap_fr
     assert summary["current_plan_key"] == "agent"
     assert summary["max_results_per_source"] == 0
     assert summary["provider_workers"] == {"worker_concurrency": 4}
+
+
+def test_property_search_run_status_defaults_missing_result_cap_to_all_ranked(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-run-default-all-ranked-cap"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"default-all-ranked-cap-{uuid.uuid4().hex}"
+
+    compact_run = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "queued",
+        "selected_platforms": ["willhaben"],
+        "property_search_preferences": {
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna, 1020 Vienna",
+        },
+        "summary": {
+            "status": "queued",
+            "current_plan_key": "free",
+            "current_plan_label": "Free",
+            "research_depth": "standard",
+            "provider_total": 1,
+            "source_variant_total": 0,
+            "sources_total": 0,
+            "provider_workers": {"worker_concurrency": 1},
+            "sources": [],
+        },
+    }
+
+    def _fake_load_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
+        if str(run_id or "").strip() == compact_run["run_id"] and str(principal_id or "").strip() == compact_run["principal_id"]:
+            return property_search_storage._compact_property_search_run_record(compact_run)
+        return None
+
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", _fake_load_compact_record)
+
+    status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=run_id,
+        lightweight=True,
+    )
+
+    assert status is not None
+    summary = dict(status.get("summary") or {})
+    assert summary["current_plan_key"] == "free"
+    assert summary["max_results_per_source"] == 0
 
 
 def test_property_search_run_upsert_does_not_change_existing_owner() -> None:

@@ -160,6 +160,38 @@ def test_live_authenticated_smoke_accepts_external_billing_redirect_without_netw
     assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is True for check in billing_row["checks"])
 
 
+def test_live_authenticated_smoke_accepts_internal_account_fallback_billing_redirect_without_network() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/app/billing": "",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "/app/account?billing=1#delivery"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+    )
+
+    assert receipt["status"] == "pass"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
+    assert any(check["name"] == "billing_internal_account_fallback" and check["ok"] is True for check in billing_row["checks"])
+    assert billing_row.get("billing_handoff_probe") == {}
+    assert billing_row.get("billing_handoff_resolution") == {}
+
+
 def test_live_authenticated_smoke_accepts_local_bridge_launch_then_external_billing_redirect_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
@@ -825,7 +857,7 @@ def test_live_authenticated_smoke_fetcher_uses_no_proxy_opener(monkeypatch) -> N
 def test_live_authenticated_smoke_rejects_local_billing_board_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Plan Agent Deep Multi All ranked Billing history Compare plans Open pricing",
+        "https://propertyquarry.com/app/billing": "PropertyQuarry Plan Agent Deep Multi All Billing history Compare plans View plans",
         "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 

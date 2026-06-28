@@ -66,6 +66,7 @@ from app.services.property_media_factory import (
     _normalize_provider_preference,
     route_property_media_task,
 )
+from app.services.property_customer_copy import normalize_property_fit_note
 from app.product import property_search_storage as _property_search_storage
 from app.product.property_worker_queues import property_worker_queue_spec
 from app.product.property_listing_extractors import (
@@ -297,7 +298,7 @@ from app.services.property_market_catalog import (
     currency_code_for_country,
     default_platforms_for_country,
     default_platforms_for_country_listing_mode,
-    filter_selectable_property_platforms,
+    filter_selectable_property_platform_details,
     generated_source_specs as generated_property_source_specs,
     is_supported_country_code,
     is_known_property_platform,
@@ -772,19 +773,24 @@ def _property_search_platforms_for_country(
     *,
     listing_mode: object | None = None,
     include_distressed_sale_signals: object = False,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    return filter_selectable_property_platforms(
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[dict[str, object], ...]]:
+    kept, removed_details = filter_selectable_property_platform_details(
         _normalize_property_search_platform_inputs(selected_platforms),
         country_code=normalize_country_code(resolve_country_code(country_code) or country_code),
         listing_mode=listing_mode,
         include_distressed_sale_signals=include_distressed_sale_signals,
+    )
+    return (
+        kept,
+        tuple(str(row.get("platform") or "").strip() for row in removed_details if str(row.get("platform") or "").strip()),
+        removed_details,
     )
 
 
 def _property_search_execution_platforms(
     selected_platforms: tuple[str, ...],
     preferences: dict[str, object] | None,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[dict[str, object], ...]]:
     payload = dict(preferences or {})
     country_code = normalize_country_code(resolve_country_code(payload.get("country_code")) or payload.get("country_code"))
     listing_mode = normalize_listing_mode(payload.get("listing_mode"))
@@ -803,14 +809,14 @@ def _property_search_execution_platforms(
         normalized_platforms,
         payload,
     )
-    normalized_platforms, removed_platforms = _property_search_platforms_for_country(
+    normalized_platforms, removed_platforms, removed_platform_details = _property_search_platforms_for_country(
         normalized_platforms,
         country_code,
         listing_mode=listing_mode,
         include_distressed_sale_signals=payload.get("include_distressed_sale_signals"),
     )
     if normalized_platforms:
-        return normalized_platforms, removed_platforms
+        return normalized_platforms, removed_platforms, removed_platform_details
     fallback_platforms = _property_search_platforms_with_family_toggles(
         tuple(
             default_platforms_for_country_listing_mode(
@@ -821,14 +827,19 @@ def _property_search_execution_platforms(
         ),
         payload,
     )
-    normalized_platforms, fallback_removed = _property_search_platforms_for_country(
+    normalized_platforms, fallback_removed, fallback_removed_details = _property_search_platforms_for_country(
         fallback_platforms,
         country_code,
         listing_mode=listing_mode,
         include_distressed_sale_signals=payload.get("include_distressed_sale_signals"),
     )
     removed_platforms = tuple(dict.fromkeys((*removed_platforms, *fallback_removed)))
-    return normalized_platforms, removed_platforms
+    detail_by_platform: dict[str, dict[str, object]] = {}
+    for row in (*removed_platform_details, *fallback_removed_details):
+        platform_key = str(dict(row).get("platform") or "").strip()
+        if platform_key and platform_key not in detail_by_platform:
+            detail_by_platform[platform_key] = dict(row)
+    return normalized_platforms, removed_platforms, tuple(detail_by_platform.values())
 
 
 def _property_search_single_country_for_platforms(selected_platforms: tuple[str, ...]) -> str:
@@ -983,15 +994,7 @@ def _property_search_mode(preferences: dict[str, object] | None) -> str:
 
 
 def _property_search_effective_min_match_score(preferences: dict[str, object] | None) -> float:
-    cap = _property_search_match_score_cap(preferences)
-    raw_requested_score = dict(preferences or {}).get("min_match_score")
-    if _property_search_pref_value_missing(raw_requested_score):
-        return 0.0
-    try:
-        requested_score = float(str(raw_requested_score).strip())
-    except Exception:
-        requested_score = 0.0
-    return float(max(0.0, min(requested_score, float(cap))))
+    return 0.0
 
 
 def _property_search_resolve_max_results_per_source(
@@ -1002,9 +1005,15 @@ def _property_search_resolve_max_results_per_source(
         snapshot = property_commercial_snapshot(preferences)
         plan_key = normalize_property_plan_key(snapshot.get("current_plan_key") or "free")
         plan_result_cap = int(snapshot.get("max_results_per_source") or 0)
-        if property_plan_has_unlimited_provider_results(plan_key, plan_result_cap):
+        try:
+            requested_cap = int(float(str(requested_value).strip()))
+        except Exception:
+            requested_cap = 0
+        if requested_cap <= 0:
             return None
-        return max(1, min(plan_result_cap or 10, int(requested_value))) if requested_value else None
+        if property_plan_has_unlimited_provider_results(plan_key, plan_result_cap):
+            return max(1, requested_cap)
+        return max(1, min(plan_result_cap or requested_cap, requested_cap))
     except Exception:
         return None
 
@@ -2823,6 +2832,43 @@ def _property_scout_source_specs() -> tuple[dict[str, object], ...]:
     return tuple(specs)
 
 
+def _property_source_spec_matches_requested_market(
+    source_spec: dict[str, object],
+    *,
+    preferences: dict[str, object] | None,
+) -> bool:
+    row = dict(source_spec or {})
+    payload = dict(preferences or {})
+    requested_country = normalize_country_code(
+        resolve_country_code(payload.get("country_code")) or payload.get("country_code"),
+        default="",
+    )
+    listing_mode = normalize_listing_mode(payload.get("listing_mode"))
+    include_distressed = bool(payload.get("include_distressed_sale_signals"))
+    explicit_country = normalize_country_code(
+        resolve_country_code(row.get("country_code")) or row.get("country_code"),
+        default="",
+    )
+    if explicit_country and requested_country and explicit_country != requested_country:
+        return False
+    source_url = urllib.parse.urldefrag(str(row.get("url") or "").strip())[0]
+    platform = _normalize_property_search_platform(str(row.get("platform") or ""))
+    if not platform and source_url:
+        platform = _property_scout_platform_from_url(source_url)
+    if not platform:
+        return True
+    provider = property_provider_for_platform(platform)
+    if provider is None:
+        return True
+    provider_country = normalize_country_code(getattr(provider, "country_code", "") or "", default="")
+    if requested_country and provider_country and provider_country != requested_country:
+        return False
+    if listing_mode and listing_mode not in tuple(getattr(provider, "supported_listing_modes", ()) or ()):
+        if not include_distressed:
+            return False
+    return True
+
+
 def _merged_property_scout_source_specs(
     *,
     preferences: dict[str, object] | None,
@@ -2858,6 +2904,8 @@ def _merged_property_scout_source_specs(
     seen: set[str] = set()
     for item in (*generated, *configured):
         row = dict(item or {})
+        if not _property_source_spec_matches_requested_market(row, preferences=raw_preferences):
+            continue
         url = urllib.parse.urldefrag(str(row.get("url") or "").strip())[0]
         provider_source_key = str(row.get("provider_source_key") or "").strip().lower()
         provider_family = str(row.get("provider_family") or "").strip().lower()
@@ -4641,6 +4689,7 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
                 facts["application_window_days"] = max(1, int((deadline_date - datetime.now(timezone.utc)).total_seconds() // 86400))
             except Exception:
                 pass
+    ocr_hint: dict[str, object] = {}
     if image_urls and not any(facts.get(key) for key in ("street_address", "exact_address", "map_lat", "map_lng")):
         try:
             ocr_hint = _property_image_ocr_address_hint(
@@ -4650,10 +4699,22 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
             )
         except Exception:
             ocr_hint = {}
-        if isinstance(ocr_hint, dict):
-            for key, value in ocr_hint.items():
-                if value not in (None, "", (), [], {}):
+    if ocr_hint:
+        for key, value in ocr_hint.items():
+            if value not in (None, "", (), [], {}):
+                facts[key] = value
+    research_lat = _float_or_none(facts.get("map_lat"))
+    research_lng = _float_or_none(facts.get("map_lng"))
+    if isinstance(research_lat, float) and isinstance(research_lng, float):
+        try:
+            nearby = _property_research_nearby_pois(research_lat, research_lng)
+        except Exception:
+            nearby = {}
+        if isinstance(nearby, dict):
+            for key, value in nearby.items():
+                if value not in (None, "", (), [], {}) and _property_fact_value_is_weak(facts.get(key)):
                     facts[key] = value
+    facts = _property_enrich_official_risk_evidence(facts)
     if not facts:
         return {}
     return {key: value for key, value in facts.items() if not _property_fact_value_is_weak(value)}
@@ -4780,6 +4841,7 @@ def _merge_property_facts_with_source_research(
             "field_count": len(research),
             "strategy": "provider_html_plus_geo",
         }
+    merged = _property_enrich_official_risk_evidence(merged)
     return _property_enrich_missing_fact_research(
         facts=merged,
         property_url=property_url,
@@ -6261,6 +6323,9 @@ def _property_austria_preference_score_adjustment(
         heat_score = 0.0
         heat_notes: list[str] = []
         heat_risk_level = str(facts.get("heat_resilience_risk") or facts.get("urban_heat_risk") or facts.get("summer_heat_risk") or "").strip().lower()
+        cooling_corridor_signal = str(facts.get("cooling_corridor_signal") or "").strip().lower()
+        cooling_corridor_summary = str(facts.get("cooling_corridor_summary") or "").strip()
+        flowing_water_distance_m = _float_or_none(facts.get("nearest_flowing_water_m"))
         if bool(facts.get("air_conditioning")) or any(marker in text for marker in ("klimaanlage", "air conditioning", "aircondition", "splitgerät", "splitgeraet")):
             heat_score += 5.0
             heat_notes.append("cooling present")
@@ -6273,6 +6338,20 @@ def _property_austria_preference_score_adjustment(
         if bool(facts.get("tree_shade_signal")) or bool(facts.get("green_shade_signal")) or any(marker in text for marker in ("bäume vor", "baeume vor", "baum vor", "schattiger innenhof", "begrünter innenhof", "begruenter innenhof")):
             heat_score += 3.0
             heat_notes.append("tree or courtyard shade signal")
+        if cooling_corridor_signal in {"strong", "moderate", "weak"}:
+            if cooling_corridor_signal == "strong":
+                heat_score += 3.0
+            elif cooling_corridor_signal == "moderate":
+                heat_score += 2.0
+            else:
+                heat_score += 1.0
+            if cooling_corridor_summary:
+                heat_notes.append(cooling_corridor_summary)
+            elif isinstance(flowing_water_distance_m, float) and flowing_water_distance_m > 0.0:
+                heat_notes.append(f"Nearby flowing water (about {int(round(flowing_water_distance_m))} m) can soften summer heat.")
+        elif "cooling_corridor" in official_risk_keys:
+            heat_score += 1.0
+            heat_notes.append("cooling-corridor evidence attached")
         if bool(facts.get("top_floor")) or bool(facts.get("dachgeschoss")) or any(marker in text for marker in ("dachgeschoss", "dg-wohnung", "top floor", "attic apartment", "mansarde")):
             heat_score -= 7.0
             heat_notes.append("top-floor heat risk")
@@ -7051,6 +7130,17 @@ def _property_candidate_matches_search_area(
         region_code=effective_region_code,
     ):
         return True
+    if _property_candidate_soft_matches_broad_search_area(
+        location_hints=location_hints,
+        request_preferences=preferences,
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+        country_code=effective_country_code,
+        region_code=effective_region_code,
+    ):
+        return True
     adjacent_location_hints = _property_search_adjacent_location_hints(preferences)
     if adjacent_location_hints and _property_candidate_matches_requested_location(
         location_hints=adjacent_location_hints,
@@ -7068,6 +7158,66 @@ def _property_candidate_matches_search_area(
         country_code=effective_country_code,
         region_code=effective_region_code,
         adjacent_area_radius_m=effective_adjacent_area_radius_m,
+    )
+
+
+def _property_candidate_soft_matches_broad_search_area(
+    *,
+    location_hints: tuple[str, ...],
+    request_preferences: dict[str, object] | None,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+    country_code: str = "",
+    region_code: str = "",
+) -> bool:
+    preferences = dict(request_preferences or {})
+    facts = dict(property_facts or {})
+    if not location_hints:
+        return False
+    if _property_search_has_exact_scope(
+        request_preferences=preferences,
+        location_hints=location_hints,
+    ):
+        return False
+    evidence_kind = _property_candidate_notification_location_evidence_kind(
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+    )
+    if evidence_kind != "source_scope_only":
+        return False
+    source_scope_location = str(facts.get("source_scope_location") or "").strip()
+    source_city = str(facts.get("source_city") or "").strip()
+    source_postal_code = str(facts.get("source_postal_code") or "").strip()
+    synthetic_location = ""
+    if source_postal_code and source_city:
+        synthetic_location = f"{source_postal_code} {source_city}".strip()
+    elif source_scope_location:
+        synthetic_location = source_scope_location
+    elif source_city:
+        synthetic_location = source_city
+    if not synthetic_location:
+        return False
+    synthetic_facts = dict(facts)
+    for key in ("source_scope_location", "source_postal_code", "source_city"):
+        synthetic_facts.pop(key, None)
+    for key in ("postal_name", "location", "district"):
+        current = str(synthetic_facts.get(key) or "").strip()
+        if not current:
+            synthetic_facts[key] = synthetic_location
+    if source_city and not str(synthetic_facts.get("city") or "").strip():
+        synthetic_facts["city"] = source_city
+    return _property_candidate_matches_requested_location(
+        location_hints=location_hints,
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=synthetic_facts,
+        country_code=country_code,
+        region_code=region_code,
     )
 
 
@@ -7702,7 +7852,7 @@ def _property_candidate_search_page_display(candidate: dict[str, object]) -> dic
     return row
 
 
-def _property_search_ranked_candidates_from_sources(sources: object, *, limit: int | None = 50) -> list[dict[str, object]]:
+def _property_search_ranked_candidates_from_sources(sources: object, *, limit: int | None = None) -> list[dict[str, object]]:
     rows_by_key: dict[str, dict[str, object]] = {}
     order_keys: list[str] = []
 
@@ -7881,6 +8031,32 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
     if limit is None:
         return rows
     return rows[: max(1, min(int(limit or 50), 200))]
+
+
+def _property_search_live_reviewed_total_from_message(message: object) -> int:
+    text = str(message or "").strip()
+    if not text:
+        return 0
+    patterns: tuple[tuple[re.Pattern[str], str], ...] = (
+        (re.compile(r"\bReviewing candidate\s+(\d+)\s+of\s+\d+\b", flags=re.IGNORECASE), "minus_one"),
+        (re.compile(r"\bConfirming [^.]* candidate\s+(\d+)\s+of\s+\d+\b", flags=re.IGNORECASE), "minus_one"),
+        (re.compile(r"\bRanked\s+(\d+)\s+of\s+\d+\s+candidate listings\b", flags=re.IGNORECASE), "direct"),
+        (re.compile(r"\bPrepared\s+(\d+)\s+listing preview\(s\)\b", flags=re.IGNORECASE), "direct"),
+        (re.compile(r"\bScoring enriched candidate\s+\d+\s+of\s+(\d+)\b", flags=re.IGNORECASE), "direct"),
+        (re.compile(r"\bEnriching top\s+\d+\s+candidate\(s\)\s+out of\s+(\d+)\b", flags=re.IGNORECASE), "direct"),
+    )
+    for pattern, mode in patterns:
+        match = pattern.search(text)
+        if match is None:
+            continue
+        try:
+            value = max(0, int(match.group(1) or "0"))
+        except Exception:
+            continue
+        if mode == "minus_one":
+            return max(0, value - 1)
+        return value
+    return 0
 
 
 _PROPERTY_NON_RESIDENTIAL_ONLY_MARKERS = (
@@ -8843,6 +9019,28 @@ def _property_enrich_future_change_research(
                         existing[key] = value
     existing["updated_at"] = str(existing.get("updated_at") or _now_iso())
     enriched["future_change_research"] = existing
+    return enriched
+
+
+def _property_enrich_official_risk_evidence(
+    facts: dict[str, object] | None,
+) -> dict[str, object]:
+    enriched = dict(facts or {})
+    existing = (
+        dict(enriched.get("official_risk_evidence") or {})
+        if isinstance(enriched.get("official_risk_evidence"), dict)
+        else {}
+    )
+    lat_value, lon_value = _property_schoolatlas_coords_from_facts(enriched)
+    if lat_value is None or lon_value is None or not _property_point_looks_like_austria(lat_value, lon_value):
+        if existing:
+            enriched["official_risk_evidence"] = existing
+        return enriched
+    official = _property_official_risk_evidence(lat=lat_value, lon=lon_value, facts=enriched)
+    if isinstance(official, dict) and list(official.get("sources") or []):
+        enriched["official_risk_evidence"] = official
+    elif existing:
+        enriched["official_risk_evidence"] = existing
     return enriched
 
 
@@ -9909,13 +10107,232 @@ def _property_alert_priority_from_fit(assessment: dict[str, object] | None) -> s
     return "normal"
 
 
-def _property_alert_fit_summary(assessment: dict[str, object] | None) -> str:
+_PROPERTY_DISTANCE_MISMATCH_REASON_SPECS: tuple[dict[str, object], ...] = (
+    {
+        "label": "supermarket",
+        "tokens": ("supermarket",),
+        "distance_keys": ("nearest_supermarket_m", "distance_supermarket_m"),
+        "name_keys": ("nearest_supermarket_name", "supermarket_name"),
+        "preference_keys": ("max_distance_to_supermarket_m",),
+        "importance_keys": ("max_distance_to_supermarket_importance",),
+    },
+    {
+        "label": "underground",
+        "tokens": ("underground", "subway", "u-bahn", "transit"),
+        "distance_keys": ("nearest_subway_m", "nearest_transit_m", "distance_underground_m"),
+        "name_keys": ("nearest_subway_name", "subway_station_name", "nearest_transit_name", "transit_stop_name"),
+        "preference_keys": ("max_distance_to_subway_m",),
+        "importance_keys": ("max_distance_to_subway_importance",),
+    },
+    {
+        "label": "kindergarten",
+        "tokens": ("kindergarten",),
+        "distance_keys": ("nearest_kindergarten_m", "nearest_school_m"),
+        "name_keys": ("nearest_kindergarten_name", "kindergarten_name", "nearest_school_name", "school_name"),
+        "preference_keys": ("max_distance_to_kindergarten_m",),
+        "importance_keys": ("max_distance_to_kindergarten_importance",),
+    },
+    {
+        "label": "full-day primary school",
+        "tokens": ("full-day primary school",),
+        "distance_keys": ("nearest_full_day_primary_school_m", "nearest_school_m"),
+        "name_keys": ("nearest_full_day_primary_school_name", "full_day_primary_school_name", "nearest_school_name", "school_name"),
+        "preference_keys": ("max_distance_to_ganztags_volksschule_m",),
+        "importance_keys": ("max_distance_to_ganztags_volksschule_importance",),
+    },
+    {
+        "label": "half-day primary school",
+        "tokens": ("half-day primary school",),
+        "distance_keys": ("nearest_half_day_primary_school_m", "nearest_school_m"),
+        "name_keys": ("nearest_half_day_primary_school_name", "half_day_primary_school_name", "nearest_school_name", "school_name"),
+        "preference_keys": ("max_distance_to_halbtags_volksschule_m",),
+        "importance_keys": ("max_distance_to_halbtags_volksschule_importance",),
+    },
+    {
+        "label": "playground",
+        "tokens": ("playground",),
+        "distance_keys": ("nearest_playground_m", "distance_playground_m"),
+        "name_keys": ("nearest_playground_name", "playground_name"),
+        "preference_keys": ("max_distance_to_playground_m",),
+        "importance_keys": ("max_distance_to_playground_importance",),
+    },
+    {
+        "label": "market",
+        "tokens": ("market",),
+        "distance_keys": ("nearest_market_m",),
+        "name_keys": ("nearest_market_name", "market_name"),
+        "preference_keys": ("max_distance_to_market_m",),
+        "importance_keys": ("max_distance_to_market_importance",),
+    },
+    {
+        "label": "Baumarkt",
+        "tokens": ("baumarkt", "hardware store"),
+        "distance_keys": ("nearest_hardware_store_m",),
+        "name_keys": ("nearest_hardware_store_name", "hardware_store_name"),
+        "preference_keys": ("max_distance_to_hardware_store_m",),
+        "importance_keys": ("max_distance_to_hardware_store_importance",),
+    },
+    {
+        "label": "shopping center",
+        "tokens": ("shopping center", "shopping-center"),
+        "distance_keys": ("nearest_shopping_center_m",),
+        "name_keys": ("nearest_shopping_center_name", "shopping_center_name"),
+        "preference_keys": ("max_distance_to_shopping_center_m",),
+        "importance_keys": ("max_distance_to_shopping_center_importance",),
+    },
+    {
+        "label": "library",
+        "tokens": ("library",),
+        "distance_keys": ("nearest_library_m",),
+        "name_keys": ("nearest_library_name", "library_name"),
+        "preference_keys": ("max_distance_to_library_m",),
+        "importance_keys": ("max_distance_to_library_importance",),
+    },
+)
+
+
+def _property_positive_distance_value(
+    facts: dict[str, object],
+    distance_keys: tuple[str, ...],
+) -> int | None:
+    for key in distance_keys:
+        raw_value = facts.get(key)
+        if raw_value in (None, "", []):
+            continue
+        try:
+            meters = int(float(raw_value))
+        except Exception:
+            continue
+        if meters > 0:
+            return meters
+    return None
+
+
+def _property_positive_preference_distance(
+    preferences: dict[str, object],
+    preference_keys: tuple[str, ...],
+) -> int | None:
+    for key in preference_keys:
+        raw_value = preferences.get(key)
+        if raw_value in (None, "", [], {}, False):
+            continue
+        try:
+            meters = int(float(raw_value))
+        except Exception:
+            continue
+        if meters > 0:
+            return meters
+    return None
+
+
+def _property_first_fact_text(
+    facts: dict[str, object],
+    keys: tuple[str, ...],
+) -> str:
+    for key in keys:
+        value = compact_text(str(facts.get(key) or "").strip(), fallback="", limit=80)
+        if value:
+            return value
+    return ""
+
+
+def _property_visible_distance_facts(facts: dict[str, object] | None) -> dict[str, object]:
+    if not isinstance(facts, dict) or not facts:
+        return {}
+    return _property_candidate_display_facts({"property_facts": dict(facts)})
+
+
+def _property_distance_mismatch_reason_detail(
+    reason: object,
+    *,
+    facts: dict[str, object] | None = None,
+    preferences: dict[str, object] | None = None,
+) -> str:
+    text = " ".join(str(reason or "").split()).strip()
+    if not text:
+        return ""
+    normalized = text.casefold()
+    visible_facts = _property_visible_distance_facts(facts)
+    preference_payload = dict(preferences or {})
+    for spec in _PROPERTY_DISTANCE_MISMATCH_REASON_SPECS:
+        tokens = tuple(str(token).casefold() for token in spec.get("tokens", ()) if str(token).strip())
+        if not tokens or not any(token in normalized for token in tokens):
+            continue
+        meters = _property_positive_distance_value(
+            visible_facts,
+            tuple(str(key) for key in spec.get("distance_keys", ()) if str(key).strip()),
+        )
+        if meters is None:
+            return ""
+        place_name = _property_first_fact_text(
+            visible_facts,
+            tuple(str(key) for key in spec.get("name_keys", ()) if str(key).strip()),
+        )
+        requested = _property_positive_preference_distance(
+            preference_payload,
+            tuple(str(key) for key in spec.get("preference_keys", ()) if str(key).strip()),
+        )
+        importance = _property_first_fact_text(
+            preference_payload,
+            tuple(str(key) for key in spec.get("importance_keys", ()) if str(key).strip()),
+        ).casefold()
+        label = str(spec.get("label") or "place").strip().lower()
+        subject = f"Nearest {label}"
+        if place_name:
+            subject = f"{subject}: {place_name}"
+        if "avoid" in importance or "avoid preference" in normalized or "too close" in normalized:
+            if requested is not None:
+                return f"{subject} is {meters} m away; you asked to keep it farther than {requested} m."
+            return f"{subject} is {meters} m away."
+        if requested is not None:
+            return f"{subject} is {meters} m away; your limit was {requested} m."
+        return f"{subject} is {meters} m away."
+    return text
+
+
+def _property_visible_mismatch_reasons(
+    assessment: dict[str, object] | None,
+    *,
+    facts: dict[str, object] | None = None,
+    preferences: dict[str, object] | None = None,
+    limit: int = 4,
+) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for item in list(dict(assessment or {}).get("mismatch_reasons_json") or [])[: max(limit, 0) or 0]:
+        detail = _property_distance_mismatch_reason_detail(
+            item,
+            facts=facts,
+            preferences=preferences,
+        )
+        detail = " ".join(str(detail or "").split()).strip()
+        if not detail:
+            continue
+        normalized = detail.casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        rows.append(detail)
+    return rows
+
+
+def _property_alert_fit_summary(
+    assessment: dict[str, object] | None,
+    *,
+    facts: dict[str, object] | None = None,
+    preferences: dict[str, object] | None = None,
+) -> str:
     if not isinstance(assessment, dict):
         return ""
     fit_score = _property_alert_fit_score(assessment)
     recommendation = str(assessment.get("recommendation") or "").strip().replace("_", " ")
     reasons = [str(item or "").strip() for item in list(assessment.get("match_reasons_json") or []) if str(item or "").strip()]
-    mismatches = [str(item or "").strip() for item in list(assessment.get("mismatch_reasons_json") or []) if str(item or "").strip()]
+    mismatches = _property_visible_mismatch_reasons(
+        assessment,
+        facts=facts,
+        preferences=preferences,
+        limit=4,
+    )
     upstream = dict(assessment.get("upstream_personalization") or {}) if isinstance(assessment.get("upstream_personalization"), dict) else {}
     learned_conflicts = [
         str(item or "").strip()
@@ -9986,6 +10403,91 @@ def _property_candidate_float(value: object) -> float | None:
     if math.isnan(parsed) or math.isinf(parsed):
         return None
     return parsed
+
+
+def _property_cooling_corridor_match_reason(facts: dict[str, object] | None) -> str:
+    if not isinstance(facts, dict):
+        return ""
+    austria_notes = [
+        str(item or "").strip()
+        for item in list(facts.get("austria_preference_notes") or [])
+        if str(item or "").strip()
+    ]
+    if not any(
+        token in note.lower()
+        for note in austria_notes
+        for token in ("flowing water", "cooling-corridor", "summer heat", "local summer cooling")
+    ):
+        return ""
+    water_name = compact_text(str(facts.get("nearest_flowing_water_name") or "").strip(), fallback="", limit=80)
+    water_distance_m = _property_candidate_float(facts.get("nearest_flowing_water_m"))
+    if water_name and water_distance_m and water_distance_m > 0.0:
+        return f"Summer stays easier here: {water_name} is about {int(round(water_distance_m))} m away and helps the local cooling corridor."
+    if water_distance_m and water_distance_m > 0.0:
+        return f"Summer stays easier here: nearby flowing water is about {int(round(water_distance_m))} m away and helps the local cooling corridor."
+    cooling_summary = compact_text(str(facts.get("cooling_corridor_summary") or "").strip(), fallback="", limit=220)
+    if cooling_summary:
+        return cooling_summary.replace("cooling-corridor read", "cooling corridor")
+    return "Summer stays easier here: nearby flowing water helps the local cooling corridor."
+
+
+def _property_candidate_visible_match_reasons(
+    assessment: dict[str, object] | None,
+    *,
+    facts: dict[str, object] | None = None,
+    limit: int = 3,
+) -> list[str]:
+    reasons = [
+        str(item or "").strip()
+        for item in list(dict(assessment or {}).get("match_reasons_json") or [])
+        if str(item or "").strip()
+    ]
+    cooling_reason = _property_cooling_corridor_match_reason(facts)
+    if cooling_reason:
+        existing = " ".join(reasons).lower()
+        if cooling_reason.lower() not in existing and not any(
+            token in existing for token in ("cooling corridor", "flowing water", "summer heat")
+        ):
+            reasons = [reasons[0], cooling_reason, *reasons[1:]] if reasons else [cooling_reason]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in reasons:
+        normalized = str(item or "").strip().casefold()
+        if not normalized or normalized in seen:
+            continue
+        deduped.append(str(item or "").strip())
+        seen.add(normalized)
+    return deduped[: max(0, int(limit))]
+
+
+def _property_learned_distance_place_name(
+    facts: dict[str, object],
+    *,
+    name_keys: tuple[str, ...],
+) -> str:
+    for key in name_keys:
+        value = compact_text(str(facts.get(key) or "").strip(), fallback="", limit=120)
+        if value:
+            return value
+    return ""
+
+
+def _property_learned_distance_access_copy(
+    *,
+    facts: dict[str, object],
+    access_label: str,
+    distance_m: float,
+    name_keys: tuple[str, ...] = (),
+    suffix: str = "",
+) -> str:
+    subject = f"{access_label} access"
+    place_name = _property_learned_distance_place_name(facts, name_keys=name_keys)
+    if place_name:
+        subject = f"{subject} via {place_name}"
+    sentence = f"{subject} is about {int(distance_m)} m away"
+    if suffix:
+        return f"{sentence}, {suffix}"
+    return f"{sentence}."
 
 
 def _property_candidate_choice_reason(
@@ -10211,96 +10713,278 @@ def _property_alert_upstream_personalization(
         elif key == "prefer_subway_nearby" and bool(value):
             learned_axes.append("subway_access")
             if isinstance(nearest_subway, float) and nearest_subway <= 650.0:
-                matches.append(f"Underground access is about {int(nearest_subway)} m away, which matches your learned transit preference.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Underground",
+                        distance_m=nearest_subway,
+                        name_keys=("nearest_subway_name", "subway_station_name", "nearest_transit_name", "transit_stop_name"),
+                        suffix="which matches your learned transit preference.",
+                    )
+                )
                 score_delta += 4.0
             elif isinstance(nearest_subway, float) and nearest_subway > 1200.0:
-                conflicts.append(f"Underground access is about {int(nearest_subway)} m away, which is weaker than you usually accept.")
+                conflicts.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Underground",
+                        distance_m=nearest_subway,
+                        name_keys=("nearest_subway_name", "subway_station_name", "nearest_transit_name", "transit_stop_name"),
+                        suffix="which is weaker than you usually accept.",
+                    )
+                )
                 score_delta -= 6.0
             else:
-                unknowns.append("Underground distance is still unclear against your learned transit preference.")
+                if isinstance(nearest_subway, float) and nearest_subway > 0.0:
+                    unknowns.append(
+                        _property_learned_distance_access_copy(
+                            facts=facts,
+                            access_label="Underground",
+                            distance_m=nearest_subway,
+                            name_keys=("nearest_subway_name", "subway_station_name", "nearest_transit_name", "transit_stop_name"),
+                        )
+                    )
+                else:
+                    unknowns.append("Underground distance is still unclear against your learned transit preference.")
         elif key == "prefer_supermarket_nearby" and bool(value):
             learned_axes.append("supermarket_access")
             if isinstance(nearest_supermarket, float) and nearest_supermarket <= 700.0:
-                matches.append(f"Supermarket access is about {int(nearest_supermarket)} m away, which matches your daily-life preference.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Supermarket",
+                        distance_m=nearest_supermarket,
+                        name_keys=("nearest_supermarket_name", "supermarket_name"),
+                        suffix="which matches your daily-life preference.",
+                    )
+                )
                 score_delta += 3.0
             elif isinstance(nearest_supermarket, float) and nearest_supermarket > 1000.0:
-                conflicts.append(f"Supermarket access is about {int(nearest_supermarket)} m away, which is weaker than you usually accept.")
+                conflicts.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Supermarket",
+                        distance_m=nearest_supermarket,
+                        name_keys=("nearest_supermarket_name", "supermarket_name"),
+                        suffix="which is weaker than you usually accept.",
+                    )
+                )
                 score_delta -= 4.5
         elif key == "prefer_pharmacy_nearby" and bool(value):
             learned_axes.append("pharmacy_access")
             if isinstance(nearest_pharmacy, float) and nearest_pharmacy <= 800.0:
-                matches.append(f"Pharmacy access is about {int(nearest_pharmacy)} m away, which matches your daily-life preference.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Pharmacy",
+                        distance_m=nearest_pharmacy,
+                        name_keys=("nearest_pharmacy_name", "pharmacy_name"),
+                        suffix="which matches your daily-life preference.",
+                    )
+                )
                 score_delta += 2.5
             elif isinstance(nearest_pharmacy, float) and nearest_pharmacy > 1200.0:
-                conflicts.append(f"Pharmacy access is about {int(nearest_pharmacy)} m away, which is weaker than you usually accept.")
+                conflicts.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Pharmacy",
+                        distance_m=nearest_pharmacy,
+                        name_keys=("nearest_pharmacy_name", "pharmacy_name"),
+                        suffix="which is weaker than you usually accept.",
+                    )
+                )
                 score_delta -= 3.5
         elif key == "prefer_playgrounds_nearby" and bool(value):
             learned_axes.append("playground_access")
             if isinstance(nearest_playground, float) and nearest_playground <= 250.0:
-                matches.append(f"Playground access is about {int(nearest_playground)} m away, which matches your household preference.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Playground",
+                        distance_m=nearest_playground,
+                        name_keys=("nearest_playground_name", "playground_name"),
+                        suffix="which matches your household preference.",
+                    )
+                )
                 score_delta += 2.5
             elif isinstance(nearest_playground, float) and nearest_playground > 500.0:
-                conflicts.append(f"Playground access is about {int(nearest_playground)} m away, which is weaker than you usually want.")
+                conflicts.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Playground",
+                        distance_m=nearest_playground,
+                        name_keys=("nearest_playground_name", "playground_name"),
+                        suffix="which is weaker than you usually want.",
+                    )
+                )
                 score_delta -= 3.0
         elif key == "prefer_libraries_nearby" and bool(value):
             learned_axes.append("library_access")
             if isinstance(nearest_library, float) and nearest_library <= 700.0:
-                matches.append(f"Library access is about {int(nearest_library)} m away, which supports family and study routines.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Library",
+                        distance_m=nearest_library,
+                        name_keys=("nearest_library_name", "library_name"),
+                        suffix="which supports family and study routines.",
+                    )
+                )
                 score_delta += 2.5
             elif isinstance(nearest_library, float) and nearest_library > 1300.0:
-                conflicts.append(f"Library access is about {int(nearest_library)} m away, which is weaker than you usually want.")
+                conflicts.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Library",
+                        distance_m=nearest_library,
+                        name_keys=("nearest_library_name", "library_name"),
+                        suffix="which is weaker than you usually want.",
+                    )
+                )
                 score_delta -= 3.0
         elif key == "prefer_zoos_nearby" and bool(value):
             learned_axes.append("zoo_access")
             if isinstance(nearest_zoo, float) and nearest_zoo <= 2200.0:
-                matches.append(f"Zoo access is about {int(nearest_zoo)} m away, which supports family weekend routines.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Zoo",
+                        distance_m=nearest_zoo,
+                        name_keys=("nearest_zoo_name", "zoo_name"),
+                        suffix="which supports family weekend routines.",
+                    )
+                )
                 score_delta += 1.8
             elif isinstance(nearest_zoo, float) and nearest_zoo > 4500.0:
-                conflicts.append(f"Zoo access is about {int(nearest_zoo)} m away, which is weaker than you usually want.")
+                conflicts.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Zoo",
+                        distance_m=nearest_zoo,
+                        name_keys=("nearest_zoo_name", "zoo_name"),
+                        suffix="which is weaker than you usually want.",
+                    )
+                )
                 score_delta -= 2.2
         elif key == "prefer_markets_nearby" and bool(value):
             learned_axes.append("market_access")
             if isinstance(nearest_market, float) and nearest_market <= 900.0:
-                matches.append(f"Market access is about {int(nearest_market)} m away, which supports everyday district life.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Market",
+                        distance_m=nearest_market,
+                        name_keys=("nearest_market_name", "market_name"),
+                        suffix="which supports everyday district life.",
+                    )
+                )
                 score_delta += 2.0
             elif isinstance(nearest_market, float) and nearest_market > 1800.0:
-                conflicts.append(f"Market access is about {int(nearest_market)} m away, which is weaker than you usually want.")
+                conflicts.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Market",
+                        distance_m=nearest_market,
+                        name_keys=("nearest_market_name", "market_name"),
+                        suffix="which is weaker than you usually want.",
+                    )
+                )
                 score_delta -= 2.5
         elif key == "prefer_hardware_store_nearby" and bool(value):
             learned_axes.append("hardware_access")
             if isinstance(nearest_hardware_store, float) and nearest_hardware_store <= 1800.0:
-                matches.append(f"Baumarkt access is about {int(nearest_hardware_store)} m away, which helps renovation and daily practical errands.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Baumarkt",
+                        distance_m=nearest_hardware_store,
+                        name_keys=("nearest_hardware_store_name", "hardware_store_name"),
+                        suffix="which helps renovation and daily practical errands.",
+                    )
+                )
                 score_delta += 1.8
             elif isinstance(nearest_hardware_store, float) and nearest_hardware_store > 3500.0:
-                conflicts.append(f"Baumarkt access is about {int(nearest_hardware_store)} m away, which weakens practical access.")
+                conflicts.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Baumarkt",
+                        distance_m=nearest_hardware_store,
+                        name_keys=("nearest_hardware_store_name", "hardware_store_name"),
+                        suffix="which weakens practical access.",
+                    )
+                )
                 score_delta -= 2.0
         elif key == "prefer_shopping_street_nearby" and bool(value):
             learned_axes.append("shopping_street_access")
             if isinstance(nearest_shopping_street, float) and nearest_shopping_street <= 1000.0:
-                matches.append(f"Promenade or shopping-street access is about {int(nearest_shopping_street)} m away.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Promenade or shopping-street",
+                        distance_m=nearest_shopping_street,
+                        name_keys=("nearest_shopping_street_name", "shopping_street_name"),
+                    )
+                )
                 score_delta += 1.5
         elif key == "prefer_shopping_center_nearby" and bool(value):
             learned_axes.append("shopping_center_access")
             if isinstance(nearest_shopping_center, float) and nearest_shopping_center <= 1800.0:
-                matches.append(f"Shopping-center access is about {int(nearest_shopping_center)} m away.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Shopping-center",
+                        distance_m=nearest_shopping_center,
+                        name_keys=("nearest_shopping_center_name", "shopping_center_name"),
+                    )
+                )
                 score_delta += 1.5
         elif key == "prefer_public_pool_nearby" and bool(value):
             learned_axes.append("public_pool_access")
             if isinstance(nearest_public_pool, float) and nearest_public_pool <= 1600.0:
-                matches.append(f"Public-pool access is about {int(nearest_public_pool)} m away.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Public-pool",
+                        distance_m=nearest_public_pool,
+                        name_keys=("nearest_public_pool_name", "public_pool_name"),
+                    )
+                )
                 score_delta += 1.8
         elif key == "prefer_theatre_nearby" and bool(value):
             learned_axes.append("theatre_access")
             if isinstance(nearest_theatre, float) and nearest_theatre <= 1800.0:
-                matches.append(f"Theatre access is about {int(nearest_theatre)} m away.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Theatre",
+                        distance_m=nearest_theatre,
+                        name_keys=("nearest_theatre_name", "theatre_name"),
+                    )
+                )
                 score_delta += 1.5
         elif key == "prefer_medical_care_nearby" and bool(value):
             learned_axes.append("medical_care_access")
             if isinstance(nearest_medical_care, float) and nearest_medical_care <= 1200.0:
-                matches.append(f"Medical-care access is about {int(nearest_medical_care)} m away, which supports resilience and family logistics.")
+                matches.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Medical-care",
+                        distance_m=nearest_medical_care,
+                        name_keys=("nearest_medical_care_name", "medical_care_name"),
+                        suffix="which supports resilience and family logistics.",
+                    )
+                )
                 score_delta += 2.5
             elif isinstance(nearest_medical_care, float) and nearest_medical_care > 2500.0:
-                conflicts.append(f"Medical-care access is about {int(nearest_medical_care)} m away, which is weaker than you usually want.")
+                conflicts.append(
+                    _property_learned_distance_access_copy(
+                        facts=facts,
+                        access_label="Medical-care",
+                        distance_m=nearest_medical_care,
+                        name_keys=("nearest_medical_care_name", "medical_care_name"),
+                        suffix="which is weaker than you usually want.",
+                    )
+                )
                 score_delta -= 3.0
         elif key == "prefer_unlimited_lease" and bool(value):
             learned_axes.append("lease_stability")
@@ -11944,8 +12628,9 @@ def _property_alert_review_telegram_text(
             extra_lines.append(f"Top listing title: {compact_text(listing_title, fallback='', limit=140)}")
         if top_summary and top_summary != fit_summary:
             extra_lines.append(f"Top candidate: {top_summary}")
-        if compare_reason:
-            extra_lines.append(f"Why it won: {compact_text(compare_reason, fallback='', limit=220)}")
+        normalized_fit_note = normalize_property_fit_note(compare_reason)
+        if normalized_fit_note:
+            extra_lines.append(f"Fit note: {compact_text(normalized_fit_note, fallback='', limit=220)}")
         if top_url and top_url != str(property_url or '').strip() and not str(tour_url or "").strip() and not str(review_url or "").strip():
             extra_lines.append("Top listing: use the button below.")
         top_assessment = dict(top.get("assessment") or {}) if isinstance(top.get("assessment"), dict) else {}
@@ -31229,6 +31914,16 @@ class ProductService:
         lifecycle = dict(result.get("search_agent_lifecycle") or {}) if isinstance(result.get("search_agent_lifecycle"), dict) else {}
         agent_name = str(lifecycle.get("agent_name") or lifecycle.get("title") or f"PropertyQuarry search {str(run_id or '').strip()[:8]}").strip()
         try:
+            ranked_count = int(
+                result.get("ranked_total")
+                or result.get("ranked_candidate_total")
+                or len(list(result.get("ranked_candidates") or []))
+                or result.get("high_fit_total")
+                or 0
+            )
+        except Exception:
+            ranked_count = 0
+        try:
             heyy_result = service.send_template(
                 phone_number=phone_number,
                 template_id=template_id,
@@ -31236,7 +31931,7 @@ class ProductService:
                 variables=[
                     {"name": "agent_name", "value": agent_name},
                     {"name": "homes_checked", "value": str(int(result.get("listing_total") or 0))},
-                    {"name": "ranked_count", "value": str(int(result.get("high_fit_total") or 0))},
+                    {"name": "ranked_count", "value": str(ranked_count)},
                     {"name": "top_fit_score", "value": str(int(float(dict((list(result.get("ranked_candidates") or [{}])[0]) or {}).get("fit_score") or 0.0)))},
                     {"name": "held_back_count", "value": str(int(result.get("notification_budget_suppressed_total") or 0))},
                 ],
@@ -33094,13 +33789,14 @@ class ProductService:
         normalized_platforms = _normalize_property_search_platform_inputs(selected_platforms)
         if explicit_platform_input and not normalized_platforms:
             raise ValueError("invalid_property_search_platform")
-        normalized_platforms, removed_platforms = _property_search_execution_platforms(
+        normalized_platforms, removed_platforms, removed_platform_details = _property_search_execution_platforms(
             normalized_platforms if explicit_platform_input else tuple(selected_platforms or ()),
             merged_preferences,
         )
         if removed_platforms:
             merged_preferences["provider_country_filter_applied"] = True
             merged_preferences["provider_country_filter_removed"] = list(removed_platforms)
+            merged_preferences["provider_country_filter_removed_details"] = [dict(row) for row in removed_platform_details]
         merged_preferences["selected_platforms"] = list(normalized_platforms)
         merged_preferences["listing_mode"] = normalize_listing_mode(merged_preferences.get("listing_mode"))
         merged_preferences["preference_person_id"] = str(
@@ -33667,17 +34363,18 @@ class ProductService:
                 normalized["current_plan_label"] = str(derived.get("current_plan_label") or "").strip() or _property_plan_label(plan_key_for_label)
             if not str(normalized.get("research_depth") or "").strip() and derived.get("research_depth"):
                 normalized["research_depth"] = str(derived.get("research_depth") or "").strip()
-            if normalized.get("max_results_per_source") in (None, "") and "max_results_per_source" in derived:
-                normalized["max_results_per_source"] = derived.get("max_results_per_source")
-            elif normalized.get("max_results_per_source") not in (None, ""):
-                raw_max_results_per_source = normalized.get("max_results_per_source")
+            defined_max_results_per_source = _property_search_defined_max_results_value(preference_payload, normalized)
+            if defined_max_results_per_source in (None, ""):
+                normalized["max_results_per_source"] = 0
+            else:
+                raw_max_results_per_source = defined_max_results_per_source
                 try:
                     normalized["max_results_per_source"] = max(
                         0,
                         int(float(str(raw_max_results_per_source).strip())),
                     )
                 except Exception:
-                    normalized["max_results_per_source"] = max(0, int(derived.get("max_results_per_source") or 0))
+                    normalized["max_results_per_source"] = 0
             provider_workers = dict(normalized.get("provider_workers") or {}) if isinstance(normalized.get("provider_workers"), dict) else {}
             derived_provider_workers = dict(derived.get("provider_workers") or {})
             if derived_provider_workers:
@@ -33783,7 +34480,7 @@ class ProductService:
                 compact_has_sources = bool(list(summary.get("sources") or []))
                 compact_status = str(compact_snapshot.get("status") or summary.get("status") or "").strip().lower()
                 compact_is_active = compact_status in {"queued", "starting", "in_progress", "running", "processing", "repairing"}
-                if not compact_has_sources and compact_is_active:
+                if compact_is_active:
                     with _PROPERTY_SEARCH_RUN_LOCK:
                         live_state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(str(run_id or "").strip()) or {})
                     if isinstance(live_state, dict) and str(live_state.get("principal_id") or "").strip() == str(principal_id or "").strip():
@@ -33811,7 +34508,30 @@ class ProductService:
                             summary["provider_workers"] = summary_provider_workers
                         live_compact = _property_search_storage._compact_property_search_run_record(live_state)
                         live_summary = dict(live_compact.get("summary") or {}) if isinstance(live_compact.get("summary"), dict) else {}
-                        if list(live_summary.get("sources") or []):
+                        live_sources = [dict(row) for row in list(live_summary.get("sources") or []) if isinstance(row, dict)]
+                        compact_sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+                        live_ranked_total = len([row for row in list(live_summary.get("ranked_candidates") or []) if isinstance(row, dict)])
+                        compact_ranked_total = len([row for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)])
+                        live_progress = _coerce_non_negative_int(
+                            live_compact.get("progress") or live_summary.get("progress"),
+                        )
+                        compact_progress = _coerce_non_negative_int(
+                            compact_snapshot.get("progress") or summary.get("progress"),
+                        )
+                        live_reviewed_total = _coerce_non_negative_int(
+                            live_summary.get("reviewed_listing_total") or live_summary.get("scanned_listing_total"),
+                        )
+                        compact_reviewed_total = _coerce_non_negative_int(
+                            summary.get("reviewed_listing_total") or summary.get("scanned_listing_total"),
+                        )
+                        prefer_live_compact = bool(live_sources or live_ranked_total) and (
+                            not compact_has_sources
+                            or len(live_sources) > len(compact_sources)
+                            or live_progress > compact_progress
+                            or live_reviewed_total > compact_reviewed_total
+                            or live_ranked_total > compact_ranked_total
+                        )
+                        if prefer_live_compact:
                             compact_snapshot = {
                                 **compact_snapshot,
                                 **{
@@ -33838,6 +34558,20 @@ class ProductService:
                                         "reviewed_listing_total",
                                         "raw_listing_total",
                                         "listing_total",
+                                        "ranked_total",
+                                        "ranked_candidate_total",
+                                        "results_total",
+                                        "survivor_total",
+                                        "score_demoted_total",
+                                        "filtered_total",
+                                        "held_back_total",
+                                        "filtered_out_total",
+                                        "filtered_low_fit_total",
+                                        "eta_label",
+                                        "eta_confidence_label",
+                                        "ranked_candidates",
+                                        "results",
+                                        "top_candidates",
                                         "sources",
                                     )
                                     if key in live_summary
@@ -34052,6 +34786,34 @@ class ProductService:
                         continue
                 return 0
 
+            for source in sources:
+                if not isinstance(source, dict):
+                    continue
+                candidate_rows = [
+                    dict(row)
+                    for row in list(source.get("research_candidates") or source.get("top_candidates") or [])
+                    if isinstance(row, dict)
+                ]
+                candidate_total = len(candidate_rows)
+                if candidate_total <= 0:
+                    continue
+                source["ranked_total"] = max(
+                    _source_positive_int(source, "ranked_total", "listing_total"),
+                    candidate_total,
+                )
+                source["listing_total"] = max(
+                    _source_positive_int(source, "listing_total", "ranked_total"),
+                    candidate_total,
+                )
+                source["scanned_listing_total"] = max(
+                    _source_positive_int(source, "scanned_listing_total", "reviewed_listing_total", "listing_total"),
+                    candidate_total,
+                )
+                source["reviewed_listing_total"] = max(
+                    _source_positive_int(source, "reviewed_listing_total", "scanned_listing_total", "listing_total"),
+                    candidate_total,
+                )
+
             raw_listing_total = sum(
                 _source_positive_int(source, "raw_listing_total")
                 for source in sources
@@ -34059,6 +34821,11 @@ class ProductService:
             )
             scanned_listing_total = sum(
                 _source_positive_int(source, "scanned_listing_total", "reviewed_listing_total")
+                for source in sources
+                if isinstance(source, dict)
+            )
+            score_demoted_total = sum(
+                _source_positive_int(source, "score_demoted_total")
                 for source in sources
                 if isinstance(source, dict)
             )
@@ -34085,6 +34852,47 @@ class ProductService:
                 )
             if location_mismatch_total > 0:
                 summary["location_mismatch_candidate_total"] = location_mismatch_total
+            if score_demoted_total <= 0:
+                score_demoted_total = _coerce_non_negative_int(
+                    summary.get("score_demoted_total") or summary.get("filtered_low_fit_total")
+                )
+            if score_demoted_total > 0:
+                summary["score_demoted_total"] = max(
+                    _coerce_non_negative_int(summary.get("score_demoted_total")),
+                    score_demoted_total,
+                )
+        inferred_live_reviewed_total = _property_search_live_reviewed_total_from_message(snapshot.get("message"))
+        if inferred_live_reviewed_total > 0:
+            summary["reviewed_listing_total"] = max(
+                _coerce_non_negative_int(summary.get("reviewed_listing_total")),
+                inferred_live_reviewed_total,
+            )
+            summary["scanned_listing_total"] = max(
+                _coerce_non_negative_int(summary.get("scanned_listing_total")),
+                inferred_live_reviewed_total,
+            )
+        ranked_candidate_total = len(ranked_candidates)
+        if ranked_candidate_total > 0:
+            summary["ranked_total"] = max(
+                _coerce_non_negative_int(summary.get("ranked_total")),
+                ranked_candidate_total,
+            )
+            summary["ranked_candidate_total"] = max(
+                _coerce_non_negative_int(summary.get("ranked_candidate_total")),
+                ranked_candidate_total,
+            )
+            summary["listing_total"] = max(
+                _coerce_non_negative_int(summary.get("listing_total")),
+                ranked_candidate_total,
+            )
+            summary["scanned_listing_total"] = max(
+                _coerce_non_negative_int(summary.get("scanned_listing_total")),
+                ranked_candidate_total,
+            )
+            summary["reviewed_listing_total"] = max(
+                _coerce_non_negative_int(summary.get("reviewed_listing_total")),
+                ranked_candidate_total,
+            )
         summary = self._apply_property_search_run_repair_receipts(summary=summary)
         sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
         held_back_total = int(
@@ -35054,13 +35862,14 @@ class ProductService:
             inferred_country_code = _property_search_single_country_for_platforms(candidate_platforms)
             if inferred_country_code:
                 request_preferences["country_code"] = inferred_country_code
-        run_platforms, removed_platforms = _property_search_execution_platforms(
+        run_platforms, removed_platforms, removed_platform_details = _property_search_execution_platforms(
             tuple(selected_platforms or ()),
             request_preferences,
         )
         if removed_platforms:
             request_preferences["provider_country_filter_applied"] = True
             request_preferences["provider_country_filter_removed"] = list(removed_platforms)
+            request_preferences["provider_country_filter_removed_details"] = [dict(row) for row in removed_platform_details]
         request_preferences["selected_platforms"] = list(run_platforms)
         property_search_run_id = str(request_preferences.pop("__property_search_run_id__", "") or "").strip()
         public_preview_cache = self._property_public_preview_cache_index()
@@ -35100,10 +35909,8 @@ class ProductService:
                 )
         commercial_snapshot = property_commercial_snapshot(request_preferences)
         plan_key = normalize_property_plan_key(commercial_snapshot.get("current_plan_key") or "free")
-        unlimited_provider_results = property_plan_has_unlimited_provider_results(
-            plan_key,
-            commercial_snapshot.get("max_results_per_source"),
-        ) and resolved_max_results is None
+        unlimited_provider_results = resolved_max_results is None
+        effective_max_results_per_source = 0 if resolved_max_results is None else max(1, int(resolved_max_results))
         run_entitlement_summary = _property_search_run_entitlement_summary(request_preferences)
 
         preference_person_id = str(
@@ -35399,6 +36206,7 @@ class ProductService:
                 "provider_group_total": provider_group_total,
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
+                "max_results_per_source": effective_max_results_per_source,
                 "min_area_m2": request_preferences.get("min_area_m2") or 0,
                 "available_within_years": available_within_years,
                 "require_floorplan": require_floorplan,
@@ -35442,6 +36250,7 @@ class ProductService:
                 "provider_cache_refresh_total": 0,
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
+                "max_results_per_source": effective_max_results_per_source,
                 "min_area_m2": request_preferences.get("min_area_m2") or 0,
                 "available_within_years": available_within_years,
                 "require_floorplan": require_floorplan,
@@ -35509,6 +36318,7 @@ class ProductService:
         filtered_generic_page_total = 0
         filtered_listing_mode_total = 0
         filtered_low_fit_total = 0
+        score_demoted_total = 0
         provider_repair_task_opened_total = 0
         provider_repair_task_existing_total = 0
         provider_cache_hit_total = 0
@@ -35783,6 +36593,7 @@ class ProductService:
             filtered_generic_page_for_source = 0
             filtered_listing_mode_for_source = 0
             filtered_low_fit_for_source = 0
+            score_demoted_for_source = 0
             floorplan_recovered_for_source = 0
             source_timing_ms = {
                 "provider_preview": 0.0,
@@ -36301,7 +37112,6 @@ class ProductService:
                     summary_updates={
                         "sources": source_summaries,
                         "reviewed_listing_total": reviewed_listing_total,
-                        "listing_total": reviewed_listing_total,
                     },
                 )
                 continue
@@ -37704,6 +38514,8 @@ class ProductService:
                 )
                 is_watch_fit = _property_alert_is_watch_fit(assessment, policy=policy)
                 if score_below_min and not sparse_provider_fallback:
+                    score_demoted_for_source += 1
+                    score_demoted_total += 1
                     if bool(policy.get("notify_top_watch_hit_when_no_good_fit")) and is_watch_fit:
                         candidate_source_ref = (
                             f"property-scout:{str(preview.get('listing_id') or property_url).strip() or property_url}"
@@ -37722,15 +38534,14 @@ class ProductService:
                     ranked_rows[-1]["score_demoted"] = True
                     ranked_rows[-1]["below_match_threshold"] = True
                     ranked_rows[-1]["score_demotion_reason"] = (
-                        f"Below the current {int(min_match_score)}/100 match bar; kept lower in ranking."
+                        "Lower-ranked for this source; kept visible in the full ranking."
                     )
                     detailed_facts["score_demoted_by_match_threshold"] = True
                     detailed_facts["score_demotion_reason"] = ranked_rows[-1]["score_demotion_reason"]
                     _report(
                         step="source_low_fit_ranked",
                         message=(
-                            f"Ranked candidate below {int(min_match_score)}/100 for {source_label}; "
-                            "kept for review."
+                            f"Ranked candidate kept in the full ranking for {source_label}."
                         ),
                         status="in_progress",
                         steps_delta=0,
@@ -37874,7 +38685,10 @@ class ProductService:
                     "summary": str(row.get("summary") or "").strip(),
                     "fit_score": float(row.get("fit_score") or 0.0),
                     "recommendation": str(dict(row.get("assessment") or {}).get("recommendation") or "").strip(),
-                    "fit_summary": _property_alert_fit_summary(dict(row.get("assessment") or {})),
+                    "fit_summary": _property_alert_fit_summary(
+                        dict(row.get("assessment") or {}),
+                        facts=dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
+                    ),
                     "assessment": dict(row.get("assessment") or {}),
                     "property_facts": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
                     "source_label": source_label,
@@ -38073,7 +38887,11 @@ class ProductService:
                         "score_demoted": bool(row.get("score_demoted")),
                         "below_match_threshold": bool(row.get("below_match_threshold")),
                         "score_demotion_reason": str(row.get("score_demotion_reason") or "").strip(),
-                        "fit_summary": _property_alert_fit_summary(assessment),
+                        "fit_summary": _property_alert_fit_summary(
+                            assessment,
+                            facts=row_facts,
+                            preferences=request_preferences,
+                        ),
                         "recommendation": str(assessment.get("recommendation") or "").strip(),
                         "source_platform": str(source_spec.get("platform") or "").strip().lower(),
                         "source_family": str(source_spec.get("provider_family") or "").strip().lower(),
@@ -38109,16 +38927,17 @@ class ProductService:
                         ),
                         "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
                         "investment": investment_payload,
-                        "match_reasons": [
-                            str(item or "").strip()
-                            for item in list(assessment.get("match_reasons_json") or [])
-                            if str(item or "").strip()
-                        ][:3],
-                        "mismatch_reasons": [
-                            str(item or "").strip()
-                            for item in list(assessment.get("mismatch_reasons_json") or [])
-                            if str(item or "").strip()
-                        ][:2],
+                        "match_reasons": _property_candidate_visible_match_reasons(
+                            assessment,
+                            facts=row_facts,
+                            limit=3,
+                        ),
+                        "mismatch_reasons": _property_visible_mismatch_reasons(
+                            assessment,
+                            facts=row_facts,
+                            preferences=request_preferences,
+                            limit=2,
+                        ),
                     }
                 )
                 top_candidates_for_source.append(candidate_payload)
@@ -38312,6 +39131,7 @@ class ProductService:
                     "filtered_listing_mode_total": filtered_listing_mode_for_source,
                     "floorplan_recovered_total": floorplan_recovered_for_source,
                     "filtered_low_fit_total": filtered_low_fit_for_source,
+                    "score_demoted_total": score_demoted_for_source,
                     "provider_repair_task_opened_total": provider_repair_task_opened_for_source,
                     "provider_repair_task_existing_total": provider_repair_task_existing_for_source,
                     "provider_repair_tasks": provider_repair_tasks_for_source[:10],
@@ -38404,7 +39224,6 @@ class ProductService:
                 summary_updates={
                     "sources": source_summaries,
                     "reviewed_listing_total": reviewed_listing_total,
-                    "listing_total": reviewed_listing_total,
                 },
             )
             if not partial_shortlist_reported and ranked_rows:
@@ -38671,7 +39490,7 @@ class ProductService:
             "filtered_low_fit_total": filtered_low_fit_total,
             "held_back_total": held_back_total,
             "filtered_total": held_back_total,
-            "score_demoted_total": filtered_low_fit_total,
+            "score_demoted_total": score_demoted_total,
             "provider_repair_task_opened_total": provider_repair_task_opened_total,
             "provider_repair_task_existing_total": provider_repair_task_existing_total,
             "provider_cache_hit_total": provider_cache_hit_total,
@@ -38680,6 +39499,7 @@ class ProductService:
             "public_property_cache_refresh_total": public_property_cache_refresh_total,
             "high_match_min_score": min_match_score,
             "max_match_score": match_score_cap,
+            "max_results_per_source": effective_max_results_per_source,
             "min_area_m2": request_preferences.get("min_area_m2") or 0,
             "available_within_years": available_within_years,
             "require_floorplan": require_floorplan,
@@ -38761,7 +39581,7 @@ class ProductService:
             payload["repair_status_label"] = "Repair failed"
             payload["can_auto_repair"] = True
             payload["customer_status_message"] = (
-                "No source completed cleanly enough to produce a usable shortlist."
+                "The search could not confirm a usable shortlist from the available source pages."
             )
         if not self._property_search_results_delivery_pending(result=payload):
             stage_receipts = mark_property_search_stage_receipt(stage_receipts, "results_delivery_ready_at")
@@ -42996,7 +43816,10 @@ class ProductService:
         top_assessment = dict(top_candidate.get("assessment") or {}) if isinstance(top_candidate.get("assessment"), dict) else {}
         effective_assessment = dict(assessment or {}) if assessment else top_assessment
         normalized_diorama_style_hint = _compact_diorama_style_hint(diorama_style_hint)
-        fit_summary = _property_alert_fit_summary(effective_assessment)
+        fit_summary = _property_alert_fit_summary(
+            effective_assessment,
+            facts=top_facts,
+        )
         if fit_score > 0:
             score_text = f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100"
             if fit_summary:
@@ -43109,8 +43932,16 @@ class ProductService:
             "fit_summary": fit_summary,
             "compare_reason": compare_reason,
             "recommendation": recommendation,
-            "match_reasons": list(effective_assessment.get("match_reasons_json") or []),
-            "mismatch_reasons": list(effective_assessment.get("mismatch_reasons_json") or []),
+            "match_reasons": _property_candidate_visible_match_reasons(
+                effective_assessment,
+                facts=top_facts,
+                limit=8,
+            ),
+            "mismatch_reasons": _property_visible_mismatch_reasons(
+                effective_assessment,
+                facts=top_facts,
+                limit=8,
+            ),
             "unknowns": question_lines[:8],
             "viewing_questions": list(effective_assessment.get("viewing_questions_json") or effective_assessment.get("questions") or []),
             "review_url": str(review_url or top_candidate.get("review_url") or "").strip(),

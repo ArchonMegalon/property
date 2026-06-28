@@ -40,7 +40,7 @@ from app.services.property_billing import (
     property_plan_has_unlimited_provider_results,
 )
 from app.services.property_market_catalog import (
-    filter_selectable_property_platforms,
+    filter_selectable_property_platform_details,
     normalize_country_code,
     normalize_language_code,
     normalize_listing_mode,
@@ -603,7 +603,6 @@ class OnboardingService(AssistantOnboardingService):
             agent["status"] = "active"
             preferences["active_search_agent_id"] = str(agent.get("agent_id") or normalized_agent_id)
         elif normalized_action in {"load", "select"}:
-            preferences["active_search_agent_id"] = str(agent.get("agent_id") or normalized_agent_id)
             loaded_preferences = (
                 dict(agent.get("preferences_json") or {})
                 if isinstance(agent.get("preferences_json"), dict)
@@ -622,14 +621,10 @@ class OnboardingService(AssistantOnboardingService):
                     "search_agent_notification_limit": agent.get("notification_limit"),
                     "search_agent_notification_period": agent.get("notification_period"),
                 }
-            for key, value in loaded_preferences.items():
-                if key in {"search_agents", "active_search_agent_id", "property_commercial"}:
-                    continue
-                preferences[key] = value
-            preferences["search_agent_enabled"] = bool(agent.get("enabled"))
-            preferences["search_agent_duration_days"] = agent.get("duration_days")
-            preferences["search_agent_notification_limit"] = agent.get("notification_limit")
-            preferences["search_agent_notification_period"] = agent.get("notification_period")
+            response = self.status(principal_id=principal_id)
+            response["loaded_search_agent_id"] = str(agent.get("agent_id") or normalized_agent_id)
+            response["loaded_property_search_preferences"] = loaded_preferences
+            return response
         elif normalized_action in {"delete", "remove"}:
             agents.pop(matched_index)
             preferences["search_agents"] = agents
@@ -1999,7 +1994,9 @@ class OnboardingService(AssistantOnboardingService):
         language_code = normalize_language_code(raw.get("language_code"), country_code=country_code)
         listing_mode = normalize_listing_mode(raw.get("listing_mode"))
         property_type = normalize_property_type_values(raw.get("property_type"))
-        selected_platforms, removed_platforms = filter_selectable_property_platforms(
+        cleaned_raw = dict(raw)
+        cleaned_raw.pop("min_match_score", None)
+        selected_platforms, removed_platform_details = filter_selectable_property_platform_details(
             selected_platforms,
             country_code=country_code,
             listing_mode=listing_mode,
@@ -2013,13 +2010,6 @@ class OnboardingService(AssistantOnboardingService):
                 normalized_max = None
         except Exception:
             normalized_max = None
-        min_match_score = raw.get("min_match_score")
-        try:
-            normalized_min_match_score = int(float(str(min_match_score or "").strip())) if min_match_score is not None else None
-            if normalized_min_match_score is not None:
-                normalized_min_match_score = max(0, min(100, normalized_min_match_score))
-        except Exception:
-            normalized_min_match_score = None
         search_agent_enabled = raw.get("search_agent_enabled") is True or str(raw.get("search_agent_enabled") or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
         try:
             search_agent_duration_days = int(float(str(raw.get("search_agent_duration_days") or "").strip()))
@@ -2168,7 +2158,6 @@ class OnboardingService(AssistantOnboardingService):
             "search_mode": search_mode,
             "selected_platforms": selected_platforms,
             "max_results_per_source": normalized_max,
-            "min_match_score": normalized_min_match_score,
             "preference_person_id": preference_person_id,
             "search_agent_enabled": search_agent_enabled,
             "search_agent_duration_days": search_agent_duration_days,
@@ -2177,20 +2166,25 @@ class OnboardingService(AssistantOnboardingService):
             "property_commercial": property_commercial,
             "saved_shortlist_candidates": saved_shortlist_candidates,
             "saved_shortlist_share_slug": saved_shortlist_share_slug,
-            "raw_preferences": dict(raw),
+            "raw_preferences": cleaned_raw,
             **promoted_numeric,
             **promoted_strings,
             **promoted_lists,
             **promoted_flags,
         }
-        if removed_platforms:
+        if removed_platform_details:
             normalized_preferences["provider_selection_filter_applied"] = True
-            normalized_preferences["provider_selection_filter_removed"] = list(removed_platforms)
+            normalized_preferences["provider_selection_filter_removed"] = [
+                str(row.get("platform") or "").strip()
+                for row in removed_platform_details
+                if str(row.get("platform") or "").strip()
+            ]
+            normalized_preferences["provider_selection_filter_removed_details"] = [dict(row) for row in removed_platform_details]
         normalized_preferences["active_search_agent_id"] = str(raw.get("active_search_agent_id") or "").strip()
         explicit_agents = isinstance(raw.get("search_agents"), (list, tuple))
         if explicit_agents:
             normalized_preferences["search_agents"] = OnboardingService._normalize_property_search_agents(
-                {**raw, **normalized_preferences},
+                {**cleaned_raw, **normalized_preferences},
                 active_agent_id=str(normalized_preferences.get("active_search_agent_id") or "").strip(),
             )
             if normalized_preferences["search_agents"] and not normalized_preferences["active_search_agent_id"]:
@@ -2267,7 +2261,7 @@ class OnboardingService(AssistantOnboardingService):
         payload = {
             key: item
             for key, item in dict(value or {}).items()
-            if key not in {"search_agents", "active_search_agent_id", "raw_preferences", "property_commercial", "saved_shortlist_candidates", "saved_shortlist_share_slug"}
+            if key not in {"search_agents", "active_search_agent_id", "raw_preferences", "property_commercial", "saved_shortlist_candidates", "saved_shortlist_share_slug", "min_match_score"}
         }
         return payload
 

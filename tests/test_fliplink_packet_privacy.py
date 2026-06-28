@@ -4,7 +4,12 @@ import hashlib
 from pathlib import Path
 
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
-from app.services.fliplink.pdf_renderer import _claim_bound_dossier_sections, render_property_packet_pdf, render_property_packet_pdf_legacy
+from app.services.fliplink.pdf_renderer import (
+    _claim_bound_dossier_sections,
+    _localize_compare_reason,
+    render_property_packet_pdf,
+    render_property_packet_pdf_legacy,
+)
 from app.services.fliplink.privacy import redact_property_packet
 from app.services.premium_dossier.models import PremiumDossierRenderResult
 from app.services.premium_dossier.qa import _extract_pdf_text
@@ -83,6 +88,15 @@ def _rendered_searchable_text(rendered: dict[str, object]) -> str:
     if text_manifest_path.is_file():
         return f"{pdf_text}\n{text_manifest_path.read_text(encoding='utf-8')}"
     return pdf_text
+
+
+def test_fliplink_compare_reason_localizer_uses_fit_note_language() -> None:
+    text = _localize_compare_reason(
+        "Chosen ahead of the next option because it scored 5 points higher on the current brief and includes a floorplan."
+    )
+
+    assert "nächstbesten Alternative" not in text
+    assert "Ein brauchbarer Grundriss liegt bereits vor." in text
 
 
 def test_claim_bound_dossier_sections_omit_internal_writer_status() -> None:

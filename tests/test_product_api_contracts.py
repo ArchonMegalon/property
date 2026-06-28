@@ -431,11 +431,9 @@ def test_paid_property_plan_survives_console_context_projection() -> None:
     assert "Account" in account.text
     assert ">Agent<" in account.text
 
-    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
-    assert billing.status_code == 503
-    assert "Billing portal unavailable" in billing.text
-    assert "Your plan" not in billing.text
-    assert ">Agent<" not in billing.text
+    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert billing.status_code == 303
+    assert billing.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_property_account_nav_prefers_available_external_billing_handoff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -491,7 +489,7 @@ def test_property_pricing_prefers_external_billing_handoff_when_available(monkey
 
     assert response.status_code == 200, response.text
     assert response.text.count('href="https://billing.propertyquarry.com/account"') >= 2
-    assert 'href="/app/account#delivery"' not in response.text
+    assert 'href="/app/account?billing=1#delivery"' not in response.text
 
 
 def test_automation_history_placeholder_is_not_a_self_link() -> None:
@@ -584,7 +582,7 @@ def test_account_billing_and_automation_surfaces_do_not_render_same_page_links()
 
     for path in ("/app/agents", "/app/account", "/app/billing"):
         response = client.get(path, headers={"host": "propertyquarry.com"})
-        assert response.status_code == (503 if path == "/app/billing" else 200)
+        assert response.status_code == 200
         assert f'href="{path}"' not in response.text
 
 
@@ -6209,6 +6207,44 @@ def test_generated_property_source_specs_reject_cross_country_provider_mismatch(
     assert "realestate.com.au" not in urls
 
 
+def test_merged_property_scout_source_specs_filter_configured_cross_country_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "EA_PROPERTY_SCOUT_URLS_JSON",
+        json.dumps(
+            [
+                {
+                    "url": "https://www.realestate.com.au/rent",
+                    "label": "realestate.com.au Australia",
+                },
+                {
+                    "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen",
+                    "label": "Willhaben Austria",
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(product_service, "generated_property_source_specs", lambda **kwargs: ())
+
+    rows = product_service._merged_property_scout_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+        },
+        selected_platforms=(),
+        principal_id="pq-configured-country-gate-at",
+        max_results_per_source=2,
+        default_person_id="self",
+    )
+
+    urls = " ".join(str(row.get("url") or "") for row in rows)
+    platforms = {str(row.get("platform") or "") for row in rows}
+    assert "willhaben.at" in urls
+    assert "realestate.com.au" not in urls
+    assert "willhaben" in platforms
+    assert "realestate_au" not in platforms
+
+
 def test_generated_property_source_specs_push_min_area_into_immoscout_de_url() -> None:
     rows = product_service.generated_property_source_specs(
         preferences={
@@ -9730,6 +9766,74 @@ def test_property_alert_fit_summary_omits_360_when_it_is_the_only_positive_reaso
     assert "supports remote review" not in summary.lower()
 
 
+def test_property_alert_fit_summary_uses_confirmed_supermarket_distance_warning() -> None:
+    summary = product_service._property_alert_fit_summary(
+        {
+            "fit_score": 63.0,
+            "recommendation": "ask_for_clarification",
+            "match_reasons_json": [],
+            "mismatch_reasons_json": ["supermarket farther away than wished"],
+        },
+        facts={
+            "nearest_supermarket_m": 951,
+            "nearest_supermarket_name": "BILLA Praterstern",
+        },
+        preferences={
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_supermarket_importance": "important",
+        },
+    )
+
+    assert "Personal fit 63/100" in summary
+    assert "Nearest supermarket: BILLA Praterstern is 951 m away; your limit was 500 m." in summary
+    assert "supermarket farther away than wished" not in summary
+
+
+def test_property_alert_fit_summary_uses_confirmed_playground_distance_warning_from_snapshot() -> None:
+    summary = product_service._property_alert_fit_summary(
+        {
+            "fit_score": 58.0,
+            "recommendation": "review",
+            "match_reasons_json": [],
+            "mismatch_reasons_json": ["playground less convenient"],
+        },
+        facts={
+            "listing_research_snapshot": {
+                "nearest_playground_m": 830,
+                "nearest_playground_name": "Sigmund-Freud-Park playground",
+            },
+        },
+        preferences={
+            "max_distance_to_playground_m": 400,
+            "max_distance_to_playground_importance": "nice_to_have",
+        },
+    )
+
+    assert "Personal fit 58/100" in summary
+    assert "review" in summary.lower()
+    assert "Nearest playground: Sigmund-Freud-Park playground is 830 m away; your limit was 400 m." in summary
+    assert "playground less convenient" not in summary
+
+
+def test_property_alert_fit_summary_hides_unconfirmed_distance_warning_without_facts() -> None:
+    summary = product_service._property_alert_fit_summary(
+        {
+            "fit_score": 54.0,
+            "recommendation": "ask_for_clarification",
+            "match_reasons_json": [],
+            "mismatch_reasons_json": ["supermarket farther away than wished"],
+        },
+        facts={},
+        preferences={
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_supermarket_importance": "important",
+        },
+    )
+
+    assert summary == "Personal fit 54/100"
+    assert "supermarket farther away than wished" not in summary
+
+
 def test_property_candidate_choice_reason_prefers_brief_gap_over_tour_presence() -> None:
     reason = product_service._property_candidate_choice_reason(
         {
@@ -9792,7 +9896,7 @@ def test_property_alert_review_telegram_text_prefers_internal_tour_link() -> Non
     assert "Top listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
 
 
-def test_property_alert_review_telegram_text_includes_compare_reason() -> None:
+def test_property_alert_review_telegram_text_uses_fit_note_language() -> None:
     text = product_service._property_alert_review_telegram_text(
         title="Watch fit apartment",
         summary="Recent scout hit.",
@@ -9813,7 +9917,9 @@ def test_property_alert_review_telegram_text_includes_compare_reason() -> None:
         ),
     )
 
-    assert "Why it won: Chosen ahead of the next option because it scored 6 points higher on the current brief." in text
+    assert "Fit note: It stayed closest to the current brief." in text
+    assert "Why it won:" not in text
+    assert "ahead of the next option" not in text
 
 
 def test_property_alert_review_telegram_text_prefers_review_link_over_listing() -> None:
@@ -10932,6 +11038,7 @@ def test_property_official_risk_evidence_for_austria_includes_school_noise_and_b
 
     assert "school_evidence" in risk_keys
     assert "heat_resilience" in risk_keys
+    assert "cooling_corridor" in risk_keys
     assert "traffic_density" in risk_keys
     assert "green_shade" in risk_keys
     assert "noise_risk" in risk_keys
@@ -11000,6 +11107,189 @@ def test_property_austria_preference_adjustment_scores_heat_resilience() -> None
     assert "cooling present" in strong_notes
     assert "external shading present" in strong_notes
     assert "official climate evidence lane attached" in strong_notes
+
+
+def test_property_austria_preference_adjustment_rewards_flowing_water_cooling_corridor() -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={"country_code": "AT", "prefer_heat_resilient_home": True},
+        property_facts={
+            "postal_code": "1200",
+            "postal_name": "1200 Wien",
+            "nearest_flowing_water_m": 260,
+            "nearest_flowing_water_name": "Donaukanal",
+            "nearest_flowing_water_kind": "canal",
+            "cooling_corridor_signal": "strong",
+            "cooling_corridor_summary": "Nearby flowing water (Donaukanal, about 260 m) can soften summer heat and supports the local cooling-corridor read.",
+            "official_risk_evidence": {"sources": [{"risk_key": "heat_resilience"}, {"risk_key": "cooling_corridor"}]},
+        },
+        title="Wohnung beim Donaukanal",
+        summary="Sommerlich gut durchlueftet.",
+    )
+
+    assert adjustment > 0
+    assert any("Donaukanal" in note for note in notes)
+
+
+def test_property_candidate_visible_match_reasons_surface_cooling_corridor_bonus() -> None:
+    reasons = product_service._property_candidate_visible_match_reasons(
+        {
+            "match_reasons_json": ["Quiet layout and solid transit."],
+        },
+        facts={
+            "nearest_flowing_water_m": 260,
+            "nearest_flowing_water_name": "Donaukanal",
+            "cooling_corridor_signal": "strong",
+            "cooling_corridor_summary": "Nearby flowing water (Donaukanal, about 260 m) can soften summer heat and supports the local cooling-corridor read.",
+            "austria_preference_notes": [
+                "Nearby flowing water (Donaukanal, about 260 m) can soften summer heat and supports the local cooling-corridor read."
+            ],
+        },
+        limit=3,
+    )
+
+    assert reasons[0] == "Quiet layout and solid transit."
+    assert any("Donaukanal" in reason for reason in reasons)
+    assert any("cooling corridor" in reason.lower() for reason in reasons)
+
+
+def test_property_scout_surfaces_cooling_corridor_reason_in_top_candidates(monkeypatch) -> None:
+    principal_id = "cf-email:cooling-corridor@example.test"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Cooling Corridor Match Reason Office")
+    candidate_url = "https://www.willhaben.at/iad/object?adId=cooling-corridor-fit"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien",
+                "label": "Willhaben rentals",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "cooling-corridor-fit",
+            "title": "Flat near the Donaukanal",
+            "summary": "Quiet apartment with summer upside.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "postal_name": "1200 Wien",
+                "nearest_flowing_water_m": 260,
+                "nearest_flowing_water_name": "Donaukanal",
+                "nearest_flowing_water_kind": "canal",
+                "cooling_corridor_signal": "strong",
+                "cooling_corridor_summary": "Nearby flowing water (Donaukanal, about 260 m) can soften summer heat and supports the local cooling-corridor read.",
+                "official_risk_evidence": {"sources": [{"risk_key": "heat_resilience"}, {"risk_key": "cooling_corridor"}]},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review_with_timeout",
+        lambda self, **kwargs: {"status": "existing", "editor_url": "https://propertyquarry.com/app/research/mock-packet"},
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 88.0,
+            "confidence": 0.88,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Quiet layout and good daily life fit."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1200 Vienna",
+            "property_type": "apartment",
+            "listing_mode": "rent",
+            "prefer_heat_resilient_home": True,
+            "min_match_score": 35,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    top_candidate = result["sources"][0]["top_candidates"][0]
+    assert any("Donaukanal" in reason for reason in top_candidate["match_reasons"])
+    assert any("cooling corridor" in reason.lower() for reason in top_candidate["match_reasons"])
+
+
+def test_property_source_research_snapshot_enriches_flowing_water_cooling_context_from_map_coords(monkeypatch) -> None:
+    listing_url = "https://www.immobilienscout24.at/expose/water-corridor"
+    product_service._property_source_research_snapshot.cache_clear()
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=True: {
+            "title": "Wohnung am Wasser",
+            "summary": "Mit Koordinaten im Expose.",
+            "property_facts_json": {
+                "street_address": "Ufergasse 12",
+                "postal_name": "1200 Wien",
+                "map_lat": 48.2251,
+                "map_lng": 16.3687,
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda url: "<html><body>Expose</body></html>")
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_nearby_pois",
+        lambda lat, lon: {
+            "nearest_flowing_water_m": 260,
+            "nearest_flowing_water_name": "Donaukanal",
+            "nearest_flowing_water_kind": "canal",
+            "cooling_corridor_signal": "strong",
+            "cooling_corridor_summary": "Nearby flowing water (Donaukanal, about 260 m) can soften summer heat and supports the local cooling-corridor read.",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_official_risk_evidence",
+        lambda *, lat, lon, facts=None: {
+            "country_code": "AT",
+            "source_count": 2,
+            "sources": [
+                {"risk_key": "heat_resilience", "label": "Summer heat"},
+                {"risk_key": "cooling_corridor", "label": "Cooling corridor"},
+            ],
+        },
+    )
+
+    findings = product_service._property_source_research_snapshot(listing_url)
+
+    assert findings["nearest_flowing_water_m"] == 260
+    assert findings["nearest_flowing_water_name"] == "Donaukanal"
+    assert findings["cooling_corridor_signal"] == "strong"
+    assert "summer heat" in str(findings["cooling_corridor_summary"]).lower()
+    assert dict(findings["official_risk_evidence"])["sources"][1]["risk_key"] == "cooling_corridor"
 
 
 def test_property_austria_preference_adjustment_rewards_matching_cooperative_evidence() -> None:
@@ -11089,7 +11379,18 @@ def test_merge_property_facts_with_source_research_replaces_weak_values(monkeypa
         lambda property_url, image_urls=(): {
             "street_address": "Hameaustraße 34",
             "address_lines": ["Hameaustraße 34", "1190 Wien"],
+            "map_lat": 48.255,
+            "map_lng": 16.31,
             "nearest_supermarket_m": 951,
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_official_risk_evidence",
+        lambda *, lat, lon, facts=None: {
+            "country_code": "AT",
+            "source_count": 1,
+            "sources": [{"risk_key": "heat_resilience", "label": "Summer heat"}],
         },
     )
 
@@ -11108,6 +11409,7 @@ def test_merge_property_facts_with_source_research_replaces_weak_values(monkeypa
     assert merged["nearest_supermarket_m"] == 951
     assert merged["listing_research_snapshot"]["street_address"] == "Hameaustraße 34"
     assert merged["listing_research_meta"]["strategy"] == "provider_html_plus_geo"
+    assert dict(merged["official_risk_evidence"])["sources"][0]["risk_key"] == "heat_resilience"
 
 
 def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
@@ -20170,6 +20472,50 @@ def test_google_property_sync_suppresses_high_raw_score_when_learned_conflicts_s
     assert any(item["payload"]["source_ref"] == "gmail-thread:elisabeth.girschele@gmail.com:feedback-suppress-1" for item in suppressed)
 
 
+def test_property_alert_upstream_personalization_names_confirmed_daily_life_places() -> None:
+    class _PreferenceProfiles:
+        def get_profile_bundle(self, *, principal_id: str, person_id: str = "self") -> dict[str, object]:
+            return {
+                "preference_nodes": [
+                    {
+                        "status": "active",
+                        "domain": "willhaben",
+                        "category": "soft_preference",
+                        "key": "prefer_subway_nearby",
+                        "value_json": True,
+                        "strength": "medium",
+                        "confidence": 1.0,
+                    },
+                    {
+                        "status": "active",
+                        "domain": "willhaben",
+                        "category": "soft_preference",
+                        "key": "prefer_supermarket_nearby",
+                        "value_json": True,
+                        "strength": "medium",
+                        "confidence": 1.0,
+                    },
+                ]
+            }
+
+    upstream = product_service._property_alert_upstream_personalization(
+        preference_profiles=_PreferenceProfiles(),
+        principal_id="pref-principal",
+        person_id="self",
+        property_facts={
+            "nearest_subway_m": 900.0,
+            "nearest_subway_name": "U2 Messe-Prater",
+            "nearest_supermarket_m": 1300.0,
+            "nearest_supermarket_name": "BILLA Praterstern",
+        },
+        domain="willhaben",
+        assessment={"fit_score": 60.0},
+    )
+
+    assert "Underground access via U2 Messe-Prater is about 900 m away." in upstream["unknowns"]
+    assert "Supermarket access via BILLA Praterstern is about 1300 m away, which is weaker than you usually accept." in upstream["conflicts"]
+
+
 def test_resolve_primary_telegram_binding_prefers_real_numeric_chat_ref() -> None:
     class _Runtime:
         def list_connector_bindings(self, principal_id: str, limit: int = 200):
@@ -23163,6 +23509,51 @@ def test_property_search_run_ignores_stale_agent_result_cap_from_request(
     assert dict(observed["property_search_preferences"]).get("max_results_per_source") in (None, "")
 
 
+def test_property_search_run_ignores_result_cap_for_default_free_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-free-request-cap-ignored"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Free Request Cap Office")
+
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(self, **kwargs):
+        observed["max_results_per_source"] = kwargs.get("max_results_per_source")
+        observed["property_search_preferences"] = dict(kwargs.get("property_search_preferences") or {})
+        return {
+            "generated_at": product_api_delivery_routes.now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 12,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    response = client.post(
+        "/app/api/signals/property/search/run",
+        json={
+            "selected_platforms": ["willhaben"],
+            "property_preferences": {
+                "preference_person_id": "self",
+            },
+            "max_results_per_source": 50,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert observed["max_results_per_source"] is None
+    assert dict(observed["property_search_preferences"]).get("max_results_per_source") in (None, "")
+
+
 def test_property_search_run_filters_cross_country_provider_mismatches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -23218,6 +23609,21 @@ def test_property_search_run_filters_cross_country_provider_mismatches(
     assert preferences["selected_platforms"] == ["willhaben"]
     assert preferences["provider_country_filter_applied"] is True
     assert preferences["provider_country_filter_removed"] == ["realestate_au"]
+    assert preferences["provider_country_filter_removed_details"] == [
+        {
+            "platform": "realestate_au",
+            "provider_label": "realestate.com.au",
+            "reason": "wrong_country",
+            "requested_country_code": "AT",
+            "requested_country_label": "Austria",
+            "provider_country_code": "AU",
+            "provider_country_label": "Australia",
+            "requested_listing_mode": "rent",
+            "supported_listing_modes": ["rent", "buy"],
+            "search_ready": True,
+            "market_readiness": "private_beta",
+        }
+    ]
 
 
 def test_property_platform_catalog_sanitizer_preserves_country_and_availability_metadata() -> None:
@@ -23910,22 +24316,10 @@ def test_property_billing_surface_is_not_local_payment_state() -> None:
     )
     assert stored.status_code == 200, stored.text
 
-    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
+    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert billing.status_code == 503
-    assert "Billing portal unavailable" in billing.text
-    assert 'name="viewport"' in billing.text
-    assert "PropertyQuarry account" in billing.text
-    assert 'href="/app/account"' in billing.text
-    assert "Your plan" not in billing.text
-    assert "Current search access" not in billing.text
-    assert "Latest payment" not in billing.text
-    assert "Failed | EUR 3.00 | payment.failed" not in billing.text
-    assert "VAT EUR 0.48" not in billing.text
-    assert "Billing truth" not in billing.text
-    assert "Plan and limits" not in billing.text
-    assert "Current commercial state" not in billing.text
-    assert re.search(r'<a class="pqx-link-button subtle" href="/app/billing[^"]*">Open</a>', billing.text) is None
+    assert billing.status_code == 303
+    assert billing.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_property_payfunnels_webhook_is_public_but_requires_pending_checkout(

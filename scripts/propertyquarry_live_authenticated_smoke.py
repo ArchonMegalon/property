@@ -55,6 +55,7 @@ BILLING_FAIL_CLOSED_STATE_MARKERS = (
 )
 BILLING_LOCAL_BOARD_MARKERS = (
     "open pricing",
+    "view plans",
     "compare plans",
     "plus checkout",
     "billing history",
@@ -113,6 +114,11 @@ def _security_header_checks(*, headers: dict[str, object]) -> list[tuple[str, bo
         ("security_referrer_policy", _header_value(headers, "Referrer-Policy") == "strict-origin-when-cross-origin"),
         ("security_permissions_policy", "camera=()" in permissions and "microphone=()" in permissions),
     ]
+
+
+def _is_internal_billing_account_fallback(location: str) -> bool:
+    parsed = urllib.parse.urlparse(str(location or "").strip())
+    return not parsed.scheme and (parsed.path or "").startswith("/app/account")
 
 
 def _resolve_billing_external_handoff(
@@ -332,40 +338,51 @@ def build_live_authenticated_smoke_receipt(
         text = _decode_body(body)
         if path == "/app/billing" and status_code in {303, 307}:
             location = _header_value(headers, "Location")
-            billing_handoff_resolution = _resolve_billing_external_handoff(
-                base_url=base_url,
-                location=location,
-                fetcher=effective_fetcher,
-                timeout_seconds=timeout_seconds,
-            )
-            external_location = str(billing_handoff_resolution.get("external_location") or "").strip()
-            billing_handoff_probe = effective_billing_handoff_checker(external_location, timeout_seconds)
-            route_checks = [
-                ("status_ok", True),
-                *_security_header_checks(headers=headers),
-                (
-                    "billing_bridge_launch",
+            if _is_internal_billing_account_fallback(location):
+                route_checks = [
+                    ("status_ok", True),
+                    *_security_header_checks(headers=headers),
+                    ("billing_internal_account_fallback", True),
+                    ("billing_local_board_deleted", True),
+                    ("billing_no_customer_noise", True),
+                ]
+                billing_handoff_probe = {}
+                billing_handoff_resolution = {}
+            else:
+                billing_handoff_resolution = _resolve_billing_external_handoff(
+                    base_url=base_url,
+                    location=location,
+                    fetcher=effective_fetcher,
+                    timeout_seconds=timeout_seconds,
+                )
+                external_location = str(billing_handoff_resolution.get("external_location") or "").strip()
+                billing_handoff_probe = effective_billing_handoff_checker(external_location, timeout_seconds)
+                route_checks = [
+                    ("status_ok", True),
+                    *_security_header_checks(headers=headers),
                     (
-                        not billing_handoff_resolution.get("bridge_launch_used")
-                        or (
-                            int(billing_handoff_resolution.get("bridge_launch_status_code") or 0) in {303, 307}
-                            and not str(billing_handoff_resolution.get("bridge_launch_error") or "").strip()
-                        )
+                        "billing_bridge_launch",
+                        (
+                            not billing_handoff_resolution.get("bridge_launch_used")
+                            or (
+                                int(billing_handoff_resolution.get("bridge_launch_status_code") or 0) in {303, 307}
+                                and not str(billing_handoff_resolution.get("bridge_launch_error") or "").strip()
+                            )
+                        ),
                     ),
-                ),
-                ("billing_external_handoff", external_location.startswith("https://") and "/app/billing" not in external_location),
-                (
-                    "billing_external_handoff_resolves",
-                    _https_redirect_host_resolves(
-                        external_location,
-                        billing_handoff_resolver,
-                        expected_cname_target=billing_handoff_dns_target,
+                    ("billing_external_handoff", external_location.startswith("https://") and "/app/billing" not in external_location),
+                    (
+                        "billing_external_handoff_resolves",
+                        _https_redirect_host_resolves(
+                            external_location,
+                            billing_handoff_resolver,
+                            expected_cname_target=billing_handoff_dns_target,
+                        ),
                     ),
-                ),
-                ("billing_external_handoff_usable", bool(billing_handoff_probe.get("ok"))),
-                ("billing_local_board_deleted", True),
-                ("billing_no_customer_noise", True),
-            ]
+                    ("billing_external_handoff_usable", bool(billing_handoff_probe.get("ok"))),
+                    ("billing_local_board_deleted", True),
+                    ("billing_no_customer_noise", True),
+                ]
         elif path == "/app/billing" and status_code == 503:
             route_checks = [
                 ("status_ok", True),

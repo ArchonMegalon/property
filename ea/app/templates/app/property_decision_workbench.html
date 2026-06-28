@@ -35,6 +35,7 @@
 {% set show_top_search_action = is_explicit_search_route and setup_mode and console_form and show_form_controls %}
 {% set result_surface = surface_mode in ['search', 'properties', 'shortlist'] %}
 {% set account_surface = surface_mode in ['account', 'settings'] %}
+{% set billing_handoff_focus = account_surface and request is defined and request.query_params is defined and request.query_params.get('billing') == '1' %}
 {% set billing_surface = surface_mode == 'billing' %}
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
@@ -69,8 +70,8 @@
               <div class="pqx-filtered-dialog-card">
               <div class="pqx-filtered-dialog-head">
                 <div>
-                  <strong>Adjust ranking or one hard rule</strong>
-                  <div class="pqx-note">The ranking bar only changes ordering. Hard rules stay strict until you change them.</div>
+                  <strong>Adjust one hard rule</strong>
+                  <div class="pqx-note">Search changes stay explicit here. Hard rules remain strict until you change them.</div>
                 </div>
                 <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
               </div>
@@ -301,7 +302,7 @@
 <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
   <div class="pqx-concierge-pulse">
     <div class="pqx-progress-headline">
-      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed', 'completed_partial'] %}Results are ready{% elif status == 'failed' %}Search paused{% else %}Search in progress{% endif %}</strong>
+      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed', 'completed_partial'] %}Results are ready{% elif status == 'failed' %}Search interrupted{% else %}Search in progress{% endif %}</strong>
       <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{% if status in ['processed', 'completed', 'completed_partial'] %}100% · complete{% elif status == 'failed' %}stopped{% elif run_progress > 0 and eta_label %}{{ run_progress }}% · {{ eta_label }}{% elif run_progress > 0 %}{{ run_progress }}% · estimating{% elif eta_label %}starting · {{ eta_label }}{% else %}estimating{% endif %}</span>
     </div>
     <div class="pqx-pulse-line" aria-hidden="true"></div>
@@ -608,6 +609,11 @@
       margin: 0 auto;
       padding: clamp(14px, 4vw, 30px);
     }
+    .pqx-shell[data-pqx-surface="properties"] .pqx-main,
+    .pqx-shell[data-pqx-surface="shortlist"] .pqx-main,
+    .pqx-shell[data-pqx-surface="research"] .pqx-main {
+      width: min(100%, 1328px);
+    }
     .pqx-setup-intro,
     .pqx-stage,
     .pqx-command,
@@ -872,65 +878,85 @@
       body { font-size: 15px; }
       .pqx-topbar {
         grid-template-columns: minmax(0, 1fr) auto;
-        grid-template-areas:
-          "brand account"
-          "nav nav";
+        grid-template-areas: "nav account";
         gap: 6px;
-        min-height: 56px;
+        min-height: 46px;
         padding: calc(4px + env(safe-area-inset-top, 0px)) 8px 6px;
       }
       .pqx-brand {
-        display: inline-flex;
-        grid-area: brand;
-        gap: 8px;
-      }
-      .pqx-brand .pqx-mark {
-        width: 28px;
-        height: 28px;
-        border-radius: 8px;
-      }
-      .pqx-brand strong {
-        font-size: 0.82rem;
-        line-height: 1.05;
-      }
-      .pqx-brand-copy {
-        display: block;
-        font-size: 0.64rem;
-        line-height: 1;
+        display: none !important;
       }
       .pqx-mobile-nav-menu {
-        display: contents;
-        min-width: 0;
+        display: block;
         grid-area: nav;
+        min-width: 0;
+        position: relative;
+        justify-self: start;
       }
       .pqx-mobile-nav-menu > summary {
-        display: none;
+        min-height: 40px;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 0 12px;
+        border: 1px solid color-mix(in srgb, var(--pq-line) 78%, transparent);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--pq-paper) 98%, white);
+        color: var(--pq-muted);
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+        list-style: none;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .pqx-mobile-nav-menu > summary .pqx-mobile-nav-label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 40px;
+        min-width: 44px;
       }
       .pqx-mobile-nav-menu > summary::-webkit-details-marker { display: none; }
+      .pqx-mobile-nav-menu > summary::after {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(45deg) translateY(-1px);
+        transform-origin: center;
+      }
+      .pqx-mobile-nav-menu[open] > summary::after {
+        transform: rotate(225deg) translateY(-1px);
+      }
       .pqx-primary-nav {
-        position: static;
-        display: flex;
-        width: 100%;
-        max-width: 100%;
-        gap: 4px;
-        padding: 2px 0 0;
-        overflow-x: auto;
-        border: 0;
-        border-radius: 0;
-        background: transparent;
-        box-shadow: none;
-        scrollbar-width: none;
+        display: none !important;
       }
-      .pqx-primary-nav::-webkit-scrollbar {
-        display: none;
+      .pqx-mobile-nav-menu[open] .pqx-primary-nav {
+        position: fixed;
+        top: calc(50px + env(safe-area-inset-top, 0px));
+        left: 8px;
+        right: 8px;
+        z-index: 46;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        padding: 8px;
+        border: 1px solid color-mix(in srgb, var(--pq-line) 82%, transparent);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--pq-paper) 98%, white);
+        box-shadow: 0 16px 30px rgba(28, 24, 18, 0.12);
       }
-      .pqx-primary-nav :is(a, span) {
-        width: auto;
+      html[data-pq-theme="dark"] .pqx-mobile-nav-menu[open] .pqx-primary-nav {
+        background: color-mix(in srgb, var(--pq-paper) 96%, black);
+        box-shadow: 0 18px 32px rgba(0, 0, 0, 0.34);
+      }
+      .pqx-mobile-nav-menu[open] .pqx-primary-nav :is(a, span) {
         min-height: 40px;
-        justify-content: center;
-        padding: 0 10px;
-        border-radius: 999px;
-        font-size: 0.74rem;
+        justify-content: flex-start;
+        padding: 0 12px;
+        font-size: 11px;
       }
       .pqx-top-actions {
         gap: 4px;
@@ -939,30 +965,33 @@
         justify-content: flex-end;
         align-self: start;
       }
-      .pqx-top-actions > :not(.pqx-account-menu) { display: none !important; }
-      .pqx-top-actions > [data-pqx-theme-toggle],
-      .pqx-top-actions > .pqx-context-actions {
+      .pqx-top-actions > :not(.pqx-account-menu) {
         display: none !important;
       }
-      .pqx-shell[data-pqx-surface="account"] .pqx-top-actions {
-        display: none;
+      .pqx-account-menu {
+        margin-left: auto;
       }
-      .pqx-shell[data-pqx-surface="agents"] .pqx-topbar,
-      .pqx-shell[data-pqx-surface="alerts"] .pqx-topbar {
-        grid-template-columns: minmax(0, 1fr) auto;
-        grid-template-areas: "brand nav";
+      .pqx-account-menu summary {
+        min-width: 40px;
+        min-height: 40px;
+        padding: 0 8px;
+        justify-content: center;
       }
-      .pqx-shell[data-pqx-surface="agents"] .pqx-brand-copy,
-      .pqx-shell[data-pqx-surface="alerts"] .pqx-brand-copy {
-        display: none;
-      }
-      .pqx-shell[data-pqx-surface="agents"] .pqx-top-actions,
-      .pqx-shell[data-pqx-surface="alerts"] .pqx-top-actions {
-        display: none;
+      .pqx-account-menu-panel {
+        position: fixed;
+        left: 8px;
+        right: 8px;
+        top: calc(58px + env(safe-area-inset-top, 0px));
+        width: calc(100vw - 16px);
+        max-width: calc(100vw - 16px);
+        min-width: 0;
+        max-height: min(68svh, 520px);
+        overflow-y: auto;
+        box-sizing: border-box;
       }
       .pqx-shell[data-pqx-surface="agents"] .pqx-mobile-nav-menu,
       .pqx-shell[data-pqx-surface="alerts"] .pqx-mobile-nav-menu {
-        justify-self: end;
+        justify-self: start;
       }
       .pqx-main { padding: 12px 10px 24px; }
       .pqx-setup {
@@ -1026,6 +1055,30 @@
         padding: 12px;
         border-radius: 18px;
       }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-logout-strip .pqx-small,
+      .pqx-shell[data-pqx-surface="account"] #search-defaults .pqx-pref-list,
+      .pqx-shell[data-pqx-surface="account"] #plans .pqx-note {
+        display: none;
+      }
+      .pqx-shell[data-pqx-surface="account"] #search-defaults,
+      .pqx-shell[data-pqx-surface="account"] #plans {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-channel-detail {
+        gap: 3px;
+        padding: 6px 0 0;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-channel-detail strong {
+        font-size: 13px;
+        line-height: 1.2;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-channel-detail span,
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-channel-detail a,
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-channel-detail label {
+        font-size: 12px;
+        line-height: 1.34;
+      }
       .pqx-shell[data-pqx-surface="account"] .pqx-account-action-card p,
       .pqx-shell[data-pqx-surface="account"] .pqx-pref-row small {
         display: none;
@@ -1084,6 +1137,103 @@
         min-height: 30px;
         padding: 0 10px;
         font-size: 11px;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-board.is-compact .pqx-section-head .pqx-note,
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-kpis,
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-history-strip,
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-rhythm {
+        display: none !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-board.is-compact .pqx-section-head {
+        gap: 8px;
+        align-items: start;
+        margin-bottom: 0;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-board.is-compact .pqx-section-head .pqx-actions {
+        width: auto;
+        align-items: center;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 8px !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-card {
+        grid-template-columns: minmax(0, 1fr) 112px !important;
+        grid-template-areas: "meta thumb" !important;
+        gap: 8px !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        padding: 10px !important;
+        align-items: start !important;
+        overflow: hidden;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-thumbnail,
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-thumbnail img {
+        min-height: 86px !important;
+        max-height: 86px !important;
+        height: 86px !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-thumbnail {
+        grid-area: thumb;
+        width: 112px;
+        justify-self: end;
+        align-self: start;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-meta {
+        grid-area: meta;
+        gap: 5px !important;
+        overflow: hidden !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-headline {
+        gap: 4px !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        justify-content: flex-start !important;
+        padding-right: 34px !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-headline strong {
+        font-size: 0.96rem;
+        line-height: 1.14;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-subhead {
+        font-size: 11px;
+        line-height: 1.22;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-row-meta {
+        gap: 4px !important;
+        margin-top: 0 !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-metrics {
+        gap: 4px 6px;
+        font-size: 10px;
+        line-height: 1.2;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-actions {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        gap: 6px !important;
+        padding-top: 0 !important;
+        border-top: 0 !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-actions .pqx-button {
+        min-height: 36px !important;
+        padding-inline: 8px;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-actions .pqx-button.primary {
+        flex: 1 1 auto;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-delete {
+        width: 32px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        top: 6px;
+        right: 6px;
+        font-size: 16px;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-thumbnail-action {
+        min-height: 24px !important;
+        padding: 0 8px;
+        font-size: 10px;
       }
       .pqx-shell[data-pqx-surface="account"] .pqx-mobile-fold,
       .pqx-shell[data-pqx-surface="alerts"] .pqx-mobile-fold {
@@ -1603,6 +1753,8 @@
     }
     .pqx-decision-section-head {
       align-items: flex-start;
+      gap: 8px;
+      flex-wrap: wrap;
     }
     .pqx-decision-section-head .pqx-button.subtle {
       min-height: 30px;
@@ -1649,13 +1801,30 @@
     }
     .pqx-decision-wizard {
       display: grid;
-      gap: 12px;
+      gap: 10px;
+    }
+    .pqx-decision-state-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+    }
+    .pqx-decision-state-grid .pqx-button {
+      width: 100%;
+      min-width: 0;
+      min-height: 40px;
+      padding: 7px 10px;
+      justify-content: flex-start;
+      text-align: left;
+      text-wrap: pretty;
+    }
+    .pqx-decision-feedback-actions {
+      justify-content: flex-start;
     }
     .pqx-decision-feedback-shell {
       display: grid;
-      gap: 12px;
+      gap: 10px;
       border-top: 1px solid var(--pq-line);
-      padding-top: 10px;
+      padding-top: 8px;
     }
     .pqx-decision-feedback-shell[hidden] {
       display: none;
@@ -1854,9 +2023,9 @@
       padding: 14px 14px 12px;
     }
     .pqx-setup.pqx-surface-search > [data-pqx-mobile-panel="results"] {
-      max-height: calc(100vh - 172px);
-      overflow: auto;
-      scrollbar-gutter: stable;
+      max-height: none;
+      overflow: visible;
+      scrollbar-gutter: auto;
     }
     .pqx-surface-search [data-pqx-mobile-panel="results"] {
       order: 2;
@@ -2888,9 +3057,9 @@
     .pqx-surface-search .pqx-workflow-step strong {
       font-size: 12px;
     }
-    .pqx-brief-drawer-panel {
-      max-height: calc(100vh - 136px);
-      overflow: auto;
+    .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {
+      max-height: none;
+      overflow: visible;
       overscroll-behavior: auto;
     }
     .pqx-form-body {
@@ -3244,11 +3413,11 @@
     .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] {
       grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 4px 8px;
-      max-height: 316px;
-      overflow-y: auto;
+      max-height: none;
+      overflow: visible;
       overscroll-behavior-y: auto;
-      padding-right: 2px;
-      scrollbar-gutter: stable;
+      padding-right: 0;
+      scrollbar-gutter: auto;
     }
     .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="property_type"] {
       grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
@@ -3701,6 +3870,7 @@
       font-size: 9px;
       font-weight: 800;
       pointer-events: none;
+      user-select: none;
       text-anchor: middle;
     }
     .pqx-location-map-note {
@@ -3753,7 +3923,7 @@
         padding: 8px 10px;
       }
       .pqx-setup.pqx-surface-search > [data-pqx-mobile-panel="results"] {
-        max-height: calc(100vh - 146px);
+        max-height: none;
         padding: 10px 12px;
       }
       .pqx-surface-search .pqx-title h1 {
@@ -3800,8 +3970,8 @@
       .pqx-surface-search .pqx-workflow-step strong {
         font-size: 12px;
       }
-      .pqx-brief-drawer-panel {
-        max-height: calc(100vh - 112px);
+      .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {
+        max-height: none;
       }
       .pqx-surface-search .pqx-form-body {
         gap: 4px 6px;
@@ -3974,6 +4144,56 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .pqx-what-matters-mobile-tools {
+      display: none;
+      position: relative;
+      justify-self: end;
+    }
+    .pqx-what-matters-mobile-menu {
+      position: relative;
+    }
+    .pqx-what-matters-mobile-menu > summary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      background: rgba(255, 254, 250, 0.96);
+      color: var(--pq-muted);
+      cursor: pointer;
+      list-style: none;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .pqx-what-matters-mobile-menu > summary::-webkit-details-marker {
+      display: none;
+    }
+    .pqx-what-matters-mobile-menu[open] > summary {
+      color: var(--pq-ink);
+      border-color: rgba(151, 124, 70, 0.28);
+      background: rgba(255, 250, 242, 0.98);
+    }
+    .pqx-what-matters-mobile-menu-card {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 4;
+      display: grid;
+      gap: 8px;
+      min-width: 176px;
+      padding: 10px;
+      border: 1px solid rgba(162, 143, 111, 0.28);
+      border-radius: 16px;
+      background: rgba(255, 254, 250, 0.99);
+      box-shadow: 0 16px 34px rgba(36, 29, 18, 0.12);
+    }
+    .pqx-what-matters-mobile-menu-card .pqx-button {
+      width: 100%;
+      justify-content: center;
+    }
     .pqx-what-matters-panel .pqx-advanced-panel-grid {
       padding: 8px 10px 10px;
       border-top: 0;
@@ -4050,7 +4270,7 @@
       justify-content: start;
     }
     .pqx-what-matters-panel .pqx-pref-row {
-      grid-template-columns: minmax(96px, 1fr) max-content;
+      grid-template-columns: minmax(96px, 1fr) auto;
       padding: 6px 7px;
       gap: 6px;
       align-items: center;
@@ -4103,6 +4323,21 @@
       line-height: 1.2;
       overflow-wrap: break-word;
     }
+    .pqx-what-matters-panel .pqx-pref-row-controls {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: max-content;
+      gap: 6px;
+      align-items: center;
+      justify-content: end;
+      min-width: 0;
+      max-width: 100%;
+    }
+    .pqx-what-matters-panel .pqx-pref-row-controls > :only-child {
+      width: min(8rem, 100%);
+      min-width: min(8rem, 100%);
+      justify-self: end;
+    }
     .pqx-what-matters-panel .pqx-pref-row-title .pqx-tooltip {
       flex: 0 0 auto;
       width: 16px;
@@ -4113,74 +4348,87 @@
       display: none;
     }
     .pqx-what-matters-panel .pqx-pref-row select {
-      min-width: 92px;
-      max-width: 136px;
+      min-width: 0;
+      max-width: 100%;
       min-height: 30px;
       padding: 4px 22px 4px 7px;
       font-size: 11px;
       align-self: center;
       justify-self: end;
-      width: max-content;
+      width: min(8rem, 100%);
+      min-width: 96px;
+      min-width: min(8rem, 100%);
+      max-width: 124px;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
-      grid-template-columns: minmax(0, 1fr) minmax(92px, 102px) minmax(92px, 96px);
+      grid-template-columns: minmax(72px, 1fr) auto;
       row-gap: 5px;
       align-items: center;
       transform: translateY(-1px);
       z-index: 2;
       width: 100%;
-      max-width: 320px;
-    }
-    .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div {
-      grid-column: 1 / 2;
+      max-width: none;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-preference-select] {
-      grid-column: 2 / 3;
-      width: 100%;
-      min-width: 0;
-      max-width: 100%;
-      justify-self: stretch;
+      width: min(7rem, 100%);
+      min-width: 96px;
+      min-width: min(8rem, 100%);
+      max-width: 112px;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-distance-select] {
-      grid-column: 3 / 4;
+      width: min(6.8rem, 100%);
+      min-width: 90px;
+      min-width: min(6.8rem, 100%);
+      max-width: 118px;
+    }
+    .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] .pqx-pref-row-controls {
+      grid-template-columns: 112px 92px;
+      grid-auto-flow: initial;
+      grid-auto-columns: auto;
+    }
+    .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] .pqx-pref-row-controls select {
       width: 100%;
       min-width: 0;
-      max-width: 100%;
-      justify-self: stretch;
+      max-width: none;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="false"] {
-      grid-template-columns: minmax(96px, 1fr) max-content;
+      grid-template-columns: minmax(96px, 1fr) auto;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="false"] [data-keyword-distance-select] {
       display: none;
     }
     .pqx-what-matters-panel .pqx-school-priority-row {
-      grid-template-columns: minmax(110px, 1fr) max-content;
+      grid-template-columns: minmax(110px, 1fr) auto;
     }
     .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] {
-      grid-template-columns: minmax(0, 1fr) minmax(92px, 102px) minmax(92px, 96px);
+      grid-template-columns: minmax(72px, 1fr) auto;
       row-gap: 5px;
       align-items: center;
       z-index: 2;
       width: 100%;
-      max-width: 320px;
-    }
-    .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] > div {
-      grid-column: 1 / 2;
+      max-width: none;
     }
     .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-preference-select] {
-      grid-column: 2 / 3;
-      width: 100%;
-      min-width: 0;
-      max-width: 100%;
-      justify-self: stretch;
+      width: min(7rem, 100%);
+      min-width: 96px;
+      min-width: min(8rem, 100%);
+      max-width: 112px;
     }
     .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-distance-select] {
-      grid-column: 3 / 4;
+      width: min(6.8rem, 100%);
+      min-width: 90px;
+      min-width: min(6.8rem, 100%);
+      max-width: 118px;
+    }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] .pqx-pref-row-controls {
+      grid-template-columns: 112px 92px;
+      grid-auto-flow: initial;
+      grid-auto-columns: auto;
+    }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] .pqx-pref-row-controls select {
       width: 100%;
       min-width: 0;
-      max-width: 100%;
-      justify-self: stretch;
+      max-width: none;
     }
     .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="false"] [data-school-distance-select] {
       display: none;
@@ -4211,14 +4459,6 @@
     .pqx-what-matters-panel .pqx-school-priority-row[data-school-parent-active="true"] + .pqx-school-priority-row[data-school-parent-active="true"] {
       animation: pqx-soft-reveal 160ms ease-out;
     }
-    .pqx-what-matters-panel .pqx-keyword-priority-row select:only-of-type,
-    .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
-      grid-column: 2 / 3;
-      max-width: 100%;
-    }
-    .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
-      grid-column: auto;
-    }
     .pqx-what-matters-panel .pqx-pref-row select[disabled] {
       opacity: 0.55;
       cursor: not-allowed;
@@ -4229,15 +4469,61 @@
       gap: 8px;
       justify-content: flex-end;
     }
+    .pqx-what-matters-more {
+      grid-column: 1 / -1;
+      margin-top: 2px;
+      border-color: rgba(185, 173, 154, 0.24);
+      background: rgba(255, 254, 250, 0.94);
+      box-shadow: none;
+    }
+    .pqx-what-matters-more > summary {
+      padding: 10px 12px;
+    }
+    .pqx-what-matters-more .pqx-mobile-fold-meta .pqx-pill {
+      min-height: 22px;
+    }
+    .pqx-what-matters-more .pqx-mobile-fold-content {
+      gap: 10px;
+      padding-top: 10px;
+    }
+    .pqx-what-matters-more .pqx-field {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    .pqx-what-matters-more .pqx-field label {
+      gap: 8px;
+    }
+    .pqx-what-matters-more .pqx-field input:not([type="checkbox"]) {
+      min-height: 46px;
+      border-radius: 14px;
+    }
+    .pqx-what-matters-more .pqx-check {
+      min-height: 0;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255, 253, 248, 0.72);
+    }
+    .pqx-what-matters-more .pqx-check small {
+      display: block;
+      margin-top: 4px;
+    }
     @media (max-width: 760px) {
       {% if surface_mode == 'search' %}
       .pqx-what-matters-head {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: 8px;
+      }
+      .pqx-what-matters-mobile-tools {
+        display: block;
       }
       .pqx-what-matters-head .pqx-actions {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 6px;
+        display: none;
+      }
+      .pqx-what-matters-head .pqx-what-matters-summary-meta .pqx-note {
+        display: none;
       }
       .pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel {
         position: static;
@@ -4257,7 +4543,7 @@
         top: 0;
         z-index: 2;
         margin: 0;
-        padding: 10px 10px 8px;
+        padding: 9px 10px 7px;
         background: rgba(255, 253, 248, 0.995);
       }
       .pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel .pqx-advanced-panel-grid {
@@ -4267,8 +4553,10 @@
         padding-bottom: 8px;
       }
       .pqx-what-matters-head .pqx-button {
-        min-height: 36px;
-        padding-inline: 8px;
+        width: auto;
+        min-width: 0;
+        min-height: 40px;
+        padding-inline: 11px;
       }
       .pqx-what-matters-panel .pqx-advanced-panel-grid {
         grid-template-columns: 1fr;
@@ -4360,60 +4648,58 @@
       .pqx-what-matters-panel .pqx-pref-row select,
       .pqx-what-matters-panel .pqx-keyword-priority-row select,
       .pqx-what-matters-panel .pqx-school-priority-row select {
-        width: 100%;
-        max-width: 100%;
         min-height: 44px;
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+      }
+      .pqx-what-matters-panel .pqx-pref-row-controls {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-auto-flow: row;
+        grid-auto-columns: auto;
+        justify-content: stretch;
+        width: 100%;
+      }
+      .pqx-what-matters-panel .pqx-pref-row-controls > :only-child {
+        grid-column: 1 / -1;
+        width: 100%;
+        min-width: 0;
+        justify-self: stretch;
       }
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
-        grid-column: auto;
         grid-template-columns: minmax(0, 1fr);
+        grid-column: auto;
         min-height: 0;
         gap: 7px;
         transform: none;
-      }
-      .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div {
-        grid-column: 1 / -1;
-      }
-      .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-preference-select],
-      .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-distance-select] {
-        grid-column: 1 / -1;
-        width: 100%;
-        max-width: 100%;
-        min-height: 44px;
       }
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-distance-select] {
         scroll-margin-bottom: 18px;
       }
       .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] {
-        grid-column: auto;
         grid-template-columns: minmax(0, 1fr);
+        grid-column: auto;
         min-height: 0;
         gap: 7px;
       }
-      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] > div,
-      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-preference-select],
-      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-distance-select] {
-        grid-column: 1 / -1;
-        width: 100%;
-        max-width: 100%;
-      }
-      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-preference-select],
-      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-distance-select] {
-        min-height: 44px;
-      }
       .pqx-what-matters-panel .pqx-pref-row > div {
         grid-column: 1 / -1;
-      }
-      .pqx-what-matters-panel .pqx-keyword-priority-row select:only-of-type,
-      .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
-        grid-column: 1 / -1;
-        max-width: none;
       }
       .pqx-what-matters-panel .pqx-school-priority-row[data-school-dependent-row] {
         margin-left: 0;
       }
       .pqx-what-matters-panel .pqx-school-priority-row[data-school-dependent-row]::before {
         display: none;
+      }
+      .pqx-what-matters-more {
+        margin-top: 6px;
+        border-radius: 16px;
+      }
+      .pqx-what-matters-more > summary {
+        padding: 11px 12px;
+      }
+      .pqx-what-matters-more .pqx-mobile-fold-content {
+        padding: 10px 12px 12px;
       }
       {% endif %}
     }
@@ -4640,6 +4926,7 @@
       display: block;
       width: 100%;
       min-height: 124px;
+      height: 124px;
       padding: 0;
       border: 1px solid var(--pq-line);
       border-radius: 8px;
@@ -4660,7 +4947,7 @@
     .pqx-automation-thumbnail img {
       display: block;
       width: 100%;
-      height: 100%;
+      height: 124px;
       min-height: 124px;
       object-fit: contain;
       object-position: center center;
@@ -4802,6 +5089,7 @@
     .pqx-automation-board.is-compact .pqx-automation-thumbnail,
     .pqx-automation-board.is-compact .pqx-automation-thumbnail img {
       min-height: 116px;
+      height: 116px;
     }
     .pqx-automation-board.is-compact .pqx-automation-meta {
       gap: 5px;
@@ -4894,6 +5182,7 @@
       .pqx-shell[data-pqx-surface="agents"] .pqx-automation-thumbnail,
       .pqx-shell[data-pqx-surface="agents"] .pqx-automation-thumbnail img {
         min-height: 118px;
+        height: 118px;
       }
       .pqx-shell[data-pqx-surface="agents"] .pqx-automation-meta {
         gap: 4px;
@@ -5412,13 +5701,15 @@
     .pqx-empty-results {
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(340px, 0.8fr) minmax(520px, 1.2fr);
-      gap: 16px;
+      grid-template-columns: minmax(340px, 0.82fr) minmax(0, 1.18fr);
+      gap: 18px;
       align-items: start;
     }
     .pqx-empty-results.pqx-empty-results-compact {
-      grid-template-columns: minmax(280px, 0.72fr) minmax(360px, 1fr);
-      gap: 10px;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+      max-width: 1120px;
+      margin-inline: auto;
     }
     .pqx-empty-results.pqx-empty-results-failed {
       grid-template-columns: minmax(0, 1fr);
@@ -5515,6 +5806,40 @@
       align-self: start;
       padding: 12px;
     }
+    .pqx-empty-next-panel {
+      gap: 12px;
+    }
+    .pqx-empty-next-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: start;
+      margin-bottom: 0;
+    }
+    .pqx-empty-next-copy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .pqx-empty-next-copy .pqx-small {
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: color-mix(in srgb, var(--pq-muted) 80%, var(--pq-ink));
+    }
+    .pqx-empty-next-copy h2 {
+      font-size: clamp(1.05rem, 1.5vw, 1.2rem);
+    }
+    .pqx-empty-next-status {
+      display: grid;
+      gap: 6px;
+      justify-items: end;
+      min-width: max-content;
+      text-align: right;
+    }
+    .pqx-empty-next-actions {
+      display: grid;
+      gap: 12px;
+    }
     .pqx-empty-results .pqx-command .pqx-pref-row small {
       display: block;
       color: var(--pq-muted);
@@ -5558,6 +5883,34 @@
     .pqx-empty-outcome-next .pqx-small {
       color: var(--pq-muted);
       line-height: 1.4;
+    }
+    .pqx-empty-results.pqx-empty-results-compact .pqx-run-hero,
+    .pqx-empty-results.pqx-empty-results-compact .pqx-empty-next-panel {
+      width: 100%;
+    }
+    .pqx-empty-results.pqx-empty-results-compact .pqx-run-hero {
+      gap: 10px;
+      padding: 14px;
+      box-shadow: 0 10px 26px rgba(74, 61, 44, 0.06);
+    }
+    .pqx-empty-results.pqx-empty-results-compact .pqx-title {
+      gap: 4px;
+    }
+    .pqx-empty-results.pqx-empty-results-compact .pqx-title h1,
+    .pqx-empty-results.pqx-empty-results-compact .pqx-run-head .pqx-title h1 {
+      font-size: clamp(1.28rem, 1.7vw, 1.7rem);
+      line-height: 1.12;
+    }
+    .pqx-empty-results.pqx-empty-results-compact .pqx-fact-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pqx-empty-results.pqx-empty-results-compact .pqx-empty-outcome-next {
+      align-items: flex-start;
+    }
+    .pqx-empty-results.pqx-empty-results-compact [data-pqx-counterfactuals] .pqx-suppression-grid {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
     }
     .pqx-empty-results .pqx-fact {
       border-color: var(--pq-line);
@@ -6266,22 +6619,20 @@
     }
     .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item {
       gap: 8px;
-      min-height: 144px;
-      padding: 12px;
+      min-height: 0;
+      padding: 13px;
       border-radius: 10px;
       background: #fffdf7;
       box-shadow: 0 10px 24px rgba(74, 61, 44, 0.06);
     }
     .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item strong {
-      font-size: 14px;
+      font-size: 15px;
       line-height: 1.3;
       text-wrap: pretty;
     }
     .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item .pqx-note {
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 4;
-      overflow: hidden;
+      display: block;
+      overflow: visible;
       color: var(--pq-muted);
       font-size: 12px;
       line-height: 1.45;
@@ -6442,13 +6793,13 @@
       text-underline-offset: 3px;
     }
     .pqx-results {
-      grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.82fr);
-      gap: 14px;
+      grid-template-columns: minmax(320px, 0.82fr) minmax(540px, 1.18fr);
+      gap: 20px;
       align-items: start;
     }
     .pqx-results:has(.pqx-result-panel.is-single-result) {
-      grid-template-columns: minmax(260px, 0.46fr) minmax(520px, 1.54fr);
-      gap: 12px;
+      grid-template-columns: minmax(300px, 0.34fr) minmax(620px, 1.66fr);
+      gap: 18px;
     }
     .pqx-results > .pqx-result-panel {
       order: -1;
@@ -6458,12 +6809,21 @@
     }
     .pqx-desktop-review-panel {
       display: grid;
+      align-self: start;
     }
     .pqx-review {
       position: sticky;
       top: 88px;
       display: grid;
-      gap: 12px;
+      gap: 10px;
+      min-width: 0;
+    }
+    .pqx-review-stack {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+    .pqx-review-stack > * {
       min-width: 0;
     }
     .pqx-review.pqx-mobile-property-panel {
@@ -6482,9 +6842,9 @@
       color: var(--pq-ink);
     }
     .pqx-theater.no-media .pqx-dossier {
-      padding: 14px;
+      padding: 12px;
       border: 1px solid var(--pq-line);
-      border-radius: 10px;
+      border-radius: 12px;
       background: var(--pq-paper);
       box-shadow: var(--pq-shadow);
     }
@@ -6503,6 +6863,11 @@
       border-color: var(--pq-charcoal);
       background: var(--pq-charcoal);
       color: #fff9ed;
+    }
+    .pqx-theater.no-media .pqx-context-tools summary {
+      border-color: var(--pq-line);
+      background: transparent;
+      color: var(--pq-ink);
     }
     .pqx-theater-frame {
       min-height: 420px;
@@ -6556,15 +6921,16 @@
     }
     .pqx-dossier {
       display: grid;
-      gap: 12px;
-      padding: 16px;
+      gap: 10px;
+      padding: 14px;
     }
     .pqx-dossier-cover {
       overflow: hidden;
       border: 1px solid var(--pq-line);
       border-radius: 10px;
       background: var(--pq-panel);
-      aspect-ratio: 16 / 7;
+      aspect-ratio: 16 / 8.5;
+      max-height: 220px;
     }
     .pqx-dossier-cover img {
       width: 100%;
@@ -6574,7 +6940,7 @@
     }
     .pqx-dossier-head {
       display: grid;
-      gap: 10px;
+      gap: 8px;
     }
     .pqx-dossier-title h1 {
       margin: 0;
@@ -6590,13 +6956,20 @@
       align-items: center;
     }
     .pqx-context-actions {
-      padding-top: 4px;
+      display: grid;
+      gap: 10px;
+      padding-top: 2px;
     }
     .pqx-context-primary {
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
-      align-items: center;
+      align-items: stretch;
+    }
+    .pqx-context-primary > :is(.pqx-link-button, .pqx-button, .pqx-progress-button) {
+      width: 100%;
+      min-width: 0;
+      justify-content: center;
     }
     .pqx-context-actions .pqx-link-button {
       border-color: rgba(255, 249, 237, 0.28);
@@ -6609,7 +6982,7 @@
       color: var(--pq-charcoal);
     }
     .pqx-context-tools {
-      min-width: 140px;
+      min-width: 0;
     }
     .pqx-context-tools summary {
       list-style: none;
@@ -6638,19 +7011,22 @@
     }
     .pqx-evidence {
       display: grid;
-      gap: 12px;
+      gap: 10px;
     }
     .pqx-reading-board {
       display: grid;
-      gap: 10px;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      margin-top: 12px;
-      margin-bottom: 14px;
+      gap: 8px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 10px;
+      margin-bottom: 12px;
+    }
+    .pqx-reading-shell > .pqx-reading-board > .pqx-reading-card:first-child {
+      grid-column: 1 / -1;
     }
     .pqx-reading-card {
       display: grid;
-      gap: 6px;
-      padding: 12px;
+      gap: 5px;
+      padding: 11px;
       border: 1px solid rgba(171, 145, 83, 0.18);
       border-radius: 12px;
       background: linear-gradient(180deg, rgba(255, 251, 243, 0.98), rgba(255, 254, 250, 0.98));
@@ -6668,8 +7044,8 @@
     }
     .pqx-card {
       display: grid;
-      gap: 10px;
-      padding: 15px;
+      gap: 8px;
+      padding: 13px;
       border: 1px solid color-mix(in srgb, var(--pq-line) 88%, white);
       border-radius: 12px;
       background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 252, 245, 0.96));
@@ -7749,10 +8125,12 @@
         left: 8px;
         right: 8px;
         top: calc(96px + env(safe-area-inset-top, 0px));
-        width: auto;
+        width: calc(100vw - 16px);
+        max-width: calc(100vw - 16px);
         min-width: 0;
         max-height: min(68svh, 520px);
         overflow-y: auto;
+        box-sizing: border-box;
         padding: 10px;
         border-radius: 16px;
       }
@@ -7855,43 +8233,42 @@
         gap: 6px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-pill {
-        display: inline-flex;
-        align-items: center;
-        min-height: 32px;
-        margin-inline-end: auto;
-        padding: 0 10px;
-        border-radius: 999px;
-        font-size: 11px;
-        white-space: nowrap;
+        display: none;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-button {
-        min-height: 36px;
+        min-height: 40px;
         min-width: 0;
-        padding: 0 12px;
+        padding: 0 14px;
         font-size: 12px;
         flex: 0 0 auto;
+        border-radius: 999px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-back],
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-next] {
         width: auto;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-back] {
-        order: 3;
+        order: 2;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-next] {
-        order: 4;
-        min-width: 88px;
+        order: 3;
+        min-width: 96px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-save-top] {
-        order: 2;
+        order: 1;
         width: auto;
-        min-height: 36px;
-        padding: 0 10px;
+        min-height: 32px;
+        margin-inline-end: auto;
+        padding: 0;
+        border: 0;
         border-radius: 999px;
         font-size: 12px;
+        background: transparent;
+        color: var(--pq-muted);
+        box-shadow: none;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-inline-status {
-        order: 5;
+        order: 4;
         flex: 1 0 100%;
         min-height: 0;
       }
@@ -8189,21 +8566,36 @@
         display: grid;
       }
       .pqx-mobile-property-panel .pqx-mobile-review-more {
-        gap: 8px;
-        padding: 9px 10px;
+        gap: 6px;
+        padding: 8px 10px;
+        box-shadow: none;
       }
       .pqx-mobile-property-panel .pqx-mobile-review-more summary {
-        min-height: 42px;
+        min-height: 46px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 10px;
         cursor: pointer;
       }
+      .pqx-mobile-property-panel .pqx-mobile-review-copy {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
       .pqx-mobile-property-panel .pqx-mobile-review-more summary strong {
         min-width: 0;
         font-size: 0.92rem;
         line-height: 1.15;
+      }
+      .pqx-mobile-property-panel .pqx-mobile-review-preview {
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 1;
+        color: var(--pq-muted);
+        font-size: 11px;
+        line-height: 1.25;
       }
       .pqx-mobile-property-panel .pqx-mobile-review-more summary::after {
         content: 'Open';
@@ -8246,6 +8638,19 @@
       .pqx-empty-results [data-pqx-screenfit-target="run-progress"] .pqx-small {
         font-size: 11px;
         line-height: 1.25;
+      }
+      .pqx-empty-next-head {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+      }
+      .pqx-empty-next-status {
+        justify-items: start;
+        min-width: 0;
+        text-align: left;
+      }
+      .pqx-empty-results.pqx-empty-results-compact .pqx-fact-grid,
+      .pqx-empty-results.pqx-empty-results-compact [data-pqx-counterfactuals] .pqx-suppression-grid {
+        grid-template-columns: minmax(0, 1fr);
       }
       [data-pqx-running-details] {
         display: none;
@@ -8373,51 +8778,64 @@
       .pqx-surface-search .pqx-location-map-dialog-card {
         min-height: 100svh;
         max-height: 100svh;
-        padding: calc(10px + env(safe-area-inset-top, 0px)) 10px calc(10px + env(safe-area-inset-bottom, 0px));
+        padding: calc(8px + env(safe-area-inset-top, 0px)) 10px calc(10px + env(safe-area-inset-bottom, 0px));
         border-radius: 0;
       }
       .pqx-surface-search .pqx-location-map-dialog-head {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: start;
+        gap: 10px;
       }
       .pqx-surface-search .pqx-location-map-dialog-head span {
-        max-width: 24ch;
+        max-width: none;
+        margin-top: 2px;
       }
       .pqx-surface-search .pqx-location-map-actions {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        width: 100%;
+        display: inline-flex;
+        align-items: flex-start;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 6px;
+        width: auto;
       }
       .pqx-surface-search .pqx-location-map-clear,
       .pqx-surface-search .pqx-location-map-close {
-        width: 100%;
+        width: auto;
+        min-width: 76px;
+      }
+      .pqx-surface-search .pqx-location-map-picker {
+        position: relative;
+        padding-top: 8px;
+      }
+      .pqx-surface-search .pqx-location-map-head {
+        min-height: 40px;
+        padding: 8px 128px 0 12px;
+      }
+      .pqx-surface-search .pqx-location-map-head span {
+        display: none;
+      }
+      .pqx-surface-search .pqx-location-map-controls {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 2;
+        padding: 0;
+        gap: 6px;
+      }
+      .pqx-surface-search .pqx-location-map-control {
+        min-width: 40px;
+        min-height: 40px;
       }
       .pqx-surface-search .pqx-location-map-selection {
         padding: 4px 0 0;
       }
       .pqx-surface-search .pqx-location-map-dialog .pqx-location-map-viewport {
-        min-height: min(62svh, 520px);
+        min-height: min(65svh, 560px);
         margin: 0 0 8px;
       }
       .pqx-surface-search .pqx-location-map-dialog .pqx-location-map-svg {
-        height: min(62svh, 520px);
-        min-height: 340px;
-      }
-      .pqx-surface-search .pqx-location-map-dialog-foot {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-        padding: 0 2px 2px;
-      }
-      .pqx-surface-search .pqx-location-map-dialog-foot .pqx-location-map-clear,
-      .pqx-surface-search .pqx-location-map-dialog-foot .pqx-location-map-close {
-        width: 100%;
-        min-height: 56px;
-        border-radius: 18px;
-      }
-      .pqx-surface-search .pqx-location-map-dialog-foot .pqx-location-map-close {
-        background: var(--pq-charcoal);
-        color: #fffaf1;
+        height: min(65svh, 560px);
+        min-height: 360px;
       }
       .pqx-surface-search .pqx-choice-groupbox-grid[data-pqx-check-grid="selected_platforms"] {
         max-height: min(56svh, 520px);
@@ -8487,11 +8905,8 @@
         font-weight: 760;
       }
       .pqx-location-selected-tags {
-        display: none;
+        display: none !important;
         width: 100%;
-      }
-      .pqx-surface-search [data-property-field-name="location_query"]:has(input[name="location_query"]:checked) .pqx-location-selected-tags {
-        display: flex;
       }
       .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-selected-tag {
         min-height: 34px;
@@ -8628,6 +9043,88 @@
       .pqx-automation-thumbnail,
       .pqx-automation-thumbnail img {
         min-height: 156px;
+        height: 156px;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-kpis {
+        display: none !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-card {
+        grid-template-columns: minmax(0, 1fr) 112px !important;
+        grid-template-areas: "meta thumb" !important;
+        gap: 8px !important;
+        max-height: none !important;
+        padding: 8px !important;
+        align-items: start !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-thumbnail,
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-thumbnail img {
+        min-height: 86px !important;
+        max-height: 86px !important;
+        height: 86px !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-thumbnail {
+        grid-area: thumb;
+        width: 112px;
+        justify-self: end;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-meta {
+        grid-area: meta;
+        gap: 5px !important;
+        overflow: hidden !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-headline {
+        gap: 4px !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        justify-content: flex-start !important;
+        padding-right: 34px !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-headline strong {
+        font-size: 0.94rem;
+        line-height: 1.14;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-subhead {
+        font-size: 11px;
+        line-height: 1.22;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-row-meta {
+        gap: 4px !important;
+        margin-top: 0 !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-rhythm,
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-history-strip,
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-board.is-compact .pqx-section-head .pqx-note {
+        display: none !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-actions {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        gap: 6px !important;
+        padding-top: 0 !important;
+        border-top: 0 !important;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-actions .pqx-button {
+        min-height: 36px !important;
+        padding-inline: 8px;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-actions .pqx-button.primary {
+        flex: 1 1 auto;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-delete {
+        width: 32px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        top: 6px;
+        right: 6px;
+        font-size: 16px;
+      }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-thumbnail-action {
+        min-height: 24px !important;
+        padding: 0 8px;
+        font-size: 10px;
       }
       .pqx-automation-headline {
         padding-right: 30px;
@@ -8932,7 +9429,7 @@
         border-radius: 10px;
       }
       .pqx-mobile-property-panel .pqx-dossier-head {
-        gap: 6px;
+        gap: 5px;
       }
       .pqx-mobile-property-panel .pqx-dossier-title h1 {
         display: -webkit-box;
@@ -8957,6 +9454,8 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       .pqx-mobile-property-panel .pqx-dossier-summary {
+        display: flex;
+        flex-wrap: wrap;
         gap: 5px;
       }
       .pqx-mobile-property-panel .pqx-dossier-summary .pqx-result-fact {
@@ -8964,6 +9463,30 @@
         padding: 4px 7px;
         font-size: 11px;
         line-height: 1.15;
+      }
+      .pqx-mobile-property-panel .pqx-result-facts {
+        max-height: none;
+        overflow: visible;
+      }
+      .pqx-mobile-property-panel .pqx-mobile-visual-facts {
+        gap: 5px;
+      }
+      .pqx-mobile-property-panel .pqx-mobile-visual-status {
+        min-height: 0;
+        font-size: 12px;
+        line-height: 1.34;
+      }
+      .pqx-mobile-property-panel .pqx-context-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 6px;
+        align-items: start;
+      }
+      .pqx-mobile-property-panel .pqx-context-primary {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .pqx-mobile-property-panel [data-pw-ooda-summary] {
+        display: none;
       }
       .pqx-form-footer,
       .pqx-actions,
@@ -8979,6 +9502,22 @@
       }
       .pqx-context-tools {
         width: 100%;
+      }
+      .pqx-mobile-property-panel .pqx-context-tools {
+        width: auto;
+        justify-self: end;
+      }
+      .pqx-mobile-property-panel .pqx-context-tools summary {
+        width: auto;
+        min-width: 0;
+        padding-inline: 12px;
+        border-color: color-mix(in srgb, var(--pq-line) 88%, white);
+        background: transparent;
+        color: var(--pq-muted);
+      }
+      .pqx-mobile-property-panel .pqx-context-tool-list {
+        gap: 6px;
+        min-width: min(220px, calc(100vw - 74px));
       }
       .pqx-mobile-property-panel .pqx-actions {
         display: grid;
@@ -9120,8 +9659,8 @@
       }
       .pqx-topbar {
         min-height: 0;
-        grid-template-columns: minmax(0, 1fr) auto auto;
-        grid-template-areas: "brand nav actions";
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "nav actions";
         gap: 6px;
         align-items: center;
         margin: 0 -8px 2px;
@@ -9131,25 +9670,13 @@
         box-shadow: none;
       }
       .pqx-brand {
-        display: inline-flex;
-        grid-area: brand;
-        gap: 8px;
-      }
-      .pqx-brand .pqx-mark {
-        width: 24px;
-        height: 24px;
-        border-radius: 7px;
-      }
-      .pqx-brand strong {
-        font-size: 0.8rem;
-      }
-      .pqx-brand-copy {
-        display: none;
+        display: none !important;
       }
       .pqx-mobile-nav-menu {
         grid-area: nav;
         display: block !important;
         position: relative;
+        justify-self: start;
       }
       .pqx-mobile-nav-menu > summary {
         min-height: 38px;
@@ -9167,6 +9694,11 @@
         list-style: none;
         white-space: nowrap;
         cursor: pointer;
+      }
+      .pqx-mobile-nav-menu > summary .pqx-mobile-nav-label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 40px;
       }
       .pqx-mobile-nav-menu > summary::-webkit-details-marker {
         display: none;
@@ -9233,23 +9765,15 @@
       .pqx-shell[data-pqx-surface="search"] .pqx-top-actions {
         flex: 0 0 auto;
       }
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-back],
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-next] {
+        min-height: 40px !important;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-save-top] {
+        min-height: 32px !important;
+      }
       .pqx-shell[data-pqx-surface="search"] .pqx-top-actions [data-property-start-top] {
-        width: auto;
-        flex: 0 1 auto;
-        max-width: 8.5rem;
-        min-width: 0;
-        padding: 0 10px;
-        font-size: 12px;
-        line-height: 1.1;
-        letter-spacing: -0.01em;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .pqx-shell[data-pqx-surface="search"] .pqx-top-actions [data-property-start-top] .pqx-top-start-label-full {
-        display: none;
-      }
-      .pqx-shell[data-pqx-surface="search"] .pqx-top-actions [data-property-start-top] .pqx-top-start-label-short {
-        display: inline;
+        display: none !important;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-top-actions .pqx-account-menu summary {
         min-width: 40px;
@@ -9258,8 +9782,8 @@
       }
       .pqx-shell[data-pqx-surface="agents"] .pqx-topbar,
       .pqx-shell[data-pqx-surface="alerts"] .pqx-topbar {
-        grid-template-columns: minmax(0, 1fr) auto;
-        grid-template-areas: "brand nav";
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas: "nav";
       }
       .pqx-shell[data-pqx-surface="agents"] .pqx-top-actions,
       .pqx-shell[data-pqx-surface="alerts"] .pqx-top-actions {
@@ -9267,7 +9791,7 @@
       }
       .pqx-shell[data-pqx-surface="agents"] .pqx-mobile-nav-menu,
       .pqx-shell[data-pqx-surface="alerts"] .pqx-mobile-nav-menu {
-        justify-self: end;
+        justify-self: start;
       }
       .pqx-main {
         width: min(calc(100vw - 12px), 760px);
@@ -9376,6 +9900,10 @@
       .pqx-result-facts {
         max-height: 30px;
       }
+      .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-fact-confirmed,
+      .pqx-shell[data-pqx-surface="properties"] .pqx-result-fact-confirmed {
+        display: none;
+      }
       .pqx-result-price {
         font-size: 0.92rem;
       }
@@ -9386,6 +9914,10 @@
       .pqx-field-action {
         min-height: 46px;
         border-radius: 11px;
+      }
+      .pqx-what-matters-head .pqx-actions .pqx-button {
+        width: auto;
+        flex: 0 0 auto;
       }
       .pqx-account-action-card,
       .pqx-billing-card,
@@ -9469,6 +10001,153 @@
         min-height: 52px !important;
       }
     }
+    @media (max-width: 760px) {
+      .pqx-shell {
+        --pq-mobile-safe-top: max(0px, calc(env(safe-area-inset-top, 0px) - 20px));
+      }
+      .pqx-topbar {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "nav account";
+        gap: 8px;
+        min-height: 46px;
+        margin: 0 0 1px;
+        padding: calc(4px + var(--pq-mobile-safe-top)) 10px 4px;
+      }
+      .pqx-brand {
+        display: none !important;
+      }
+      .pqx-mobile-nav-menu {
+        display: block;
+        position: relative;
+        grid-area: nav;
+        justify-self: start;
+      }
+      .pqx-mobile-nav-menu > summary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0 11px;
+        border: 1px solid color-mix(in srgb, var(--pq-line) 86%, white);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--pq-paper) 96%, white);
+        color: var(--pq-ink);
+        font-size: 0.74rem;
+        font-weight: 700;
+        line-height: 1;
+        list-style: none;
+        box-shadow: none;
+      }
+      .pqx-mobile-nav-menu > summary .pqx-mobile-nav-label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 40px;
+      }
+      .pqx-mobile-nav-menu > summary::-webkit-details-marker {
+        display: none;
+      }
+      .pqx-mobile-nav-menu[open] > summary {
+        border-color: color-mix(in srgb, var(--pq-gold) 32%, var(--pq-line));
+        background: color-mix(in srgb, var(--pq-gold) 10%, var(--pq-paper));
+      }
+      .pqx-primary-nav {
+        display: none;
+        position: fixed;
+        top: calc(44px + var(--pq-mobile-safe-top));
+        left: 8px;
+        right: 8px;
+        width: auto;
+        padding: 8px;
+        gap: 6px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        overflow: visible;
+        border: 1px solid color-mix(in srgb, var(--pq-line) 84%, white);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--pq-paper) 98%, white);
+        box-shadow: 0 16px 30px rgba(36, 29, 20, 0.12);
+        z-index: 46;
+      }
+      .pqx-mobile-nav-menu[open] .pqx-primary-nav {
+        display: grid;
+      }
+      .pqx-primary-nav :is(a, span) {
+        width: 100%;
+        min-height: 40px;
+        justify-content: flex-start;
+        padding: 0 12px;
+        border-radius: 10px;
+        font-size: 0.78rem;
+      }
+      .pqx-top-actions {
+        grid-area: account;
+        gap: 6px;
+      }
+      .pqx-top-actions > :not(.pqx-account-menu):not([data-property-start-top]) {
+        display: none !important;
+      }
+      .pqx-top-actions .pqx-account-menu summary {
+        min-width: 40px;
+        min-height: 40px;
+      }
+      .pqx-main {
+        padding: 8px 8px 18px;
+      }
+      .pqx-card,
+      .pqx-panel,
+      .pqx-command,
+      .pqx-run-hero,
+      .pqx-result-panel,
+      .pqx-review {
+        padding: 6px !important;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {
+        padding: 10px;
+        border-radius: 18px;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-form-body {
+        gap: 8px;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-form-body > .pqx-field:not([hidden]) {
+        padding: 6px;
+        border-radius: 10px;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-field-copy small,
+      .pqx-shell[data-pqx-surface="search"] .pqx-field .pqx-note {
+        display: none !important;
+      }
+      .pqx-context-primary,
+      .pqx-mobile-property-panel .pqx-actions {
+        grid-template-columns: 1fr;
+      }
+      .pqx-mobile-switch {
+        top: calc(44px + var(--pq-mobile-safe-top));
+      }
+      .pqx-mobile-property-panel .pqx-dossier-cover {
+        max-height: 92px;
+      }
+      .pqx-mobile-property-panel .pqx-dossier-summary {
+        gap: 4px;
+      }
+      .pqx-mobile-property-panel .pqx-mobile-review-preview {
+        font-size: 10.5px;
+      }
+      .pqx-shell[data-pqx-surface="shortlist"] .pqx-results,
+      .pqx-shell[data-pqx-surface="properties"] .pqx-results {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+      }
+      .pqx-shell[data-pqx-surface="shortlist"] .pqx-mobile-property-panel,
+      .pqx-shell[data-pqx-surface="properties"] .pqx-mobile-property-panel {
+        display: none;
+      }
+      .pqx-result-media:not(.no-thumb) {
+        grid-template-columns: 68px minmax(0, 1fr);
+        gap: 6px;
+      }
+      .pqx-result-media:not(.no-thumb) .pqx-thumb {
+        width: 68px;
+      }
+    }
     html[data-pq-theme="dark"] .pqx-shell :is(
       input:not([type="checkbox"]):not([type="radio"]),
       select,
@@ -9521,7 +10200,7 @@
     <script type="application/json" data-property-workbench-json>{{ workbench|tojson|safe }}</script>
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
-    <header class="pqx-topbar" data-property-research-topnav>
+    <header class="pqx-topbar" data-property-research-topnav data-property-console-topnav>
       <a class="pqx-brand" href="/?home=1" aria-label="PropertyQuarry public home">
         <span class="pqx-mark">PQ</span>
         <span>
@@ -9529,8 +10208,9 @@
           <span class="pqx-brand-copy">Research desk</span>
         </span>
       </a>
+      {% if not billing_handoff_focus %}
       <details class="pqx-mobile-nav-menu" data-pqx-mobile-nav-menu>
-        <summary>{% if surface_mode in ['properties', 'search'] %}Search{% elif surface_mode == 'shortlist' %}Shortlist{% elif surface_mode == 'research' %}Research{% elif surface_mode == 'agents' %}Saved{% elif surface_mode == 'alerts' %}Alerts{% elif surface_mode == 'billing' %}Billing{% elif surface_mode == 'account' %}Account{% else %}Menu{% endif %}</summary>
+        <summary><span class="pqx-mobile-nav-label is-active" aria-current="page">{% if surface_mode in ['properties', 'search'] %}Search{% elif surface_mode == 'shortlist' %}Shortlist{% elif surface_mode == 'research' %}Research{% elif surface_mode == 'agents' %}Saved{% elif surface_mode == 'alerts' %}Alerts{% elif surface_mode == 'billing' %}Billing{% elif surface_mode == 'account' %}Account{% else %}Menu{% endif %}</span></summary>
       <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
         {% if surface_mode in ['properties', 'search'] %}
         <span class="is-active" aria-current="page">Search</span>
@@ -9554,6 +10234,7 @@
         {% endif %}
       </nav>
       </details>
+      {% endif %}
       <div class="pqx-top-actions" data-pq-context-actions>
         {% if run_active or has_results or run_terminal_no_results %}
         <div class="pqx-run-summary" data-property-pulse-strip aria-label="Current search summary">
@@ -9590,10 +10271,10 @@
         {% elif run_terminal_no_results %}
         <a class="pqx-link-button primary" href="/app/search">New search</a>
         {% endif %}
-        {% if account_nav and surface_mode != 'account' %}
-        <details class="pqx-account-menu">
+        {% if account_nav %}
+        <details class="pqx-account-menu account-menu">
           <summary aria-label="Account navigation" title="Account" data-account-label="{{ account_nav.label }}">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
-          <div class="pqx-account-menu-panel">
+          <div class="pqx-account-menu-panel account-menu-panel">
             <div class="pqx-account-menu-label">
               <span>Signed in</span>
               <strong>{{ account_nav.label }}</strong>
@@ -9656,7 +10337,21 @@
           window.requestAnimationFrame(applyMobileTopNavFallback);
         });
         window.setTimeout(applyMobileTopNavFallback, 180);
-        root.querySelector('[data-pqx-mobile-nav-menu]')?.addEventListener('toggle', applyMobileTopNavFallback);
+        const mobileNavMenu = root.querySelector('[data-pqx-mobile-nav-menu]');
+        mobileNavMenu?.addEventListener('toggle', applyMobileTopNavFallback);
+        if (mobileNavMenu instanceof HTMLDetailsElement) {
+          mobileNavMenu.querySelectorAll('.pqx-primary-nav a').forEach((link) => {
+            link.addEventListener('click', () => {
+              mobileNavMenu.open = false;
+            });
+          });
+          document.addEventListener('click', (event) => {
+            if (!window.matchMedia('(max-width: 760px)').matches) return;
+            if (!mobileNavMenu.open) return;
+            if (mobileNavMenu.contains(event.target instanceof Node ? event.target : null)) return;
+            mobileNavMenu.open = false;
+          });
+        }
         window.addEventListener('resize', applyMobileTopNavFallback);
       })();
     </script>
@@ -10033,6 +10728,12 @@
             </div>
           </div>
           {% endif %}
+          {% if surface_mode == 'search' and (workbench.get('search_agents') or []) %}
+          <div hidden aria-hidden="true" data-search-agent-seed>
+            {% set search_agents = workbench.get('search_agents') or [] %}
+            {% include "app/_property_search_agents_panel.html" %}
+          </div>
+          {% endif %}
           {% if surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
           {% if surface_mode == 'agents' %}
           {% set search_agents = workbench.get('search_agents') or (search_agents if search_agents is defined else (property_meta.get('search_agents') or [])) %}
@@ -10178,6 +10879,7 @@
               {% for field in console_form.get('fields') or [] %}
               {% set advanced_panel = field.get('advanced_panel') or '' %}
               {% set integrated_what_matters_field = ((field.get('step') or '') == 'children' and field.name in integrated_what_matters_fields) %}
+              {% set what_matters_secondary_field = field.name in ['custom_keywords', 'enable_trust_risk_scoring'] %}
               {% if panel.open and (not advanced_panel or advanced_panel != panel.current) %}
               </div>
               </details>
@@ -10209,6 +10911,7 @@
                     <label><input type="checkbox" data-property-show-unavailable> Show locked filters</label>
                   </div>
               {% endif %}
+              {% if not what_matters_secondary_field %}
               <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('availability_key') %} data-property-availability-key="{{ field.get('availability_key') }}"{% endif %}{% if field.get('disabled_reason') %} data-property-disabled-reason="{{ field.get('disabled_reason') }}"{% endif %}{% if integrated_what_matters_field %} data-property-semantic-hidden="true"{% endif %}{% if field.get('hidden') or integrated_what_matters_field %} hidden{% endif %}>
                 {% if field.name == 'property_type' and (field.get('options') or []) %}
                 <fieldset class="pqx-choice-groupbox">
@@ -10228,6 +10931,7 @@
                 </fieldset>
                 {% elif field.type == 'keyword_priority_group' %}
                 {% set matters = namespace(active=0) %}
+                {% set what_matters_extras = namespace(custom=none, trust=none, active=0) %}
                 {% for option in field.options or [] %}
                   {% if not option.get('hidden') and (option.get('state') or 'any') != 'any' %}
                     {% set matters.active = matters.active + 1 %}
@@ -10236,6 +10940,19 @@
                 {% for option in field.get('school_preference_options') or [] %}
                   {% if not option.get('hidden') and (option.get('state') or 'any') != 'any' %}
                     {% set matters.active = matters.active + 1 %}
+                  {% endif %}
+                {% endfor %}
+                {% for sibling_field in console_form.get('fields') or [] %}
+                  {% if sibling_field.name == 'custom_keywords' %}
+                    {% set what_matters_extras.custom = sibling_field %}
+                    {% if (sibling_field.get('value') or '')|trim %}
+                      {% set what_matters_extras.active = what_matters_extras.active + 1 %}
+                    {% endif %}
+                  {% elif sibling_field.name == 'enable_trust_risk_scoring' %}
+                    {% set what_matters_extras.trust = sibling_field %}
+                    {% if sibling_field.get('checked') %}
+                      {% set what_matters_extras.active = what_matters_extras.active + 1 %}
+                    {% endif %}
                   {% endif %}
                 {% endfor %}
                 <section class="pqx-what-matters-panel" data-property-what-matters-panel>
@@ -10256,6 +10973,15 @@
                     <div class="pqx-actions">
                       <button class="pqx-button subtle" type="button" data-pqx-load-what-matters>Load</button>
                       <button class="pqx-button" type="button" data-pqx-save-what-matters>Save</button>
+                    </div>
+                    <div class="pqx-what-matters-mobile-tools" data-pqx-what-matters-mobile-tools>
+                      <details class="pqx-what-matters-mobile-menu">
+                        <summary>Presets</summary>
+                        <div class="pqx-what-matters-mobile-menu-card">
+                          <button class="pqx-button subtle" type="button" data-pqx-load-what-matters>Load saved</button>
+                          <button class="pqx-button" type="button" data-pqx-save-what-matters>Save current</button>
+                        </div>
+                      </details>
                     </div>
                   </div>
                   <div class="pqx-advanced-panel-grid">
@@ -10284,26 +11010,28 @@
                             </span>
                             {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
                           </div>
-                          <select name="keyword_preference__{{ option.get('value') }}" data-keyword-preference-select data-keyword-value="{{ option.get('value') }}">
-                            {% if option.get('preference_options') %}
-                            {% for preference in option.get('preference_options') or [] %}
-                            <option value="{{ preference.get('value') }}" {% if (option.get('state') or 'any') == (preference.get('value') or 'any') %}selected{% endif %}>{{ preference.get('label') }}</option>
-                            {% endfor %}
-                            {% else %}
-                            <option value="any" {% if (option.get('state') or 'any') == 'any' %}selected{% endif %}>Neutral</option>
-                            <option value="avoid" {% if option.get('state') == 'avoid' %}selected{% endif %}>Avoid</option>
-                            <option value="nice_to_have" {% if option.get('state') == 'nice_to_have' %}selected{% endif %}>Nice to have</option>
-                            <option value="important" {% if option.get('state') == 'important' %}selected{% endif %}>Strong wish</option>
-                            <option value="must_have" {% if option.get('state') == 'must_have' %}selected{% endif %}>Must have</option>
+                          <div class="pqx-pref-row-controls"{% if option.get('distance_options') %} data-pref-row-controls-distance="true"{% endif %}>
+                            <select name="keyword_preference__{{ option.get('value') }}" data-keyword-preference-select data-keyword-value="{{ option.get('value') }}">
+                              {% if option.get('preference_options') %}
+                              {% for preference in option.get('preference_options') or [] %}
+                              <option value="{{ preference.get('value') }}" {% if (option.get('state') or 'any') == (preference.get('value') or 'any') %}selected{% endif %}>{{ preference.get('label') }}</option>
+                              {% endfor %}
+                              {% else %}
+                              <option value="any" {% if (option.get('state') or 'any') == 'any' %}selected{% endif %}>Neutral</option>
+                              <option value="avoid" {% if option.get('state') == 'avoid' %}selected{% endif %}>Avoid</option>
+                              <option value="nice_to_have" {% if option.get('state') == 'nice_to_have' %}selected{% endif %}>Nice to have</option>
+                              <option value="important" {% if option.get('state') == 'important' %}selected{% endif %}>Strong wish</option>
+                              <option value="must_have" {% if option.get('state') == 'must_have' %}selected{% endif %}>Must have</option>
+                              {% endif %}
+                            </select>
+                            {% if option.get('distance_options') %}
+                            <select name="keyword_distance__{{ option.get('value') }}" data-keyword-distance-select data-keyword-value="{{ option.get('value') }}" {% if (option.get('state') or 'any') == 'any' %}disabled{% endif %}>
+                              {% for distance in option.get('distance_options') or [] %}
+                              <option value="{{ distance.get('value') }}" {% if (option.get('distance_state') or '500') == (distance.get('value') or '500') %}selected{% endif %}>{{ distance.get('label') }}</option>
+                              {% endfor %}
+                            </select>
                             {% endif %}
-                          </select>
-                          {% if option.get('distance_options') %}
-                          <select name="keyword_distance__{{ option.get('value') }}" data-keyword-distance-select data-keyword-value="{{ option.get('value') }}" {% if (option.get('state') or 'any') == 'any' %}disabled{% endif %}>
-                            {% for distance in option.get('distance_options') or [] %}
-                            <option value="{{ distance.get('value') }}" {% if (option.get('distance_state') or '500') == (distance.get('value') or '500') %}selected{% endif %}>{{ distance.get('label') }}</option>
-                            {% endfor %}
-                          </select>
-                          {% endif %}
+                          </div>
                         </label>
                         {% endfor %}
                         {% if group.get('key') == 'daily_life' and field.get('school_preference_options') %}
@@ -10327,19 +11055,21 @@
                             </span>
                             {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
                           </div>
-                          <select name="school_preference__{{ option.get('value') }}" data-school-preference-select data-school-value="{{ option.get('value') }}">
-                            <option value="any" {% if (option.get('state') or 'any') == 'any' %}selected{% endif %}>Neutral</option>
-                            <option value="nice_to_have" {% if option.get('state') == 'nice_to_have' %}selected{% endif %}>Nice to have</option>
-                            <option value="important" {% if option.get('state') == 'important' %}selected{% endif %}>Strong wish</option>
-                            <option value="must_have" {% if option.get('state') == 'must_have' %}selected{% endif %}>Must have</option>
-                          </select>
-                          {% if option.get('distance_options') %}
-                          <select name="school_distance__{{ option.get('value') }}" data-school-distance-select data-school-value="{{ option.get('value') }}" data-distance-field="{{ option.get('distance_field') }}" {% if (option.get('state') or 'any') == 'any' %}disabled{% endif %}>
-                            {% for distance in option.get('distance_options') or [] %}
-                            <option value="{{ distance.get('value') }}" {% if (option.get('distance_state') or '500') == (distance.get('value') or '500') %}selected{% endif %}>{{ distance.get('label') }}</option>
-                            {% endfor %}
-                          </select>
-                          {% endif %}
+                          <div class="pqx-pref-row-controls"{% if option.get('distance_options') %} data-pref-row-controls-distance="true"{% endif %}>
+                            <select name="school_preference__{{ option.get('value') }}" data-school-preference-select data-school-value="{{ option.get('value') }}">
+                              <option value="any" {% if (option.get('state') or 'any') == 'any' %}selected{% endif %}>Neutral</option>
+                              <option value="nice_to_have" {% if option.get('state') == 'nice_to_have' %}selected{% endif %}>Nice to have</option>
+                              <option value="important" {% if option.get('state') == 'important' %}selected{% endif %}>Strong wish</option>
+                              <option value="must_have" {% if option.get('state') == 'must_have' %}selected{% endif %}>Must have</option>
+                            </select>
+                            {% if option.get('distance_options') %}
+                            <select name="school_distance__{{ option.get('value') }}" data-school-distance-select data-school-value="{{ option.get('value') }}" data-distance-field="{{ option.get('distance_field') }}" {% if (option.get('state') or 'any') == 'any' %}disabled{% endif %}>
+                              {% for distance in option.get('distance_options') or [] %}
+                              <option value="{{ distance.get('value') }}" {% if (option.get('distance_state') or '500') == (distance.get('value') or '500') %}selected{% endif %}>{{ distance.get('label') }}</option>
+                              {% endfor %}
+                            </select>
+                            {% endif %}
+                          </div>
                         </label>
                         {% endfor %}
                         {% endif %}
@@ -10349,6 +11079,46 @@
                     {% endfor %}
                   </div>
                 </section>
+                {% if what_matters_extras.custom or what_matters_extras.trust %}
+                <details class="pqx-mobile-fold pqx-what-matters-more"{% if what_matters_extras.active %} open{% endif %} data-pqx-what-matters-more>
+                  <summary>
+                    <span class="pqx-mobile-fold-copy">
+                      <strong>More options</strong>
+                      <span class="pqx-note">Only for something missing or stricter listing cleanup.</span>
+                    </span>
+                    <span class="pqx-mobile-fold-meta">
+                      <span class="pqx-pill">
+                        {% if what_matters_extras.active %}
+                        {{ what_matters_extras.active }} active
+                        {% else %}
+                        Optional
+                        {% endif %}
+                      </span>
+                    </span>
+                  </summary>
+                  <div class="pqx-mobile-fold-content">
+                    {% if what_matters_extras.custom %}
+                    <div class="pqx-field pqx-what-matters-more-field">
+                      <label>{{ what_matters_extras.custom.label }}
+                        <input type="text" name="{{ what_matters_extras.custom.name }}" value="{{ what_matters_extras.custom.get('value') or '' }}" {% if what_matters_extras.custom.get('placeholder') %}placeholder="{{ what_matters_extras.custom.get('placeholder') }}"{% endif %}>
+                      </label>
+                      {% if what_matters_extras.custom.get('tooltip') %}
+                      <span class="pqx-note">{{ what_matters_extras.custom.get('tooltip') }}</span>
+                      {% endif %}
+                    </div>
+                    {% endif %}
+                    {% if what_matters_extras.trust %}
+                    <label class="pqx-check">
+                      <input type="checkbox" name="{{ what_matters_extras.trust.name }}" value="{{ what_matters_extras.trust.get('value') or 'true' }}" {% if what_matters_extras.trust.get('checked') %}checked{% endif %}>
+                      <span>
+                        <span>{{ what_matters_extras.trust.label }}</span>
+                        <small>{{ what_matters_extras.trust.get('tooltip') }}</small>
+                      </span>
+                    </label>
+                    {% endif %}
+                  </div>
+                </details>
+                {% endif %}
                 {% elif field.type == 'checkbox_group' %}
                 <fieldset class="pqx-choice-groupbox">
                   <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
@@ -10362,7 +11132,6 @@
                         <button class="pqx-field-action" type="button" data-location-mode-button="map" aria-pressed="true">Map</button>
                         <button class="pqx-field-action" type="button" data-location-mode-button="list" aria-pressed="false">List</button>
                       </div>
-                      <p class="pqx-mobile-helper">Choose either the real-border map or the manual list.</p>
                       <p class="pqx-location-selected-summary" data-location-selected-summary>0 districts selected</p>
                       <div class="pqx-location-selected-tags" data-location-selected-tags aria-label="Selected districts"></div>
                       <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all areas">All areas</button>
@@ -10390,7 +11159,7 @@
                       {% for option in group.get('options') or [] %}
                       {% set option_value = option.get('value') or '' %}
                       <label class="pqx-check">
-                        <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}"{% if not option.get('search_ready', true) %} disabled{% endif %} {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}>
+                        <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}"{% if not option.get('search_ready', true) %} disabled{% endif %} {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %}{% if option.get('supported_listing_modes') %} data-listing-modes="{{ (option.get('supported_listing_modes') or [])|join(',') }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}>
                         <span>
                           <span>{{ option.get('label') }}</span>
                           {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
@@ -10416,7 +11185,7 @@
                       <div class="pqx-location-map-dialog-head">
                         <div>
                           <strong data-location-map-dialog-title>District map</strong>
-                          <span>Tap districts, adjust the view, then press Done.</span>
+                          <span>Tap districts. Drag or pinch to move.</span>
                           <div class="pqx-location-map-selection" data-location-map-selection hidden>
                             <p class="pqx-location-map-selection-summary" data-location-map-selection-summary>No districts selected yet.</p>
                             <div class="pqx-location-map-selection-tags" data-location-map-selection-tags aria-label="Selected districts in map"></div>
@@ -10436,7 +11205,7 @@
                         </div>
                         <div class="pqx-location-map-controls" aria-label="Map controls">
                           <button class="pqx-location-map-control" type="button" data-location-map-zoom="out" aria-label="Zoom out">−</button>
-                          <button class="pqx-location-map-control" type="button" data-location-map-zoom="reset" aria-label="Zoom map">1x</button>
+                          <button class="pqx-location-map-control" type="button" data-location-map-zoom="reset" aria-label="Zoom map">Zoom</button>
                           <button class="pqx-location-map-control" type="button" data-location-map-zoom="in" aria-label="Zoom in">+</button>
                         </div>
                         <div class="pqx-location-map-viewport" data-location-map-viewport>
@@ -10446,10 +11215,6 @@
                           </svg>
                         </div>
                         <span class="pqx-location-map-note">Selected districts stay red.</span>
-                        <div class="pqx-location-map-dialog-foot">
-                          <button class="pqx-location-map-clear" type="button" data-location-map-clear hidden>Clear</button>
-                          <button class="pqx-location-map-close" type="button" data-location-map-close>Done</button>
-                        </div>
                       </div>
                     </div>
                   </dialog>
@@ -10589,6 +11354,7 @@
                 {% endif %}
                 {% endif %}
               </div>
+              {% endif %}
               {% endfor %}
               {% if panel.open %}
               </div>
@@ -10728,22 +11494,15 @@
       {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
       {% set hard_filtered_total = (run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or 0)|int %}
       {% set held_back_ranked_total = (run_summary.get('held_back_ranked_total') or 0)|int %}
-      {% set recovery_ns = namespace(ranking_row=None) %}
-      {% for row in (workbench.get('counterfactual_rows') or []) %}
-        {% set slider = row.get('slider') or {} %}
-        {% if not recovery_ns.ranking_row and slider.get('kind') == 'ranking_bar' and row.get('adjustments') %}
-          {% set recovery_ns.ranking_row = row %}
-        {% endif %}
-      {% endfor %}
       <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}{% if run_failed_no_results %} pqx-empty-results-failed{% else %} pqx-empty-results-completed{% endif %}" data-pqx-empty-results>
         <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results" data-pqx-screenfit-target="run-progress">
           <div class="pqx-title">
             <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Completed{% endif %}</span>
             <h1>
               {% if run_status == 'failed' %}
-                {{ empty_happened or run_reliability.get('customer_status_message') or 'Search paused before ranking finished.' }}
+                {{ empty_happened or run_reliability.get('customer_status_message') or 'The search stopped before ranking finished.' }}
               {% else %}
-                {{ empty_happened or 'No shortlist yet.' }}
+                {{ empty_happened or 'No homes in scope yet.' }}
               {% endif %}
             </h1>
             <p class="pqx-note pqx-empty-outcome-line" data-pqx-run-summary>
@@ -10759,9 +11518,10 @@
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
               {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_total') or run_sources|length or run_summary.get('sources_total') or 0)|int %}
+              {% set homes_checked_total = (run_summary.get('reviewed_listing_total') or run_summary.get('raw_listing_total') or run_summary.get('listing_total') or 0)|int %}
               <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
               <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
-              <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
+              <div class="pqx-fact"><span>Homes checked</span><strong>{{ homes_checked_total }}</strong></div>
             </div>
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
             <div class="pqx-empty-outcome-next">
@@ -10770,55 +11530,21 @@
             </div>
             {% endif %}
             <div class="pqx-actions">
-              <a class="pqx-link-button primary" href="/app/search">New search</a>
+              <a class="pqx-link-button primary" href="/app/search{{ topnav_query_suffix }}">Search brief</a>
             </div>
-            {% if recovery_ns.ranking_row and not run_failed_no_results %}
-            {% set ranking_slider = recovery_ns.ranking_row.get('slider') or {} %}
-            <div class="pqx-suppression-grid" style="margin-top:12px;">
-              <div class="pqx-suppression-item pqx-suppression-item-adjustable">
-                <strong>{{ recovery_ns.ranking_row.get('title') }}</strong>
-                <span class="pqx-note">Current ranking bar: {{ ranking_slider.get('max') or 0 }}/100. {{ recovery_ns.ranking_row.get('detail') }}</span>
-                <label class="pqx-filter-radius-control pqx-suppression-slider">
-                  <span>{{ ranking_slider.get('label') or 'Adjustment' }} <b data-pqx-filter-slider-value>{{ ranking_slider.get('value') or ranking_slider.get('min') or 0 }}{% if ranking_slider.get('unit') %} {{ ranking_slider.get('unit') }}{% endif %}</b></span>
-                  <input
-                    type="range"
-                    min="{{ ranking_slider.get('min') or 0 }}"
-                    max="{{ ranking_slider.get('max') or ranking_slider.get('value') or 0 }}"
-                    step="{{ ranking_slider.get('step') or 1 }}"
-                    value="{{ ranking_slider.get('value') or ranking_slider.get('min') or 0 }}"
-                    data-pqx-filter-slider
-                    data-pqx-filter-field="{{ ranking_slider.get('field') or '' }}"
-                    data-pqx-filter-kind="{{ ranking_slider.get('kind') or '' }}"
-                    data-pqx-filter-unit="{{ ranking_slider.get('unit') or '' }}"
-                    data-pqx-filter-base="{{ ranking_slider.get('min') or 0 }}"
-                    data-pqx-filter-max-value="{{ ranking_slider.get('max') or ranking_slider.get('value') or 0 }}"
-                    data-pqx-filter-max="{{ recovery_ns.ranking_row.get('affected_total') or 0 }}"
-                  >
-                  <span class="pqx-small" data-pqx-filter-estimate>Rerun to refresh the full ranking with the new bar.</span>
-                </label>
-                <button
-                  class="pqx-suppression-action"
-                  type="button"
-                  aria-label="{{ recovery_ns.ranking_row.get('action_label') or 'Adjust ranking bar' }}"
-                  data-pqx-counterfactual='{{ recovery_ns.ranking_row.get("adjustments")|tojson|safe }}'
-                  data-pqx-counterfactual-action-kind="{{ ranking_slider.get('kind') or '' }}"
-                  data-pqx-counterfactual-action-default="{{ recovery_ns.ranking_row.get('action_label') or 'Adjust ranking bar' }}"
-                >{{ recovery_ns.ranking_row.get('action_label') or 'Adjust ranking bar' }}</button>
-              </div>
-            </div>
-            {% endif %}
           </div>
         </aside>
         {% if not run_failed_no_results %}
-        <section class="pqx-panel pqx-command{% if mobile_primary == 'property' %} active{% endif %}" data-pqx-mobile-panel="property">
+        <section class="pqx-panel pqx-command pqx-empty-next-panel{% if mobile_primary == 'property' %} active{% endif %}" data-pqx-mobile-panel="property">
           <div>
           {% if not ranked_candidates %}
-          <div class="pqx-section-head" data-pqx-screenfit-target="run-progress">
-            <div>
+          <div class="pqx-section-head pqx-empty-next-head" data-pqx-screenfit-target="run-progress">
+            <div class="pqx-empty-next-copy">
+                <span class="pqx-small">Next step</span>
                 <h2>Next move</h2>
                 <div class="pqx-note" data-pqx-run-summary>{{ empty_next_move or 'Adjust one hard rule, then rerun.' }}</div>
               </div>
-            <div style="display:grid;gap:6px;justify-items:end;">
+            <div class="pqx-empty-next-status">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
               <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>
                 {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_total') or 0)|int %}
@@ -10833,12 +11559,11 @@
             </div>
           </div>
           {% endif %}
-          <div data-pqx-counterfactuals>
+          <div class="pqx-empty-next-actions" data-pqx-counterfactuals>
           {% if (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) and not ranked_candidates %}
           <div class="pqx-suppression-grid" style="margin-bottom:12px;">
             {% for row in (workbench.get('counterfactual_rows') or [])[:3] %}
             {% set slider = row.get('slider') or {} %}
-            {% if slider.get('kind') != 'ranking_bar' %}
             {% if row.get('adjustments') %}
             {% if slider %}
             <div class="pqx-suppression-item pqx-suppression-item-adjustable">
@@ -10884,7 +11609,6 @@
               <span class="pqx-note">{{ row.get('detail') or 'Reopen the brief and adjust one filter before rerunning.' }}</span>
               <span class="pqx-suppression-action">{{ row.get('action_label') or 'Reopen brief' }}</span>
             </button>
-            {% endif %}
             {% endif %}
             {% endfor %}
             {% for row in (workbench.get('suppression_rows') or [])[:3] %}
@@ -11095,6 +11819,48 @@
         </section>
         {% set selected_facts = selected.get('property_facts') or {} %}
         {% set selected_preview = selected.get('preview_image_url') or (selected.get('orientation_preview') or {}).get('image_url') or (selected.get('orientation_preview') or {}).get('thumb_image_url') or '' %}
+        {% set selected_mobile_costs = (selected.get('costs_display') or '')|trim %}
+        {% if selected_mobile_costs and ('not listed' in selected_mobile_costs|lower or 'needs confirmation' in selected_mobile_costs|lower) %}
+        {% set selected_mobile_costs = '' %}
+        {% endif %}
+        {% set mobile_is_shortlist_surface = surface_mode == 'shortlist' %}
+        {% set selected_visual_property_url = selected.get('property_url') or selected.get('source_url') or selected.get('listing_url') %}
+        {% set selected_tour = selected.get('tour', {}) %}
+        {% set selected_flythrough = selected.get('flythrough', {}) %}
+        {% set selected_tour_status = (selected_tour.get('status') or '')|lower %}
+        {% set selected_flythrough_status = (selected_flythrough.get('status') or '')|lower %}
+        {% set selected_tour_pending = selected_tour_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
+        {% set selected_flythrough_pending = selected_flythrough_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
+        {% set selected_tour_progress = selected_tour.get('progress_pct') if selected_tour.get('progress_pct') is not none else (100 if selected_tour.get('url') else 0) %}
+        {% set selected_flythrough_progress = selected_flythrough.get('progress_pct') if selected_flythrough.get('progress_pct') is not none else (100 if selected_flythrough.get('url') else 0) %}
+        {% set selected_visual_status = '' %}
+        {% if selected_tour_pending %}
+        {% set selected_visual_status = (selected_tour.get('status_detail') or selected_tour.get('detail') or selected_tour.get('label') or '3D tour is on the way.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') %}
+        {% elif selected_flythrough_pending %}
+        {% set selected_visual_status = (selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') %}
+        {% elif selected_tour.get('status') == 'blocked' %}
+        {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('eta_label') or '3D tour not available yet.' %}
+        {% elif selected_flythrough.get('status') == 'blocked' %}
+        {% set selected_visual_status = selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or 'Walkthrough not available yet.' %}
+        {% elif not selected_tour.get('url') and not selected_flythrough.get('url') and selected_visual_property_url and not mobile_is_shortlist_surface %}
+        {% set selected_visual_status = 'Request visuals only when this home stays in the running.' %}
+        {% endif %}
+        {% set mobile_visual_preview = '' %}
+        {% if selected_tour.get('url') and selected_flythrough.get('url') %}
+        {% set mobile_visual_preview = '3D tour and walkthrough ready' %}
+        {% elif selected_tour.get('url') %}
+        {% set mobile_visual_preview = '3D tour ready' %}
+        {% elif selected_flythrough.get('url') %}
+        {% set mobile_visual_preview = 'Walkthrough ready' %}
+        {% elif selected_tour_pending %}
+        {% set mobile_visual_preview = selected_tour.get('label') or '3D tour in progress' %}
+        {% elif selected_flythrough_pending %}
+        {% set mobile_visual_preview = selected_flythrough.get('label') or 'Walkthrough in progress' %}
+        {% elif selected_visual_property_url and not mobile_is_shortlist_surface %}
+        {% set mobile_visual_preview = 'Request remote visuals' %}
+        {% elif selected_visual_property_url %}
+        {% set mobile_visual_preview = 'Visuals not published yet' %}
+        {% endif %}
         <section class="pqx-review pqx-mobile-property-panel" data-pqx-mobile-panel="property" aria-label="Selected property">
           <div class="pqx-theater no-media" data-pq-theater>
             <div class="pqx-theater-frame is-unavailable is-compact" data-pw-tour hidden></div>
@@ -11113,22 +11879,57 @@
                   <span data-pw-source>{{ [selected.get('source_label'), selected.get('location_label')]|select|join(' · ') or 'PropertyQuarry candidate' }}</span>
                   <h1 data-pw-title>{{ selected.get('title') or 'Selected property' }}</h1>
                 </div>
-                <div class="pqx-dossier-summary" data-pw-summary-facts>
+              <div class="pqx-dossier-summary" data-pw-summary-facts>
                   {% if selected.get('price_display') %}<span class="pqx-result-fact">{{ selected.get('price_display') }}</span>{% endif %}
-                  {% if selected.get('costs_display') %}<span class="pqx-result-fact">{{ selected.get('costs_display') }}</span>{% endif %}
+                  {% if selected_mobile_costs %}<span class="pqx-result-fact">{{ selected_mobile_costs }}</span>{% endif %}
                   {% if selected.get('layout_display') %}<span class="pqx-result-fact">{{ selected.get('layout_display') }}</span>{% endif %}
-                  {% if selected.get('location_label') or selected_facts.get('postal_name') %}<span class="pqx-result-fact">{{ selected.get('location_label') or selected_facts.get('postal_name') }}</span>{% endif %}
                 </div>
-                <p class="pqx-note" data-pw-ooda-summary>{{ selected.get('fit_summary') or (selected.get('match_reasons') or ['Open the listing or property page to review the selected home.'])[0] }}</p>
-                <div class="pqx-actions">
-                  {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}">Open property</a>{% endif %}
-                  {% if selected.get('source_url') or selected.get('property_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') or selected.get('property_url') }}" target="_blank" rel="noreferrer">Open listing</a>{% endif %}
+                {% if selected_tour.get('url') or selected_tour_pending or selected_tour.get('status') == 'blocked' or selected_flythrough.get('url') or selected_flythrough_pending or selected_flythrough.get('status') == 'blocked' %}
+                <div class="pqx-result-facts pqx-mobile-visual-facts" aria-label="Visual delivery status">
+                  {% if selected_tour.get('url') %}
+                  <span class="pqx-result-fact">{{ selected_tour.get('provider_label') or '3D tour' }} ready</span>
+                  {% elif selected_tour_pending %}
+                  <span class="pqx-result-fact">{{ selected_tour.get('recovery_label') or '3D tour in progress' }}</span>
+                  {% elif selected_tour.get('status') == 'blocked' %}
+                  <span class="pqx-result-fact warn">{{ selected_tour.get('recovery_label') or '3D tour unavailable' }}</span>
+                  {% endif %}
+                  {% if selected_flythrough.get('url') %}
+                  <span class="pqx-result-fact">{{ selected_flythrough.get('provider_label') or 'Walkthrough' }} ready</span>
+                  {% elif selected_flythrough_pending %}
+                  <span class="pqx-result-fact">{{ selected_flythrough.get('recovery_label') or 'Walkthrough in progress' }}</span>
+                  {% elif selected_flythrough.get('status') == 'blocked' %}
+                  <span class="pqx-result-fact warn">{{ selected_flythrough.get('recovery_label') or 'Walkthrough unavailable' }}</span>
+                  {% endif %}
                 </div>
+                {% endif %}
+                <div class="pqx-context-actions">
+                  <div class="pqx-context-primary">
+                    {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}">Open property</a>{% elif selected.get('source_url') or selected.get('property_url') %}<a class="pqx-link-button primary" href="{{ selected.get('source_url') or selected.get('property_url') }}" target="_blank" rel="noreferrer">Open listing</a>{% endif %}
+                  </div>
+                  {% if (selected.get('source_url') and selected.get('packet_url')) or selected.get('candidate_ref') %}
+                  <details class="pqx-context-tools pqx-mobile-fold" data-pw-secondary-tools>
+                    <summary><strong>More</strong></summary>
+                    <div class="pqx-context-tool-list">
+                      {% if selected.get('source_url') and selected.get('packet_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer">Open listing</a>{% endif %}
+                      {% if selected.get('candidate_ref') %}<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}">Share this home</button>{% endif %}
+                      <button class="pqx-button" type="button" data-fliplink-shortlist-share>Share results</button>
+                    </div>
+                  </details>
+                  {% endif %}
+                </div>
+                {% if selected_visual_status %}
+                <div class="pqx-decision-status pqx-mobile-visual-status" data-pw-visual-request-status>{{ selected_visual_status }}</div>
+                {% endif %}
               </div>
             </div>
           </div>
-          <details class="pqx-card pqx-mobile-review-more">
-            <summary><strong>Why it fits</strong></summary>
+          <details class="pqx-card pqx-mobile-review-more pqx-mobile-fold">
+            <summary>
+              <span class="pqx-mobile-review-copy">
+                <strong>Why it fits</strong>
+                <span class="pqx-mobile-review-preview">{{ selected.get('fit_summary') or (selected.get('match_reasons') or ['Open the property to inspect the fit.'])[0] }}</span>
+              </span>
+            </summary>
             <div class="pqx-event-list" data-pw-match>
               {% for reason in (selected.get('match_reasons') or [])[:3] %}
               <div class="pqx-event-card"><strong>Fit</strong><span class="pqx-note">{{ reason }}</span></div>
@@ -11137,12 +11938,47 @@
               {% endfor %}
             </div>
           </details>
+          {% if selected_tour.get('url') or selected_tour_pending or selected_tour.get('status') == 'blocked' or selected_flythrough.get('url') or selected_flythrough_pending or selected_flythrough.get('status') == 'blocked' or (selected_visual_property_url and not mobile_is_shortlist_surface) %}
+          <details class="pqx-card pqx-mobile-review-more pqx-mobile-fold">
+            <summary>
+              <span class="pqx-mobile-review-copy">
+                <strong>Visuals</strong>
+                <span class="pqx-mobile-review-preview">{{ mobile_visual_preview or 'Visuals not available yet' }}</span>
+              </span>
+            </summary>
+            <div class="pqx-context-primary" data-pw-mobile-visuals>
+              {% if selected_tour.get('url') %}
+              <a class="pqx-link-button" href="{{ selected_tour.get('url') }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="selected_review">Open 3D tour</a>
+              {% elif selected_tour_pending %}
+              <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_tour_progress }}%;" title="{{ (selected_tour.get('detail') or selected_tour.get('label') or '3D tour is on the way.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') }}" data-pw-visual-request="tour" data-pw-visual-state="{{ selected_tour_status or 'queued' }}" data-pw-visual-progress="{{ selected_tour_progress }}" data-pw-visual-eta="{{ selected_tour.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_tour.get('detail') or selected_tour.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_tour.get('label') or '3D tour queued' }}</button>
+              {% elif selected_visual_property_url and not mobile_is_shortlist_surface %}
+              <button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="selected_review">Request 3D tour</button>
+              {% endif %}
+              {% if selected_flythrough.get('url') %}
+              <a class="pqx-link-button" href="{{ selected_flythrough.get('url') }}">Open walkthrough</a>
+              {% elif selected_flythrough_pending %}
+              <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_flythrough_progress }}%;" title="{{ (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') }}" data-pw-visual-request="flythrough" data-pw-visual-state="{{ selected_flythrough_status or 'queued' }}" data-pw-visual-progress="{{ selected_flythrough_progress }}" data-pw-visual-eta="{{ selected_flythrough.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_flythrough.get('detail') or selected_flythrough.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_flythrough.get('label') or 'Walkthrough queued' }}</button>
+              {% elif selected_visual_property_url and not mobile_is_shortlist_surface %}
+              <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-pw-walkthrough-provider="magicfit" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">Request walkthrough</button>
+              {% endif %}
+            </div>
+            {% if selected_visual_status %}
+            <div class="pqx-decision-status">{{ selected_visual_status }}</div>
+            {% endif %}
+          </details>
+          {% endif %}
           {% if score_methodology %}
           {% set score_application = score_methodology.get('candidate_application') or {} %}
           {% set negative_label = score_methodology.get('negative_label') or 'Main caution' %}
           {% if negative_label == 'What still needs checking' %}{% set negative_label = 'Main caution' %}{% endif %}
-          <details class="pqx-card pqx-mobile-review-more">
-            <summary><strong>{{ score_methodology.get('candidate_title') or 'Score at a glance' }}</strong><span class="pqx-pill">{{ score_application.get('fit_score') or selected.get('fit_score') or 0 }}/100</span></summary>
+          {% set mobile_score_preview = (score_application.get('fit_score') or selected.get('fit_score')) %}
+          <details class="pqx-card pqx-mobile-review-more pqx-mobile-fold">
+            <summary>
+              <span class="pqx-mobile-review-copy">
+                <strong>{{ score_methodology.get('candidate_title') or 'Score at a glance' }}</strong>
+                <span class="pqx-mobile-review-preview">{% if mobile_score_preview %}{{ mobile_score_preview }}/100{% if score_application.get('band_label') %} · {{ score_application.get('band_label') }}{% endif %}{% else %}Not scored yet{% endif %}</span>
+              </span>
+            </summary>
             <div class="pqx-event-list">
               <div class="pqx-event-card"><strong>{{ score_methodology.get('positive_label') or 'Best signals' }}</strong><span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['No strong signal attached yet.'])[:2]|join(' · ') }}</span></div>
               <div class="pqx-event-card"><strong>{{ negative_label }}</strong><span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['No caution attached yet.'])[:2]|join(' · ') }}</span></div>

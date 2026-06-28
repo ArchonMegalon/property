@@ -37,7 +37,6 @@ DEFAULT_EMPTY_RECOVERY_PAYLOAD = {
         "search_mode": "strict",
         "max_price_eur": 500,
         "min_area_m2": 150,
-        "min_match_score": 35,
     },
     "max_results_per_source": 1,
     "force_refresh": False,
@@ -192,11 +191,6 @@ def build_live_empty_recovery_canary_receipt(
     page_reader = page_fetcher or _fetch_run_page
     delete_runner = run_deleter or _delete_run
     payload = dict(run_body or DEFAULT_EMPTY_RECOVERY_PAYLOAD)
-    requested_min_match_score = (
-        int(float(str(dict(payload.get("property_preferences") or {}).get("min_match_score") or 0)))
-        if dict(payload.get("property_preferences") or {}).get("min_match_score") not in (None, "")
-        else 0
-    )
     receipt: dict[str, Any] = {
         "generated_at": _now_iso(),
         "base_url": base_url,
@@ -204,7 +198,6 @@ def build_live_empty_recovery_canary_receipt(
         "timeout_seconds": float(timeout_seconds),
         "poll_seconds": float(poll_seconds),
         "run_payload": payload,
-        "requested_min_match_score": requested_min_match_score,
         "status": "failed",
     }
 
@@ -325,25 +318,25 @@ def build_live_empty_recovery_canary_receipt(
     )
     receipt["cleanup"] = cleanup_result
 
-    ranking_button = next(
-        (
-            row
-            for row in counterfactual_buttons
-            if str(row.get("title") or "").strip() == "Let score rank every home"
-            or "min_match_score" in dict(row.get("adjustments") or {})
-        ),
-        {},
-    )
-    ranking_slider = next(
-        (row for row in slider_fields if str(row.get("field") or "").strip() == "min_match_score"),
-        {},
-    )
-    try:
-        ranking_adjustment_value = int(float(str(dict(ranking_button.get("adjustments") or {}).get("min_match_score") or 0)))
-    except Exception:
-        ranking_adjustment_value = -1
-    no_shortlist_visible = "No shortlist yet." in str(empty_copy.get("heading") or "") or "No ranked homes" in str(
-        empty_copy.get("region_text") or ""
+    removed_ranking_buttons = [
+        row
+        for row in counterfactual_buttons
+        if "min_match_score" in dict(row.get("adjustments") or {})
+        or "ranking" in str(row.get("title") or "").strip().lower()
+        or "ranking" in str(row.get("action") or "").strip().lower()
+    ]
+    removed_ranking_sliders = [
+        row
+        for row in slider_fields
+        if str(row.get("field") or "").strip() == "min_match_score"
+        or str(row.get("kind") or "").strip() == "ranking_bar"
+    ]
+    heading_text = str(empty_copy.get("heading") or "")
+    region_text = str(empty_copy.get("region_text") or "")
+    no_shortlist_visible = (
+        "No homes in scope yet." in heading_text
+        or "Nothing landed in the selected area yet." in heading_text
+        or "No ranked homes" in region_text
     )
     final_url = str(page_result.get("final_url") or "").strip()
     checks = [
@@ -372,26 +365,18 @@ def build_live_empty_recovery_canary_receipt(
             "ok": no_shortlist_visible,
         },
         {
-            "name": "ranking_recovery_button_present",
-            "ok": bool(ranking_button),
+            "name": "removed_ranking_recovery_button_absent",
+            "ok": not removed_ranking_buttons,
         },
         {
-            "name": "ranking_recovery_adjusts_min_match_score",
-            "ok": ranking_adjustment_value >= 0 and ranking_adjustment_value < max(requested_min_match_score, 1),
+            "name": "removed_ranking_slider_absent",
+            "ok": not removed_ranking_sliders,
         },
         {
-            "name": "ranking_recovery_action_present",
-            "ok": bool(str(ranking_button.get("action") or "").strip()),
-        },
-        {
-            "name": "ranking_slider_present",
-            "ok": bool(ranking_slider),
-        },
-        {
-            "name": "ranking_slider_matches_adjustment",
-            "ok": bool(ranking_slider)
-            and str(ranking_slider.get("field") or "").strip() == "min_match_score"
-            and str(ranking_slider.get("value") or "").strip() == str(ranking_adjustment_value),
+            "name": "no_removed_ranking_copy",
+            "ok": "ranking bar" not in page_text.lower()
+            and "turn bar off" not in page_text.lower()
+            and "use 15/100" not in page_text.lower(),
         },
         {
             "name": "no_old_fit_threshold_filter_copy",

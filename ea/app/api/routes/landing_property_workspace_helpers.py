@@ -1057,7 +1057,7 @@ def _group_property_provider_options(options: list[dict[str, object]]) -> list[d
         "developer_projects": ("Developer projects", "New-build and launch pipeline sources."),
         "distressed_sales": ("Court and auction", "Court-published and auction-style listings that need extra legal review."),
         "community_signals": ("Community signals", "Facebook, Telegram, and other lightly sourced off-market hints."),
-        "community_meta": ("Watch-tier meta", "Long-tail meta or watch-tier sources with lower trust."),
+        "community_meta": ("Long-tail sources", "Smaller or harder-to-verify sources that can still surface useful homes."),
     }
     grouped: dict[str, list[dict[str, object]]] = {}
     for option in options:
@@ -1579,34 +1579,6 @@ def _property_counterfactual_rows(
 
     outside_area_or_size_total = _sum_source_total("filtered_area_total")
     outside_selected_area_total = _sum_source_total("location_mismatch_candidate_total")
-
-    current_min_match_score = _positive_int(preferences.get("min_match_score"), 0)
-    if current_min_match_score > 0:
-        suggested_min_match_score = 0 if current_min_match_score <= 20 else max(0, current_min_match_score - 20)
-        rows.append(
-            {
-                "title": "Show every home in one ranking",
-                "detail": (
-                    f"The current ranking bar is {current_min_match_score}/100. "
-                    "Lower it or turn it off if you want one broad ranked list. "
-                    "This changes the ordering only; it does not widen districts or relax the other hard rules."
-                ),
-                "tag": "Ranking",
-                "action_label": "Turn bar off" if suggested_min_match_score == 0 else f"Use {suggested_min_match_score}/100",
-                "adjustments": {"min_match_score": suggested_min_match_score},
-                "slider": {
-                    "kind": "ranking_bar",
-                    "field": "min_match_score",
-                    "label": "Ranking bar",
-                    "min": 0,
-                    "max": current_min_match_score,
-                    "step": 5 if current_min_match_score >= 20 else 1,
-                    "value": suggested_min_match_score,
-                    "unit": "/100",
-                },
-                "affected_total": _positive_int(run_summary.get("listing_total"), 0),
-            }
-        )
 
     filtered_floorplan_total = _positive_int(run_summary.get("filtered_floorplan_total"), 0)
     if bool(preferences.get("require_floorplan")) and filtered_floorplan_total > 0:

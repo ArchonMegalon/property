@@ -56,12 +56,11 @@ def normalize_property_plan_key(plan_key: object) -> str:
 
 
 def property_plan_has_unlimited_provider_results(plan_key: object, max_results_per_source: object) -> bool:
-    normalized = normalize_property_plan_key(plan_key)
     try:
         result_cap = int(max_results_per_source or 0)
     except Exception:
         result_cap = 0
-    return normalized == "agent" and result_cap <= 0
+    return result_cap <= 0
 
 
 def property_worker_cap(plan_key: object) -> int:
@@ -103,7 +102,7 @@ _FREE_PLAN = PropertyPlanSpec(
     amount_eur="0.00",
     pass_days=0,
     max_platforms=3,
-    max_results_per_source=2,
+    max_results_per_source=0,
     search_agent_limit=1,
     max_match_score=35,
     research_depth="standard",
@@ -116,9 +115,8 @@ _FREE_PLAN = PropertyPlanSpec(
     auto_tour_policy="hero_only",
     features=(
         "up to 3 platforms per run",
-        "up to 2 results per provider",
-        "match threshold up to 35/100",
         "standard research on the shortlisted results",
+        "one saved search",
         "one 3D reconstruction floor plan per week and one interior flythrough per day",
     ),
 )
@@ -131,7 +129,7 @@ _PAID_PLANS = {
         amount_eur="3.00",
         pass_days=30,
         max_platforms=8,
-        max_results_per_source=5,
+        max_results_per_source=0,
         search_agent_limit=3,
         max_match_score=45,
         research_depth="deep",
@@ -144,9 +142,8 @@ _PAID_PLANS = {
         auto_tour_policy="shortlist_opt_in",
         features=(
             "up to 8 platforms per run",
-            "up to 5 results per provider",
-            "match threshold up to 45/100",
             "deep research with preview investment signals",
+            "up to 3 saved searches",
             "multiple 3D reconstruction floor plans and interior flythroughs per day (3 max)",
         ),
     ),
@@ -170,9 +167,8 @@ _PAID_PLANS = {
         auto_tour_policy="all_opt_in",
         features=(
             "all Austria provider lanes in one run",
-            "all ranked results per provider",
-            "match threshold up to 60/100",
             "deep research and follow-up readiness",
+            "unlimited saved searches",
             "opt-in 3D reconstruction floor plans and interior flythroughs for every found property",
         ),
     ),

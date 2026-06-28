@@ -509,6 +509,59 @@ def _property_schoolatlas_snapshot(lat: float, lon: float) -> dict[str, object]:
         "school_atlas_source_url": _PROPERTY_SCHOOLATLAS_SOURCE_URL,
     }
 
+
+def _property_flowing_water_kind(tags: dict[str, object]) -> str:
+    waterway = str(tags.get("waterway") or "").strip().lower()
+    natural = str(tags.get("natural") or "").strip().lower()
+    water = str(tags.get("water") or "").strip().lower()
+    if waterway in {"river", "riverbank"}:
+        return "river"
+    if waterway == "canal":
+        return "canal"
+    if waterway in {"stream", "brook"}:
+        return "stream"
+    if natural == "water" and water in {"river", "riverbank"}:
+        return "river"
+    if natural == "water" and water == "canal":
+        return "canal"
+    if natural == "water" and water in {"stream", "brook"}:
+        return "stream"
+    return ""
+
+
+def _property_flowing_water_label(kind: object) -> str:
+    normalized = str(kind or "").strip().lower()
+    if normalized == "river":
+        return "river"
+    if normalized == "canal":
+        return "canal"
+    if normalized == "stream":
+        return "stream"
+    return "flowing water"
+
+
+def _property_cooling_corridor_signal_for_distance(distance_m: object) -> str:
+    distance = _float_or_none(distance_m)
+    if not isinstance(distance, float) or distance <= 0.0:
+        return ""
+    if distance <= 350.0:
+        return "strong"
+    if distance <= 900.0:
+        return "moderate"
+    if distance <= 1800.0:
+        return "weak"
+    return ""
+
+
+def _property_cooling_corridor_summary(*, name: str, kind: str, distance_m: int) -> str:
+    label = compact_text(str(name or "").strip(), fallback=_property_flowing_water_label(kind), limit=80)
+    if distance_m <= 350:
+        return f"Nearby flowing water ({label}, about {distance_m} m) can soften summer heat and supports the local cooling-corridor read."
+    if distance_m <= 900:
+        return f"Flowing water ({label}, about {distance_m} m) is close enough to support the local summer cooling read."
+    return f"A broader cooling-corridor hint is present because {label} is about {distance_m} m away."
+
+
 @lru_cache(maxsize=128)
 def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
     query = f"""
@@ -554,6 +607,11 @@ def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
   way["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
   node["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
   way["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
+  node["waterway"~"^(river|riverbank|canal|stream|brook)$"](around:3500,{lat:.8f},{lon:.8f});
+  way["waterway"~"^(river|riverbank|canal|stream|brook)$"](around:3500,{lat:.8f},{lon:.8f});
+  relation["waterway"~"^(river|riverbank|canal|stream|brook)$"](around:3500,{lat:.8f},{lon:.8f});
+  way["natural"="water"]["water"~"^(river|canal|stream|brook)$"](around:3500,{lat:.8f},{lon:.8f});
+  relation["natural"="water"]["water"~"^(river|canal|stream|brook)$"](around:3500,{lat:.8f},{lon:.8f});
 );
 out center tags;
 """
@@ -568,7 +626,7 @@ out center tags;
     except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
         return {}
     elements = list(payload.get("elements") or []) if isinstance(payload, dict) else []
-    closest: dict[str, tuple[int, str, float, float]] = {}
+    closest: dict[str, dict[str, object]] = {}
     for row in elements:
         if not isinstance(row, dict):
             continue
@@ -622,18 +680,38 @@ out center tags;
             metric_key, name_key = "nearest_tram_bus_m", "nearest_tram_bus_name"
         elif tags.get("railway") == "subway_entrance":
             metric_key, name_key = "nearest_subway_m", "nearest_subway_name"
+        elif _property_flowing_water_kind(tags):
+            metric_key, name_key = "nearest_flowing_water_m", "nearest_flowing_water_name"
         else:
             continue
         current = closest.get(metric_key)
-        if current is None or distance_m < current[0]:
-            closest[metric_key] = (distance_m, str(tags.get("name") or "").strip(), float(point_lat), float(point_lon))
+        if current is None or distance_m < int(current.get("distance_m") or 0):
+            closest[metric_key] = {
+                "distance_m": distance_m,
+                "name": str(tags.get("name") or "").strip(),
+                "lat": float(point_lat),
+                "lng": float(point_lon),
+                "kind": _property_flowing_water_kind(tags),
+            }
     result: dict[str, object] = {}
     for key, value in closest.items():
-        result[key] = value[0]
+        result[key] = int(value.get("distance_m") or 0)
         prefix = key[:-2] if key.endswith("_m") else key
-        result[f"{prefix}_name"] = value[1]
-        result[f"{prefix}_lat"] = value[2]
-        result[f"{prefix}_lng"] = value[3]
+        result[f"{prefix}_name"] = str(value.get("name") or "").strip()
+        result[f"{prefix}_lat"] = float(value.get("lat") or 0.0)
+        result[f"{prefix}_lng"] = float(value.get("lng") or 0.0)
+        if str(value.get("kind") or "").strip():
+            result[f"{prefix}_kind"] = str(value.get("kind") or "").strip()
+    flowing_water_distance_m = _float_or_none(result.get("nearest_flowing_water_m"))
+    if isinstance(flowing_water_distance_m, float) and flowing_water_distance_m > 0.0:
+        signal = _property_cooling_corridor_signal_for_distance(flowing_water_distance_m)
+        if signal:
+            result["cooling_corridor_signal"] = signal
+            result["cooling_corridor_summary"] = _property_cooling_corridor_summary(
+                name=str(result.get("nearest_flowing_water_name") or "").strip(),
+                kind=str(result.get("nearest_flowing_water_kind") or "").strip(),
+                distance_m=int(round(flowing_water_distance_m)),
+            )
     return result
 
 def _property_point_looks_like_austria(lat: float, lon: float) -> bool:
@@ -650,6 +728,14 @@ def _property_official_risk_evidence(
     payload = dict(facts or {})
     postal_name = str(payload.get("postal_name") or "").strip().lower()
     is_vienna = "wien" in postal_name or "vienna" in postal_name
+    cooling_corridor_signal = str(payload.get("cooling_corridor_signal") or "").strip().lower()
+    cooling_corridor_summary = str(payload.get("cooling_corridor_summary") or "").strip()
+    flowing_water_name = compact_text(
+        str(payload.get("nearest_flowing_water_name") or "").strip(),
+        fallback=_property_flowing_water_label(payload.get("nearest_flowing_water_kind")),
+        limit=80,
+    )
+    flowing_water_distance_m = _float_or_none(payload.get("nearest_flowing_water_m"))
     sources = [
         {
             "risk_key": "heat_resilience",
@@ -666,6 +752,27 @@ def _property_official_risk_evidence(
             "verification_state": "flagged" if bool(payload.get("heat_resilience_risk")) else "needs_review",
             "summary": "Heat-period comfort should be checked against official urban-climate evidence, not only listing claims.",
             "required_next_step": "Sample the address against the Vienna climate-analysis layer and combine it with floor, orientation, cooling, shading, trees, and facade-shading evidence.",
+        },
+        {
+            "risk_key": "cooling_corridor",
+            "label": "Cooling corridor",
+            "authority_label": "OpenStreetMap / cached microclimate proxy",
+            "provider": "OpenStreetMap / derived proximity evidence",
+            "source_label": "Flowing-water proximity",
+            "source_url": "https://www.openstreetmap.org/copyright",
+            "availability": "derived_proximity_evidence",
+            "source_type": "osm_derived",
+            "coverage_scope": "microclimate_proxy_flowing_water",
+            "refresh_cadence": "osm_public_updates",
+            "confidence": "medium" if cooling_corridor_signal in {"strong", "moderate"} else "low",
+            "verification_state": "verified" if cooling_corridor_signal in {"strong", "moderate", "weak"} else "needs_review",
+            "summary": cooling_corridor_summary
+            or (
+                f"Nearby flowing water ({flowing_water_name}, about {int(round(flowing_water_distance_m))} m) can support local summer cooling."
+                if flowing_water_distance_m
+                else "Nearby flowing water can support local summer cooling, but it is a microclimate hint rather than an indoor-comfort guarantee."
+            ),
+            "required_next_step": "Treat flowing-water proximity as a microclimate hint and combine it with floor, orientation, shade, trees, and building-cooling evidence.",
         },
         {
             "risk_key": "air_quality_risk",

@@ -87,7 +87,7 @@ from app.services.property_market_catalog import (
     default_platforms_for_country as property_default_platforms_for_country,
     default_platforms_for_country_listing_mode as property_default_platforms_for_country_listing_mode,
     evidence_source_options as property_evidence_source_options,
-    filter_selectable_property_platforms as property_filter_selectable_property_platforms,
+    filter_selectable_property_platform_details as property_filter_selectable_property_platform_details,
     is_customer_search_country_code as property_is_customer_search_country_code,
     normalize_listing_mode as property_normalize_listing_mode,
     normalize_property_search_preferences as property_normalize_search_preferences,
@@ -286,7 +286,7 @@ def _sanitize_property_search_run_platforms(
             if property_normalize_platform(item) and property_normalize_platform(item) != "all"
         )
     )
-    kept, removed = property_filter_selectable_property_platforms(
+    kept, removed_details = property_filter_selectable_property_platform_details(
         requested,
         country_code=country_code,
         listing_mode=listing_mode,
@@ -295,9 +295,14 @@ def _sanitize_property_search_run_platforms(
     normalized_preferences["country_code"] = country_code
     normalized_preferences["listing_mode"] = listing_mode
     normalized_preferences["selected_platforms"] = list(kept)
-    if removed:
+    if removed_details:
         normalized_preferences["provider_country_filter_applied"] = True
-        normalized_preferences["provider_country_filter_removed"] = list(removed)
+        normalized_preferences["provider_country_filter_removed"] = [
+            str(row.get("platform") or "").strip()
+            for row in removed_details
+            if str(row.get("platform") or "").strip()
+        ]
+        normalized_preferences["provider_country_filter_removed_details"] = [dict(row) for row in removed_details]
     return normalized_preferences, kept
 
 
@@ -312,6 +317,7 @@ def _start_property_search_run_payload(
     actor = str(context.operator_id or context.access_email or context.principal_id or "property_search").strip()
     merged_preferences = _property_preferences(container, principal_id=context.principal_id)
     merged_preferences.update(dict(body.property_preferences))
+    merged_preferences.pop("max_results_per_source", None)
     merged_preferences, sanitized_platforms = _sanitize_property_search_run_platforms(
         property_preferences=merged_preferences,
         selected_platforms=tuple(body.selected_platforms),
@@ -319,7 +325,7 @@ def _start_property_search_run_payload(
     enforce_property_plan_limits(
         property_preferences=merged_preferences,
         selected_platforms=sanitized_platforms,
-        max_results_per_source=body.max_results_per_source,
+        max_results_per_source=None,
     )
     return service.start_property_search_run(
         principal_id=context.principal_id,
@@ -327,7 +333,7 @@ def _start_property_search_run_payload(
         selected_platforms=sanitized_platforms,
         property_search_preferences=merged_preferences,
         force_refresh=bool(body.force_refresh),
-        max_results_per_source=body.max_results_per_source,
+        max_results_per_source=None,
         dispatch_only=bool(body.dispatch_only),
         dispatch_probe_ack_only=(
             bool(body.dispatch_only)
@@ -375,6 +381,9 @@ def _property_search_run_status_payload(
         normalized["generated_at"] = str(normalized.get("updated_at") or normalized.get("created_at") or "")
     normalized["events"] = property_run_customer_visible_events(run_payload=normalized)
     if summary:
+        score_demoted_total = int(summary.get("score_demoted_total") or summary.get("filtered_low_fit_total") or 0)
+        if score_demoted_total > 0:
+            summary["score_demoted_total"] = score_demoted_total
         ranked_candidates = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
         if not ranked_candidates:
             synthesized: list[dict[str, object]] = []

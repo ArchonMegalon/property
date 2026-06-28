@@ -314,6 +314,11 @@ def _route_expectations(route: str) -> dict[str, Any]:
 def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[str, Any]]:
     if str(route or "").split("?", 1)[0].strip() == "/app/billing" and int(metrics.get("status_code") or 0) in {303, 307}:
         redirect_location = str(metrics.get("redirect_location") or "").strip()
+        if redirect_location.startswith("/app/account"):
+            return [
+                {"name": "billing_internal_account_fallback", "ok": True},
+                {"name": "billing_local_page_deleted", "ok": True},
+            ]
         handoff_host_resolves = bool(metrics.get("billing_handoff_host_resolves"))
         handoff_usable = bool(metrics.get("billing_handoff_usable"))
         return [
@@ -330,7 +335,7 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
                 "ok": all(marker in billing_text for marker in BILLING_FAIL_CLOSED_MARKERS)
                 and any(marker in billing_text for marker in BILLING_FAIL_CLOSED_STATE_MARKERS),
             },
-            {"name": "billing_local_page_deleted", "ok": not any(marker in billing_text for marker in ("open pricing", "compare plans", "plus checkout", "billing history"))},
+            {"name": "billing_local_page_deleted", "ok": not any(marker in billing_text for marker in ("open pricing", "view plans", "compare plans", "plus checkout", "billing history"))},
         ]
     expectations = _route_expectations(route)
     viewport_width = int(metrics.get("viewport_width") or 0)

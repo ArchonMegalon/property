@@ -105,6 +105,32 @@ def _money_label(value: float, *, currency_code: str) -> str:
     return f"{currency_code} {amount}"
 
 
+def _first_fact_text(facts: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = _compact_text(facts.get(key), fallback="", limit=120)
+        if value:
+            return value
+    return ""
+
+
+def _distance_access_copy(
+    *,
+    facts: dict[str, object],
+    access_label: str,
+    distance_m: float,
+    name_keys: tuple[str, ...] = (),
+    suffix: str = "",
+) -> str:
+    subject = f"{access_label} access"
+    place_name = _first_fact_text(facts, *name_keys)
+    if place_name:
+        subject = f"{subject} via {place_name}"
+    sentence = f"{subject} is about {int(distance_m)} m away"
+    if suffix:
+        return f"{sentence}, {suffix}"
+    return f"{sentence}."
+
+
 class PreferenceProfileService:
     def __init__(self, *, repo: PreferenceProfileRepository) -> None:
         self._repo = repo
@@ -751,39 +777,108 @@ class PreferenceProfileService:
                 if bool(value):
                     if nearest_subway_m > 0.0 and nearest_subway_m <= 650.0:
                         score += 6.0 * weight
-                        match_reasons.append(f"Underground access is about {int(nearest_subway_m)} m away, which matches the transit preference.")
+                        match_reasons.append(
+                            _distance_access_copy(
+                                facts=facts,
+                                access_label="Underground",
+                                distance_m=nearest_subway_m,
+                                name_keys=("nearest_subway_name", "subway_station_name", "nearest_transit_name", "transit_stop_name"),
+                                suffix="which matches the transit preference.",
+                            )
+                        )
                     elif nearest_subway_m > 1200.0:
                         score -= 6.0 * weight
-                        mismatch_reasons.append(f"Underground access is about {int(nearest_subway_m)} m away, which is weaker than preferred.")
+                        mismatch_reasons.append(
+                            _distance_access_copy(
+                                facts=facts,
+                                access_label="Underground",
+                                distance_m=nearest_subway_m,
+                                name_keys=("nearest_subway_name", "subway_station_name", "nearest_transit_name", "transit_stop_name"),
+                                suffix="which is weaker than preferred.",
+                            )
+                        )
                     else:
                         if nearest_subway_m > 0.0:
-                            unknowns.append(f"Underground access is about {int(nearest_subway_m)} m away.")
+                            unknowns.append(
+                                _distance_access_copy(
+                                    facts=facts,
+                                    access_label="Underground",
+                                    distance_m=nearest_subway_m,
+                                    name_keys=("nearest_subway_name", "subway_station_name", "nearest_transit_name", "transit_stop_name"),
+                                )
+                            )
                         else:
                             unknowns.append("The listing does not include a confirmed underground distance.")
             elif category == "soft_preference" and key == "prefer_supermarket_nearby":
                 if bool(value):
                     if nearest_supermarket_m > 0.0 and nearest_supermarket_m <= 700.0:
                         score += 4.0 * weight
-                        match_reasons.append(f"Supermarket access is about {int(nearest_supermarket_m)} m away, which matches the daily-life preference.")
+                        match_reasons.append(
+                            _distance_access_copy(
+                                facts=facts,
+                                access_label="Supermarket",
+                                distance_m=nearest_supermarket_m,
+                                name_keys=("nearest_supermarket_name", "supermarket_name"),
+                                suffix="which matches the daily-life preference.",
+                            )
+                        )
                     elif nearest_supermarket_m > 1000.0:
                         score -= 4.5 * weight
-                        mismatch_reasons.append(f"Supermarket access is about {int(nearest_supermarket_m)} m away, which is weaker than preferred.")
+                        mismatch_reasons.append(
+                            _distance_access_copy(
+                                facts=facts,
+                                access_label="Supermarket",
+                                distance_m=nearest_supermarket_m,
+                                name_keys=("nearest_supermarket_name", "supermarket_name"),
+                                suffix="which is weaker than preferred.",
+                            )
+                        )
                     else:
                         if nearest_supermarket_m > 0.0:
-                            unknowns.append(f"Supermarket access is about {int(nearest_supermarket_m)} m away.")
+                            unknowns.append(
+                                _distance_access_copy(
+                                    facts=facts,
+                                    access_label="Supermarket",
+                                    distance_m=nearest_supermarket_m,
+                                    name_keys=("nearest_supermarket_name", "supermarket_name"),
+                                )
+                            )
                         else:
                             unknowns.append("The listing does not include a confirmed supermarket distance.")
             elif category == "soft_preference" and key == "prefer_pharmacy_nearby":
                 if bool(value):
                     if nearest_pharmacy_m > 0.0 and nearest_pharmacy_m <= 800.0:
                         score += 3.5 * weight
-                        match_reasons.append(f"Pharmacy access is about {int(nearest_pharmacy_m)} m away, which matches the daily-life preference.")
+                        match_reasons.append(
+                            _distance_access_copy(
+                                facts=facts,
+                                access_label="Pharmacy",
+                                distance_m=nearest_pharmacy_m,
+                                name_keys=("nearest_pharmacy_name", "pharmacy_name"),
+                                suffix="which matches the daily-life preference.",
+                            )
+                        )
                     elif nearest_pharmacy_m > 1200.0:
                         score -= 3.5 * weight
-                        mismatch_reasons.append(f"Pharmacy access is about {int(nearest_pharmacy_m)} m away, which is weaker than preferred.")
+                        mismatch_reasons.append(
+                            _distance_access_copy(
+                                facts=facts,
+                                access_label="Pharmacy",
+                                distance_m=nearest_pharmacy_m,
+                                name_keys=("nearest_pharmacy_name", "pharmacy_name"),
+                                suffix="which is weaker than preferred.",
+                            )
+                        )
                     else:
                         if nearest_pharmacy_m > 0.0:
-                            unknowns.append(f"Pharmacy access is about {int(nearest_pharmacy_m)} m away.")
+                            unknowns.append(
+                                _distance_access_copy(
+                                    facts=facts,
+                                    access_label="Pharmacy",
+                                    distance_m=nearest_pharmacy_m,
+                                    name_keys=("nearest_pharmacy_name", "pharmacy_name"),
+                                )
+                            )
                         else:
                             unknowns.append("The listing does not include a confirmed pharmacy distance.")
             elif category == "soft_preference" and key == "prefer_unlimited_lease":
