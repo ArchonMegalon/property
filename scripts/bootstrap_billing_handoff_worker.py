@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
@@ -104,6 +105,40 @@ def _discover_zone_id(*, account_id: str, headers: dict[str, str], zone_name: st
     return str(zones[0].get("id") or "").strip()
 
 
+def _encode_worker_literal(value: str) -> str:
+    return base64.b64encode(value.encode("utf-8")).decode("ascii")
+
+
+def _billing_noise_rules() -> list[tuple[str, str]]:
+    return [
+        (r"\bCurrent ranking bar:\s*\d+\s*\/\s*100\b[;:,-]?\s*", ""),
+        (r"\bCurrent ranking bar:\s*", ""),
+        (r"\beven below the (?:current|saved) ranking bar\b", "in the full list"),
+        (r"\bbelow the (?:current|saved) ranking bar\b", "in the full list"),
+        (r"\bbelow the current bar\b", "in the full list"),
+        (r"\bTurn the ranking bar down or off\b", "Start a fresh search"),
+        (r"\bLower the ranking bar or turn it off\b", "Start a fresh search"),
+        (r"\bCurrent score filter:\s*\d+\s*\/\s*100\b[;:,-]?\s*", ""),
+        (r"\bCurrent score filter:\s*", ""),
+        (r"\bCurrent score ceiling:\s*\d+\s*\/\s*100\b[;:,-]?\s*", ""),
+        (r"\bCurrent score ceiling:\s*", ""),
+        (r"\beven below the (?:current|saved) score filter\b", "in the full list"),
+        (r"\bbelow the (?:current|saved) score filter\b", "in the full list"),
+        (r"\bbelow the current score ceiling\b", "in the full list"),
+        (r"\bTurn the score filter down or off\b", "Start a fresh search"),
+        (r"\bLower the score filter or turn it off\b", "Start a fresh search"),
+        (r"\bScore ceiling\b", ""),
+        (r"\bResult cap per provider\b", ""),
+        (r"\bPer provider\b", ""),
+        (r"\bAll ranked\b", ""),
+        (r"\b35\s*\/\s*100\b", ""),
+        (r"\b45\s*\/\s*100\b", ""),
+        (r"\b60\s*\/\s*100\b", ""),
+        (r"\bscore gate\b", ""),
+        (r"\bpagespeed accessibility score\b", "pagespeed accessibility"),
+    ]
+
+
 def _worker_source(
     *,
     target_base_url: str,
@@ -129,6 +164,9 @@ def _worker_source(
     normalized_bridge_path = "/" + str(bridge_path or "").strip().lstrip("/")
     if not normalized_bridge_path or normalized_bridge_path == "/" or "?" in normalized_bridge_path or "#" in normalized_bridge_path:
         raise SystemExit("bridge_path must be a non-root path without query or fragment")
+    encoded_billing_noise_rules = json.dumps(
+        [[_encode_worker_literal(pattern), _encode_worker_literal(replacement)] for pattern, replacement in _billing_noise_rules()]
+    )
     return (
         "export default {\n"
         "  async fetch(request, env) {\n"
@@ -225,36 +263,22 @@ def _worker_source(
         "      };\n"
         "    };\n"
         "    const bridgeContextFromRequest = async () => verifyBridgeToken(readCookie(bridgeCookieName));\n"
+        f"    const encodedBillingNoiseRules = {encoded_billing_noise_rules};\n"
+        "    const decodeBillingNoiseValue = (value) => {\n"
+        "      try {\n"
+        "        return atob(String(value || ''));\n"
+        "      } catch {\n"
+        "        return '';\n"
+        "      }\n"
+        "    };\n"
+        "    const billingNoiseRules = encodedBillingNoiseRules.map(([pattern, replacement]) => [\n"
+        "      new RegExp(decodeBillingNoiseValue(pattern), 'ig'),\n"
+        "      decodeBillingNoiseValue(replacement),\n"
+        "    ]);\n"
         "    const scrubCustomerFacingBillingNoise = (value) => {\n"
         "      if (!value) return value;\n"
         "      let cleaned = String(value);\n"
-        "      const replacements = [\n"
-        "        [/\\bCurrent ranking bar:\\s*\\d+\\s*\\/\\s*100\\b[;:,-]?\\s*/ig, ''],\n"
-        "        [/\\bCurrent ranking bar:\\s*/ig, ''],\n"
-        "        [/\\beven below the (?:current|saved) ranking bar\\b/ig, 'in the full list'],\n"
-        "        [/\\bbelow the (?:current|saved) ranking bar\\b/ig, 'in the full list'],\n"
-        "        [/\\bbelow the current bar\\b/ig, 'in the full list'],\n"
-        "        [/\\bTurn the ranking bar down or off\\b/ig, 'Start a fresh search'],\n"
-        "        [/\\bLower the ranking bar or turn it off\\b/ig, 'Start a fresh search'],\n"
-        "        [/\\bCurrent score filter:\\s*\\d+\\s*\\/\\s*100\\b[;:,-]?\\s*/ig, ''],\n"
-        "        [/\\bCurrent score filter:\\s*/ig, ''],\n"
-        "        [/\\bCurrent score ceiling:\\s*\\d+\\s*\\/\\s*100\\b[;:,-]?\\s*/ig, ''],\n"
-        "        [/\\bCurrent score ceiling:\\s*/ig, ''],\n"
-        "        [/\\beven below the (?:current|saved) score filter\\b/ig, 'in the full list'],\n"
-        "        [/\\bbelow the (?:current|saved) score filter\\b/ig, 'in the full list'],\n"
-        "        [/\\bbelow the current score ceiling\\b/ig, 'in the full list'],\n"
-        "        [/\\bTurn the score filter down or off\\b/ig, 'Start a fresh search'],\n"
-        "        [/\\bLower the score filter or turn it off\\b/ig, 'Start a fresh search'],\n"
-        "        [/\\bScore ceiling\\b/ig, ''],\n"
-        "        [/\\bResult cap per provider\\b/ig, ''],\n"
-        "        [/\\bPer provider\\b/ig, ''],\n"
-        "        [/\\bAll ranked\\b/ig, ''],\n"
-        "        [/\\b35\\s*\\/\\s*100\\b/ig, ''],\n"
-        "        [/\\b45\\s*\\/\\s*100\\b/ig, ''],\n"
-        "        [/\\b60\\s*\\/\\s*100\\b/ig, ''],\n"
-        "        [/\\bscore gate\\b/ig, ''],\n"
-        "      ];\n"
-        "      for (const [pattern, replacement] of replacements) {\n"
+        "      for (const [pattern, replacement] of billingNoiseRules) {\n"
         "        cleaned = cleaned.replace(pattern, replacement);\n"
         "      }\n"
         "      cleaned = cleaned\n"
@@ -267,7 +291,10 @@ def _worker_source(
         "      }\n"
         "      return cleaned;\n"
         "    };\n"
-        "    const billingNoiseCleanupScript = `<script>(function(){var regex=function(source){return new RegExp(source,'ig');};var patterns=[regex('\\\\bCurrent '+'ranking '+'bar:\\\\s*\\\\d+\\\\s*\\\\/\\\\s*100\\\\b[;:,-]?\\\\s*'),regex('\\\\bCurrent '+'ranking '+'bar:\\\\s*'),regex('\\\\beven below the (?:current|saved) '+'ranking '+'bar\\\\b'),regex('\\\\bbelow the (?:current|saved) '+'ranking '+'bar\\\\b'),regex('\\\\bbelow the current '+'bar\\\\b'),regex('\\\\bTurn the '+'ranking '+'bar down or off\\\\b'),regex('\\\\bLower the '+'ranking '+'bar or turn it off\\\\b'),regex('\\\\bCurrent '+'score '+'filter:\\\\s*\\\\d+\\\\s*\\\\/\\\\s*100\\\\b[;:,-]?\\\\s*'),regex('\\\\bCurrent '+'score '+'filter:\\\\s*'),regex('\\\\bCurrent '+'score '+'ceiling:\\\\s*\\\\d+\\\\s*\\\\/\\\\s*100\\\\b[;:,-]?\\\\s*'),regex('\\\\bCurrent '+'score '+'ceiling:\\\\s*'),regex('\\\\beven below the (?:current|saved) '+'score '+'filter\\\\b'),regex('\\\\bbelow the (?:current|saved) '+'score '+'filter\\\\b'),regex('\\\\bbelow the current '+'score '+'ceiling\\\\b'),regex('\\\\bTurn the '+'score '+'filter down or off\\\\b'),regex('\\\\bLower the '+'score '+'filter or turn it off\\\\b'),regex('\\\\bScore '+'ceiling\\\\b'),regex('\\\\bResult '+'cap per '+'provider\\\\b'),regex('\\\\bPer '+'provider\\\\b'),regex('\\\\bAll '+'ranked\\\\b'),regex('\\\\b35\\\\s*\\\\/\\\\s*100\\\\b'),regex('\\\\b45\\\\s*\\\\/\\\\s*100\\\\b'),regex('\\\\b60\\\\s*\\\\/\\\\s*100\\\\b'),regex('\\\\bscore '+'gate\\\\b')];var normalize=function(value){return String(value||'').replace(/\\\\s+/g,' ').trim();};var scrubText=function(value){var cleaned=String(value||'');for(var i=0;i<patterns.length;i+=1){cleaned=cleaned.replace(patterns[i],'');}return normalize(cleaned.replace(/\\\\s+([,.;:])/g,'$1').replace(/([.?!]){2,}/g,'$1').replace(/\\\\s{2,}/g,' '));};var selectors='p,li,div,span,strong,small,td,th,label,a,button';var sweep=function(root){if(!root||!root.querySelectorAll)return;var nodes=root.querySelectorAll(selectors);for(var i=0;i<nodes.length;i+=1){var node=nodes[i];if(node.closest&&node.closest('[data-pq-billing-bridge]'))continue;var original=normalize(node.textContent||'');if(!original)continue;var cleaned=scrubText(original);if(cleaned===original)continue;if(!cleaned){node.remove();continue;}if(node.children.length===0){node.textContent=cleaned;continue;}if(original.length<=120){node.remove();}}};if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',function(){sweep(document);});}else{sweep(document);}var observer=new MutationObserver(function(mutations){for(var i=0;i<mutations.length;i+=1){var mutation=mutations[i];for(var j=0;j<mutation.addedNodes.length;j+=1){var node=mutation.addedNodes[j];if(node&&node.nodeType===1){sweep(node);}}}});observer.observe(document.documentElement,{childList:true,subtree:true});})();</script>`;\n"
+        "    const billingNoiseCleanupScript = (() => {\n"
+        "      const encodedRulesJson = JSON.stringify(encodedBillingNoiseRules);\n"
+        "      return `<script>(function(){var decode=function(value){try{return atob(String(value||''));}catch(_error){return '';}};var encodedRules=${encodedRulesJson};var rules=[];for(var i=0;i<encodedRules.length;i+=1){rules.push([new RegExp(decode(encodedRules[i][0]),'ig'),decode(encodedRules[i][1])]);}var normalize=function(value){return String(value||'').replace(/\\s+/g,' ').trim();};var scrubText=function(value){var cleaned=String(value||'');for(var i=0;i<rules.length;i+=1){cleaned=cleaned.replace(rules[i][0],rules[i][1]);}return normalize(cleaned.replace(/\\s+([,.;:])/g,'$1').replace(/([.?!]){2,}/g,'$1').replace(/\\s{2,}/g,' '));};var selectors='p,li,div,span,strong,small,td,th,label,a,button';var sweep=function(root){if(!root||!root.querySelectorAll)return;var nodes=root.querySelectorAll(selectors);for(var i=0;i<nodes.length;i+=1){var node=nodes[i];if(node.closest&&node.closest('[data-pq-billing-bridge]'))continue;var original=normalize(node.textContent||'');if(!original)continue;var cleaned=scrubText(original);if(cleaned===original)continue;if(!cleaned){node.remove();continue;}if(node.children.length===0){node.textContent=cleaned;continue;}if(original.length<=120){node.remove();}}};if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',function(){sweep(document);});}else{sweep(document);}var observer=new MutationObserver(function(mutations){for(var i=0;i<mutations.length;i+=1){var mutation=mutations[i];for(var j=0;j<mutation.addedNodes.length;j+=1){var node=mutation.addedNodes[j];if(node&&node.nodeType===1){sweep(node);}}}});observer.observe(document.documentElement,{childList:true,subtree:true});})();</script>`;\n"
+        "    })();\n"
         "    const bridgeCardHtml = ({ title, detail, primaryHref, primaryLabel, secondaryHref, secondaryLabel, email }) => `<section class=\"pq-bridge-card\" data-pq-billing-bridge=\"1\"><p class=\"pq-bridge-eyebrow\">PropertyQuarry billing</p><h1>${htmlEscape(title)}</h1>${email ? `<p class=\"pq-bridge-email\">${htmlEscape(email)}</p>` : ''}<p>${htmlEscape(detail)}</p><div class=\"pq-bridge-actions\"><a class=\"pq-bridge-primary\" href=\"${htmlEscape(primaryHref)}\">${htmlEscape(primaryLabel)}</a>${secondaryHref ? `<a class=\"pq-bridge-secondary\" href=\"${htmlEscape(secondaryHref)}\">${htmlEscape(secondaryLabel || 'View plans')}</a>` : ''}</div></section>`;\n"
         "    const bridgeStyles = '<style>:root{color-scheme:light dark;--pq-bg:#f6f2ea;--pq-card:#fffaf0;--pq-ink:#201a12;--pq-muted:#6d6254;--pq-border:#e0d5c4;--pq-accent:#9a5a22}@media(prefers-color-scheme:dark){:root{--pq-bg:#15120e;--pq-card:#201a13;--pq-ink:#fff7ea;--pq-muted:#cbbda8;--pq-border:#3a3025;--pq-accent:#e3aa62}}.pq-bridge-card{width:min(100%,560px);margin:24px auto;padding:28px;border:1px solid var(--pq-border);border-radius:28px;background:color-mix(in srgb,var(--pq-card) 92%,transparent);box-shadow:0 24px 60px rgba(32,26,18,.12);font:16px/1.5 ui-serif,Georgia,serif;color:var(--pq-ink)}.pq-bridge-eyebrow{margin:0 0 10px;color:var(--pq-accent);font:700 12px/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}.pq-bridge-card h1{margin:0 0 12px;font-size:clamp(30px,8vw,44px);line-height:.96;letter-spacing:-.04em}.pq-bridge-card p{margin:0 0 18px;color:var(--pq-muted)}.pq-bridge-actions{display:flex;flex-wrap:wrap;gap:12px}.pq-bridge-primary,.pq-bridge-secondary{display:inline-flex;min-height:48px;align-items:center;justify-content:center;border-radius:999px;padding:0 18px;font:700 14px/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none}.pq-bridge-primary{background:var(--pq-ink);color:var(--pq-card)}.pq-bridge-secondary{border:1px solid var(--pq-border);color:var(--pq-ink)}.pq-bridge-email{margin:0 0 18px;font:600 14px/1.4 ui-sans-serif,system-ui,sans-serif;color:var(--pq-ink)}</style>';\n"
         "    const bridgeStandaloneHtml = (payload) => `<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"robots\" content=\"noindex, nofollow\">${bridgeStyles}<title>${htmlEscape(payload.title)}</title></head><body style=\"margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 20% 0%,rgba(154,90,34,.16),transparent 34%),var(--pq-bg);\">${bridgeCardHtml(payload)}</body></html>`;\n"

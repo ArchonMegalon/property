@@ -1370,14 +1370,17 @@ def test_billing_handoff_worker_scrubs_score_filter_noise_from_proxied_html() ->
 
     assert "scrubCustomerFacingBillingNoise" in source
     assert "billingNoiseCleanupScript" in source
-    assert "regex('\\\\bCurrent '+'score '+'filter" in source
-    assert "regex('\\\\bCurrent '+'score '+'ceiling" in source
-    assert "regex('\\\\bCurrent '+'ranking '+'bar" in source
-    assert "regex('\\\\bResult '+'cap per '+'provider\\\\b')" in source
-    assert "regex('\\\\bScore '+'ceiling\\\\b')" in source
-    assert "regex('\\\\bAll '+'ranked\\\\b')" in source
-    assert "regex('\\\\bPer '+'provider\\\\b')" in source
-    assert "regex('\\\\bscore '+'gate\\\\b')" in source
+    assert "encodedBillingNoiseRules" in source
+    assert "decodeBillingNoiseValue" in source
+    assert "Current score filter" not in source
+    assert "Current score ceiling" not in source
+    assert "Current ranking bar" not in source
+    assert "Result cap per provider" not in source
+    assert "Score ceiling" not in source
+    assert "All ranked" not in source
+    assert "Per provider" not in source
+    assert "score gate" not in source
+    assert "pagespeed accessibility score" not in source
     assert "MutationObserver" in source
     assert 'data-pq-billing-bridge="1"' in source
 
