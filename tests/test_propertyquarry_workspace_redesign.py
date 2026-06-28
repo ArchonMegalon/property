@@ -14423,6 +14423,22 @@ def test_propertyquarry_setup_intro_is_compact_and_allows_fact_text_to_wrap() ->
     assert "white-space: nowrap;" not in fact_strong.group("body")
 
 
+def test_propertyquarry_account_alerts_billing_use_single_column_active_shell_css() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    template = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    style_block = template.split("<style>", 1)[1].split("</style>", 1)[0]
+    active_css = style_block.split("{% else %}", 1)[0]
+
+    assert '.pqx-shell[data-pqx-surface="account"] .pqx-setup,' in active_css
+    assert '.pqx-shell[data-pqx-surface="alerts"] .pqx-setup,' in active_css
+    assert '.pqx-shell[data-pqx-surface="billing"] .pqx-setup {' in active_css
+    assert 'grid-template-columns: minmax(0, 1fr);' in active_css
+    assert '.pqx-shell[data-pqx-surface="account"] .pqx-setup-intro,' in active_css
+    assert '.pqx-shell[data-pqx-surface="alerts"] .pqx-setup-intro,' in active_css
+    assert '.pqx-shell[data-pqx-surface="billing"] .pqx-setup-intro {' in active_css
+    assert 'display: none;' in active_css
+
+
 def test_propertyquarry_workspace_supports_area_select_all_actions() -> None:
     principal_id = "pq-vienna-scope"
     client = build_property_client(principal_id=principal_id)

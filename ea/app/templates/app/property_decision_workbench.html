@@ -662,6 +662,22 @@
       padding: 0;
     }
     .pqx-account-board > .pqx-section-head { display: none; }
+    .pqx-shell[data-pqx-surface="account"] .pqx-setup,
+    .pqx-shell[data-pqx-surface="alerts"] .pqx-setup,
+    .pqx-shell[data-pqx-surface="billing"] .pqx-setup {
+      grid-template-columns: minmax(0, 1fr);
+      min-height: auto;
+    }
+    .pqx-shell[data-pqx-surface="account"] .pqx-setup-intro,
+    .pqx-shell[data-pqx-surface="alerts"] .pqx-setup-intro,
+    .pqx-shell[data-pqx-surface="billing"] .pqx-setup-intro {
+      display: none;
+    }
+    .pqx-shell[data-pqx-surface="account"] .pqx-brief-drawer-panel,
+    .pqx-shell[data-pqx-surface="alerts"] .pqx-brief-drawer-panel,
+    .pqx-shell[data-pqx-surface="billing"] .pqx-brief-drawer-panel {
+      max-width: none;
+    }
     .pqx-account-action-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
