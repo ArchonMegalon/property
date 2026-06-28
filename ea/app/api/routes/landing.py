@@ -337,10 +337,10 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
                     }
                 else:
                     first_blocked_state = {
-                        "available": bridge_ready,
+                        "available": False,
                         "status": "bridge_ready" if bridge_ready else "login_required",
                         "hosted_href": hosted_url,
-                        "open_href": launch_href if bridge_ready else "",
+                        "open_href": "",
                         "bridge_href": bridge_href,
                         "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
                         "member_token_status": str(member_token_receipt.get("error") or "").strip(),
@@ -2628,12 +2628,6 @@ def _property_console_context(
     country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
     run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
-    has_persisted_brief = bool(
-        str(preferences.get("country_code") or raw_property_preferences.get("country_code") or "").strip()
-        or str(preferences.get("region_code") or raw_property_preferences.get("region_code") or "").strip()
-        or str(preferences.get("location_query") or raw_property_preferences.get("location_query") or "").strip()
-        or str(preferences.get("search_goal") or raw_property_preferences.get("search_goal") or "").strip()
-    )
     recent_search_runs: list[dict[str, object]] = []
     lightweight_active_run: dict[str, object] = {}
     active_run: dict[str, object] | None = None
@@ -2648,10 +2642,6 @@ def _property_console_context(
         wants_recent_runs
         and not (normalized_run_id and surface_scope.section in {"properties", "shortlist", "research"})
         and surface_scope.section != "search"
-        and (
-            surface_scope.section != "properties"
-            or has_persisted_brief
-        )
     )
     if should_load_recent_runs:
         try:
@@ -3279,7 +3269,7 @@ def property_billing_bridge_launch(
         if login_url:
             return RedirectResponse(login_url, status_code=303)
     handoff = _property_brilliant_directories_billing_handoff()
-    if str(handoff.get("status") or "").strip().lower() != "bridge_ready":
+    if not bool(handoff.get("available")) or str(handoff.get("status") or "").strip().lower() != "bridge_ready":
         return RedirectResponse(_property_billing_fallback_href(), status_code=303)
     try:
         bridge_url = brilliant_directories_service.build_brilliant_directories_billing_sso_bridge_launch_url(

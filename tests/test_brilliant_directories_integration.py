@@ -822,7 +822,7 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_requires
     )
 
 
-def test_property_billing_route_uses_sso_bridge_when_direct_handoff_requires_second_login(
+def test_property_billing_route_fails_closed_when_only_sso_bridge_is_available_but_direct_handoff_requires_second_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_env(monkeypatch)
@@ -857,8 +857,10 @@ def test_property_billing_route_uses_sso_bridge_when_direct_handoff_requires_sec
 
     response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/app/api/property/billing/bridge-launch"
+    _assert_billing_fail_closed(
+        response,
+        marker="This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now.",
+    )
 
 
 def test_property_billing_route_uses_member_token_handoff_when_direct_handoff_requires_second_login(
@@ -937,6 +939,52 @@ def test_property_billing_bridge_launch_redirects_with_signed_token(monkeypatch:
     assert query["source"] == "propertyquarry"
     assert payload["principal_id"] == "exec-bd-billing-sso-launch"
     assert payload["return_to"] == "/app/billing"
+
+
+def test_property_billing_bridge_launch_falls_back_when_only_bridge_ready_still_requires_separate_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "propertyquarry.directoryup.com,billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://propertyquarry.directoryup.com/account")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL", "https://billing.propertyquarry.com/sso/propertyquarry")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET", "bridge-secret")
+    monkeypatch.setattr(
+        "app.api.routes.landing._property_cached_billing_handoff_receipt",
+        lambda *, hosted_url: {
+            "configured": True,
+            "url": hosted_url,
+            "host": "propertyquarry.directoryup.com",
+            "host_resolves": True,
+            "account_handoff_usable": False,
+            "account_handoff_error": "billing_handoff_requires_separate_login",
+            "error": "billing_handoff_requires_separate_login",
+        },
+    )
+    monkeypatch.setattr(
+        "app.api.routes.landing.brilliant_directories_service.build_brilliant_directories_billing_sso_bridge_receipt",
+        lambda: {
+            "enabled": True,
+            "configured": True,
+            "ready": True,
+            "url": "https://billing.propertyquarry.com/sso/propertyquarry",
+            "host": "billing.propertyquarry.com",
+            "host_resolves": True,
+            "error": "",
+        },
+    )
+    client = build_property_client(principal_id="exec-bd-billing-sso-launch-blocked")
+    start_workspace(client, mode="personal", workspace_name="BD Billing SSO Launch Blocked")
+
+    response = client.get(
+        "/app/api/property/billing/bridge-launch?return_to=/app/billing",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_property_billing_bridge_launch_redirects_with_member_login_token_handoff(

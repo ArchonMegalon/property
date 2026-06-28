@@ -10587,26 +10587,59 @@ def test_property_workspace_browser_forms_accept_same_origin_mutations() -> None
     assert not client.cookies.get("ea_workspace_session")
 
 
-def test_property_properties_surface_skips_recent_runs_load_without_explicit_run(monkeypatch) -> None:
+def test_property_properties_surface_loads_recent_runs_without_saved_brief(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-fast-properties")
     start_workspace(client, mode="personal", workspace_name="Property Office")
+    calls: list[tuple[str, int, bool]] = []
 
-    def _explode(*args, **kwargs):
-        raise AssertionError("properties surface should not load recent runs on first visit")
+    def _fake_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+        calls.append((principal_id, limit, hydrate))
+        assert principal_id == "pq-fast-properties"
+        assert limit == 8
+        assert hydrate is False
+        return [
+            {
+                "run_id": "run-history-1",
+                "principal_id": principal_id,
+                "status": "processed",
+                "updated_at": "2026-06-29T07:30:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1020 Vienna",
+                },
+                "summary": {
+                    "status": "processed",
+                    "sources_total": 4,
+                    "listing_total": 28,
+                    "ranked_candidates": [
+                        {
+                            "title": "Bright apartment near Augarten",
+                            "price_display": "EUR 1,240",
+                            "packet_url": "/app/research/candidate-1?run_id=run-history-1",
+                        }
+                    ],
+                },
+            }
+        ]
 
-    monkeypatch.setattr(ProductService, "list_property_search_runs", _explode)
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
 
     response = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
     assert 'data-property-decision-workbench' in response.text
+    assert calls == [("pq-fast-properties", 8, False)]
 
 
-def test_property_properties_surface_uses_active_run_lookup_without_recent_run_list(monkeypatch) -> None:
+def test_property_properties_surface_uses_active_run_lookup_with_recent_run_list(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-properties-active-run-lookup")
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
-    def _explode(self, *, principal_id: str, limit: int = 8):
-        raise AssertionError("properties surface should not hydrate the recent run list")
+    def _fake_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+        assert principal_id == "pq-properties-active-run-lookup"
+        assert limit == 8
+        assert hydrate is False
+        return []
 
     def _fake_active_run(self, *, principal_id: str, limit: int = 8):
         assert principal_id == "pq-properties-active-run-lookup"
@@ -10626,7 +10659,7 @@ def test_property_properties_surface_uses_active_run_lookup_without_recent_run_l
             "summary": {"status": "in_progress", "sources": [], "ranked_candidates": []},
         }
 
-    monkeypatch.setattr(ProductService, "list_property_search_runs", _explode)
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
     monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
 
