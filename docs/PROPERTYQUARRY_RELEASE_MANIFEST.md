@@ -29,10 +29,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `4362c7f040d2b3ae424b1755a47b1c12b57f6f71` |
+| Runtime commit SHA | `13ce771dba3a9c5b0ac2f5adcd039dce793b7d6d` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-28 after `4362c7f0` to keep Brilliant Directories handoff copy free of score-filter hints, align mobile account-sheet hooks across customer surfaces, and preserve the latest live workspace polish pass |
+| Deployment ID | current release candidate on 2026-06-28 after `13ce771d`, carrying the latest dark-mode guards for research detail and What Matters mobile controls on top of the live billing-copy and mobile-sheet polish pass |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
