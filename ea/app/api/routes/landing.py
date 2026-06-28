@@ -2971,6 +2971,54 @@ def _render_property_billing_handoff_page(
     return response
 
 
+def _render_property_billing_unavailable_page(
+    request: Request,
+    *,
+    context: RequestContext,
+    handoff: dict[str, object],
+) -> HTMLResponse:
+    status_value = str(handoff.get("status") or "").strip().lower()
+    error_value = str(handoff.get("error") or "").strip().lower()
+    if status_value == "login_required" or "separate_login" in error_value:
+        blocker_summary = "This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now."
+        blocker_label = "Separate login"
+    elif status_value == "unresolved" or "host_unresolved" in error_value:
+        blocker_summary = "The billing account host is not ready yet."
+        blocker_label = "Host not ready"
+    else:
+        blocker_summary = "The billing portal is still being connected."
+        blocker_label = "Connecting"
+    response = _render_secure_link_page(
+        request,
+        page_title="PropertyQuarry Billing",
+        current_nav="billing",
+        link_kicker="PropertyQuarry",
+        link_title="Billing portal unavailable",
+        link_summary=f"{blocker_summary} Your PropertyQuarry access stays active from the account page.",
+        link_detail_title="Current billing lane",
+        link_status_label=blocker_label,
+        link_rows=[
+            {
+                "label": "Current state",
+                "value": blocker_summary,
+                "detail": "PropertyQuarry keeps billing closed until the white-label handoff opens cleanly.",
+            },
+            {
+                "label": "What stays active",
+                "value": "PropertyQuarry access stays active from the account page.",
+                "detail": "Search, shortlist, research, alerts, and account settings stay available.",
+            },
+        ],
+        primary_action_href="/app/account?billing=1#delivery",
+        primary_action_label="Open account",
+        secondary_action_href="/app/search",
+        secondary_action_label="Open search",
+        status_code=503,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @router.get("/integrations", response_class=HTMLResponse)
 def integrations_page(
     request: Request,
@@ -5247,7 +5295,11 @@ def app_shell(
             ).strip()
             if billing_handoff.get("available") and billing_open_href:
                 return RedirectResponse(billing_open_href, status_code=303)
-            return RedirectResponse(_property_billing_fallback_href(), status_code=303)
+            return _render_property_billing_unavailable_page(
+                request,
+                context=context,
+                handoff=billing_handoff,
+            )
         property_template = "app/property_decision_workbench.html"
         return _render_public_template(
             request,

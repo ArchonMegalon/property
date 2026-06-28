@@ -314,8 +314,9 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Recent outbound property follow-ups" in alerts.text
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=property_headers, follow_redirects=False)
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    assert billing.status_code == 503
+    assert "Billing portal unavailable" in billing.text
+    assert "Your PropertyQuarry access stays active from the account page." in billing.text
 
 
 def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:

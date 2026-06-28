@@ -432,8 +432,9 @@ def test_paid_property_plan_survives_console_context_projection() -> None:
     assert ">Agent<" in account.text
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    assert billing.status_code == 503
+    assert "Billing portal unavailable" in billing.text
+    assert "Your PropertyQuarry access stays active from the account page." in billing.text
 
 
 def test_property_account_nav_prefers_available_external_billing_handoff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -24318,8 +24319,9 @@ def test_property_billing_surface_is_not_local_payment_state() -> None:
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    assert billing.status_code == 503
+    assert "Billing portal unavailable" in billing.text
+    assert "Your PropertyQuarry access stays active from the account page." in billing.text
 
 
 def test_property_payfunnels_webhook_is_public_but_requires_pending_checkout(

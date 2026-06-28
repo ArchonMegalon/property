@@ -479,7 +479,9 @@ def test_propertyquarry_core_surface_internal_links_resolve() -> None:
     for path in paths:
         response = client.get(path, headers={"host": "propertyquarry.com", "accept": "text/html"}, follow_redirects=True)
         if path == "/app/billing":
-            assert response.status_code == 200, path
+            assert response.status_code == 503, path
+            assert "Billing portal unavailable" in response.text
+            assert "Your PropertyQuarry access stays active from the account page." in response.text
             continue
         assert response.status_code == 200, path
         _assert_internal_links_resolve(client, source_path=path, html=response.text)

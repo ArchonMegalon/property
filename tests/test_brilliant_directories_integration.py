@@ -59,6 +59,13 @@ from tests.product_test_helpers import build_property_client, start_workspace
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _assert_billing_fail_closed(response, *, marker: str) -> None:
+    assert response.status_code == 503
+    assert "Billing portal unavailable" in response.text
+    assert marker in response.text
+    assert "Your PropertyQuarry access stays active from the account page." in response.text
+
+
 class _FakeBrilliantDirectoriesResponse:
     def __init__(self, body: bytes, *, content_type: str = "application/json") -> None:
         self._body = body
@@ -732,8 +739,7 @@ def test_property_billing_route_fails_closed_when_billing_handoff_has_cloudflare
 
     response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(response, marker="The billing account host is not ready yet.")
 
 
 def test_property_billing_route_fails_closed_when_brilliant_directories_host_does_not_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -759,8 +765,7 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_host_doe
 
     response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(response, marker="The billing account host is not ready yet.")
 
 
 def test_property_billing_route_fails_closed_when_brilliant_directories_requires_second_login(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -788,8 +793,10 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_requires
 
     response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(
+        response,
+        marker="This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now.",
+    )
 
 
 def test_property_billing_route_uses_sso_bridge_when_direct_handoff_requires_second_login(

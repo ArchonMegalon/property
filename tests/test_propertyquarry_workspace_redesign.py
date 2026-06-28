@@ -55,6 +55,13 @@ def _read_workbench_bundle() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in paths if path.exists())
 
 
+def _assert_billing_fail_closed(response, *, marker: str = "The billing portal is still being connected.") -> None:
+    assert response.status_code == 503
+    assert "Billing portal unavailable" in response.text
+    assert marker in response.text
+    assert "Your PropertyQuarry access stays active from the account page." in response.text
+
+
 class _RenderedInteractiveElementParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -1666,8 +1673,7 @@ def test_propertyquarry_account_surfaces_use_persisted_property_plan() -> None:
     billing = client.get("/app/billing", follow_redirects=False)
     usage = client.get("/app/settings/usage")
 
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(billing)
     assert usage.status_code == 200
     assert '<strong>Current plan</strong>' in usage.text
     assert '<small>Agent</small>' in usage.text
@@ -8963,8 +8969,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Open invite" in workspace_preview.text
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=headers, follow_redirects=False)
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(billing)
     billing_payload_source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
     assert 'row_item("Provider", str(property_state.get("billing_checkout_provider_label")' not in billing_payload_source
     assert "payment confirmation" in billing_payload_source
@@ -9013,8 +9018,7 @@ def test_property_billing_surface_shows_compact_payment_history() -> None:
 
     billing = client.get("/app/billing", headers=headers, follow_redirects=False)
 
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(billing)
 
 
 def test_property_billing_surface_keeps_paid_plan_active_when_checkout_is_disabled() -> None:
@@ -9038,8 +9042,7 @@ def test_property_billing_surface_keeps_paid_plan_active_when_checkout_is_disabl
 
     billing = client.get("/app/billing", headers=headers, follow_redirects=False)
 
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(billing)
 
 
 def test_property_search_status_synthesizes_repair_events_for_compact_failed_runs(monkeypatch) -> None:
@@ -11232,8 +11235,7 @@ def test_static_property_surfaces_skip_full_fleet_digest_on_first_paint(monkeypa
 
     assert agents.status_code == 200
     assert account.status_code == 200
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(billing)
 
 
 def test_property_fleet_digest_uses_short_cache_for_repeated_surface_loads(monkeypatch) -> None:
@@ -16777,8 +16779,7 @@ def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> N
     start_workspace(client, mode="personal", workspace_name="Compact Billing")
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(billing)
 
 
 def test_propertyquarry_billing_surface_redirects_to_white_label_commercial_lane_when_available(
@@ -16838,8 +16839,7 @@ def test_propertyquarry_billing_surface_fails_closed_when_white_label_commercial
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(billing)
 
 
 def test_propertyquarry_account_surface_stays_responsive_when_billing_handoff_verification_is_slow(
@@ -16921,9 +16921,8 @@ def test_propertyquarry_billing_surface_fails_fast_when_billing_handoff_verifica
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     elapsed = time.monotonic() - started
 
-    assert billing.status_code == 303
     assert elapsed < 0.5
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(billing)
 
 
 def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) -> None:
@@ -17405,8 +17404,7 @@ def test_propertyquarry_static_surfaces_do_not_inline_search_only_scripts() -> N
         assert "Saved durably. Profile now has" not in response.text
         assert len(response.text) < 420_000, route
     billing = client.get("/app/billing", headers=headers, follow_redirects=False)
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "/app/account?billing=1#delivery"
+    _assert_billing_fail_closed(billing)
 
 
 def test_propertyquarry_account_payload_avoids_internal_posture_labels() -> None:

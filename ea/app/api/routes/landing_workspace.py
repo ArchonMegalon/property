@@ -899,10 +899,10 @@ def settings_usage_detail(
             request=request,
             context=context,
             workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
-            page_title="PropertyQuarry usage",
+            page_title="PropertyQuarry usage and activation",
             current_nav="settings",
-            console_title="Usage",
-            console_summary="Search runs, ranked homes, filtered homes, property pages, and tours stay visible in one account view.",
+            console_title="Usage and activation",
+            console_summary="Search activation, ranked homes, filtered homes, property pages, and tours stay visible in one account view.",
             object_kind="Property usage",
             object_title=f"{property_usage['run_total']} recent search runs",
             object_summary=(
@@ -911,14 +911,14 @@ def settings_usage_detail(
                 f"{property_usage['repair_status']}"
             ),
             object_meta=[
-                {"label": "Search runs", "value": str(property_usage["run_total"])},
+                {"label": "Searches opened", "value": str(property_usage["run_total"])},
                 {"label": "Ranked homes", "value": str(property_usage["ranked_total"])},
                 {"label": "Filtered homes", "value": str(property_usage["filtered_total"])},
                 {"label": "Sources used", "value": str(property_usage["source_total"])},
                 {"label": "Recovery", "value": str(property_usage["repair_status"])},
             ],
-            object_sidebar_title="What usage means here",
-            object_sidebar_copy="Usage is driven by completed searches, ranked homes, and whether repair work is still open.",
+            object_sidebar_title="What usage and activation mean here",
+            object_sidebar_copy="Usage and activation are driven by completed searches, ranked homes, and whether repair work is still open.",
             object_sidebar_rows=usage_sidebar_rows,
             object_sections=usage_sections,
         )
