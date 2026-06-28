@@ -139,6 +139,23 @@ def _billing_noise_rules() -> list[tuple[str, str]]:
     ]
 
 
+def _billing_noise_fragments() -> list[str]:
+    return [
+        "current score filter",
+        "current score ceiling",
+        "current ranking bar",
+        "score filter",
+        "score ceiling",
+        "score gate",
+        "ranking bar",
+        "match threshold",
+        "watch tier",
+        "result cap per provider",
+        "all ranked",
+        "per provider",
+    ]
+
+
 def _worker_source(
     *,
     target_base_url: str,
@@ -166,6 +183,9 @@ def _worker_source(
         raise SystemExit("bridge_path must be a non-root path without query or fragment")
     encoded_billing_noise_rules = json.dumps(
         [[_encode_worker_literal(pattern), _encode_worker_literal(replacement)] for pattern, replacement in _billing_noise_rules()]
+    )
+    encoded_billing_noise_fragments = json.dumps(
+        [_encode_worker_literal(fragment) for fragment in _billing_noise_fragments()]
     )
     return (
         "export default {\n"
@@ -264,6 +284,7 @@ def _worker_source(
         "    };\n"
         "    const bridgeContextFromRequest = async () => verifyBridgeToken(readCookie(bridgeCookieName));\n"
         f"    const encodedBillingNoiseRules = {encoded_billing_noise_rules};\n"
+        f"    const encodedBillingNoiseFragments = {encoded_billing_noise_fragments};\n"
         "    const decodeBillingNoiseValue = (value) => {\n"
         "      try {\n"
         "        return atob(String(value || ''));\n"
@@ -293,7 +314,8 @@ def _worker_source(
         "    };\n"
         "    const billingNoiseCleanupScript = (() => {\n"
         "      const encodedRulesJson = JSON.stringify(encodedBillingNoiseRules);\n"
-        "      return `<script>(function(){var decode=function(value){try{return atob(String(value||''));}catch(_error){return '';}};var encodedRules=${encodedRulesJson};var rules=[];for(var i=0;i<encodedRules.length;i+=1){rules.push([new RegExp(decode(encodedRules[i][0]),'ig'),decode(encodedRules[i][1])]);}var normalize=function(value){return String(value||'').replace(/\\s+/g,' ').trim();};var scrubText=function(value){var cleaned=String(value||'');for(var i=0;i<rules.length;i+=1){cleaned=cleaned.replace(rules[i][0],rules[i][1]);}return normalize(cleaned.replace(/\\s+([,.;:])/g,'$1').replace(/([.?!]){2,}/g,'$1').replace(/\\s{2,}/g,' '));};var selectors='p,li,div,span,strong,small,td,th,label,a,button';var sweep=function(root){if(!root||!root.querySelectorAll)return;var nodes=root.querySelectorAll(selectors);for(var i=0;i<nodes.length;i+=1){var node=nodes[i];if(node.closest&&node.closest('[data-pq-billing-bridge]'))continue;var original=normalize(node.textContent||'');if(!original)continue;var cleaned=scrubText(original);if(cleaned===original)continue;if(!cleaned){node.remove();continue;}if(node.children.length===0){node.textContent=cleaned;continue;}if(original.length<=120){node.remove();}}};if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',function(){sweep(document);});}else{sweep(document);}var observer=new MutationObserver(function(mutations){for(var i=0;i<mutations.length;i+=1){var mutation=mutations[i];for(var j=0;j<mutation.addedNodes.length;j+=1){var node=mutation.addedNodes[j];if(node&&node.nodeType===1){sweep(node);}}}});observer.observe(document.documentElement,{childList:true,subtree:true});})();</script>`;\n"
+        "      const encodedFragmentsJson = JSON.stringify(encodedBillingNoiseFragments);\n"
+        "      return `<script>(function(){var decode=function(value){try{return atob(String(value||''));}catch(_error){return '';}};var encodedRules=${encodedRulesJson};var encodedFragments=${encodedFragmentsJson};var rules=[];for(var i=0;i<encodedRules.length;i+=1){rules.push([new RegExp(decode(encodedRules[i][0]),'ig'),decode(encodedRules[i][1])]);}var normalize=function(value){return String(value||'').toLowerCase().replace(/\\s+/g,' ').trim();};var fragments=[];for(var k=0;k<encodedFragments.length;k+=1){var fragment=normalize(decode(encodedFragments[k]));if(fragment)fragments.push(fragment);}var containsNoise=function(value){var normalized=normalize(value);if(!normalized)return false;for(var i=0;i<fragments.length;i+=1){if(normalized.indexOf(fragments[i])!==-1)return true;}return false;};var scrubText=function(value){var cleaned=String(value||'');for(var i=0;i<rules.length;i+=1){cleaned=cleaned.replace(rules[i][0],rules[i][1]);}cleaned=cleaned.replace(/\\s+([,.;:])/g,'$1').replace(/([.?!]){2,}/g,'$1').replace(/\\s{2,}/g,' ');cleaned=String(cleaned||'').replace(/^\\s+|\\s+$/g,'');return containsNoise(cleaned)?'':cleaned;};var selectors='p,li,div,span,strong,small,td,th,label,a,button';var sweep=function(root){if(!root||!root.querySelectorAll)return;var nodes=root.querySelectorAll(selectors);for(var i=0;i<nodes.length;i+=1){var node=nodes[i];if(node.closest&&node.closest('[data-pq-billing-bridge]'))continue;var original=String(node.textContent||'').replace(/\\s+/g,' ').trim();if(!original)continue;var cleaned=scrubText(original);if(!cleaned){node.remove();continue;}if(cleaned===original&&!containsNoise(original))continue;if(node.children.length===0){node.textContent=cleaned;continue;}if(original.length<=160||containsNoise(original)){node.remove();}}};if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',function(){sweep(document);});}else{sweep(document);}var observer=new MutationObserver(function(mutations){for(var i=0;i<mutations.length;i+=1){var mutation=mutations[i];for(var j=0;j<mutation.addedNodes.length;j+=1){var node=mutation.addedNodes[j];if(node&&node.nodeType===1){sweep(node);}}}});observer.observe(document.documentElement,{childList:true,subtree:true});})();</script>`;\n"
         "    })();\n"
         "    const bridgeCardHtml = ({ title, detail, primaryHref, primaryLabel, secondaryHref, secondaryLabel, email }) => `<section class=\"pq-bridge-card\" data-pq-billing-bridge=\"1\"><p class=\"pq-bridge-eyebrow\">PropertyQuarry billing</p><h1>${htmlEscape(title)}</h1>${email ? `<p class=\"pq-bridge-email\">${htmlEscape(email)}</p>` : ''}<p>${htmlEscape(detail)}</p><div class=\"pq-bridge-actions\"><a class=\"pq-bridge-primary\" href=\"${htmlEscape(primaryHref)}\">${htmlEscape(primaryLabel)}</a>${secondaryHref ? `<a class=\"pq-bridge-secondary\" href=\"${htmlEscape(secondaryHref)}\">${htmlEscape(secondaryLabel || 'View plans')}</a>` : ''}</div></section>`;\n"
         "    const bridgeStyles = '<style>:root{color-scheme:light dark;--pq-bg:#f6f2ea;--pq-card:#fffaf0;--pq-ink:#201a12;--pq-muted:#6d6254;--pq-border:#e0d5c4;--pq-accent:#9a5a22}@media(prefers-color-scheme:dark){:root{--pq-bg:#15120e;--pq-card:#201a13;--pq-ink:#fff7ea;--pq-muted:#cbbda8;--pq-border:#3a3025;--pq-accent:#e3aa62}}.pq-bridge-card{width:min(100%,560px);margin:24px auto;padding:28px;border:1px solid var(--pq-border);border-radius:28px;background:color-mix(in srgb,var(--pq-card) 92%,transparent);box-shadow:0 24px 60px rgba(32,26,18,.12);font:16px/1.5 ui-serif,Georgia,serif;color:var(--pq-ink)}.pq-bridge-eyebrow{margin:0 0 10px;color:var(--pq-accent);font:700 12px/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}.pq-bridge-card h1{margin:0 0 12px;font-size:clamp(30px,8vw,44px);line-height:.96;letter-spacing:-.04em}.pq-bridge-card p{margin:0 0 18px;color:var(--pq-muted)}.pq-bridge-actions{display:flex;flex-wrap:wrap;gap:12px}.pq-bridge-primary,.pq-bridge-secondary{display:inline-flex;min-height:48px;align-items:center;justify-content:center;border-radius:999px;padding:0 18px;font:700 14px/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none}.pq-bridge-primary{background:var(--pq-ink);color:var(--pq-card)}.pq-bridge-secondary{border:1px solid var(--pq-border);color:var(--pq-ink)}.pq-bridge-email{margin:0 0 18px;font:600 14px/1.4 ui-sans-serif,system-ui,sans-serif;color:var(--pq-ink)}</style>';\n"

@@ -1371,10 +1371,13 @@ def test_billing_handoff_worker_scrubs_score_filter_noise_from_proxied_html() ->
     assert "scrubCustomerFacingBillingNoise" in source
     assert "billingNoiseCleanupScript" in source
     assert "encodedBillingNoiseRules" in source
+    assert "encodedBillingNoiseFragments" in source
     assert "decodeBillingNoiseValue" in source
     assert "Current score filter" not in source
     assert "Current score ceiling" not in source
     assert "Current ranking bar" not in source
+    assert "match threshold" not in source
+    assert "watch tier" not in source
     assert "Result cap per provider" not in source
     assert "Score ceiling" not in source
     assert "All ranked" not in source

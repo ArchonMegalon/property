@@ -2980,7 +2980,7 @@ def property_workspace_payload(
         ),
         row_item(
             "Account settings",
-            "Billing, saved defaults, and how scoring works stay easy to find.",
+            "Billing, saved defaults, and account details stay easy to find.",
             "Control",
         ),
     ]
@@ -3793,7 +3793,7 @@ def property_workspace_payload(
                     "items": [
                         row_item("Search", "Change areas, filters, providers, or shortlist depth.", "Search"),
                         row_item("Plan", "Open the billing account when the current allowance blocks a real run.", "Plan"),
-                        row_item("How it works", "Scoring, privacy, and sharing rules.", "Guide"),
+                        row_item("How it works", "Privacy, sharing, and search basics.", "Guide"),
                     ],
                 },
             ],
@@ -3804,7 +3804,7 @@ def property_workspace_payload(
                 "items": [
                     {
                         "title": "How it works",
-                        "detail": "Scoring, privacy, and sharing rules.",
+                        "detail": "Privacy, sharing, and search basics.",
                         "tag": "Guide",
                         "action_href": "/how-it-works",
                         "action_method": "get",
@@ -3855,7 +3855,7 @@ def property_workspace_payload(
                     "items": [
                         row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
                         row_item("Plan", "Open the billing account when the current allowance blocks a real run.", "Plan"),
-                        row_item("How it works", "Scoring, privacy, and sharing rules.", "Guide"),
+                        row_item("How it works", "Privacy, sharing, and search basics.", "Guide"),
                     ],
                 },
             ],
@@ -3880,7 +3880,7 @@ def property_workspace_payload(
                     },
                     {
                         "title": "How it works",
-                        "detail": "Scoring, privacy, and sharing rules.",
+                        "detail": "Privacy, sharing, and search basics.",
                         "tag": "Guide",
                         "action_href": "/how-it-works",
                         "action_method": "get",

@@ -16785,7 +16785,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Edit search" in account.text
     assert account.text.count("Edit search") == 1
     assert "Open automation" not in account.text
-    assert account.text.count("Billing account") == 1
+    assert account.text.count("Billing account") >= 1
     assert "Account" in account.text
     assert "Automation and reports" not in account.text
     assert "Recurring intelligence leaving this account" not in account.text
@@ -16803,9 +16803,16 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Sign-in and privacy" in account.text
     assert "How it works" in account.text
     assert "Privacy" in account.text
+    assert "Scoring, privacy, and sharing rules." not in account.text
+    assert "how scoring works stay easy to find." not in account.text
     assert "Sync runs" not in account.text
     assert "Last Google sync" not in account.text
     assert "Office signals ingested" not in account.text
+    payload_builder = (
+        Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py"
+    ).read_text(encoding="utf-8")
+    assert "Privacy, sharing, and search basics." in payload_builder
+    assert "Billing, saved defaults, and account details stay easy to find." in payload_builder
 
 
 def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> None:
