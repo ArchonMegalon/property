@@ -3059,17 +3059,21 @@
           <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
             {% set verified_provider_label = research_media.get('provider_label') or '' %}
             {% if action.get('href') %}
-            Tour: {{ verified_provider_label or '3D tour' }}.
+            {% if verified_provider_label %}
+            Available in {{ verified_provider_label }}.
             {% else %}
-            No 3D tour is published yet.
+            3D tour available.
+            {% endif %}
+            {% else %}
+            No 3D tour yet.
             {% endif %}
           </p>
           {% elif visual_card.get('key') == 'walkthrough' %}
           <p class="prd-visual-evidence" data-prd-visual-evidence="walkthrough">
             {% if action.get('href') %}
-            Walkthrough ready on this page.
+            Walkthrough available.
             {% else %}
-            No playable walkthrough is published yet.
+            No walkthrough yet.
             {% endif %}
           </p>
           {% endif %}
@@ -3139,16 +3143,16 @@
       <details class="prd-band prd-open-checks prd-mobile-secondary" open data-prd-mobile-secondary="open-checks">
         <summary>
           <span class="prd-mobile-secondary-toggle">
-            <span class="prd-kicker">Open checks</span>
-            <strong>Still unconfirmed</strong>
+            <span class="prd-kicker">To confirm</span>
+            <strong>Still to confirm</strong>
           </span>
           <span class="prd-tag">{{ open_check_rows|length }} item{% if open_check_rows|length != 1 %}s{% endif %}</span>
         </summary>
         <div class="prd-collapse-body">
-          <div class="prd-kicker">Open checks</div>
-          <h2 class="prd-section-title">Still unconfirmed</h2>
+          <div class="prd-kicker">To confirm</div>
+          <h2 class="prd-section-title">Still to confirm</h2>
           <p class="prd-open-checks-summary">
-            {{ open_check_rows|length }} item{% if open_check_rows|length != 1 %}s{% endif %} still need verification before this property is fully decision-ready.
+            {{ open_check_rows|length }} item{% if open_check_rows|length != 1 %}s{% endif %} still need a quick manual check before you commit.
           </p>
           <div class="prd-facts prd-open-checks-chips">
             {% for item in open_check_rows[:4] %}
@@ -3405,7 +3409,7 @@
           </div>
           {% if research_decision_rows or (research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings'))) %}
           <details class="prd-feedback-details prd-decision-context">
-            <summary>Why this is ranked here</summary>
+            <summary>Why it fits</summary>
             <div class="prd-feedback-body">
           <div class="prd-key-points">
             {% for row in research_decision_rows[:3] %}
@@ -3444,7 +3448,7 @@
       <div class="prd-decision-savebar">
         <div class="object-actions prd-decision-save-actions">
           <button class="console-action prd-decision-save-primary" type="button" data-object-feedback-save aria-label="Save decision">Save</button>
-          <button class="console-action prd-decision-save-secondary" type="button" data-object-feedback-open-advanced>Tune search</button>
+          <button class="console-action prd-decision-save-secondary" type="button" data-object-feedback-open-advanced>Fine-tune preferences</button>
           <a class="console-action prd-decision-save-brief" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Search brief</a>
         </div>
         <p class="object-copy" data-object-feedback-status></p>
@@ -3453,7 +3457,7 @@
       {% set research_agent_questions = research_feedback_suggestions.get('agent_questions') or [] %}
       {% set research_followup_rows = research_feedback.get('followup_rows') or [] %}
       <details class="prd-feedback-details prd-decision-advanced">
-      <summary>Refine decision</summary>
+      <summary>Fine-tune preferences</summary>
       <div class="prd-feedback-body">
       <section class="prd-decision-card">
       <h3>Update state</h3>

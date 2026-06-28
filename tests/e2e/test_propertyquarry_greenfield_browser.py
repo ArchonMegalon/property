@@ -3071,7 +3071,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
               const panel = document.querySelector('[data-object-feedback]');
               const note = document.querySelector('[data-object-feedback-note]');
               const tune = Array.from(document.querySelectorAll('.prd-feedback-details'))
-                .find((node) => (node.textContent || '').includes('Refine decision'));
+                .find((node) => (node.textContent || '').includes('Fine-tune preferences'));
               const rect = panel ? panel.getBoundingClientRect() : null;
               const noteRect = note ? note.getBoundingClientRect() : null;
               return {
@@ -3282,7 +3282,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const decision = document.querySelector('.prd-decision-workspace');
               const secondaryDetails = Array.from(document.querySelectorAll('[data-prd-mobile-secondary]'));
               const fineTune = Array.from(document.querySelectorAll('.prd-feedback-details'))
-                .find((node) => (node.textContent || '').includes('Refine decision'));
+                .find((node) => (node.textContent || '').includes('Fine-tune preferences'));
               const optionalNote = Array.from(document.querySelectorAll('.prd-feedback-details'))
                 .find((node) => (node.querySelector('summary')?.textContent || '').trim() === 'Add an optional note');
               const nextStepDrawer = Array.from(document.querySelectorAll('.prd-feedback-details'))

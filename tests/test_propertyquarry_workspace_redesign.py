@@ -6985,8 +6985,12 @@ def test_property_research_detail_uses_explicit_tour_evidence_copy() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
 
-    assert "Tour: {{ verified_provider_label or '3D tour' }}." in body
-    assert "No 3D tour is published yet." in body
+    assert "Available in {{ verified_provider_label }}." in body
+    assert "3D tour available." in body
+    assert "No 3D tour yet." in body
+    assert "Walkthrough available." in body
+    assert "No walkthrough yet." in body
+    assert "No 3D tour is published yet." not in body
 
 
 def test_property_research_packet_keeps_shared_mobile_navigation_dock(monkeypatch) -> None:
@@ -14016,9 +14020,12 @@ def test_property_research_detail_decision_fits_one_screen_by_default() -> None:
     assert "<h3>Shortlist decision</h3>" in body
     assert "<summary>Next step</summary>" not in body
     assert "<summary>Add an optional note</summary>" not in body
-    assert body.index("<h3>Shortlist decision</h3>") < body.index("<summary>Refine decision</summary>")
-    assert body.index("<summary>Refine decision</summary>") < body.index("<h3>Update state</h3>")
-    assert body.index("<summary>Refine decision</summary>") < body.index("<h3>Add note</h3>")
+    assert "Tune search" not in body
+    assert "<summary>Refine decision</summary>" not in body
+    assert "Why this is ranked here" not in body
+    assert body.index("<h3>Shortlist decision</h3>") < body.index("<summary>Fine-tune preferences</summary>")
+    assert body.index("<summary>Fine-tune preferences</summary>") < body.index("<h3>Update state</h3>")
+    assert body.index("<summary>Fine-tune preferences</summary>") < body.index("<h3>Add note</h3>")
     assert "overflow-y: visible;" in body
     assert "max-height: min(420px, calc(100svh - 48px));" not in body
     assert "grid-template-columns: minmax(0, 1fr);" in body
@@ -15937,8 +15944,8 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     assert "data-pw-walkthrough-provider-select" not in rendered_html
     assert "Mootion" not in rendered_html
     assert "omagic" not in rendered_html
-    assert "No 3D tour is published yet." in rendered_html
-    assert "No playable walkthrough is published yet." in rendered_html
+    assert "No 3D tour yet." in rendered_html
+    assert "No walkthrough yet." in rendered_html
     assert '>Open 3D tour</a>' not in rendered_html
 
 
@@ -16004,7 +16011,7 @@ def test_property_research_packet_terminal_walkthrough_reason_is_not_rendered_as
 
     assert "Walkthrough queued" not in rendered_html
     assert "Request walkthrough" in rendered_html
-    assert "No playable walkthrough is published yet." in rendered_html
+    assert "No walkthrough yet." in rendered_html
     assert 'data-pw-visual-state="idle"' in rendered_html
     assert 'disabled aria-disabled="true"' not in rendered_html
     assert "fit_below_threshold" not in rendered_html
@@ -16320,7 +16327,7 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     assert '>Open Matterport</a>' in rendered_html
     assert '>Open walkthrough</a>' in rendered_html
     assert "MagicFit rendered walkthrough is ready on this page." in rendered_html
-    assert "Walkthrough ready on this page." in rendered_html
+    assert "Walkthrough available." in rendered_html
     assert 'data-prd-visual-card="walkthrough"' in packet.text
     assert 'data-pw-visual-request="tour"' not in rendered_html
     assert 'data-pw-visual-request="flythrough"' not in rendered_html
