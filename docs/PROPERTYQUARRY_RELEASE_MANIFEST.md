@@ -29,10 +29,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `20cbf8776a96d86467bee23b9ead544f0b679a74` |
+| Runtime commit SHA | `033ccaa31ec774089f5c19b38c23a17df4b6e153` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current release candidate on 2026-06-28 after `20cbf877`, carrying the latest billing fail-closed surface, compact What Matters distance controls, quieter notification copy, usage-and-activation wording, and a local performance smoke fallback that stays runnable when live-only prod env vars are not present |
+| Deployment ID | current release candidate on 2026-06-28 after `033ccaa3`, carrying the latest billing fail-closed surface, compact What Matters distance controls, quieter notification copy, usage-and-activation wording, and the removal of customer-visible score-filter/result-cap hints from PropertyQuarry and Brilliant Directories handoff surfaces |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
@@ -40,6 +40,7 @@ That means the billing account lane still requires a second vendor login even th
 The live rollout on 2026-06-28 verified:
 
 - `make deploy` completed successfully and rebuilt the live `propertyquarry-api` / `propertyquarry-scheduler` stack on `http://localhost:8097`.
+- Commit `033ccaa3` is the currently deployed runtime candidate; it removes customer-facing `score filter`, `score ceiling`, and `Result cap per provider` language from the PropertyQuarry presentation layer and the Brilliant Directories projection guard.
 - `https://propertyquarry.com/pricing`, `https://billing.propertyquarry.com/join`, `https://billing.propertyquarry.com/account`, `https://propertyquarry.directoryup.com/join`, and `https://propertyquarry.directoryup.com/account` were rechecked after deploy and no longer render public score-filter language such as `Score ceiling`, `Per provider`, `All ranked`, `35/100`, `45/100`, `60/100`, or `score gate`.
 - Focused regressions for ranked-home visibility and empty-state ranking-bar recovery passed locally: `tests/test_propertyquarry_workspace_redesign.py::test_property_run_live_board_prefers_ranked_candidates_when_high_fit_total_is_zero`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_ranked_results_render_even_when_high_fit_total_is_zero`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_shortlist_panel_builds_cards_and_actions`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_empty_state_promotes_ranking_bar_control`, and `tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_desk`.
 - Focused regressions for the shared mobile account sheet and research-detail top-nav hooks passed locally: `tests/test_propertyquarry_workspace_redesign.py -k 'mobile_top_nav_uses_core_loop_instead_of_noisy_tab_strip or research_detail_mobile_nav_uses_shared_mobile_nav_hook'` and `tests/test_property_live_mobile_surface_smoke.py -k 'requires_compact_account_menu_sheet or requires_real_research_detail_layout'`.
