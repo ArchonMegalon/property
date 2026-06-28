@@ -2402,21 +2402,52 @@ def _property_console_context(
             recent_search_runs = []
     if wants_run_state and not normalized_run_id:
         terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started"}
-        active_run = next(
-            (
-                row
-                for row in recent_search_runs
-                if isinstance(row, dict)
-                and str(row.get("run_id") or "").strip()
-                and str(
-                    row.get("status")
-                    or (dict(row.get("summary") or {}) if isinstance(row.get("summary"), dict) else {}).get("status")
-                    or ""
-                ).strip().lower()
-                not in terminal_statuses
-            ),
-            None,
-        )
+        if surface_scope.section == "properties":
+            with contextlib.suppress(Exception):
+                active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
+        if (not isinstance(active_run, dict) or not active_run) and surface_scope.section == "properties":
+            active_run = next(
+                (
+                    row
+                    for row in recent_search_runs
+                    if isinstance(row, dict)
+                    and str(row.get("run_id") or "").strip()
+                    and _property_run_payload_has_shortlist_results(row)
+                ),
+                None,
+            )
+        if (not isinstance(active_run, dict) or not active_run) and surface_scope.section == "properties":
+            active_run = next(
+                (
+                    row
+                    for row in recent_search_runs
+                    if isinstance(row, dict)
+                    and str(row.get("run_id") or "").strip()
+                    and str(
+                        row.get("status")
+                        or (dict(row.get("summary") or {}) if isinstance(row.get("summary"), dict) else {}).get("status")
+                        or ""
+                    ).strip().lower()
+                    in {"processed", "completed", "completed_partial"}
+                ),
+                None,
+            )
+        if not isinstance(active_run, dict) or not active_run:
+            active_run = next(
+                (
+                    row
+                    for row in recent_search_runs
+                    if isinstance(row, dict)
+                    and str(row.get("run_id") or "").strip()
+                    and str(
+                        row.get("status")
+                        or (dict(row.get("summary") or {}) if isinstance(row.get("summary"), dict) else {}).get("status")
+                        or ""
+                    ).strip().lower()
+                    not in terminal_statuses
+                ),
+                None,
+            )
         if active_run is None and surface_scope.section == "shortlist":
             active_run = next(
                 (
@@ -2428,9 +2459,6 @@ def _property_console_context(
                 ),
                 None,
             )
-        if active_run is None and surface_scope.section == "properties":
-            with contextlib.suppress(Exception):
-                active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
         if isinstance(active_run, dict):
             normalized_run_id = str(active_run.get("run_id") or "").strip()
     if wants_run_state and normalized_run_id:

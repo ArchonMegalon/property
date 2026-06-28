@@ -5072,6 +5072,102 @@ def test_property_console_context_uses_lightweight_status_for_explicit_research_
     assert context["run"]["summary"]["ranked_candidates"][0]["candidate_ref"] == "research-cand-1"
 
 
+def test_property_console_context_prefers_active_run_finder_over_newer_queued_properties_run(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-properties-active-priority")
+    calls: list[str] = []
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+            return [
+                {
+                    "run_id": "run-queued",
+                    "status": "queued",
+                    "summary": {"status": "queued"},
+                },
+                {
+                    "run_id": "run-running",
+                    "status": "in_progress",
+                    "summary": {"status": "in_progress"},
+                },
+            ]
+
+        def find_active_property_search_run(self, *, principal_id: str, limit: int = 8):
+            return {
+                "run_id": "run-running",
+                "status": "in_progress",
+                "summary": {"status": "in_progress", "reviewed_listing_total": 7},
+            }
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+            calls.append(run_id)
+            return {
+                "run_id": run_id,
+                "status": "in_progress",
+                "summary": {"status": "in_progress", "reviewed_listing_total": 7, "sources": []},
+            }
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id="pq-properties-active-priority",
+        status={"property_search_preferences": {"country_code": "AT", "location_query": "Vienna"}},
+        run_id="",
+        surface_mode="properties",
+    )
+
+    assert context["run"]["run_id"] == "run-running"
+    assert calls == ["run-running"]
+
+
+def test_property_console_context_properties_falls_back_to_latest_usable_result_when_only_stale_active_remains(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-properties-stale-fallback")
+    calls: list[str] = []
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+            return [
+                {
+                    "run_id": "run-ready",
+                    "status": "completed_partial",
+                    "summary": {"status": "completed_partial"},
+                },
+                {
+                    "run_id": "run-stale",
+                    "status": "in_progress",
+                    "summary": {"status": "in_progress"},
+                },
+            ]
+
+        def find_active_property_search_run(self, *, principal_id: str, limit: int = 8):
+            return {}
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+            calls.append(run_id)
+            return {
+                "run_id": run_id,
+                "status": "completed_partial",
+                "summary": {
+                    "status": "completed_partial",
+                    "ranked_candidates": [{"candidate_ref": "cand-1", "title": "Ready"}],
+                    "sources": [],
+                },
+            }
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id="pq-properties-stale-fallback",
+        status={"property_search_preferences": {"country_code": "AT", "location_query": "Vienna"}},
+        run_id="",
+        surface_mode="properties",
+    )
+
+    assert context["run"]["run_id"] == "run-ready"
+    assert calls == ["run-ready"]
+
+
 def test_property_console_context_backfills_cached_preview_facts_for_stale_shortlist_candidates(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-shortlist-preview-backfill")
     property_url = "https://immobilien.derstandard.at/detail/15087506"

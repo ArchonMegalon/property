@@ -8953,6 +8953,234 @@ def test_property_search_run_status_reconstructs_missing_status_url() -> None:
     assert status["status_url"] == f"/app/api/signals/property/search/run/{run_id}"
 
 
+def test_property_search_run_status_prefers_newer_persisted_state_over_stale_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-search-persisted-wins"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"persisted-wins-{uuid.uuid4().hex}"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": "2026-06-28T20:06:45+00:00",
+            "updated_at": "2026-06-28T20:06:45+00:00",
+            "status": "queued",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["core_portals_de"],
+            "progress": 0,
+            "current_step": "queued",
+            "message": "Queued for execution.",
+            "stages_total": 4,
+            "steps_completed": 0,
+            "summary": {"status": "queued", "provider_total": 1, "listing_total": 0},
+            "events": [{"at": "2026-06-28T20:06:45+00:00", "step": "queued", "message": "Search run queued", "status": "queued"}],
+            "property_search_preferences": {},
+        }
+
+    persisted = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "created_at": "2026-06-28T20:06:45+00:00",
+        "updated_at": "2026-06-28T20:09:38+00:00",
+        "status": "completed_partial",
+        "status_url": f"/app/api/signals/property/search/run/{run_id}",
+        "selected_platforms": ["core_portals_de"],
+        "progress": 100,
+        "current_step": "completed",
+        "message": "Search run completed with status completed_partial.",
+        "stages_total": 4,
+        "steps_completed": 4,
+        "summary": {
+            "status": "completed_partial",
+            "listing_total": 12,
+            "reviewed_listing_total": 12,
+            "provider_total": 1,
+            "sources_total": 1,
+            "sources_completed": 1,
+            "updated_at": "2026-06-28T20:09:38+00:00",
+            "ranked_candidates": [{"candidate_ref": "cand-1", "title": "Recovered match", "fit_score": 58}],
+        },
+        "events": [
+            {"at": "2026-06-28T20:06:45+00:00", "step": "queued", "message": "Search run queued", "status": "queued"},
+            {"at": "2026-06-28T20:09:38+00:00", "step": "completed", "message": "Search run completed with status completed_partial.", "status": "completed_partial"},
+        ],
+        "property_search_preferences": {},
+    }
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", lambda **kwargs: dict(persisted))
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert status["status"] == "completed_partial"
+    assert status["progress"] == 100
+    assert status["summary"]["listing_total"] == 12
+    assert len(status["events"]) == 2
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        refreshed = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY.get(run_id) or {})
+    assert refreshed["status"] == "completed_partial"
+    assert refreshed["updated_at"] == "2026-06-28T20:09:38+00:00"
+
+
+def test_find_active_property_search_run_prefers_in_progress_over_newer_queued(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-search-active-priority"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    queued_run_id = f"queued-{uuid.uuid4().hex}"
+    running_run_id = f"running-{uuid.uuid4().hex}"
+    queued_updated_at = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+    running_updated_at = (datetime.now(timezone.utc) - timedelta(seconds=6)).isoformat()
+
+    monkeypatch.setattr(
+        product_service,
+        "_list_property_search_run_records",
+        lambda **kwargs: (
+            {
+                "run_id": queued_run_id,
+                "principal_id": principal_id,
+                "status": "queued",
+                "created_at": (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat(),
+                "updated_at": queued_updated_at,
+                "summary": {"status": "queued"},
+            },
+            {
+                "run_id": running_run_id,
+                "principal_id": principal_id,
+                "status": "in_progress",
+                "created_at": (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+                "updated_at": running_updated_at,
+                "summary": {"status": "in_progress"},
+            },
+        ),
+    )
+
+    def _fake_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        if run_id == queued_run_id:
+            return {
+                "run_id": run_id,
+                "principal_id": principal_id,
+                "status": "queued",
+                "updated_at": queued_updated_at,
+                "progress": 0,
+                "summary": {"status": "queued", "reviewed_listing_total": 0, "sources_completed": 0},
+            }
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "updated_at": running_updated_at,
+            "progress": 58,
+            "summary": {"status": "in_progress", "reviewed_listing_total": 7, "sources_completed": 3},
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+
+    active = service.find_active_property_search_run(principal_id=principal_id, limit=8)
+
+    assert active is not None
+    assert active["run_id"] == running_run_id
+    assert active["status"] == "in_progress"
+
+
+def test_find_active_property_search_run_prefers_fresh_active_run_over_stale_in_progress(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-search-fresh-active-priority"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    stale_run_id = f"stale-{uuid.uuid4().hex}"
+    fresh_run_id = f"fresh-{uuid.uuid4().hex}"
+    stale_updated_at = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+    fresh_updated_at = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
+
+    monkeypatch.setattr(
+        product_service,
+        "_list_property_search_run_records",
+        lambda **kwargs: (
+            {
+                "run_id": stale_run_id,
+                "principal_id": principal_id,
+                "status": "in_progress",
+                "created_at": (datetime.now(timezone.utc) - timedelta(minutes=9)).isoformat(),
+                "updated_at": stale_updated_at,
+                "summary": {"status": "in_progress"},
+            },
+            {
+                "run_id": fresh_run_id,
+                "principal_id": principal_id,
+                "status": "in_progress",
+                "created_at": (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+                "updated_at": fresh_updated_at,
+                "summary": {"status": "in_progress"},
+            },
+        ),
+    )
+
+    def _fake_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        if run_id == stale_run_id:
+            return {
+                "run_id": run_id,
+                "principal_id": principal_id,
+                "status": "in_progress",
+                "updated_at": stale_updated_at,
+                "progress": 76,
+                "summary": {"status": "in_progress", "reviewed_listing_total": 18, "sources_completed": 4},
+            }
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "updated_at": fresh_updated_at,
+            "progress": 9,
+            "summary": {"status": "in_progress", "reviewed_listing_total": 0, "sources_completed": 0},
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+
+    active = service.find_active_property_search_run(principal_id=principal_id, limit=8)
+
+    assert active is not None
+    assert active["run_id"] == fresh_run_id
+    assert active["status"] == "in_progress"
+
+
+def test_find_active_property_search_run_returns_none_when_only_stale_active_remains(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-search-stale-active-none"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    stale_run_id = f"stale-{uuid.uuid4().hex}"
+    stale_updated_at = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+
+    monkeypatch.setattr(
+        product_service,
+        "_list_property_search_run_records",
+        lambda **kwargs: (
+            {
+                "run_id": stale_run_id,
+                "principal_id": principal_id,
+                "status": "in_progress",
+                "created_at": (datetime.now(timezone.utc) - timedelta(minutes=8)).isoformat(),
+                "updated_at": stale_updated_at,
+                "summary": {"status": "in_progress"},
+            },
+        ),
+    )
+
+    monkeypatch.setattr(
+        ProductService,
+        "get_property_search_run_status",
+        lambda self, *, principal_id, run_id, lightweight=False: {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "updated_at": stale_updated_at,
+            "progress": 61,
+            "summary": {"status": "in_progress", "reviewed_listing_total": 14, "sources_completed": 2},
+        },
+    )
+
+    assert service.find_active_property_search_run(principal_id=principal_id, limit=8) is None
+
+
 def test_property_search_run_progress_stays_monotonic_when_stage_totals_expand() -> None:
     principal_id = "exec-property-search-progress-monotonic"
     client = build_property_client(principal_id=principal_id)

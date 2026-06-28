@@ -2734,6 +2734,105 @@ def _delete_property_search_run_record(*, run_id: str, principal_id: str) -> boo
         )
 
 
+def _property_search_run_snapshot_status(payload: dict[str, object] | None) -> str:
+    record = dict(payload or {})
+    summary = dict(record.get("summary") or {}) if isinstance(record.get("summary"), dict) else {}
+    return str(record.get("status") or summary.get("status") or "").strip().lower()
+
+
+def _property_search_run_snapshot_progress(payload: dict[str, object] | None) -> int:
+    record = dict(payload or {})
+    summary = dict(record.get("summary") or {}) if isinstance(record.get("summary"), dict) else {}
+    for value in (record.get("progress"), summary.get("progress"), summary.get("progress_percent")):
+        try:
+            return max(0, int(float(str(value or "").strip())))
+        except Exception:
+            continue
+    return 0
+
+
+def _property_search_run_snapshot_reviewed_total(payload: dict[str, object] | None) -> int:
+    record = dict(payload or {})
+    summary = dict(record.get("summary") or {}) if isinstance(record.get("summary"), dict) else {}
+    for value in (
+        summary.get("reviewed_listing_total"),
+        summary.get("scanned_listing_total"),
+        summary.get("listing_total"),
+        record.get("reviewed_listing_total"),
+    ):
+        try:
+            return max(0, int(float(str(value or "").strip())))
+        except Exception:
+            continue
+    return 0
+
+
+def _property_search_run_should_prefer_persisted_state(
+    *,
+    cached_state: dict[str, object],
+    persisted_state: dict[str, object],
+) -> bool:
+    cached_updated_at = _parse_iso(str(cached_state.get("updated_at") or cached_state.get("created_at") or "").strip())
+    persisted_updated_at = _parse_iso(str(persisted_state.get("updated_at") or persisted_state.get("created_at") or "").strip())
+    if persisted_updated_at and (cached_updated_at is None or persisted_updated_at > cached_updated_at):
+        return True
+
+    cached_status = _property_search_run_snapshot_status(cached_state)
+    persisted_status = _property_search_run_snapshot_status(persisted_state)
+    cached_terminal = cached_status in _PROPERTY_SEARCH_TERMINAL_STATUSES
+    persisted_terminal = persisted_status in _PROPERTY_SEARCH_TERMINAL_STATUSES
+    if persisted_terminal and not cached_terminal:
+        return True
+    if persisted_status != cached_status and cached_status in {"queued", "starting"} and persisted_status not in {"queued", "starting"}:
+        return True
+
+    if _property_search_run_snapshot_progress(persisted_state) > _property_search_run_snapshot_progress(cached_state):
+        return True
+    if _property_search_run_snapshot_reviewed_total(persisted_state) > _property_search_run_snapshot_reviewed_total(cached_state):
+        return True
+
+    persisted_events = [row for row in list(persisted_state.get("events") or []) if isinstance(row, dict)]
+    cached_events = [row for row in list(cached_state.get("events") or []) if isinstance(row, dict)]
+    if len(persisted_events) > len(cached_events):
+        return True
+    return False
+
+
+def _property_search_run_activity_sort_key(payload: dict[str, object] | None) -> tuple[int, int, float, int, int, int, int, float]:
+    record = dict(payload or {})
+    summary = dict(record.get("summary") or {}) if isinstance(record.get("summary"), dict) else {}
+    status = _property_search_run_snapshot_status(record)
+    active_statuses = {"in_progress", "running", "processing", "scanning", "repairing", "starting"}
+    status_rank = {
+        "in_progress": 6,
+        "running": 6,
+        "processing": 6,
+        "scanning": 6,
+        "repairing": 5,
+        "starting": 4,
+        "queued": 3,
+    }.get(status, 1)
+    reviewed_total = _property_search_run_snapshot_reviewed_total(record)
+    progress = _property_search_run_snapshot_progress(record)
+    try:
+        sources_completed = max(0, int(float(str(summary.get("sources_completed") or 0).strip())))
+    except Exception:
+        sources_completed = 0
+    updated_at = _parse_iso(str(record.get("updated_at") or "").strip())
+    created_at = _parse_iso(str(record.get("created_at") or "").strip())
+    is_stale_active = status in active_statuses and _property_search_active_run_is_stale(record)
+    return (
+        0 if is_stale_active else 1,
+        status_rank,
+        updated_at.timestamp() if updated_at else 0.0,
+        1 if reviewed_total > 0 else 0,
+        reviewed_total,
+        sources_completed,
+        progress,
+        created_at.timestamp() if created_at else 0.0,
+    )
+
+
 def _sync_property_source_listing_cache_compat_to_storage() -> None:
     _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = str(
         globals().get("_PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH") or ""
@@ -31168,16 +31267,23 @@ class ProductService:
             return None
         _prune_property_search_runs()
         with _PROPERTY_SEARCH_RUN_LOCK:
-            state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
-        if not isinstance(state, dict):
-            try:
-                persisted = _load_property_search_run_record(
-                    run_id=normalized_run_id,
-                    principal_id=normalized_principal,
-                )
-            except Exception:
-                persisted = None
-            if isinstance(persisted, dict):
+            state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id) or {})
+        try:
+            persisted = _load_property_search_run_record(
+                run_id=normalized_run_id,
+                principal_id=normalized_principal,
+            )
+        except Exception:
+            persisted = None
+        if isinstance(persisted, dict) and str(persisted.get("principal_id") or "").strip() == normalized_principal:
+            if not isinstance(state, dict) or not state:
+                with _PROPERTY_SEARCH_RUN_LOCK:
+                    _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = dict(persisted)
+                state = persisted
+            elif _property_search_run_should_prefer_persisted_state(
+                cached_state=state,
+                persisted_state=persisted,
+            ):
                 with _PROPERTY_SEARCH_RUN_LOCK:
                     _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = dict(persisted)
                 state = persisted
@@ -34968,6 +35074,8 @@ class ProductService:
             lightweight=True,
         )
         terminal_statuses = set(_PROPERTY_SEARCH_TERMINAL_STATUSES) | {"not started"}
+        best_run: dict[str, object] | None = None
+        best_key: tuple[int, int, float, int, int, int, int, float] | None = None
         for record in records:
             if str(record.get("principal_id") or "").strip() != normalized_principal:
                 continue
@@ -34978,15 +35086,28 @@ class ProductService:
             status_value = str(record.get("status") or summary.get("status") or "").strip().lower()
             if status_value and status_value in terminal_statuses:
                 continue
+            candidate = dict(record)
             with contextlib.suppress(Exception):
                 snapshot = self.get_property_search_run_status(
                     principal_id=normalized_principal,
                     run_id=run_id,
                 )
                 if isinstance(snapshot, dict) and snapshot:
-                    return dict(snapshot)
-            return dict(record)
-        return None
+                    candidate = dict(snapshot)
+            candidate_status = _property_search_run_snapshot_status(candidate)
+            if candidate_status and candidate_status in terminal_statuses:
+                continue
+            candidate_key = _property_search_run_activity_sort_key(candidate)
+            if best_key is None or candidate_key > best_key:
+                best_run = candidate
+                best_key = candidate_key
+        if isinstance(best_run, dict):
+            best_status = _property_search_run_snapshot_status(best_run)
+            if best_status in {"in_progress", "running", "processing", "scanning", "repairing", "starting"}:
+                with contextlib.suppress(Exception):
+                    if _property_search_active_run_is_stale(best_run):
+                        return None
+        return dict(best_run) if isinstance(best_run, dict) else None
 
     def delete_property_search_run(
         self,
