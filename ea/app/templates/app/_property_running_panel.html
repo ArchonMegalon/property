@@ -3,7 +3,7 @@
     <div class="pqx-section-head">
       <div>
         <h2>{% if run_active %}Live search{% else %}Search summary{% endif %}</h2>
-        <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('reviewed_listing_total') or (run.get('summary') or {}).get('listing_total') or 0 }} homes checked so far{% if ((run.get('summary') or {}).get('filtered_floorplan_total') or 0) %} · {{ (run.get('summary') or {}).get('filtered_floorplan_total') or 0 }} still missing floorplans{% endif %}</div>
+        <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('reviewed_listing_total') or (run.get('summary') or {}).get('listing_total') or 0 }} homes checked so far</div>
       </div>
       <div class="pqx-inline-actions">
         {% if run_active %}
@@ -29,7 +29,7 @@
     {% set run_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
     {% set run_message_display = run_safe_message if run_has_repair_copy and run_safe_message else run_message_raw %}
     {% set run_message_display_lower = run_message_display|lower %}
-    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or run_message_display_lower == 'starting' %}
+    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] %}
       {% if run_reviewed_total %}
       {% set run_message_display = 'Checking ' ~ run_provider_label ~ ' · ' ~ run_reviewed_total ~ ' homes reviewed.' %}
       {% elif run_provider_total %}
@@ -40,58 +40,11 @@
     {% endif %}
     <div class="pqx-note" data-pqx-run-message>{{ run_message_display or 'The search is queued.' }}</div>
     {{ progress_board(run, run_sources, research_task_counts) }}
-    <div data-pqx-live-best-match>
-      {% set provisional_candidates = (run.get('summary') or {}).get('ranked_candidates') or [] %}
-      {% set provisional = provisional_candidates[0] if provisional_candidates else None %}
-      {% if provisional %}
-      <section class="pqx-card" style="margin-top:14px;">
-        {% set provisional_facts = provisional.get('property_facts') or {} %}
-        {% set provisional_snapshot = provisional_facts.get('listing_research_snapshot') if provisional_facts.get('listing_research_snapshot') is mapping else {} %}
-        {% set provisional_location = provisional.get('location_label') or provisional_snapshot.get('district') or provisional_snapshot.get('postal_name') or provisional_snapshot.get('city') or provisional_snapshot.get('address') or provisional_facts.get('district') or provisional_facts.get('postal_name') or provisional_facts.get('city') or provisional_facts.get('address') or provisional.get('source_label') or 'Source match' %}
-        {% set provisional_title_raw = (provisional.get('title') or '')|trim %}
-        {% set provisional_title_lower = provisional_title_raw|lower %}
-        {% set provisional_title = provisional_title_raw if provisional_title_raw and not (provisional_title_lower.startswith('http://') or provisional_title_lower.startswith('https://') or provisional_title_lower.startswith('www.')) else (provisional_location or 'Property candidate') %}
-        {% set provisional_reason_raw = (provisional.get('fit_summary') or provisional.get('summary') or '')|trim %}
-        {% set provisional_reason_lower = provisional_reason_raw|lower %}
-        {% set provisional_reason = provisional_reason_raw if provisional_reason_raw and not (provisional_reason_lower.startswith('http://') or provisional_reason_lower.startswith('https://') or provisional_reason_lower.startswith('www.')) else 'Leading match right now.' %}
-        <div class="pqx-section-head">
-          <div>
-            <h2>{{ provisional_title }}</h2>
-            <div class="pqx-note">{{ provisional_reason }}</div>
-          </div>
-          {% if provisional.get('fit_score') %}
-          <span class="pqx-pill">{{ provisional.get('fit_score')|int }}/100</span>
-          {% endif %}
-        </div>
-        <div class="pqx-pref-list">
-          <div class="pqx-pref-row">
-            {% set provisional_facts = provisional.get('property_facts') or {} %}
-            {% set provisional_price_text = provisional.get('price_display') or provisional.get('costs_display') or provisional.get('rent_display') or provisional_facts.get('price_display') or provisional_facts.get('rent_display') or provisional_facts.get('price') or provisional_facts.get('rent') or '' %}
-            {% set provisional_price_numeric = provisional.get('price_eur') or provisional.get('purchase_price_eur') or provisional.get('buy_price_eur') or provisional.get('rent_eur') or provisional.get('total_rent_eur') or provisional.get('monthly_rent_eur') or provisional_facts.get('price_eur') or provisional_facts.get('purchase_price_eur') or provisional_facts.get('buy_price_eur') or provisional_facts.get('rent_eur') or provisional_facts.get('total_rent_eur') or provisional_facts.get('monthly_rent_eur') %}
-            {% set provisional_price_currency = provisional.get('currency_code') or provisional_facts.get('currency_code') or ('EUR' if provisional_price_numeric else '') %}
-            {% set provisional_price_display = provisional_price_text or ((provisional_price_currency ~ ' ' ~ '{:,.0f}'.format(provisional_price_numeric|float)) if provisional_price_numeric else '') %}
-            {% if provisional_price_display %}<div><strong>Price</strong><small>{{ provisional_price_display }}</small></div>{% endif %}
-            {% if provisional.get('layout_display') %}<div><strong>Layout</strong><small>{{ provisional.get('layout_display') }}</small></div>{% endif %}
-            <div><strong>Location</strong><small>{{ provisional_location }}</small></div>
-          </div>
-        </div>
-        <div class="pqx-note" style="margin-top:12px;">Leading right now. Can still change before the search finishes.</div>
-        <div class="pqx-actions">
-          {% if provisional.get('packet_url') %}
-          <a class="pqx-link-button primary" href="{{ provisional.get('packet_url') }}">Open property</a>
-          {% elif provisional.get('property_url') %}
-          <a class="pqx-link-button primary" href="{{ provisional.get('property_url') }}" target="_blank" rel="noreferrer">Open listing</a>
-          {% endif %}
-        </div>
-      </section>
-      {% endif %}
-    </div>
     <details class="pqx-card" data-pqx-running-details>
-      <summary><strong>Recent updates</strong></summary>
+      <summary><strong>Useful updates</strong></summary>
       {% if (research_task_counts.get('open') or 0) %}
       <div class="pqx-note" style="margin:12px 0 0;">{{ research_task_counts.get('open') or 0 }} missing details are still being checked in the background.</div>
       {% endif %}
-      <div class="pqx-note" style="margin:12px 0 0;">Background retries and refresh noise stay hidden.</div>
       <div class="pqx-event-list" data-pqx-run-events>
         {% set visible_event_count = namespace(value=0) %}
         {% for event in (run.get('events') or [])|reverse %}

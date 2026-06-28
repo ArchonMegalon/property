@@ -1814,6 +1814,7 @@
         || lowered.includes('checking run status')
         || lowered.includes('suppressed_generic_listing_page')
         || lowered.includes('starting property search run')
+        || lowered === 'checking'
       ) {
         const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
         const providers = Number(summary.provider_total || summary.source_variant_total || 0);
@@ -2158,12 +2159,9 @@
       const planCap = isAgentPlanKey(planKey) ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(0, Number(summary?.provider_workers?.worker_concurrency || 0));
       const workerTooltip = 'This strip shows the provider trail inside this search. Visible lanes reflect running, queued, repaired, and failed provider checks. Separate saved searches use their own run slots.';
-      const sourceChips = limitRowsForPlan(summary.sources, 8).map((source) => {
-        const label = source?.source_label || source?.label || 'Source';
-        const state = source?.error ? 'warn' : 'good';
-        return `<span class="pqx-source-chip ${state}">${escapeHtml(label)}</span>`;
-      }).join('');
-      const sourceMeta = `${reviewed} homes reviewed${sourceProgressLabel && providerDisplayTotal ? ` · ${providerDisplayTotal} providers` : ''}${layout > 0 ? ` · ${layout} still waiting on floorplans` : ''}`;
+      const sourceMeta = reviewed > 0
+        ? `${reviewed} homes reviewed`
+        : (providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Waiting for first checks');
       let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first provider update.';
       const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
       const activeSourceLabel = canonicalSourceLabel(liveInfo.sourceLabel || parseRunMessageInfo(runPayload?.message).sourceLabel || '');
@@ -2371,7 +2369,6 @@
           </div>
           <div class="pqx-worker-lanes">${workerHtml}</div>
         </div>
-        <div class="pqx-source-list" data-pqx-source-list>${sourceChips}</div>
         ${renderRoutePreviewStrip(runPayload)}
       `;
     };
@@ -2640,98 +2637,6 @@
         ...candidate,
       }));
     };
-    const renderLiveBestMatch = (runPayload) => {
-      const candidates = rankedCandidatesFromRunPayload(runPayload);
-      const candidate = candidates[0];
-      if (!candidate || typeof candidate !== 'object') return '';
-      const priceSummaryFromText = (value) => {
-        const text = String(value || '').replace(/\s+/g, ' ').trim();
-        if (!text) return '';
-        const patterns = [
-          /(€\s?[0-9][0-9.\s]*(?:,[0-9]{1,2})?\s*,-?)/i,
-          /((?:EUR|USD|GBP|CHF)\s?[0-9][0-9.,\s]*)/i,
-        ];
-        for (const pattern of patterns) {
-          const match = text.match(pattern);
-          if (match && String(match[1] || '').trim()) return String(match[1] || '').replace(/\s+/g, ' ').trim().replace(/[,\s]+$/, '');
-        }
-        return '';
-      };
-      const facts = (candidate?.property_facts && typeof candidate.property_facts === 'object') ? candidate.property_facts : {};
-      const derivedPrice = [
-        candidate?.price_display,
-        candidate?.costs_display,
-        candidate?.rent_display,
-        facts?.price_display,
-        facts?.rent_display,
-        facts?.price,
-        facts?.rent,
-      ].map((value) => String(value || '').trim()).find(Boolean)
-        || [
-          candidate?.price_eur,
-          candidate?.purchase_price_eur,
-          candidate?.buy_price_eur,
-          candidate?.rent_eur,
-          candidate?.total_rent_eur,
-          candidate?.monthly_rent_eur,
-          facts?.price_eur,
-          facts?.purchase_price_eur,
-          facts?.buy_price_eur,
-          facts?.rent_eur,
-          facts?.total_rent_eur,
-          facts?.monthly_rent_eur,
-        ]
-          .map((value) => Number(value))
-          .find((value) => Number.isFinite(value) && value > 0)
-        || '';
-      const price = typeof derivedPrice === 'number'
-        ? `${String(candidate?.currency_code || facts?.currency_code || 'EUR').trim() || 'EUR'} ${Math.round(derivedPrice).toLocaleString('en-US')}`
-        : String(derivedPrice || '').trim()
-          || priceSummaryFromText(candidate?.summary)
-          || priceSummaryFromText(candidate?.title);
-      const fitScore = Number(candidate?.fit_score || candidate?.ranking_score || 0);
-      const layout = String(candidate?.layout_display || '').trim();
-      const provider = compactProviderLabel(candidate?.source_label || candidate?.provider_label || candidate?.platform || '');
-      const location = String(candidate?.location_label || '').trim() || provider || 'Source match';
-      const rawReason = String(candidate?.fit_summary || candidate?.summary || '').trim();
-      const reason = /^(https?:\/\/|www\.)/i.test(rawReason)
-        ? 'Leading match right now.'
-        : (rawReason || (provider ? `Currently leads the run from ${provider}.` : 'Leading match right now.'));
-      const href = String(candidate?.packet_url || candidate?.property_url || '').trim();
-      const rawTitle = String(candidate?.title || '').trim();
-      const title = /^(https?:\/\/|www\.)/i.test(rawTitle)
-        ? (provider && provider !== location ? `${location} · ${provider}` : location)
-        : (rawTitle || 'Property candidate');
-      const action = href
-        ? (String(candidate?.packet_url || '').trim()
-            ? `<a class="pqx-link-button primary" href="${escapeHtml(href)}">Open property</a>`
-            : `<a class="pqx-link-button primary" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">Open listing</a>`)
-        : '';
-      const factsRow = [
-        price ? `<div><strong>Price</strong><small>${escapeHtml(price)}</small></div>` : '',
-        layout ? `<div><strong>Layout</strong><small>${escapeHtml(layout)}</small></div>` : '',
-        location ? `<div><strong>Location</strong><small>${escapeHtml(location)}</small></div>` : '',
-        provider && provider !== location ? `<div><strong>Provider</strong><small>${escapeHtml(provider)}</small></div>` : '',
-      ].filter(Boolean).join('');
-      return `
-        <section class="pqx-card" style="margin-top:14px;">
-          <div class="pqx-section-head">
-            <div>
-              <h2>${escapeHtml(title)}</h2>
-              <div class="pqx-note">${escapeHtml(reason)}</div>
-            </div>
-            ${fitScore > 0 ? `<span class="pqx-pill">${escapeHtml(Math.round(fitScore))}/100</span>` : ''}
-          </div>
-          <div class="pqx-pref-list">
-            <div class="pqx-pref-row">
-              ${factsRow}
-            </div>
-          </div>
-          <div class="pqx-note" style="margin-top:12px;">Leading right now. Can still change before the search finishes.</div>
-          ${action ? `<div class="pqx-actions">${action}</div>` : ''}
-        </section>
-      `;
-    };
     const renderRun = (runPayload) => {
       if (!runPayload || typeof runPayload !== 'object') return;
       const normalizedSummary = runPayload.summary && typeof runPayload.summary === 'object'
@@ -2765,7 +2670,6 @@
       const updatedNode = root.querySelector('[data-pqx-run-updated]');
       const rankedNode = root.querySelector('[data-pqx-ranked-candidates]');
       const sourceNode = root.querySelector('[data-pqx-source-breakdown]');
-      const liveBestMatchNode = root.querySelector('[data-pqx-live-best-match]');
       if (statusNode) statusNode.textContent = status.replaceAll('_', ' ');
       if (messageNode) messageNode.textContent = displayRunMessage(runPayload);
       if (ring) ring.style.setProperty('--progress', String(terminalStates.has(status) ? progress : Math.min(progress, 95)));
@@ -2806,7 +2710,6 @@
         if (typeof bindWorkbenchRows === 'function') bindWorkbenchRows(root);
       }
       if (sourceNode && runPayload.summary) sourceNode.innerHTML = renderSourceBreakdown(runPayload.summary.sources);
-      if (liveBestMatchNode) liveBestMatchNode.innerHTML = renderLiveBestMatch(runPayload);
       if (eventsNode && !shouldPreserveRenderedRunEvents(eventsNode, runPayload.events)) {
         eventsNode.innerHTML = renderRunEvents(runPayload.events);
       }

@@ -284,7 +284,7 @@
 {% set progress_customer_message = (reliability.get('customer_status_message') or summary.get('customer_status_message') or '')|trim %}
 {% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
 {% set progress_message_display_lower = progress_message_display|lower %}
-{% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or progress_message_display_lower == 'starting' %}
+{% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] %}
   {% if reviewed_total %}
   {% set progress_message_display = 'Checking ' ~ progress_provider_label ~ ' · ' ~ reviewed_total ~ ' homes reviewed.' %}
   {% elif provider_display_total > 0 %}
@@ -310,7 +310,7 @@
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
       <strong data-pqx-radar-count>{{ source_progress_label or scan_count_label }}</strong>
-      <span class="pqx-small">{{ reviewed_total }} homes reviewed{% if source_progress_label and provider_display_total %} · {{ provider_display_total }} providers{% endif %}{% if layout_unverified %} · {{ layout_unverified }} still waiting on floorplans{% endif %}</span>
+      <span class="pqx-small">{% if reviewed_total %}{{ reviewed_total }} homes reviewed{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first checks{% endif %}</span>
     </div>
     <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider update.' }}</span>
     <div class="pqx-progress-meter under-source" aria-hidden="true">
@@ -359,13 +359,6 @@
     </div>
   </div>
   {% endif %}
-  <div class="pqx-source-list" data-pqx-source-list>
-    {% for source in run_sources[:8] %}
-    <span class="pqx-source-chip {{ 'warn' if source.get('error') else 'good' }}">
-      {{ source.get('source_label') or source.get('label') or 'Source' }}
-    </span>
-    {% endfor %}
-  </div>
   {% if route_previews and status in ['processed', 'completed', 'completed_partial'] %}
   <div class="pqx-route-preview-strip" data-pqx-route-preview-strip>
     {% for route in route_previews[:3] %}
@@ -10435,7 +10428,7 @@
           {% set live_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
           {% set live_run_message_display = live_safe_message if live_has_repair_copy and live_safe_message else live_run_message_raw %}
           {% set live_run_message_display_lower = live_run_message_display|lower %}
-          {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or live_run_message_display_lower == 'starting' %}
+          {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] %}
           {% if live_reviewed_total %}
           {% set live_run_message_display = 'Checking ' ~ live_provider_label ~ ' · ' ~ live_reviewed_total ~ ' homes reviewed.' %}
           {% elif live_provider_total > 0 %}

@@ -2767,7 +2767,8 @@ def test_propertyquarry_running_panel_does_not_use_raw_url_as_best_summary(monke
 
     assert response.status_code == 200
     assert raw_url not in response.text
-    assert "Leading match right now." in response.text
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
+    assert "Altbau near U6" not in rendered_html
 
 
 def test_propertyquarry_running_panel_replaces_internal_status_message_with_progress_summary(monkeypatch) -> None:
@@ -2896,9 +2897,11 @@ def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_ra
 
     assert response.status_code == 200
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
-    assert "<h2>Altbau near U6</h2>" in rendered_html
-    assert "Leading right now. Can still change before the search finishes." in rendered_html
-    assert "Lift, U6, and school fit the brief." in rendered_html
+    assert "Search in progress" in rendered_html
+    assert "homes checked so far" in rendered_html
+    assert "179 homes reviewed" in rendered_html
+    assert "Altbau near U6" not in rendered_html
+    assert "Leading right now. Can still change before the search finishes." not in rendered_html
     assert "Could not load property search status." not in rendered_html
 
 
@@ -11636,9 +11639,8 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert '{% include "app/_property_workbench_script.html" %}' in body
     assert running_body.count("{{ progress_board(run, run_sources, research_task_counts) }}") == 1
     assert 'data-pqx-running-details' in running_body
-    assert "Recent updates" in running_body
-    assert "<summary><strong>Recent updates</strong></summary>" in running_body
-    assert "Background retries and refresh noise stay hidden." in running_body
+    assert "Useful updates" in running_body
+    assert "<summary><strong>Useful updates</strong></summary>" in running_body
     assert "visible_event_count.value < 4" in running_body
     assert "suppressed_generic_listing_page" in running_body
     assert "could not load property search status" in running_body
@@ -11703,12 +11705,10 @@ def test_property_current_best_omits_unknown_fact_placeholders() -> None:
     assert "No detail yet." not in legacy_landing
     assert "{% if live_preview_price %}" in workbench_body
     assert "Search is still running." in workbench_body
-    assert "provisional_price_display" in running_body
-    assert "{% if provisional_price_display %}<div><strong>Price</strong>" in running_body
-    assert "{% if provisional.get('layout_display') %}<div><strong>Layout</strong>" in running_body
-    assert "const factsRow = [" in script_body
-    assert "price ? `<div><strong>Price</strong>" in script_body
-    assert "layout ? `<div><strong>Layout</strong>" in script_body
+    assert "provisional_price_display" not in running_body
+    assert "data-pqx-live-best-match" not in running_body
+    assert "Leading right now. Can still change before the search finishes." not in running_body
+    assert "Leading right now. Can still change before the search finishes." not in script_body
     assert "<div class=\"prd-kicker\">Listing facts</div>" in research_detail
     assert "Listing evidence" not in research_detail
     generated_copy = "\n".join([workspace_payload, research_payload, product_service])
