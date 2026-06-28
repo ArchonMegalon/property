@@ -29,10 +29,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `13ce771dba3a9c5b0ac2f5adcd039dce793b7d6d` |
+| Runtime commit SHA | `5646ce5db3e1e97357bc611f97cf4b305dcd5599` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current release candidate on 2026-06-28 after `13ce771d`, carrying the latest dark-mode guards for research detail and What Matters mobile controls on top of the live billing-copy and mobile-sheet polish pass |
+| Deployment ID | current release candidate on 2026-06-28 after `5646ce5d`, carrying the latest billing fail-closed surface, compact What Matters distance controls, quieter notification copy, and usage-and-activation wording on top of the live billing-copy and mobile-sheet polish pass |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
@@ -43,6 +43,7 @@ The live rollout on 2026-06-28 verified:
 - `https://propertyquarry.com/pricing`, `https://billing.propertyquarry.com/join`, `https://billing.propertyquarry.com/account`, `https://propertyquarry.directoryup.com/join`, and `https://propertyquarry.directoryup.com/account` were rechecked after deploy and no longer render public score-filter language such as `Score ceiling`, `Per provider`, `All ranked`, `35/100`, `45/100`, `60/100`, or `score gate`.
 - Focused regressions for ranked-home visibility and empty-state ranking-bar recovery passed locally: `tests/test_propertyquarry_workspace_redesign.py::test_property_run_live_board_prefers_ranked_candidates_when_high_fit_total_is_zero`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_ranked_results_render_even_when_high_fit_total_is_zero`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_shortlist_panel_builds_cards_and_actions`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_empty_state_promotes_ranking_bar_control`, and `tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_desk`.
 - Focused regressions for the shared mobile account sheet and research-detail top-nav hooks passed locally: `tests/test_propertyquarry_workspace_redesign.py -k 'mobile_top_nav_uses_core_loop_instead_of_noisy_tab_strip or research_detail_mobile_nav_uses_shared_mobile_nav_hook'` and `tests/test_property_live_mobile_surface_smoke.py -k 'requires_compact_account_menu_sheet or requires_real_research_detail_layout'`.
+- `PYTHONPATH=ea .venv/bin/python scripts/propertyquarry_authenticated_performance_smoke.py --write _completion/smoke/property-auth-performance-release-gate.json` now reports `status=pass`, `failed_count=0`, and confirms the compact What Matters distance controls, customer-safe notifications copy, fail-closed `/app/billing`, and `Usage and activation` customer wording.
 - The ranking bar now stays score-only across the customer surfaces: below-bar homes remain visible in ranked results, run-summary counts prefer real ranked candidates over `high_fit_total`, and empty-result recovery still exposes the ranking-bar control after a live run finishes with no hard-rule conflicts.
 
 The live rollout on 2026-06-27 verified:
