@@ -398,17 +398,15 @@ def test_property_research_detail_places_visual_console_under_media_stage() -> N
     research = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
 
     media_stack_index = research.index('<section class="prd-media-stack">')
-    quick_take_index = research.index('<section class="prd-band prd-current-read">')
-    hero_side_index = research.index('<section class="prd-hero-side">')
     visual_console_index = research.index('<section class="prd-visual-console"')
+    hero_side_index = research.index('<section class="prd-hero-side">')
+    quick_take_index = research.index('<section class="prd-headline-read"')
 
-    assert media_stack_index < quick_take_index < hero_side_index < visual_console_index
+    assert media_stack_index < visual_console_index < hero_side_index < quick_take_index
     assert research.count('<section class="prd-visual-console"') == 1
     assert ".prd-visual-console {" in research
-    assert "grid-column: 1;" in research
-    assert "grid-row: 2;" in research
-    assert ".prd-hero-side {" in research
-    assert "grid-row: 1 / span 2;" in research
+    assert 'aria-label="Quick take"' in research
+    assert ".prd-headline-read {" in research
 
 
 def test_property_research_detail_uses_property_shell_and_real_title() -> None:
@@ -7042,7 +7040,7 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
         '<section class="prd-shell" data-property-research-detail>'
     )
     assert body.index("data-object-media-stage") < body.index("Quick take")
-    assert body.index("Property details") < body.index("3D and walkthrough")
+    assert body.index("3D and walkthrough") < body.index("Property details")
     assert "OODA" not in body
     assert "operator notes" not in body
 
@@ -7065,7 +7063,7 @@ def test_property_research_detail_mobile_open_property_layout_is_compact() -> No
     assert ".prd-hero {\n      grid-template-columns: minmax(0, 1fr);\n      gap: 6px;" in mobile_block
     assert ".prd-media-stack {\n      order: 1;" in mobile_block
     assert ".prd-hero-side {\n      order: 2;" in mobile_block
-    assert ".prd-current-read {\n      display: none;" in mobile_block
+    assert ".prd-headline-read {\n      display: none;" in mobile_block
     assert ".prd-media-frame {\n      height: min(46vw, 176px);" in mobile_block
     assert ".prd-media-frame.prd-media-frame-live {\n      height: min(58vw, 224px);" in mobile_block
     assert ".prd-media-gradient,\n    .prd-media-caption {\n      display: none;" in mobile_block
@@ -14118,6 +14116,16 @@ def test_property_research_detail_decision_fits_one_screen_by_default() -> None:
     assert "<summary>Add an optional note</summary>" not in body
     assert "Tune search" not in body
     assert "<summary>Refine decision</summary>" not in body
+
+
+def test_property_research_detail_keeps_long_open_checks_behind_a_compact_more_toggle() -> None:
+    body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "{% for item in open_check_rows[:3] %}" in body
+    assert '<details class="prd-open-checks-more">' in body
+    assert "Show {{ open_check_rows|length - 3 }} more checks" in body
     assert "Why this is ranked here" not in body
     assert body.index("<h3>Shortlist decision</h3>") < body.index("<summary>Fine-tune preferences</summary>")
     assert body.index("<summary>Fine-tune preferences</summary>") < body.index("<h3>Update state</h3>")

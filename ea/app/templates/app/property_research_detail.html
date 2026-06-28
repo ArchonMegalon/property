@@ -1218,6 +1218,23 @@
     font-size: 0.78rem;
     line-height: 1.1;
   }
+  .prd-headline-read {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .prd-headline-read .prd-kicker {
+    margin-bottom: 0;
+  }
+  .prd-headline-read .prd-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .prd-headline-read .prd-summary-box {
+    padding: 8px;
+  }
+  .prd-headline-read .prd-summary-box strong {
+    font-size: 0.75rem;
+  }
   .prd-summary-box p {
     margin: 4px 0 0;
     color: var(--text-soft);
@@ -1866,6 +1883,9 @@
     .prd-hero-side {
       order: 2;
       gap: 6px;
+    }
+    .prd-headline-read {
+      display: none;
     }
     .prd-headline {
       gap: 6px;
@@ -2915,17 +2935,105 @@
           <span data-prd-hero-summary>{{ research_summary }}</span>
         </div>
       </section>
-      <section class="prd-band prd-current-read">
-        <div class="prd-kicker">Quick take</div>
-        <div class="prd-summary-grid">
-          {% for row in research_overview_rows[:4] %}
-          <div class="prd-summary-box">
-            <span>{{ row.label }}</span>
-            <strong>{{ row.value }}</strong>
+      {% if visual_actions.items or research_media.get('show_status_line') or research_visual_status_line or visual_status.active %}
+      <section class="prd-visual-console" aria-label="Visual review controls">
+        <div class="prd-visual-toolbar">
+          <div class="prd-visual-heading">
+            <div class="prd-kicker">3D and walkthrough</div>
+            <p class="prd-copy">Open or request visuals from here.</p>
           </div>
+          {% if research_media.get('show_status_line') %}
+          <span class="prd-status-badge">{{ research_media.get('status_label') or 'Review ready' }}</span>
+          {% endif %}
+        </div>
+        {% if primary_visual_actions.items %}
+        <div class="prd-visual-grid">
+          {% for visual_card in primary_visual_actions.items %}
+          {% set action = visual_card.get('action') or {} %}
+          <article class="prd-visual-card" data-prd-visual-card="{{ visual_card.get('key') }}">
+            <div class="prd-visual-card-header">
+              <span>{{ visual_card.get('eyebrow') }}</span>
+              <strong>{{ visual_card.get('title') }}</strong>
+            </div>
+            <p class="prd-visual-card-copy">{{ visual_card.get('copy') }}</p>
+            {% if visual_card.get('key') == 'tour' %}
+            <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
+              {% set verified_provider_label = research_media.get('provider_label') or '' %}
+              {% if action.get('href') %}
+              {% if verified_provider_label %}
+              Available in {{ verified_provider_label }}.
+              {% else %}
+              3D tour available.
+              {% endif %}
+              {% else %}
+              No 3D tour yet.
+              {% endif %}
+            </p>
+            {% elif visual_card.get('key') == 'walkthrough' %}
+            <p class="prd-visual-evidence" data-prd-visual-evidence="walkthrough">
+              {% if action.get('href') %}
+              Walkthrough available.
+              {% else %}
+              No walkthrough yet.
+              {% endif %}
+            </p>
+            {% endif %}
+            <div class="prd-actions prd-media-actions" aria-label="Media requests">
+            {% if action.get('href') %}
+            <a
+              class="console-action prd-visual-hero-action"
+              href="{{ action.get('href') }}"
+              {% if action.get('external') %}target="_blank" rel="noopener noreferrer"{% endif %}
+              aria-label="{{ action.get('label') or 'Open visual review' }}"
+            >{{ action.get('label') }}</a>
+            {% else %}
+            {% set action_state = (action.get('state') or 'idle')|lower %}
+            {% set is_walkthrough_request = action.get('kind') == 'flythrough' %}
+            <button
+              class="console-action prd-visual-hero-action"
+              type="button"
+              data-pw-visual-request="{{ action.get('kind') }}"
+              data-pw-visual-state="{{ action_state }}"
+              data-property-url="{{ action.get('property_url') }}"
+              data-source-ref="{{ research_source_ref or '' }}"
+              data-run-id="{{ research_run_id or '' }}"
+              data-candidate-ref="{{ research_candidate_ref or '' }}"
+              data-pw-visual-progress="{{ action.get('progress_pct') or 0 }}"
+              data-pw-visual-eta="{{ action.get('eta_label') or '' }}"
+              data-pw-visual-detail="{{ action.get('status_detail') or '' }}"
+              data-pw-visual-poll-seconds="{% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
+              {% if is_walkthrough_request %}data-pw-walkthrough-provider="magicfit"{% endif %}
+              {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}disabled aria-disabled="true"{% endif %}
+              aria-label="{{ action.get('label') or 'Request visual review' }}"
+            >{{ action.get('label') }}</button>
+            {% endif %}
+            </div>
+          </article>
           {% endfor %}
         </div>
+        {% endif %}
+        <div
+          class="prd-visual-rail{% if visual_status.active or research_visual_status_line %} is-active{% endif %}"
+          data-prd-visual-rail
+          {% if visual_status.active %}
+          data-prd-visual-kind="{{ visual_status.active.get('kind') or '' }}"
+          data-prd-visual-state="{{ visual_status.active.get('state') or '' }}"
+          data-prd-visual-poll-seconds="10"
+          {% endif %}
+        >
+          <div class="prd-visual-meta">
+            <strong data-prd-visual-label>{{ (visual_status.active.get('label') if visual_status.active else '') or (research_media.get('status_label') if research_media.get('show_status_line') else '') or '' }}</strong>
+            <span class="prd-visual-eta" data-prd-visual-eta>{{ (visual_status.active.get('eta_label') if visual_status.active else '') or '' }}</span>
+          </div>
+          <div
+            class="prd-visual-progress{% if visual_status.active and visual_status.active.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %} is-processing{% endif %}"
+            data-prd-visual-progress
+            style="--prd-fill: {{ (visual_status.active.get('progress_pct') if visual_status.active else 0) or 0 }}%;"
+          ></div>
+          <p class="prd-visual-status" data-prd-visual-status>{{ (visual_status.active.get('status_detail') if visual_status.active else '') or research_visual_status_line or '' }}</p>
+        </div>
       </section>
+      {% endif %}
     </section>
     <section class="prd-hero-side">
     <section class="prd-headline">
@@ -2946,6 +3054,19 @@
           {% if research_rooms %}<span class="prd-chip">{{ research_rooms }}</span>{% endif %}
           {% if research_location %}<span class="prd-chip">{{ research_location }}</span>{% endif %}
         </div>
+        {% if research_overview_rows %}
+        <section class="prd-headline-read" aria-label="Quick take">
+          <div class="prd-kicker">Quick take</div>
+          <div class="prd-summary-grid">
+            {% for row in research_overview_rows[:4] %}
+            <div class="prd-summary-box">
+              <span>{{ row.label }}</span>
+              <strong>{{ row.value }}</strong>
+            </div>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
         {% if headline_actions.items %}
         <div class="prd-actions" style="margin-top:10px;">
           {% for action in headline_actions.items %}
@@ -3034,105 +3155,6 @@
         {% endif %}
       </aside>
     </section>
-    {% if visual_actions.items or research_media.get('show_status_line') or research_visual_status_line or visual_status.active %}
-    <section class="prd-visual-console" aria-label="Visual review controls">
-      <div class="prd-visual-toolbar">
-        <div class="prd-visual-heading">
-          <div class="prd-kicker">3D and walkthrough</div>
-          <p class="prd-copy">Open or request visuals from here.</p>
-        </div>
-        {% if research_media.get('show_status_line') %}
-        <span class="prd-status-badge">{{ research_media.get('status_label') or 'Review ready' }}</span>
-        {% endif %}
-      </div>
-      {% if primary_visual_actions.items %}
-      <div class="prd-visual-grid">
-        {% for visual_card in primary_visual_actions.items %}
-        {% set action = visual_card.get('action') or {} %}
-        <article class="prd-visual-card" data-prd-visual-card="{{ visual_card.get('key') }}">
-          <div class="prd-visual-card-header">
-            <span>{{ visual_card.get('eyebrow') }}</span>
-            <strong>{{ visual_card.get('title') }}</strong>
-          </div>
-          <p class="prd-visual-card-copy">{{ visual_card.get('copy') }}</p>
-          {% if visual_card.get('key') == 'tour' %}
-          <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
-            {% set verified_provider_label = research_media.get('provider_label') or '' %}
-            {% if action.get('href') %}
-            {% if verified_provider_label %}
-            Available in {{ verified_provider_label }}.
-            {% else %}
-            3D tour available.
-            {% endif %}
-            {% else %}
-            No 3D tour yet.
-            {% endif %}
-          </p>
-          {% elif visual_card.get('key') == 'walkthrough' %}
-          <p class="prd-visual-evidence" data-prd-visual-evidence="walkthrough">
-            {% if action.get('href') %}
-            Walkthrough available.
-            {% else %}
-            No walkthrough yet.
-            {% endif %}
-          </p>
-          {% endif %}
-          <div class="prd-actions prd-media-actions" aria-label="Media requests">
-          {% if action.get('href') %}
-          <a
-            class="console-action prd-visual-hero-action"
-            href="{{ action.get('href') }}"
-            {% if action.get('external') %}target="_blank" rel="noopener noreferrer"{% endif %}
-            aria-label="{{ action.get('label') or 'Open visual review' }}"
-          >{{ action.get('label') }}</a>
-          {% else %}
-          {% set action_state = (action.get('state') or 'idle')|lower %}
-          {% set is_walkthrough_request = action.get('kind') == 'flythrough' %}
-          <button
-            class="console-action prd-visual-hero-action"
-            type="button"
-            data-pw-visual-request="{{ action.get('kind') }}"
-            data-pw-visual-state="{{ action_state }}"
-            data-property-url="{{ action.get('property_url') }}"
-            data-source-ref="{{ research_source_ref or '' }}"
-            data-run-id="{{ research_run_id or '' }}"
-            data-candidate-ref="{{ research_candidate_ref or '' }}"
-            data-pw-visual-progress="{{ action.get('progress_pct') or 0 }}"
-            data-pw-visual-eta="{{ action.get('eta_label') or '' }}"
-            data-pw-visual-detail="{{ action.get('status_detail') or '' }}"
-            data-pw-visual-poll-seconds="{% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
-            {% if is_walkthrough_request %}data-pw-walkthrough-provider="magicfit"{% endif %}
-            {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}disabled aria-disabled="true"{% endif %}
-            aria-label="{{ action.get('label') or 'Request visual review' }}"
-          >{{ action.get('label') }}</button>
-          {% endif %}
-          </div>
-        </article>
-        {% endfor %}
-      </div>
-      {% endif %}
-      <div
-        class="prd-visual-rail{% if visual_status.active or research_visual_status_line %} is-active{% endif %}"
-        data-prd-visual-rail
-        {% if visual_status.active %}
-        data-prd-visual-kind="{{ visual_status.active.get('kind') or '' }}"
-        data-prd-visual-state="{{ visual_status.active.get('state') or '' }}"
-        data-prd-visual-poll-seconds="10"
-        {% endif %}
-      >
-        <div class="prd-visual-meta">
-          <strong data-prd-visual-label>{{ (visual_status.active.get('label') if visual_status.active else '') or (research_media.get('status_label') if research_media.get('show_status_line') else '') or '' }}</strong>
-          <span class="prd-visual-eta" data-prd-visual-eta>{{ (visual_status.active.get('eta_label') if visual_status.active else '') or '' }}</span>
-        </div>
-        <div
-          class="prd-visual-progress{% if visual_status.active and visual_status.active.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %} is-processing{% endif %}"
-          data-prd-visual-progress
-          style="--prd-fill: {{ (visual_status.active.get('progress_pct') if visual_status.active else 0) or 0 }}%;"
-        ></div>
-        <p class="prd-visual-status" data-prd-visual-status>{{ (visual_status.active.get('status_detail') if visual_status.active else '') or research_visual_status_line or '' }}</p>
-      </div>
-    </section>
-    {% endif %}
     </section>
   </section>
 
@@ -3160,7 +3182,7 @@
             {% endfor %}
           </div>
           <div class="prd-gate-list">
-            {% for item in open_check_rows %}
+            {% for item in open_check_rows[:3] %}
             <div class="prd-gate-item">
               <div>
                 <strong>{{ item.get('title') }}</strong>
@@ -3170,6 +3192,24 @@
             </div>
             {% endfor %}
           </div>
+          {% if open_check_rows|length > 3 %}
+          <details class="prd-open-checks-more">
+            <summary>Show {{ open_check_rows|length - 3 }} more checks</summary>
+            <div class="prd-feedback-body">
+              <div class="prd-gate-list">
+                {% for item in open_check_rows[3:] %}
+                <div class="prd-gate-item">
+                  <div>
+                    <strong>{{ item.get('title') }}</strong>
+                    <span>{{ item.get('detail') }}</span>
+                  </div>
+                  <span class="prd-tag">{{ item.get('tag') }}</span>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </details>
+          {% endif %}
         </div>
       </details>
       {% endif %}
