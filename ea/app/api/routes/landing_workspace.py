@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api.dependencies import RequestContext, get_cloudflare_access_identity, get_container, get_request_context
 from app.api.routes.landing import (
+    _browser_return_to_with_params,
     _console_shell_context,
     _form_value,
     _normalize_browser_return_to,
@@ -29,6 +30,19 @@ from app.services.property_billing import property_commercial_snapshot
 from app.services.public_branding import request_brand
 
 router = APIRouter(tags=["landing"])
+
+
+def _property_account_redirect_target(request: Request, *, settings_view: str) -> str:
+    query_pairs = [
+        (key, value)
+        for key, value in urllib.parse.parse_qsl(str(request.url.query or ""), keep_blank_values=True)
+        if key != "settings_view"
+    ]
+    query_pairs.insert(0, ("settings_view", str(settings_view or "account").strip() or "account"))
+    target = "/app/account"
+    if query_pairs:
+        target = f"{target}?{urllib.parse.urlencode(query_pairs)}"
+    return f"{target}#connected-services"
 
 
 def _search_item_key(item: dict[str, object]) -> tuple[str, str, str]:
@@ -1613,6 +1627,8 @@ def settings_google_detail(
         surface="settings_google",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
+    if is_property_brand:
+        return RedirectResponse(_property_account_redirect_target(request, settings_view="google"), status_code=303)
     sync_error = str(request.query_params.get("sync_error") or "").strip()
     sync_status = str(request.query_params.get("sync_status") or "").strip()
     sync_processed_total = int(request.query_params.get("sync_processed_total") or 0)
@@ -2245,6 +2261,8 @@ def settings_access_detail(
         surface="settings_access",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
+    if is_property_brand:
+        return RedirectResponse(_property_account_redirect_target(request, settings_view="access"), status_code=303)
     active_sessions = [dict(item) for item in product.list_workspace_access_sessions(principal_id=context.principal_id, status="active", limit=50)]
     revoked_sessions = [dict(item) for item in product.list_workspace_access_sessions(principal_id=context.principal_id, status="revoked", limit=20)]
     total_opens = sum(
@@ -2624,7 +2642,6 @@ async def app_create_workspace_invitation(
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/invitations"), default="/app/settings/invitations")
-    separator = "&" if "?" in return_to else "?"
     email = str(_form_value(body, "email", "")).strip().lower()
     role = str(_form_value(body, "role", "operator")).strip().lower() or "operator"
     display_name = str(_form_value(body, "display_name", "")).strip()
@@ -2639,9 +2656,13 @@ async def app_create_workspace_invitation(
             invited_by=actor,
         )
     except Exception as exc:
-        error_value = urllib.parse.quote(str(exc or "workspace_invitation_create_failed"), safe="")
+        error_value = str(exc or "workspace_invitation_create_failed").strip()
         return RedirectResponse(
-            f"{return_to}{separator}invite_error={error_value}&invite_email={urllib.parse.quote(email, safe='')}",
+            _browser_return_to_with_params(
+                return_to,
+                invite_error=error_value,
+                invite_email=email,
+            ),
             status_code=303,
         )
     product.record_surface_event(
@@ -2652,7 +2673,11 @@ async def app_create_workspace_invitation(
         metadata={"email": email, "role": role},
     )
     return RedirectResponse(
-        f"{return_to}{separator}invite_status=created&invite_email={urllib.parse.quote(email, safe='')}",
+        _browser_return_to_with_params(
+            return_to,
+            invite_status="created",
+            invite_email=email,
+        ),
         status_code=303,
     )
 
@@ -2666,22 +2691,21 @@ async def app_revoke_workspace_invitation(
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/invitations"), default="/app/settings/invitations")
-    separator = "&" if "?" in return_to else "?"
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     current = product.get_workspace_invitation(principal_id=context.principal_id, invitation_id=invitation_id)
     if current is None:
-        error_value = urllib.parse.quote("workspace_invitation_not_found", safe="")
-        return RedirectResponse(f"{return_to}{separator}invite_error={error_value}", status_code=303)
+        error_value = "workspace_invitation_not_found"
+        return RedirectResponse(_browser_return_to_with_params(return_to, invite_error=error_value), status_code=303)
     revoked = product.revoke_workspace_invitation(
         principal_id=context.principal_id,
         invitation_id=invitation_id,
         actor=actor,
     )
     if revoked is None:
-        error_value = urllib.parse.quote("workspace_invitation_not_found", safe="")
-        return RedirectResponse(f"{return_to}{separator}invite_error={error_value}", status_code=303)
-    email = urllib.parse.quote(str(revoked.get("email") or current.get("email") or "").strip().lower(), safe="")
+        error_value = "workspace_invitation_not_found"
+        return RedirectResponse(_browser_return_to_with_params(return_to, invite_error=error_value), status_code=303)
+    email = str(revoked.get("email") or current.get("email") or "").strip().lower()
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="workspace_invitation_revocation_requested",
@@ -2690,7 +2714,7 @@ async def app_revoke_workspace_invitation(
         metadata={"invitation_id": invitation_id, "email": str(revoked.get("email") or current.get("email") or "").strip().lower()},
     )
     return RedirectResponse(
-        f"{return_to}{separator}invite_status=revoked&revoked_email={email}",
+        _browser_return_to_with_params(return_to, invite_status="revoked", revoked_email=email),
         status_code=303,
     )
 
@@ -2703,7 +2727,6 @@ async def app_issue_workspace_access_session(
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/access"), default="/app/settings/access")
-    separator = "&" if "?" in return_to else "?"
     email = str(_form_value(body, "email", "")).strip().lower()
     role = str(_form_value(body, "role", "principal")).strip().lower() or "principal"
     display_name = str(_form_value(body, "display_name", "")).strip()
@@ -2720,9 +2743,13 @@ async def app_issue_workspace_access_session(
             default_target="/app/agents" if is_property_brand and role == "operator" else "",
         )
     except Exception as exc:
-        error_value = urllib.parse.quote(str(exc or "workspace_access_issue_failed"), safe="")
+        error_value = str(exc or "workspace_access_issue_failed").strip()
         return RedirectResponse(
-            f"{return_to}{separator}issue_error={error_value}&issue_email={urllib.parse.quote(email, safe='')}",
+            _browser_return_to_with_params(
+                return_to,
+                issue_error=error_value,
+                issue_email=email,
+            ),
             status_code=303,
         )
     product.record_surface_event(
@@ -2733,7 +2760,11 @@ async def app_issue_workspace_access_session(
         metadata={"email": email, "role": role},
     )
     return RedirectResponse(
-        f"{return_to}{separator}issue_status=issued&issue_email={urllib.parse.quote(email, safe='')}",
+        _browser_return_to_with_params(
+            return_to,
+            issue_status="issued",
+            issue_email=email,
+        ),
         status_code=303,
     )
 
@@ -2747,22 +2778,21 @@ async def app_revoke_workspace_access_session(
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/access"), default="/app/settings/access")
-    separator = "&" if "?" in return_to else "?"
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     current = product.get_workspace_access_session(principal_id=context.principal_id, session_id=session_id)
     if current is None:
-        error_value = urllib.parse.quote("workspace_access_session_not_found", safe="")
-        return RedirectResponse(f"{return_to}{separator}issue_error={error_value}", status_code=303)
+        error_value = "workspace_access_session_not_found"
+        return RedirectResponse(_browser_return_to_with_params(return_to, issue_error=error_value), status_code=303)
     revoked = product.revoke_workspace_access_session(
         principal_id=context.principal_id,
         session_id=session_id,
         actor=actor,
     )
     if revoked is None:
-        error_value = urllib.parse.quote("workspace_access_session_not_found", safe="")
-        return RedirectResponse(f"{return_to}{separator}issue_error={error_value}", status_code=303)
-    email = urllib.parse.quote(str(revoked.get("email") or current.get("email") or "").strip().lower(), safe="")
+        error_value = "workspace_access_session_not_found"
+        return RedirectResponse(_browser_return_to_with_params(return_to, issue_error=error_value), status_code=303)
+    email = str(revoked.get("email") or current.get("email") or "").strip().lower()
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="workspace_access_revocation_requested",
@@ -2771,7 +2801,7 @@ async def app_revoke_workspace_access_session(
         metadata={"session_id": session_id, "email": str(revoked.get("email") or current.get("email") or "").strip().lower()},
     )
     return RedirectResponse(
-        f"{return_to}{separator}access_status=revoked&access_email={email}",
+        _browser_return_to_with_params(return_to, access_status="revoked", access_email=email),
         status_code=303,
     )
 
@@ -2785,11 +2815,10 @@ def app_google_signal_sync(
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/settings/google")
-    separator = "&" if "?" in return_to else "?"
     diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
     sync = dict(dict(diagnostics.get("analytics") or {}).get("sync") or {})
     if not bool(sync.get("google_workspace_sync_supported")):
-        return RedirectResponse(f"{return_to}{separator}sync_error=google_identity_only", status_code=303)
+        return RedirectResponse(_browser_return_to_with_params(return_to, sync_error="google_identity_only"), status_code=303)
     try:
         product.sync_google_workspace_signals(
             principal_id=context.principal_id,
@@ -2798,9 +2827,9 @@ def app_google_signal_sync(
             calendar_limit=5,
         )
     except RuntimeError as exc:
-        error_value = urllib.parse.quote(str(exc or "google_sync_failed"), safe="")
-        return RedirectResponse(f"{return_to}{separator}sync_error={error_value}", status_code=303)
-    return RedirectResponse(f"{return_to}{separator}sync_status=completed", status_code=303)
+        error_value = str(exc or "google_sync_failed").strip()
+        return RedirectResponse(_browser_return_to_with_params(return_to, sync_error=error_value), status_code=303)
+    return RedirectResponse(_browser_return_to_with_params(return_to, sync_status="completed"), status_code=303)
 
 
 @router.api_route("/app/actions/google/connect", methods=["GET", "HEAD"], include_in_schema=False)
@@ -2811,7 +2840,6 @@ def app_google_connect(
 ) -> RedirectResponse:
     return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/settings/google")
     scope_bundle = str(request.query_params.get("scope_bundle") or "identity").strip() or "identity"
-    separator = "&" if "?" in return_to else "?"
     try:
         started = container.onboarding.start_google(
             principal_id=context.principal_id,
@@ -2821,14 +2849,14 @@ def app_google_connect(
             browser_source="settings_google",
         )
     except RuntimeError as exc:
-        error_value = urllib.parse.quote(str(exc or "google_connect_failed"), safe="")
-        return RedirectResponse(f"{return_to}{separator}google_error={error_value}", status_code=303)
+        error_value = str(exc or "google_connect_failed").strip()
+        return RedirectResponse(_browser_return_to_with_params(return_to, google_error=error_value), status_code=303)
     google_start = dict(started.get("google_start") or {})
     auth_url = str(google_start.get("auth_url") or google_start.get("start_url") or "").strip()
     if bool(google_start.get("ready")) and auth_url:
         return RedirectResponse(auth_url, status_code=303)
-    detail = urllib.parse.quote(str(google_start.get("detail") or "google_oauth_not_ready"), safe="")
-    return RedirectResponse(f"{return_to}{separator}google_error={detail}", status_code=303)
+    detail = str(google_start.get("detail") or "google_oauth_not_ready").strip()
+    return RedirectResponse(_browser_return_to_with_params(return_to, google_error=detail), status_code=303)
 
 
 @router.api_route("/app/actions/id-austria/connect", methods=["GET", "HEAD"], include_in_schema=False)
@@ -2838,9 +2866,11 @@ def app_id_austria_connect(
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
     return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/account")
-    separator = "&" if "?" in return_to else "?"
     if not _request_is_austrian_ip(request):
-        return RedirectResponse(f"{return_to}{separator}id_austria_error=id_austria_austria_ip_required", status_code=303)
+        return RedirectResponse(
+            _browser_return_to_with_params(return_to, id_austria_error="id_austria_austria_ip_required"),
+            status_code=303,
+        )
     try:
         packet = id_austria_service.build_id_austria_oidc_start(
             principal_id=context.principal_id,
@@ -2849,8 +2879,8 @@ def app_id_austria_connect(
             browser_source="settings_id_austria",
         )
     except RuntimeError as exc:
-        error_value = urllib.parse.quote(str(exc or "id_austria_connect_failed"), safe="")
-        return RedirectResponse(f"{return_to}{separator}id_austria_error={error_value}", status_code=303)
+        error_value = str(exc or "id_austria_connect_failed").strip()
+        return RedirectResponse(_browser_return_to_with_params(return_to, id_austria_error=error_value), status_code=303)
     return RedirectResponse(str(packet.auth_url), status_code=303)
 
 
@@ -2861,7 +2891,6 @@ def app_facebook_connect(
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
     return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/account")
-    separator = "&" if "?" in return_to else "?"
     try:
         packet = build_facebook_oauth_start(
             principal_id=context.principal_id,
@@ -2870,8 +2899,8 @@ def app_facebook_connect(
             browser_source="settings_facebook",
         )
     except RuntimeError as exc:
-        error_value = urllib.parse.quote(str(exc or "facebook_connect_failed"), safe="")
-        return RedirectResponse(f"{return_to}{separator}facebook_error={error_value}", status_code=303)
+        error_value = str(exc or "facebook_connect_failed").strip()
+        return RedirectResponse(_browser_return_to_with_params(return_to, facebook_error=error_value), status_code=303)
     return RedirectResponse(str(packet.auth_url), status_code=303)
 
 
@@ -2887,7 +2916,6 @@ async def app_google_email_connect_link(
         _form_value(body, "return_to", str(query.get("return_to") or "/app/settings/google")),
         default="/app/settings/google",
     )
-    separator = "&" if "?" in return_to else "?"
     recipient_email = (
         _form_value(body, "recipient_email", "")
         or str(query.get("recipient_email") or "").strip()
@@ -2906,13 +2934,22 @@ async def app_google_email_connect_link(
             base_url=_public_app_base_url(request),
         )
     except (RuntimeError, ValueError) as exc:
-        error_value = urllib.parse.quote(str(exc or "google_connect_email_failed"), safe="")
+        error_value = str(exc or "google_connect_email_failed").strip()
         return RedirectResponse(
-            f"{return_to}{separator}email_link_error={error_value}&email_link_email={urllib.parse.quote(str(recipient_email or '').strip().lower(), safe='')}",
+            _browser_return_to_with_params(
+                return_to,
+                email_link_error=error_value,
+                email_link_email=str(recipient_email or "").strip().lower(),
+            ),
             status_code=303,
         )
     return RedirectResponse(
-        f"{return_to}{separator}email_link_status=sent&email_link_email={urllib.parse.quote(str(result.get('recipient_email') or '').strip().lower(), safe='')}&email_link_bundle={urllib.parse.quote(str(result.get('scope_bundle') or '').strip(), safe='')}",
+        _browser_return_to_with_params(
+            return_to,
+            email_link_status="sent",
+            email_link_email=str(result.get("recipient_email") or "").strip().lower(),
+            email_link_bundle=str(result.get("scope_bundle") or "").strip(),
+        ),
         status_code=303,
     )
 
@@ -2926,7 +2963,6 @@ async def app_google_make_primary(
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/google"), default="/app/settings/google")
-    separator = "&" if "?" in return_to else "?"
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     try:
@@ -2936,8 +2972,8 @@ async def app_google_make_primary(
             binding_id=binding_id,
         )
     except RuntimeError as exc:
-        error_value = urllib.parse.quote(str(exc or "google_account_promotion_failed"), safe="")
-        return RedirectResponse(f"{return_to}{separator}google_error={error_value}", status_code=303)
+        error_value = str(exc or "google_account_promotion_failed").strip()
+        return RedirectResponse(_browser_return_to_with_params(return_to, google_error=error_value), status_code=303)
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="google_account_primary_updated",
@@ -2949,7 +2985,7 @@ async def app_google_make_primary(
             "google_subject": str(account.google_subject or "").strip(),
         },
     )
-    return RedirectResponse(f"{return_to}{separator}account_status=primary_updated", status_code=303)
+    return RedirectResponse(_browser_return_to_with_params(return_to, account_status="primary_updated"), status_code=303)
 
 
 @router.post("/app/actions/google/accounts/{binding_id:path}/disconnect")
@@ -2961,7 +2997,6 @@ async def app_google_disconnect_account(
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/google"), default="/app/settings/google")
-    separator = "&" if "?" in return_to else "?"
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     try:
@@ -2971,8 +3006,8 @@ async def app_google_disconnect_account(
             binding_id=binding_id,
         )
     except RuntimeError as exc:
-        error_value = urllib.parse.quote(str(exc or "google_account_disconnect_failed"), safe="")
-        return RedirectResponse(f"{return_to}{separator}google_error={error_value}", status_code=303)
+        error_value = str(exc or "google_account_disconnect_failed").strip()
+        return RedirectResponse(_browser_return_to_with_params(return_to, google_error=error_value), status_code=303)
     metadata = dict(binding.auth_metadata_json or {})
     product.record_surface_event(
         principal_id=context.principal_id,
@@ -2985,7 +3020,10 @@ async def app_google_disconnect_account(
             "google_subject": str(metadata.get("google_subject") or "").strip(),
         },
     )
-    return RedirectResponse(f"{return_to}{separator}account_status=account_disconnected", status_code=303)
+    return RedirectResponse(
+        _browser_return_to_with_params(return_to, account_status="account_disconnected"),
+        status_code=303,
+    )
 
 
 @router.post("/app/actions/google/accounts/{binding_id:path}/verify-send")
@@ -2997,7 +3035,6 @@ async def app_google_verify_send(
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/google"), default="/app/settings/google")
-    separator = "&" if "?" in return_to else "?"
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     try:
@@ -3017,8 +3054,8 @@ async def app_google_verify_send(
                 "error": str(exc or "google_send_verification_failed").strip(),
             },
         )
-        error_value = urllib.parse.quote(str(exc or "google_send_verification_failed"), safe="")
-        return RedirectResponse(f"{return_to}{separator}verify_error={error_value}", status_code=303)
+        error_value = str(exc or "google_send_verification_failed").strip()
+        return RedirectResponse(_browser_return_to_with_params(return_to, verify_error=error_value), status_code=303)
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="google_send_verification_completed",
@@ -3033,10 +3070,15 @@ async def app_google_verify_send(
             "gmail_message_id": str(result.gmail_message_id or "").strip(),
         },
     )
-    sender = urllib.parse.quote(str(result.sender_email or "").strip(), safe="")
-    recipient = urllib.parse.quote(str(result.recipient_email or "").strip(), safe="")
+    sender = str(result.sender_email or "").strip()
+    recipient = str(result.recipient_email or "").strip()
     return RedirectResponse(
-        f"{return_to}{separator}verify_status=completed&verify_sender={sender}&verify_recipient={recipient}",
+        _browser_return_to_with_params(
+            return_to,
+            verify_status="completed",
+            verify_sender=sender,
+            verify_recipient=recipient,
+        ),
         status_code=303,
     )
 

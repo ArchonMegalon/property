@@ -2859,7 +2859,7 @@ def property_workspace_payload(
             {"label": "Saved searches", "value": ("Unlimited" if int(commercial.get("search_agent_limit") or 0) <= 0 else str(commercial.get("search_agent_limit") or 1)), "detail": "Briefs that can keep running in the background.", "href": signed_in_billing_href},
         ],
         "settings": [
-            {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
+            {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account?settings_view=google#connected-services"},
             {"label": "Account", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": workspace_timezone, "href": "/app/account#search-defaults"},
             {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": signed_in_billing_href},
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/properties{run_suffix}"},
@@ -3748,7 +3748,7 @@ def property_workspace_payload(
             "hero_summary": "Saved defaults, notifications, billing, and access.",
             "hero_actions": [],
             "hero_highlights": [
-                {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
+                {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account?settings_view=google#connected-services"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": signed_in_billing_href},
                 {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
                 {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/properties{run_suffix}"},
@@ -3828,7 +3828,7 @@ def property_workspace_payload(
                 {"href": signed_in_billing_href, "label": "Billing account"},
             ],
             "hero_highlights": [
-                {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
+                {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account?settings_view=google#connected-services"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": signed_in_billing_href},
                 {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
                 {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/properties{run_suffix}"},
@@ -3898,6 +3898,10 @@ def property_workspace_payload(
     payload["primary_cards"] = _strip_current_surface_actions_from_cards(payload.get("primary_cards"))
     payload["secondary_cards"] = _strip_current_surface_actions_from_cards(payload.get("secondary_cards"))
     payload["account_status"] = _compact_property_account_status(status)
+    if isinstance(property_state.get("account_google"), dict) and property_state.get("account_google"):
+        payload["account_status"]["google_account"] = dict(property_state.get("account_google") or {})
+    if isinstance(property_state.get("access_links"), dict) and property_state.get("access_links"):
+        payload["account_status"]["access_links"] = dict(property_state.get("access_links") or {})
     shortlist_snapshot = build_property_shortlist_snapshot(
         workbench_results,
         selected_candidate_ref=selected_candidate_ref,

@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
-from app.api.routes.landing import _default_operator_id_for_browser, _form_value, _normalize_browser_return_to
+from app.api.routes.landing import (
+    _browser_return_to_with_params,
+    _default_operator_id_for_browser,
+    _form_value,
+    _normalize_browser_return_to,
+)
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.property_market_catalog import default_timezone_for_country
@@ -269,7 +274,6 @@ async def app_retry_handoff_send(
         raise HTTPException(status_code=409, detail="operator_required")
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or operator_id).strip()
-    separator = "&" if "?" in return_to else "?"
     try:
         retried = product.retry_delivery_followup_send(
             principal_id=context.principal_id,
@@ -278,11 +282,11 @@ async def app_retry_handoff_send(
             actor=actor,
         )
     except RuntimeError as exc:
-        error_value = urllib.parse.quote(str(exc or "draft_send_retry_failed"), safe="")
-        return RedirectResponse(f"{return_to}{separator}send_error={error_value}", status_code=303)
+        error_value = str(exc or "draft_send_retry_failed").strip()
+        return RedirectResponse(_browser_return_to_with_params(return_to, send_error=error_value), status_code=303)
     if retried is None:
         raise HTTPException(status_code=404, detail="handoff_not_found")
-    return RedirectResponse(f"{return_to}{separator}send_status=sent", status_code=303)
+    return RedirectResponse(_browser_return_to_with_params(return_to, send_status="sent"), status_code=303)
 
 
 @router.post("/app/actions/handoffs/{handoff_ref:path}/recreate")
@@ -306,7 +310,6 @@ async def app_recreate_handoff(
         raise HTTPException(status_code=409, detail="operator_required")
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or operator_id).strip()
-    separator = "&" if "?" in return_to else "?"
     try:
         recreated = product.recreate_property_tour_followup(
             principal_id=context.principal_id,
@@ -315,11 +318,14 @@ async def app_recreate_handoff(
             actor=actor,
         )
     except RuntimeError as exc:
-        error_value = urllib.parse.quote(str(exc or "handoff_recreate_failed"), safe="")
-        return RedirectResponse(f"{return_to}{separator}recreate_error={error_value}", status_code=303)
+        error_value = str(exc or "handoff_recreate_failed").strip()
+        return RedirectResponse(_browser_return_to_with_params(return_to, recreate_error=error_value), status_code=303)
     if recreated is None:
         raise HTTPException(status_code=404, detail="handoff_not_found")
-    return RedirectResponse(f"{return_to}{separator}recreate_status={str(recreated.resolution or 'completed')}", status_code=303)
+    return RedirectResponse(
+        _browser_return_to_with_params(return_to, recreate_status=str(recreated.resolution or "completed")),
+        status_code=303,
+    )
 
 
 @router.post("/app/actions/threads/{thread_ref:path}/resume-delivery")
@@ -341,7 +347,6 @@ async def app_resume_thread_delivery_followup(
     )
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or operator_id or "product").strip()
-    separator = "&" if "?" in return_to else "?"
     try:
         reopened = product.resume_thread_delivery_followup(
             principal_id=context.principal_id,
@@ -350,11 +355,11 @@ async def app_resume_thread_delivery_followup(
             operator_id=operator_id,
         )
     except RuntimeError as exc:
-        error_value = urllib.parse.quote(str(exc or "thread_delivery_followup_not_resumable"), safe="")
-        return RedirectResponse(f"{return_to}{separator}send_error={error_value}", status_code=303)
+        error_value = str(exc or "thread_delivery_followup_not_resumable").strip()
+        return RedirectResponse(_browser_return_to_with_params(return_to, send_error=error_value), status_code=303)
     if reopened is None:
         raise HTTPException(status_code=404, detail="thread_not_found")
-    return RedirectResponse(f"{return_to}{separator}send_status=resumed", status_code=303)
+    return RedirectResponse(_browser_return_to_with_params(return_to, send_status="resumed"), status_code=303)
 
 
 @router.post("/app/actions/support/fix-verification/request")
@@ -367,7 +372,6 @@ async def app_request_support_fix_verification(
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/support"), default="/app/settings/support")
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "support").strip()
-    separator = "&" if "?" in return_to else "?"
     try:
         product.request_support_fix_verification(
             principal_id=context.principal_id,
@@ -375,9 +379,15 @@ async def app_request_support_fix_verification(
             base_url=str(request.base_url),
         )
     except (RuntimeError, ValueError) as exc:
-        error_value = urllib.parse.quote(str(exc or "support_fix_verification_request_failed"), safe="")
-        return RedirectResponse(f"{return_to}{separator}support_verification_error={error_value}", status_code=303)
-    return RedirectResponse(f"{return_to}{separator}support_verification=requested", status_code=303)
+        error_value = str(exc or "support_fix_verification_request_failed").strip()
+        return RedirectResponse(
+            _browser_return_to_with_params(return_to, support_verification_error=error_value),
+            status_code=303,
+        )
+    return RedirectResponse(
+        _browser_return_to_with_params(return_to, support_verification="requested"),
+        status_code=303,
+    )
 
 
 @router.post("/app/actions/people/{person_id}/correct")

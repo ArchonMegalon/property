@@ -123,6 +123,7 @@ from app.product.service import (
     build_product_service,
 )
 from app.services.cloudflare_access import CloudflareAccessIdentity
+from app.services import google_oauth as google_oauth_service
 from app.services.google_oauth import complete_google_oauth_callback
 from app.services.property_billing import payfunnels_configured, property_commercial_snapshot
 from app.services.property_market_catalog import (
@@ -1846,6 +1847,27 @@ def _normalize_browser_return_to(raw: str | None, *, default: str) -> str:
     return value
 
 
+def _browser_return_to_with_params(return_to: str, **params: object) -> str:
+    normalized = str(return_to or "").strip()
+    if not normalized:
+        return normalized
+    parsed = urllib.parse.urlsplit(normalized)
+    query_pairs = list(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+    for key, value in params.items():
+        if value is None:
+            continue
+        query_pairs.append((str(key), str(value)))
+    return urllib.parse.urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urllib.parse.urlencode(query_pairs),
+            parsed.fragment,
+        )
+    )
+
+
 def _first_forwarded_https_or_first_token(raw: str) -> str:
     tokens = [token.strip().lower() for token in str(raw or "").split(",") if token.strip()]
     if "https" in tokens:
@@ -2311,6 +2333,158 @@ def _property_search_platform_catalog() -> tuple[dict[str, str], ...]:
     return tuple(property_provider_options(country_code="AT"))
 
 
+def _property_account_settings_view_href(view: str, *, run_id: str = "") -> str:
+    query_pairs: list[tuple[str, str]] = []
+    normalized_run_id = str(run_id or "").strip()
+    if normalized_run_id:
+        query_pairs.append(("run_id", normalized_run_id))
+    query_pairs.append(("settings_view", str(view or "account").strip() or "account"))
+    query = urllib.parse.urlencode(query_pairs)
+    return f"/app/account?{query}#connected-services" if query else "/app/account#connected-services"
+
+
+def _property_google_customer_detail(raw_detail: str, *, connected: bool, token_status: str) -> str:
+    detail = str(raw_detail or "").strip()
+    lowered = detail.lower()
+    internal_tokens = (
+        "google oauth credentials are not configured",
+        "set ea_google_oauth_client_id",
+        "set ea_google_oauth_client_secret",
+        "set ea_google_oauth_redirect_uri",
+        "set ea_google_oauth_state_secret",
+        "set ea_provider_secret_key",
+    )
+    if detail and not any(token in lowered for token in internal_tokens):
+        return detail
+    if connected and token_status and token_status not in {"active", "unknown"}:
+        return "Reconnect Google to keep sign-in and return access working."
+    if connected:
+        return "Use Google to sign in with the same PropertyQuarry account."
+    return "First-time Google sign-in still creates the same PropertyQuarry account automatically."
+
+
+def _property_google_account_snapshot(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    status: dict[str, object],
+    run_id: str = "",
+) -> dict[str, object]:
+    raw_channels = dict(status.get("channels") or {}) if isinstance(status.get("channels"), dict) else {}
+    google_channel = dict(raw_channels.get("google") or {}) if isinstance(raw_channels.get("google"), dict) else {}
+    google_accounts = sorted(
+        google_oauth_service.list_google_accounts(container=container, principal_id=principal_id),
+        key=lambda account: (
+            str(account.binding.binding_id or "").strip()
+            != f"{account.binding.principal_id}:{google_oauth_service.GOOGLE_PROVIDER_KEY}",
+            str(account.google_email or "").strip().lower(),
+            str(account.binding.binding_id or "").strip(),
+        ),
+    )
+    primary_account = next(
+        (
+            account
+            for account in google_accounts
+            if str(account.binding.binding_id or "").strip()
+            == f"{account.binding.principal_id}:{google_oauth_service.GOOGLE_PROVIDER_KEY}"
+        ),
+        google_accounts[0] if google_accounts else None,
+    )
+    primary_email = str(
+        getattr(primary_account, "google_email", "")
+        or google_channel.get("connected_account_email")
+        or google_channel.get("primary_account_email")
+        or google_channel.get("account_email")
+        or ""
+    ).strip()
+    connected_total = len(google_accounts)
+    active_total = sum(
+        1
+        for account in google_accounts
+        if str(account.binding.status or "").strip().lower() == "enabled"
+        and str(account.token_status or "").strip().lower() != "revoked"
+    )
+    token_status = str(getattr(primary_account, "token_status", "") or "").strip().lower()
+    connected = bool(connected_total or primary_email or str(google_channel.get("status") or "").strip().lower() == "connected")
+    if not connected:
+        status_label = "Ready to connect"
+    elif token_status and token_status not in {"active", "unknown"}:
+        status_label = "Needs reconnect"
+    else:
+        status_label = "Connected"
+    detail = _property_google_customer_detail(
+        str(google_channel.get("detail") or "").strip(),
+        connected=connected,
+        token_status=token_status,
+    )
+    connect_return_to = _property_account_settings_view_href("google", run_id=run_id)
+    connect_href = "/app/actions/google/connect?" + urllib.parse.urlencode(
+        {"return_to": connect_return_to, "scope_bundle": "identity"}
+    )
+    if not connected:
+        action_label = "Connect Google"
+    elif token_status and token_status not in {"active", "unknown"}:
+        action_label = "Reconnect Google"
+    else:
+        action_label = "Connect another"
+    account_rows = [
+        {
+            "email": str(account.google_email or "").strip(),
+            "status_label": "Primary" if index == 0 else "Connected",
+            "detail": (
+                "Ready"
+                if str(account.token_status or "").strip().lower() in {"active", "unknown", ""}
+                else str(account.token_status or "").strip().replace("_", " ")
+            ),
+        }
+        for index, account in enumerate(google_accounts[:3])
+        if str(account.google_email or "").strip()
+    ]
+    return {
+        "connected": connected,
+        "primary_email": primary_email,
+        "connected_total": connected_total,
+        "active_total": active_total,
+        "status_label": status_label,
+        "detail": detail,
+        "action_href": connect_href,
+        "action_label": action_label,
+        "accounts": account_rows,
+    }
+
+
+def _property_access_link_snapshot(
+    *,
+    product: Any,
+    principal_id: str,
+) -> dict[str, object]:
+    active_sessions = [
+        dict(item)
+        for item in product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=50)
+        if isinstance(item, dict)
+    ]
+    revoked_sessions = [
+        dict(item)
+        for item in product.list_workspace_access_sessions(principal_id=principal_id, status="revoked", limit=20)
+        if isinstance(item, dict)
+    ]
+    return {
+        "active_total": len(active_sessions),
+        "revoked_total": len(revoked_sessions),
+        "rows": [
+            {
+                "session_id": str(item.get("session_id") or "").strip(),
+                "email": str(item.get("email") or "unknown").strip(),
+                "role_label": "Collaborator" if str(item.get("role") or "principal").strip() == "operator" else "Account owner",
+                "expires_at": str(item.get("expires_at") or "").strip(),
+                "access_url": str(item.get("access_url") or "").strip(),
+            }
+            for item in active_sessions[:3]
+            if str(item.get("session_id") or "").strip()
+        ],
+    }
+
+
 def _property_run_scope_snapshot(run_payload: dict[str, object]) -> dict[str, object]:
     payload = dict(run_payload or {})
     summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
@@ -2746,6 +2920,22 @@ def _property_console_context(
         except Exception:
             learning_summary = {}
 
+    account_google: dict[str, object] = {}
+    access_links: dict[str, object] = {}
+    if surface_scope.section in {"account", "settings"}:
+        with contextlib.suppress(Exception):
+            account_google = _property_google_account_snapshot(
+                container=container,
+                principal_id=principal_id,
+                status=status,
+                run_id=normalized_run_id,
+            )
+        with contextlib.suppress(Exception):
+            access_links = _property_access_link_snapshot(
+                product=product,
+                principal_id=principal_id,
+            )
+
     billing_truth = build_property_billing_truth_snapshot(
         commercial=commercial,
         default_billing_plan=default_billing_plan,
@@ -2786,6 +2976,8 @@ def _property_console_context(
         "learning_summary": learning_summary,
         "preference_bundle": preference_bundle,
         "preference_person_id": preference_person_id,
+        "account_google": account_google,
+        "access_links": access_links,
         "start_endpoint": "/app/api/property/search-runs",
         "preferences_endpoint": "/v1/onboarding/property-search/preferences",
         "commercial": commercial,

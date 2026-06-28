@@ -17190,7 +17190,8 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert 'href="/app/properties?run_id=run-account-billing"' in account_with_run.text
     assert 'id="connected-services"' in account.text
     assert 'id="settings"' in account.text
-    assert "Sign-in and privacy" in account.text
+    assert "Google sign-in" in account.text
+    assert "Access links" in account.text
     assert "How it works" in account.text
     assert "Privacy" in account.text
     assert "Scoring, privacy, and sharing rules." not in account.text
@@ -17386,21 +17387,25 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'class="pqx-account-menu"' not in account.text
     assert "Clear search history" in account.text
     assert 'action="/app/api/property/search-runs/clear"' in account.text
-    assert "Access and shared pages" in account.text
     assert "Access links" in account.text
-    assert 'href="/app/settings/access"' in account.text
+    assert '/app/account?settings_view=access#connected-services' in account.text
     assert "Shared pages" in account.text
     assert 'href="/app/properties/packets"' in account.text
     account_with_run = client.get("/app/account", params={"run_id": "run-account-shares"}, headers={"host": "propertyquarry.com"})
     assert 'href="/app/properties/packets?run_id=run-account-shares"' in account_with_run.text
-    assert "Sign-in and privacy" in account.text
-    assert 'href="/app/settings/google"' in account.text
-    assert 'href="/how-it-works"' in account.text
-    assert 'href="/cookies"' in account.text
+    assert "Google sign-in" in account.text
+    assert "First-time Google sign-in still creates the same PropertyQuarry account automatically." in account.text
+    assert '/app/actions/google/connect?return_to=%2Fapp%2Faccount%3Fsettings_view%3Dgoogle%23connected-services' in account.text
+    assert 'href="/app/settings/google"' not in account.text
+    assert 'href="/app/settings/access"' not in account.text
+    google_view = client.get("/app/account", params={"settings_view": "google"}, headers=headers)
+    assert google_view.status_code == 200
+    assert 'href="/how-it-works"' in google_view.text
+    assert 'href="/cookies"' in google_view.text
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
     assert "Notifications" in account.text
-    assert "Choose where updates arrive." in account.text
+    assert "Pick where matches arrive." in account.text
     assert "Primary route" in account.text
     assert "Destination mix" not in account.text
     assert "Primary response lane" not in account.text
@@ -17432,11 +17437,9 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "EA host" not in account.text
     assert 'value="whatsapp"' in account.text
     assert 'value="signal"' not in account.text
-    access_links = client.get("/app/settings/access", headers=headers)
-    assert access_links.status_code == 200
-    assert "Create an access link" in access_links.text
-    assert "Live access links" in access_links.text
-    assert "workspace access links" not in access_links.text
+    access_links = client.get("/app/settings/access", headers=headers, follow_redirects=False)
+    assert access_links.status_code == 303
+    assert access_links.headers["location"] == "/app/account?settings_view=access#connected-services"
 
     export = client.get("/app/api/property/account/export", headers=headers)
     assert export.status_code == 200
@@ -17543,9 +17546,10 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert download.headers["cache-control"] == "no-store"
     assert "propertyquarry-account-export" in download.headers["content-disposition"]
 
-    access = client.get("/app/settings/access", headers=headers)
+    access = client.get("/app/account", params={"settings_view": "access"}, headers=headers)
     assert access.status_code == 200
-    assert "Access" in access.text
+    assert "Create an access link" in access.text
+    assert 'id="connected-services"' in access.text
 
 
 def test_propertyquarry_settings_access_collaborator_link_redirects_to_agents(monkeypatch) -> None:
@@ -17571,13 +17575,16 @@ def test_propertyquarry_settings_access_collaborator_link_redirects_to_agents(mo
             "email": "collaborator@example.com",
             "role": "operator",
             "display_name": "Collaborator Access",
-            "return_to": "/app/settings/access",
+            "return_to": "/app/account?settings_view=access#connected-services",
         },
         headers=headers,
         follow_redirects=False,
     )
     assert issued.status_code == 303
-    assert issued.headers["location"].startswith("/app/settings/access?")
+    assert (
+        issued.headers["location"]
+        == "/app/account?settings_view=access&issue_status=issued&issue_email=collaborator%40example.com#connected-services"
+    )
 
     captured_kwargs = dict(captured_issue["kwargs"])
     captured_session = dict(captured_issue["session"])
@@ -17845,7 +17852,8 @@ def test_propertyquarry_account_payload_avoids_internal_posture_labels() -> None
     assert '"eyebrow": "Operating posture"' not in payload_source
     assert '"title": "Commercial posture"' not in payload_source
     assert '"/app/account#settings"' not in payload_source
-    assert '"/app/settings/google"' in payload_source
+    assert '"/app/account?settings_view=google#connected-services"' in payload_source
+    assert '"/app/settings/google"' not in payload_source
     assert "Telegram and email" not in payload_source
     assert "Telegram or email" not in payload_source
     assert "through email" not in payload_source
@@ -17984,9 +17992,8 @@ def test_property_settings_subpages_keep_property_shell_and_top_mobile_nav() -> 
         assert 'data-property-app-shell' in response.text, path
         assert 'data-property-mobile-dock' not in response.text, path
         assert 'class="pq-mobile-nav"' not in response.text, path
-        assert 'class="pq-rail-link active" href="/app/account"' in response.text, path
         topnav_match = re.search(
-            r'<nav class="pq-appbar-mobile-nav"[^>]*data-property-console-topnav[^>]*>(?P<nav>.*?)</nav>',
+            r'<nav class="(?:pq-appbar-mobile-nav|pqx-primary-nav)"[^>]*aria-label="PropertyQuarry sections"[^>]*>(?P<nav>.*?)</nav>',
             response.text,
             flags=re.DOTALL,
         )
@@ -17994,9 +18001,11 @@ def test_property_settings_subpages_keep_property_shell_and_top_mobile_nav() -> 
         topnav = topnav_match.group("nav")
         for href, label in required_nav.items():
             assert label in topnav, path
-            if href != "/app/account":
+            if href not in {"/app/account", "/app/search"}:
                 assert f'href="{href}' in topnav, path
-        assert 'aria-current="page">Account</span>' in topnav, path
+        assert ('href="/app/search' in topnav) or ('href="/app/properties' in topnav), path
+        assert 'aria-current="page"' in topnav, path
+        assert '>Account</span>' in topnav, path
 
 
 def test_property_settings_surfaces_use_single_focus_mobile_disclosures() -> None:
@@ -18006,7 +18015,6 @@ def test_property_settings_surfaces_use_single_focus_mobile_disclosures() -> Non
     assert 'class="object-section object-disclosure object-sidebar-disclosure"' in template
     assert 'data-object-mobile-default="{{ \'open\' if object_sidebar_default_open else \'closed\' }}"' in template
     assert 'data-object-mobile-default="{{ \'open\' if section.get(\'open\') or loop.first else \'closed\' }}"' in template
-    assert ".object-grid.is-settings-surface .object-disclosure-summary .object-tag {" in template
     assert "detailsNode.open = false;" in template
 
     client = build_property_client(principal_id="pq-settings-disclosures-contract")
@@ -18020,20 +18028,23 @@ def test_property_settings_surfaces_use_single_focus_mobile_disclosures() -> Non
     assert "Support at a glance" in support.text
     assert "Repair and run health" in support.text
 
-    google = client.get("/app/settings/google", headers=headers)
-    assert google.status_code == 200
-    assert 'object-sidebar-disclosure' in google.text
-    assert 'object-sidebar-disclosure" open data-object-mobile-default="open"' in google.text
-    assert "Google sign-in" in google.text
-    assert "Sign in with the same account" in google.text
-    assert "First-time Google sign-in still creates the same PropertyQuarry account automatically." in google.text
+    google = client.get("/app/settings/google", headers=headers, follow_redirects=False)
+    assert google.status_code == 303
+    assert google.headers["location"] == "/app/account?settings_view=google#connected-services"
+    google_account = client.get("/app/account", params={"settings_view": "google"}, headers=headers)
+    assert google_account.status_code == 200
+    assert 'id="connected-services"' in google_account.text
+    assert "Google sign-in" in google_account.text
+    assert "First-time Google sign-in still creates the same PropertyQuarry account automatically." in google_account.text
+    assert "EA_GOOGLE_OAUTH_CLIENT_ID" not in google_account.text
 
-    access = client.get("/app/settings/access", headers=headers)
-    assert access.status_code == 200
-    assert 'object-form-disclosure' in access.text
-    assert 'Create an access link' in access.text
-    assert 'object-form-disclosure" open' in access.text
-    assert 'data-object-mobile-default="open"' in access.text
+    access = client.get("/app/settings/access", headers=headers, follow_redirects=False)
+    assert access.status_code == 303
+    assert access.headers["location"] == "/app/account?settings_view=access#connected-services"
+    access_account = client.get("/app/account", params={"settings_view": "access"}, headers=headers)
+    assert access_account.status_code == 200
+    assert 'id="connected-services"' in access_account.text
+    assert 'Create an access link' in access_account.text
 
     invitations = client.get("/app/settings/invitations", headers=headers)
     assert invitations.status_code == 200
@@ -18071,12 +18082,15 @@ def test_property_google_settings_uses_fast_local_status(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-settings-google-fast")
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
-    response = client.get("/app/settings/google", headers={"host": "propertyquarry.com"})
+    response = client.get("/app/settings/google", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "PropertyQuarry Google connection" in response.text
-    assert "Connected Google accounts" in response.text
-    assert "Connect Google" in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/account?settings_view=google#connected-services"
+    account = client.get("/app/account", params={"settings_view": "google"}, headers={"host": "propertyquarry.com"})
+    assert account.status_code == 200
+    assert "Google sign-in" in account.text
+    assert "Connect Google" in account.text
+    assert "Connected Google accounts" not in account.text
     source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_workspace.py").read_text(encoding="utf-8")
     assert "Google should stay narrowly scoped on PropertyQuarry" not in source
     assert "Use Google to sign in with the same PropertyQuarry account, see which Google account is connected, and reconnect it if needed." in source
@@ -18087,16 +18101,16 @@ def test_property_google_settings_disconnected_state_stays_compact() -> None:
     client = build_property_client(principal_id="pq-settings-google-compact")
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
-    response = client.get("/app/settings/google", headers={"host": "propertyquarry.com"})
+    response = client.get("/app/account", params={"settings_view": "google"}, headers={"host": "propertyquarry.com"})
 
     assert response.status_code == 200
-    assert "Google not connected" in response.text
     assert "Google sign-in" in response.text
     assert "Connect Google" in response.text
     assert "First-time Google sign-in still creates the same PropertyQuarry account automatically." in response.text
     assert "Token status" not in response.text
     assert "missing token" not in response.text
     assert "No connected Google account" not in response.text
+    assert "EA_GOOGLE_OAUTH_CLIENT_ID" not in response.text
 
 
 def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:

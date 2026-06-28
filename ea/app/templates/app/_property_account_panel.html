@@ -45,6 +45,35 @@
 {% if session_label in ['Account', 'PropertyQuarry account'] %}
   {% set session_label = 'Signed in' %}
 {% endif %}
+{% set settings_view = request.query_params.get('settings_view') if request is defined and request.query_params is defined else '' %}
+{% set google_account = rendered_account_status.get('google_account') or {} %}
+{% set access_links = rendered_account_status.get('access_links') or {} %}
+{% set connected_services_open = settings_view in ['google', 'access', 'connections'] %}
+{% set google_return_to = '/app/account?settings_view=google' ~ ('&run_id=' ~ (account_run_id|urlencode) if account_run_id else '') ~ '#connected-services' %}
+{% set access_return_to = '/app/account?settings_view=access' ~ ('&run_id=' ~ (account_run_id|urlencode) if account_run_id else '') ~ '#connected-services' %}
+{% set google_status_note = request.query_params.get('google_error') if request is defined and request.query_params is defined else '' %}
+{% if not google_status_note and request is defined and request.query_params is defined %}
+  {% set google_status_note = request.query_params.get('sync_error') or request.query_params.get('verify_error') or request.query_params.get('email_link_error') or '' %}
+{% endif %}
+{% if not google_status_note and request is defined and request.query_params is defined %}
+  {% if request.query_params.get('sync_status') == 'completed' %}
+    {% set google_status_note = 'Google status refreshed.' %}
+  {% elif request.query_params.get('verify_status') == 'completed' %}
+    {% set google_status_note = 'Google return path verified.' %}
+  {% elif request.query_params.get('email_link_status') == 'sent' %}
+    {% set google_status_note = 'Google link sent.' %}
+  {% elif request.query_params.get('account_status') %}
+    {% set google_status_note = 'Google account updated.' %}
+  {% endif %}
+{% endif %}
+{% set access_status_note = request.query_params.get('issue_error') if request is defined and request.query_params is defined else '' %}
+{% if not access_status_note and request is defined and request.query_params is defined %}
+  {% if request.query_params.get('issue_status') == 'issued' and request.query_params.get('issue_email') %}
+    {% set access_status_note = 'Access link issued for ' ~ request.query_params.get('issue_email') %}
+  {% elif request.query_params.get('access_status') %}
+    {% set access_status_note = 'Access link updated.' %}
+  {% endif %}
+{% endif %}
 
 <section class="pqx-card pqx-account-board is-compact">
   <div class="pqx-section-head">
@@ -144,12 +173,6 @@
               <span>WhatsApp is primary</span>
             </label>
           </div>
-          <div class="pqx-account-channel-detail">
-            <strong>Destination mix</strong>
-            <span>Strong matches can land in more than one place.</span>
-            <span>Strong matches and watch hits can land in more than one place.</span>
-            <span>Near-miss follow-up prompts stay with the primary route.</span>
-          </div>
           <div class="pqx-account-channel-detail" data-channel-detail="email">
             <strong>Email</strong>
             <span>Uses your account email.</span>
@@ -181,7 +204,7 @@
       <a class="pqx-link-button" href="{{ account_nav.billing_href if account_nav else '/app/account?billing=1#delivery' }}">Billing account</a>
     </section>
 
-    <details class="pqx-account-action-card pqx-mobile-fold" id="connected-services">
+    <details class="pqx-account-action-card pqx-mobile-fold" id="connected-services"{% if connected_services_open %} open{% endif %}>
       <span id="settings" hidden aria-hidden="true"></span>
       <summary>
         <span class="pqx-mobile-fold-copy">
@@ -198,31 +221,98 @@
       <div class="pqx-pref-list pqx-account-link-list">
         <div class="pqx-pref-row">
           <div>
-            <strong>Access and shared pages</strong>
-            <small>Access links and shared pages.</small>
+            <strong>Google sign-in</strong>
+            <small>{{ google_account.get('primary_email') or 'Sign in with the same Google account on this device.' }}</small>
+            <small>{{ google_account.get('detail') or 'First-time Google sign-in still creates the same PropertyQuarry account automatically.' }}</small>
+            {% if google_status_note %}<small>{{ google_status_note }}</small>{% endif %}
+            {% for row in google_account.get('accounts') or [] %}
+            <small>{{ row.get('email') }} · {{ row.get('status_label') }}{% if row.get('detail') %} · {{ row.get('detail') }}{% endif %}</small>
+            {% endfor %}
           </div>
           <div class="pqx-actions">
-            <a class="pqx-link-button" href="/app/settings/access">Access links</a>
-            <a class="pqx-link-button" href="/app/properties/packets{{ query_suffix }}">Shared pages</a>
+            {% if google_account.get('status_label') %}<span class="pqx-pill">{{ google_account.get('status_label') }}</span>{% endif %}
+            <a class="pqx-link-button" href="{{ google_account.get('action_href') or ('/app/actions/google/connect?return_to=' ~ (google_return_to|urlencode) ~ '&scope_bundle=identity') }}">{{ google_account.get('action_label') or 'Connect Google' }}</a>
           </div>
         </div>
         <div class="pqx-pref-row">
           <div>
-            <strong>Sign-in and privacy</strong>
-            <small>Google, sign-in providers, and privacy.</small>
+            <strong>Access links</strong>
+            <small>{{ (access_links.get('active_total') or 0) }} active · {{ (access_links.get('revoked_total') or 0) }} revoked.</small>
+            <small>Issue clean account or collaborator access without leaving the account loop.</small>
+            {% if access_status_note %}<small>{{ access_status_note }}</small>{% endif %}
+            {% for row in access_links.get('rows') or [] %}
+            <small>{{ row.get('email') }} · {{ row.get('role_label') }}{% if row.get('expires_at') %} · expires {{ row.get('expires_at')[:19] }}{% endif %}</small>
+            {% endfor %}
           </div>
           <div class="pqx-actions">
-            <a class="pqx-link-button" href="/app/settings/google">Google</a>
+            {% if (access_links.get('active_total') or 0) > 0 %}<span class="pqx-pill">{{ access_links.get('active_total') }} active</span>{% endif %}
+            <a class="pqx-link-button" href="{{ access_return_to }}">Manage here</a>
+            <a class="pqx-link-button" href="/app/properties/packets{{ query_suffix }}">Shared pages</a>
+          </div>
+        </div>
+        {% if settings_view == 'google' or settings_view == 'access' or google_status_note or access_status_note %}
+        <div class="pqx-pref-row">
+          <div style="flex:1 1 auto; min-width:0;">
+            {% if settings_view == 'google' or google_status_note %}
+            <form class="pqx-account-channel-form" action="{{ google_account.get('action_href') or ('/app/actions/google/connect?return_to=' ~ (google_return_to|urlencode) ~ '&scope_bundle=identity') }}" method="get">
+              <div class="pqx-account-channel-detail">
+                <strong>Google sign-in</strong>
+                <span>{{ google_account.get('primary_email') or 'Not connected yet.' }}</span>
+                <span>{{ google_account.get('detail') or 'First-time Google sign-in still creates the same PropertyQuarry account automatically.' }}</span>
+              </div>
+              <button class="pqx-link-button primary" type="submit">{{ google_account.get('action_label') or 'Connect Google' }}</button>
+            </form>
+            {% endif %}
+            {% if settings_view == 'access' or access_status_note %}
+            <form class="pqx-account-channel-form" action="/app/actions/access-sessions/issue" method="post">
+              <input type="hidden" name="return_to" value="{{ access_return_to }}">
+              <div class="pqx-account-channel-detail">
+                <strong>Create an access link</strong>
+                <span>Issue a direct link from the account surface.</span>
+                <input type="email" name="email" value="{{ request.query_params.get('issue_email') if request is defined and request.query_params is defined else '' }}" placeholder="principal@example.com" autocomplete="email">
+              </div>
+              <div class="pqx-account-channel-detail">
+                <label for="propertyAccessRole">Role</label>
+                <select id="propertyAccessRole" name="role">
+                  <option value="principal">Account owner</option>
+                  <option value="operator">Collaborator</option>
+                </select>
+              </div>
+              <button class="pqx-link-button primary" type="submit">Issue access link</button>
+            </form>
+            {% endif %}
+            {% if access_links.get('rows') %}
+            <div class="pqx-pref-list" style="margin-top:8px; gap:6px;">
+              {% for row in access_links.get('rows') or [] %}
+              <div class="pqx-pref-row" style="padding:7px 0;">
+                <div>
+                  <strong>{{ row.get('email') }}</strong>
+                  <small>{{ row.get('role_label') }}{% if row.get('expires_at') %} · expires {{ row.get('expires_at')[:19] }}{% endif %}</small>
+                </div>
+                <div class="pqx-actions">
+                  {% if row.get('access_url') %}<a class="pqx-link-button" href="{{ row.get('access_url') }}" target="_blank" rel="noopener">Open link</a>{% endif %}
+                  <form method="post" action="/app/actions/access-sessions/{{ row.get('session_id')|urlencode }}/revoke">
+                    <input type="hidden" name="return_to" value="{{ access_return_to }}">
+                    <button class="pqx-link-button subtle" type="submit">Revoke</button>
+                  </form>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          <div class="pqx-actions">
             {% if facebook_sign_in_enabled is defined and facebook_sign_in_enabled %}
-            <a class="pqx-link-button" href="/app/actions/facebook/connect?return_to=/app/account">Facebook</a>
+            <a class="pqx-link-button" href="/app/actions/facebook/connect?return_to={{ google_return_to|urlencode }}">Facebook</a>
             {% endif %}
             {% if id_austria_sign_in_enabled is defined and id_austria_sign_in_enabled %}
-            <a class="pqx-link-button" href="/app/actions/id-austria/connect?return_to=/app/account">ID Austria</a>
+            <a class="pqx-link-button" href="/app/actions/id-austria/connect?return_to={{ google_return_to|urlencode }}">ID Austria</a>
             {% endif %}
             <a class="pqx-link-button" href="/cookies">Privacy</a>
             <a class="pqx-link-button" href="/how-it-works">How it works</a>
           </div>
         </div>
+        {% endif %}
       </div>
       </div>
     </details>
