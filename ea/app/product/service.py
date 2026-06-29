@@ -1254,6 +1254,283 @@ def _property_search_mark_stale_brief_snapshot(
     return snapshot
 
 
+_PROPERTY_SEARCH_BUDGET_KEYS = {
+    "max_price_eur",
+    "max_purchase_price_eur",
+    "max_total_price_eur",
+    "max_rent_eur",
+    "max_monthly_rent_eur",
+    "max_total_rent_eur",
+}
+
+_PROPERTY_SEARCH_REVALIDATION_NEUTRAL_KEYS = {
+    "preference_person_id",
+}
+
+
+def _property_search_budget_limit(preferences: dict[str, object] | None) -> float | None:
+    payload = dict(preferences or {})
+    for key in (
+        "max_price_eur",
+        "max_total_price_eur",
+        "max_purchase_price_eur",
+        "max_total_rent_eur",
+        "max_monthly_rent_eur",
+        "max_rent_eur",
+    ):
+        value = _float_or_none(payload.get(key))
+        if isinstance(value, float) and value > 0.0:
+            return value
+    return None
+
+
+def _property_search_candidate_price_for_budget(
+    candidate: dict[str, object],
+    *,
+    listing_mode: object,
+) -> float | None:
+    facts = _property_candidate_display_facts(candidate)
+    normalized_listing_mode = normalize_listing_mode(listing_mode)
+    key_groups = (
+        (
+            "total_rent_eur",
+            "rent_eur",
+            "monthly_rent_eur",
+            "warm_rent_eur",
+            "cold_rent_eur",
+            "price_eur",
+        )
+        if normalized_listing_mode == "rent"
+        else (
+            "purchase_price_eur",
+            "buy_price_eur",
+            "price_eur",
+            "reserve_price_eur",
+            "valuation_eur",
+        )
+    )
+    for key in key_groups:
+        value = _float_or_none(candidate.get(key))
+        if not isinstance(value, float):
+            value = _float_or_none(facts.get(key))
+        if isinstance(value, float) and value > 0.0:
+            return value
+    return None
+
+
+def _property_search_budget_block_is_reopenable(candidate: dict[str, object]) -> bool:
+    reason_values = [
+        candidate.get("hard_filter_reason"),
+        candidate.get("filter_reason"),
+        candidate.get("blocked_reason"),
+        candidate.get("suppression_reason"),
+    ]
+    facts = _property_candidate_display_facts(candidate)
+    for key in ("hard_filter_reason", "filter_reason", "blocked_reason", "suppression_reason"):
+        reason_values.append(facts.get(key))
+    normalized_reasons = [
+        str(value or "").strip().lower()
+        for value in reason_values
+        if str(value or "").strip()
+    ]
+    if not normalized_reasons:
+        return True
+    budget_tokens = {"budget", "price", "rent", "cost", "afford"}
+    hard_scope_tokens = {
+        "area",
+        "district",
+        "location",
+        "scope",
+        "property_type",
+        "type",
+        "floorplan",
+        "availability",
+        "listing_mode",
+        "transaction",
+        "generic",
+        "overview",
+    }
+    for reason in normalized_reasons:
+        has_budget_token = any(token in reason for token in budget_tokens)
+        has_other_hard_token = any(token in reason for token in hard_scope_tokens)
+        if has_other_hard_token and not has_budget_token:
+            return False
+    return any(any(token in reason for token in budget_tokens) for reason in normalized_reasons)
+
+
+def _property_search_snapshot_candidate_rows(snapshot: dict[str, object]) -> list[dict[str, object]]:
+    summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+    rows: list[dict[str, object]] = []
+    for key in (
+        "ranked_candidates",
+        "top_candidates",
+        "research_candidates",
+        "filtered_candidates",
+        "held_back_candidates",
+        "candidates",
+    ):
+        rows.extend(dict(row) for row in list(summary.get(key) or []) if isinstance(row, dict))
+    for source in list(summary.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        source_label = str(source.get("source_label") or source.get("label") or source.get("platform") or "").strip()
+        for key in (
+            "top_candidates",
+            "research_candidates",
+            "filtered_candidates",
+            "held_back_candidates",
+            "candidates",
+        ):
+            for raw_row in list(source.get(key) or []):
+                if not isinstance(raw_row, dict):
+                    continue
+                row = dict(raw_row)
+                if source_label and not str(row.get("source_label") or "").strip():
+                    row["source_label"] = source_label
+                rows.append(row)
+    return rows
+
+
+def _property_search_candidate_identity(candidate: dict[str, object]) -> str:
+    facts = _property_candidate_display_facts(candidate)
+    for value in (
+        candidate.get("candidate_ref"),
+        candidate.get("research_candidate_ref"),
+        candidate.get("source_ref"),
+        candidate.get("property_url"),
+        candidate.get("review_url"),
+        candidate.get("listing_id"),
+        facts.get("listing_url"),
+    ):
+        normalized = urllib.parse.urldefrag(str(value or "").strip())[0]
+        if normalized:
+            return normalized.lower()
+    return "|".join(
+        part
+        for part in (
+            str(candidate.get("title") or "").strip().lower(),
+            str(facts.get("postal_name") or facts.get("address") or "").strip().lower(),
+        )
+        if part
+    )
+
+
+def _property_search_revalidate_budget_expansion_snapshot(
+    snapshot: dict[str, object],
+    *,
+    current_preferences: dict[str, object] | None,
+) -> dict[str, object]:
+    if not isinstance(snapshot, dict) or not snapshot:
+        return snapshot
+    run_preferences = _property_search_run_preferences_payload(snapshot)
+    if not run_preferences:
+        return snapshot
+    changed_keys = _property_search_brief_changed_keys(
+        run_preferences=run_preferences,
+        current_preferences=current_preferences,
+    )
+    if (
+        not changed_keys
+        or not any(key in _PROPERTY_SEARCH_BUDGET_KEYS for key in changed_keys)
+        or any(key not in _PROPERTY_SEARCH_BUDGET_KEYS and key not in _PROPERTY_SEARCH_REVALIDATION_NEUTRAL_KEYS for key in changed_keys)
+    ):
+        return snapshot
+    run_budget = _property_search_budget_limit(run_preferences)
+    current_budget = _property_search_budget_limit(current_preferences)
+    if not isinstance(run_budget, float) or not isinstance(current_budget, float) or current_budget <= run_budget:
+        return snapshot
+    listing_mode = dict(current_preferences or {}).get("listing_mode") or run_preferences.get("listing_mode")
+    candidate_rows = _property_search_snapshot_candidate_rows(snapshot)
+    if not candidate_rows:
+        return snapshot
+    reopened_rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for raw_candidate in candidate_rows:
+        candidate = dict(raw_candidate)
+        price = _property_search_candidate_price_for_budget(candidate, listing_mode=listing_mode)
+        if not isinstance(price, float) or price <= run_budget or price > current_budget:
+            continue
+        if not _property_search_budget_block_is_reopenable(candidate):
+            continue
+        identity = _property_search_candidate_identity(candidate)
+        if identity and identity in seen:
+            continue
+        if identity:
+            seen.add(identity)
+        cleaned = dict(candidate)
+        for key in (
+            "status",
+            "review_status",
+            "candidate_status",
+            "filter_status",
+            "hard_filter_reason",
+            "filter_reason",
+            "blocked_reason",
+            "suppression_reason",
+            "filtered_out",
+            "hard_filtered",
+        ):
+            cleaned.pop(key, None)
+        cleaned["budget_revalidated"] = True
+        cleaned["revalidated_from_old_brief"] = True
+        cleaned["budget_revalidated_price_eur"] = round(price, 2)
+        cleaned["budget_revalidated_previous_limit_eur"] = round(run_budget, 2)
+        cleaned["budget_revalidated_current_limit_eur"] = round(current_budget, 2)
+        cleaned.setdefault("fit_score", cleaned.get("ranking_score") or cleaned.get("assessment_fit_score") or 1.0)
+        reopened_rows.append(cleaned)
+    if not reopened_rows:
+        return snapshot
+    ranked_candidates = _property_search_ranked_candidates_from_sources(
+        [{"source_label": "Saved candidates", "top_candidates": reopened_rows}],
+        limit=None,
+    )
+    if not ranked_candidates:
+        return snapshot
+    summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+    previous_ranked_total = max(
+        0,
+        int(float(str(summary.get("ranked_total") or summary.get("ranked_candidate_total") or 0))),
+    )
+    previous_filtered_total = max(
+        0,
+        int(float(str(summary.get("filtered_total") or summary.get("held_back_total") or 0))),
+    )
+    message = (
+        "Saved candidates were rechecked with the current budget. "
+        "Start a fresh search when you want new provider coverage too."
+    )
+    summary.update(
+        {
+            "ranked_candidates": ranked_candidates,
+            "ranked_total": len(ranked_candidates),
+            "ranked_candidate_total": len(ranked_candidates),
+            "listing_total": max(int(summary.get("listing_total") or 0), len(ranked_candidates)),
+            "filtered_total": 0,
+            "held_back_total": 0,
+            "score_demoted_total": 0,
+            "filtered_low_fit_total": 0,
+            "brief_preferences_revalidated": True,
+            "brief_snapshot_status": "revalidated_saved_candidates",
+            "brief_revalidated_reason": "budget_expanded",
+            "brief_revalidated_message": message,
+            "brief_revalidated_changed_keys": changed_keys[:20],
+            "previous_ranked_total": previous_ranked_total,
+            "previous_filtered_total": previous_filtered_total,
+            "revalidated_ranked_total": len(ranked_candidates),
+            "can_refresh_with_current_brief": True,
+        }
+    )
+    return {
+        **dict(snapshot),
+        "summary": summary,
+        "property_search_preferences": dict(current_preferences or {}),
+        "message": message,
+        "brief_preferences_stale": False,
+        "stale_run_snapshot": False,
+        "brief_preferences_revalidated": True,
+    }
+
+
 def _property_search_resolve_max_results_per_source(
     preferences: dict[str, object] | None,
     requested_value: object,
@@ -36280,11 +36557,22 @@ class ProductService:
             summary.setdefault("filtered_total", held_back_total)
         if summary:
             snapshot["summary"] = summary
-        snapshot = _property_search_mark_stale_brief_snapshot(
+        current_brief_preferences = _current_brief_preferences()
+        snapshot = _property_search_revalidate_budget_expansion_snapshot(
             snapshot,
-            current_preferences=_current_brief_preferences(),
+            current_preferences=current_brief_preferences,
         )
+        if not bool(snapshot.get("brief_preferences_revalidated")):
+            snapshot = _property_search_mark_stale_brief_snapshot(
+                snapshot,
+                current_preferences=current_brief_preferences,
+            )
         summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+        ranked_candidates = [
+            dict(row)
+            for row in list(summary.get("ranked_candidates") or [])
+            if isinstance(row, dict)
+        ]
         snapshot = _property_search_run_backfill_response_timestamps(snapshot)
         if status_value in {"processed", "completed", "completed_partial"}:
             if ranked_candidates:

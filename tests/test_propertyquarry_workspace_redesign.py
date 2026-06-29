@@ -4373,6 +4373,84 @@ def test_property_workspace_previous_search_marks_old_snapshot_without_filter_ac
     assert "earlier brief" in previous["status_note"]
 
 
+def test_property_workspace_payload_shows_budget_revalidated_saved_candidate_as_current_result() -> None:
+    candidate = {
+        "title": "Budget reopened home",
+        "property_url": "https://example.test/budget-reopened",
+        "fit_score": 64,
+        "budget_revalidated": True,
+        "revalidated_from_old_brief": True,
+        "property_facts": {
+            "postal_name": "1020 Wien",
+            "area_sqm": 72,
+            "rooms": 2,
+            "total_rent_eur": 1500,
+        },
+    }
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Budget Revalidated Office"}, "channels": {}},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+                "property_type": "apartment",
+                "selected_platforms": ["willhaben"],
+                "max_price_eur": 1700,
+            },
+            "run": {
+                "run_id": "run-budget-revalidated",
+                "status": "processed",
+                "brief_preferences_revalidated": True,
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1020 Vienna",
+                    "property_type": "apartment",
+                    "selected_platforms": ["willhaben"],
+                    "max_price_eur": 1700,
+                },
+                "summary": {
+                    "status": "processed",
+                    "brief_preferences_revalidated": True,
+                    "brief_snapshot_status": "revalidated_saved_candidates",
+                    "brief_revalidated_reason": "budget_expanded",
+                    "previous_filtered_total": 1,
+                    "filtered_total": 0,
+                    "held_back_total": 0,
+                    "ranked_total": 1,
+                    "ranked_candidates": [dict(candidate)],
+                    "sources": [
+                        {
+                            "source_label": "Willhaben",
+                            "status": "completed",
+                            "top_candidates": [dict(candidate)],
+                        }
+                    ],
+                },
+            },
+            "run_health": {"status": "processed", "status_label": "Finished"},
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    workbench = dict(payload["decision_workbench"])
+    run = dict(workbench["run"])
+    results = [dict(row) for row in list(workbench["results"] or [])]
+
+    assert run["filtered_total"] == 0
+    assert run["held_back_total"] == 0
+    assert dict(run["summary"])["brief_snapshot_status"] == "revalidated_saved_candidates"
+    assert workbench["empty_outcome"] == {}
+    assert len(results) == 1
+    assert results[0]["title"] == "Budget reopened home"
+    assert dict(run["summary"])["ranked_candidates"][0]["budget_revalidated"] is True
+
+
 def test_property_workspace_payload_marks_full_region_run_with_stale_district_source_scope() -> None:
     payload = landing_property_workspace_payload.property_workspace_payload(
         "properties",

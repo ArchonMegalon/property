@@ -13226,6 +13226,113 @@ def test_property_search_run_status_marks_old_snapshot_after_budget_change(monke
     assert snapshot["message"].startswith("This run used an earlier brief.")
 
 
+def test_property_search_run_status_reopens_budget_filtered_saved_candidate_after_budget_increase(monkeypatch) -> None:
+    principal_id = "exec-property-budget-revalidated-run"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Budget Revalidation Office")
+    service = ProductService(client.app.state.container)
+    client.app.state.container.onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+            "max_price_eur": 1700,
+        },
+    )
+
+    run_id = "run-budget-revalidated-regression"
+    now = datetime.now(timezone.utc).isoformat()
+    budget_filtered_candidate = {
+        "title": "Helle Wohnung mit Balkon",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/budget-reopen/",
+        "fit_score": 64,
+        "status": "filtered",
+        "filter_status": "hard_filtered",
+        "hard_filter_reason": "price_above_budget",
+        "property_facts": {
+            "postal_name": "1020 Wien",
+            "area_sqm": 72,
+            "rooms": 2,
+            "total_rent_eur": 1500,
+        },
+    }
+    run_record = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "created_at": now,
+        "updated_at": now,
+        "status": "processed",
+        "status_url": f"/app/api/signals/property/search/run/{run_id}",
+        "selected_platforms": ["willhaben"],
+        "progress": 100,
+        "current_step": "completed",
+        "message": "Property scouting run completed.",
+        "summary": {
+            "status": "processed",
+            "sources_total": 1,
+            "provider_total": 1,
+            "listing_total": 1,
+            "ranked_total": 0,
+            "filtered_total": 1,
+            "held_back_total": 1,
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "status": "completed",
+                    "listing_total": 1,
+                    "research_candidates": [dict(budget_filtered_candidate)],
+                    "filtered_area_total": 0,
+                }
+            ],
+        },
+        "events": [],
+        "property_search_preferences": {
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+            "max_price_eur": 1200,
+        },
+        "generated_at": now,
+    }
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", lambda **kwargs: None)
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", lambda **kwargs: None)
+    previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
+    try:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(run_record)
+
+        snapshot = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    ranked = [dict(row) for row in list(summary.get("ranked_candidates") or [])]
+
+    assert snapshot["brief_preferences_revalidated"] is True
+    assert not snapshot["brief_preferences_stale"]
+    assert summary["brief_snapshot_status"] == "revalidated_saved_candidates"
+    assert summary["brief_revalidated_reason"] == "budget_expanded"
+    assert summary["previous_filtered_total"] == 1
+    assert summary["filtered_total"] == 0
+    assert summary["held_back_total"] == 0
+    assert summary["ranked_total"] == 1
+    assert len(ranked) == 1
+    assert ranked[0]["property_url"] == budget_filtered_candidate["property_url"]
+    assert ranked[0]["budget_revalidated"] is True
+    assert ranked[0]["revalidated_from_old_brief"] is True
+    assert ranked[0].get("hard_filter_reason") in (None, "")
+    assert "current budget" in snapshot["message"]
+
+
 def test_property_search_run_rejects_saved_out_of_scope_country_preferences(monkeypatch) -> None:
     principal_id = "exec-property-search-country-defaults"
     client = build_property_client(principal_id=principal_id)
