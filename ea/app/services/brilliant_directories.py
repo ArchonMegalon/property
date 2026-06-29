@@ -44,6 +44,7 @@ BRILLIANT_DIRECTORIES_MEMBER_CREATE_ALLOWED_FIELDS = frozenset(
         "first_name",
         "last_name",
         "active",
+        "subscription_id",
     }
 )
 BRILLIANT_DIRECTORIES_MEMBER_UPDATE_ALLOWED_FIELDS = frozenset(
@@ -596,6 +597,11 @@ def brilliant_directories_member_login_token_secret() -> str:
         or brilliant_directories_billing_sso_bridge_secret()
         or ""
     ).strip()
+
+
+def brilliant_directories_member_login_subscription_id() -> str:
+    raw = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID") or "").strip()
+    return raw if re.fullmatch(r"[0-9]{1,12}", raw) else ""
 
 
 def _billing_sso_bridge_allowed_hosts(
@@ -1201,6 +1207,7 @@ def build_brilliant_directories_member_create_request(
     first_name: str = "",
     last_name: str = "",
     active: str = "",
+    subscription_id: str = "",
 ) -> BrilliantDirectoriesApiRequest:
     return _build_brilliant_directories_member_private_api_request(
         config,
@@ -1213,6 +1220,7 @@ def build_brilliant_directories_member_create_request(
             "first_name": str(first_name or "").strip(),
             "last_name": str(last_name or "").strip(),
             "active": str(active or "").strip(),
+            "subscription_id": str(subscription_id or brilliant_directories_member_login_subscription_id()).strip(),
         },
         allowed_payload_fields=BRILLIANT_DIRECTORIES_MEMBER_CREATE_ALLOWED_FIELDS,
     )
@@ -1369,6 +1377,7 @@ def build_brilliant_directories_member_login_token_handoff_url(
                 token=token,
                 first_name=first_name,
                 last_name=last_name,
+                subscription_id=brilliant_directories_member_login_subscription_id(),
             ),
             timeout_seconds=timeout_seconds,
             opener=opener,

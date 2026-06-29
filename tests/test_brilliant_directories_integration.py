@@ -1123,6 +1123,7 @@ def test_brilliant_directories_member_login_token_handoff_updates_existing_membe
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET", "bridge-secret")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID", "5")
 
     class _MemberSessionOpener:
         def __init__(self) -> None:
@@ -1156,6 +1157,49 @@ def test_brilliant_directories_member_login_token_handoff_updates_existing_membe
     update_body = (update_request.data or b"").decode("utf-8")
     assert "user_id=42" in update_body
     assert "token=" in update_body
+
+
+def test_brilliant_directories_member_login_token_handoff_creates_member_with_env_subscription(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.propertyquarry.com,billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET", "bridge-secret")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID", "5")
+
+    class _MemberCreateOpener:
+        def __init__(self) -> None:
+            self.requests: list[urllib.request.Request] = []
+
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            self.requests.append(request)
+            if request.full_url.startswith("https://directory.propertyquarry.com/api/v2/user/get?"):
+                return _FakeBrilliantDirectoriesResponse(json.dumps({"message": [], "total": 0}).encode("utf-8"))
+            if request.full_url == "https://directory.propertyquarry.com/api/v2/user/create":
+                return _FakeBrilliantDirectoriesResponse(json.dumps({"status": "ok", "user_id": "99"}).encode("utf-8"))
+            raise AssertionError(request.full_url)
+
+    opener = _MemberCreateOpener()
+    handoff_url = build_brilliant_directories_member_login_token_handoff_url(
+        principal_id="cf-email:new@example.com",
+        access_email="new@example.com",
+        display_name="New User",
+        opener=opener,
+    )
+
+    assert handoff_url.startswith("https://billing.propertyquarry.com/login/token/")
+    create_request = opener.requests[1]
+    assert create_request.full_url == "https://directory.propertyquarry.com/api/v2/user/create"
+    create_body = (create_request.data or b"").decode("utf-8")
+    assert "email=new%40example.com" in create_body
+    assert "subscription_id=5" in create_body
+    assert "token=" in create_body
 
 
 def test_brilliant_directories_billing_handoff_rejects_cloudflare_error_page(monkeypatch: pytest.MonkeyPatch) -> None:
