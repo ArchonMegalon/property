@@ -1279,6 +1279,16 @@ _PROPERTY_SEARCH_AREA_KEYS = {
     "selected_locations",
 }
 
+_PROPERTY_SEARCH_HARD_RULE_KEYS = {
+    "available_within_years",
+    "floorplan_requirement_mode",
+    "min_area_m2",
+    "property_type",
+    "require_barrier_free",
+    "require_floorplan",
+    "search_mode",
+}
+
 
 def _property_search_budget_limit(preferences: dict[str, object] | None) -> float | None:
     payload = dict(preferences or {})
@@ -1513,6 +1523,271 @@ def _property_search_area_block_is_reopenable(candidate: dict[str, object]) -> b
     return area_reason_seen
 
 
+def _property_search_available_within_years(preferences: dict[str, object] | None) -> int:
+    try:
+        return max(0, min(10, int(float(str(dict(preferences or {}).get("available_within_years") or "").strip()))))
+    except Exception:
+        return 0
+
+
+def _property_search_effective_hard_rule_policy(preferences: dict[str, object] | None) -> dict[str, object]:
+    request_preferences, execution_policy = _property_search_execution_preferences(dict(preferences or {}))
+    relaxed_filters = {
+        str(item or "").strip()
+        for item in list(execution_policy.get("discovery_relaxed_filters") or [])
+        if str(item or "").strip()
+    }
+    min_area_m2 = _float_or_none(request_preferences.get("min_area_m2")) or 0.0
+    available_within_years = _property_search_available_within_years(request_preferences)
+    return {
+        "available_within_years": 0 if "available_within_years" in relaxed_filters else available_within_years,
+        "enforce_floorplan_filter": bool(execution_policy.get("enforce_floorplan_filter")),
+        "min_area_m2": 0.0 if "min_area_m2" in relaxed_filters else max(0.0, float(min_area_m2 or 0.0)),
+        "property_type": [] if "property_type" in relaxed_filters else list(normalize_property_type_values(request_preferences.get("property_type"))),
+        "require_barrier_free": _property_truthy_flag(request_preferences.get("require_barrier_free")),
+        "relaxed_filters": relaxed_filters,
+    }
+
+
+def _property_search_property_type_relaxed(
+    *,
+    run_property_type: object,
+    current_property_type: object,
+) -> bool:
+    run_types = [str(item or "").strip().lower() for item in list(normalize_property_type_values(run_property_type) or []) if str(item or "").strip()]
+    current_types = [str(item or "").strip().lower() for item in list(normalize_property_type_values(current_property_type) or []) if str(item or "").strip()]
+    if not run_types or run_types == ["any"]:
+        return False
+    if not current_types:
+        return True
+    if current_types == ["any"]:
+        any_types = {"apartment", "house", "land"}
+        return all(item in any_types for item in run_types)
+    return set(run_types).issubset(set(current_types)) and set(current_types) != set(run_types)
+
+
+def _property_search_relaxed_filter_keys(
+    *,
+    run_preferences: dict[str, object] | None,
+    current_preferences: dict[str, object] | None,
+    changed_keys: list[str],
+) -> set[str]:
+    allowed_keys = (
+        _PROPERTY_SEARCH_BUDGET_KEYS
+        | _PROPERTY_SEARCH_AREA_KEYS
+        | _PROPERTY_SEARCH_HARD_RULE_KEYS
+        | _PROPERTY_SEARCH_REVALIDATION_NEUTRAL_KEYS
+    )
+    if not changed_keys or any(key not in allowed_keys for key in changed_keys):
+        return set()
+
+    relaxed: set[str] = set()
+    run_budget = _property_search_budget_limit(run_preferences)
+    current_budget = _property_search_budget_limit(current_preferences)
+    if isinstance(run_budget, float) and isinstance(current_budget, float) and current_budget > run_budget:
+        relaxed.add("budget")
+
+    if _property_search_area_change_is_expansion(
+        run_preferences=run_preferences,
+        current_preferences=current_preferences,
+        changed_keys=changed_keys,
+    ):
+        relaxed.add("area")
+
+    run_policy = _property_search_effective_hard_rule_policy(run_preferences)
+    current_policy = _property_search_effective_hard_rule_policy(current_preferences)
+    run_min_area = _float_or_none(run_policy.get("min_area_m2")) or 0.0
+    current_min_area = _float_or_none(current_policy.get("min_area_m2")) or 0.0
+    if run_min_area > 0.0 and current_min_area < run_min_area:
+        relaxed.add("min_area_m2")
+
+    if bool(run_policy.get("enforce_floorplan_filter")) and not bool(current_policy.get("enforce_floorplan_filter")):
+        relaxed.add("require_floorplan")
+
+    if bool(run_policy.get("require_barrier_free")) and not bool(current_policy.get("require_barrier_free")):
+        relaxed.add("require_barrier_free")
+
+    run_years = int(run_policy.get("available_within_years") or 0)
+    current_years = int(current_policy.get("available_within_years") or 0)
+    if run_years > 0 and (current_years == 0 or current_years > run_years):
+        relaxed.add("available_within_years")
+
+    if "property_type" in changed_keys or "search_mode" in changed_keys:
+        if _property_search_property_type_relaxed(
+            run_property_type=run_policy.get("property_type"),
+            current_property_type=current_policy.get("property_type"),
+        ):
+            relaxed.add("property_type")
+
+    return relaxed
+
+
+def _property_search_candidate_filter_block_keys(candidate: dict[str, object]) -> tuple[set[str], bool]:
+    reason_values = [
+        candidate.get("hard_filter_reason"),
+        candidate.get("filter_reason"),
+        candidate.get("blocked_reason"),
+        candidate.get("suppression_reason"),
+        candidate.get("failed_filter_key"),
+        candidate.get("filter_key"),
+    ]
+    facts = _property_candidate_display_facts(candidate)
+    for key in (
+        "hard_filter_reason",
+        "filter_reason",
+        "blocked_reason",
+        "suppression_reason",
+        "failed_filter_key",
+        "filter_key",
+    ):
+        reason_values.append(facts.get(key))
+    normalized_reasons = [
+        str(value or "").strip().lower()
+        for value in reason_values
+        if str(value or "").strip()
+    ]
+    if not normalized_reasons:
+        return set(), True
+
+    block_keys: set[str] = set()
+    unsafe = False
+    for reason in normalized_reasons:
+        compact = re.sub(r"[^a-z0-9]+", "_", reason).strip("_")
+        plain = reason.replace("_", " ")
+        if compact in {
+            "max_price_eur",
+            "max_rent_eur",
+            "max_monthly_rent_eur",
+            "max_total_rent_eur",
+            "price_above_budget",
+            "rent_above_budget",
+            "budget",
+        } or "above budget" in plain or "price above" in plain or "rent above" in plain:
+            block_keys.add("budget")
+        if compact in {"min_area_m2", "minimum_area", "below_min_area", "too_small"} or (
+            ("below" in plain or "minimum" in plain or "too small" in plain)
+            and ("area" in plain or "m2" in plain or "sqm" in plain)
+        ):
+            block_keys.add("min_area_m2")
+        if compact in {"require_floorplan", "floorplan", "floorplan_required"} or "floor plan" in plain or "layout verification" in plain:
+            block_keys.add("require_floorplan")
+        if compact in {"require_barrier_free", "barrier_free", "accessibility"} or "barrier" in plain or "wheelchair" in plain:
+            block_keys.add("require_barrier_free")
+        if compact in {"available_within_years", "availability_mismatch"} or "move-in" in plain or "move in" in plain or "availability" in plain:
+            block_keys.add("available_within_years")
+        if compact in {
+            "property_type",
+            "property_type_mismatch",
+            "wrong_property_type",
+            "type_mismatch",
+        } or "property type" in plain or "non-residential" in plain:
+            block_keys.add("property_type")
+        if compact in {"outside_selected_area", "area_mismatch", "location_mismatch", "location_scope"}:
+            block_keys.add("area")
+
+        unsafe_markers = {
+            "false_positive",
+            "generic_listing_page",
+            "listing_mode_mismatch",
+            "not_a_listing",
+            "overview",
+            "property_location_conflicts_with_active_search",
+            "property_missing_concrete_location",
+            "source_scope",
+            "transaction_mismatch",
+            "wrong_listing_mode",
+        }
+        if compact in unsafe_markers:
+            unsafe = True
+        if any(marker in plain for marker in ("wrong listing mode", "not a listing", "generic listing", "false positive")):
+            unsafe = True
+    return block_keys, unsafe
+
+
+def _property_search_candidate_matches_current_hard_rules(
+    candidate: dict[str, object],
+    *,
+    current_preferences: dict[str, object] | None,
+) -> bool:
+    facts = _property_candidate_display_facts(candidate)
+    property_url = str(
+        candidate.get("property_url")
+        or candidate.get("listing_url")
+        or candidate.get("review_url")
+        or ""
+    ).strip()
+    title = str(candidate.get("title") or candidate.get("listing_title") or "").strip()
+    summary = str(candidate.get("summary") or candidate.get("fit_summary") or "").strip()
+    preferences = dict(current_preferences or {})
+    current_country = normalize_country_code(preferences.get("country_code"))
+    candidate_country = normalize_country_code(facts.get("country_code"))
+    if current_country and candidate_country and candidate_country != current_country:
+        return False
+    if _property_candidate_is_generic_listing_page(
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+    ):
+        return False
+    location_hints = _property_search_location_hints(preferences)
+    if location_hints and not _property_candidate_matches_search_area(
+        location_hints=location_hints,
+        request_preferences=preferences,
+        source_spec={
+            "country_code": preferences.get("country_code"),
+            "region_code": preferences.get("region_code"),
+        },
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+    ):
+        return False
+    listing_mode = normalize_listing_mode(preferences.get("listing_mode"))
+    if _property_candidate_listing_mode_mismatch(
+        listing_mode=listing_mode,
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+    ):
+        return False
+
+    current_policy = _property_search_effective_hard_rule_policy(preferences)
+    if not _property_candidate_matches_requested_property_type(
+        property_type=current_policy.get("property_type"),
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+    ):
+        return False
+    if not _property_candidate_matches_min_area(
+        min_area_m2=float(current_policy.get("min_area_m2") or 0.0),
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+    ):
+        return False
+    if not _property_candidate_matches_availability_horizon(
+        available_within_years=int(current_policy.get("available_within_years") or 0),
+        property_facts=facts,
+    ):
+        return False
+    if bool(current_policy.get("enforce_floorplan_filter")) and not _property_candidate_has_floorplan(
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+    ):
+        return False
+    if bool(current_policy.get("require_barrier_free")) and not _property_candidate_is_barrier_free(facts):
+        return False
+    return True
+
+
 def _property_search_snapshot_candidate_rows(snapshot: dict[str, object]) -> list[dict[str, object]]:
     summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
     rows: list[dict[str, object]] = []
@@ -1712,6 +1987,127 @@ def _property_search_revalidate_area_expansion_snapshot(
             "brief_revalidated_reason": "area_expanded",
             "brief_revalidated_message": message,
             "brief_revalidated_changed_keys": changed_keys[:20],
+            "previous_ranked_total": previous_ranked_total,
+            "previous_filtered_total": previous_filtered_total,
+            "revalidated_ranked_total": len(ranked_candidates),
+            "can_refresh_with_current_brief": True,
+        }
+    )
+    return {
+        **dict(snapshot),
+        "summary": summary,
+        "property_search_preferences": dict(current_preferences or {}),
+        "message": message,
+        "brief_preferences_stale": False,
+        "stale_run_snapshot": False,
+        "brief_preferences_revalidated": True,
+    }
+
+
+def _property_search_revalidate_relaxed_hard_rules_snapshot(
+    snapshot: dict[str, object],
+    *,
+    current_preferences: dict[str, object] | None,
+) -> dict[str, object]:
+    if not isinstance(snapshot, dict) or not snapshot:
+        return snapshot
+    run_preferences = _property_search_run_preferences_payload(snapshot)
+    if not run_preferences:
+        return snapshot
+    changed_keys = _property_search_brief_changed_keys(
+        run_preferences=run_preferences,
+        current_preferences=current_preferences,
+    )
+    relaxed_filter_keys = _property_search_relaxed_filter_keys(
+        run_preferences=run_preferences,
+        current_preferences=current_preferences,
+        changed_keys=changed_keys,
+    )
+    if not relaxed_filter_keys:
+        return snapshot
+
+    candidate_rows = _property_search_snapshot_candidate_rows(snapshot)
+    if not candidate_rows:
+        return snapshot
+    reopened_rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for raw_candidate in candidate_rows:
+        candidate = dict(raw_candidate)
+        block_keys, unsafe_block = _property_search_candidate_filter_block_keys(candidate)
+        if unsafe_block or not block_keys or not block_keys.issubset(relaxed_filter_keys):
+            continue
+        if not _property_search_candidate_matches_current_hard_rules(
+            candidate,
+            current_preferences=current_preferences,
+        ):
+            continue
+        identity = _property_search_candidate_identity(candidate)
+        if identity and identity in seen:
+            continue
+        if identity:
+            seen.add(identity)
+        cleaned = dict(candidate)
+        for key in (
+            "status",
+            "review_status",
+            "candidate_status",
+            "filter_status",
+            "hard_filter_reason",
+            "filter_reason",
+            "blocked_reason",
+            "suppression_reason",
+            "failed_filter_key",
+            "filter_key",
+            "filtered_out",
+            "hard_filtered",
+        ):
+            cleaned.pop(key, None)
+        cleaned["hard_rules_revalidated"] = True
+        cleaned["revalidated_from_old_brief"] = True
+        cleaned["hard_rules_revalidated_filters"] = sorted(block_keys)
+        cleaned.setdefault("fit_score", cleaned.get("ranking_score") or cleaned.get("assessment_fit_score") or 1.0)
+        reopened_rows.append(cleaned)
+    if not reopened_rows:
+        return snapshot
+
+    ranked_candidates = _property_search_ranked_candidates_from_sources(
+        [{"source_label": "Saved candidates", "top_candidates": reopened_rows}],
+        limit=None,
+    )
+    if not ranked_candidates:
+        return snapshot
+    summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+
+    def _safe_int(*values: object) -> int:
+        for value in values:
+            try:
+                return max(0, int(float(str(value or "").strip())))
+            except Exception:
+                continue
+        return 0
+
+    previous_ranked_total = _safe_int(summary.get("ranked_total"), summary.get("ranked_candidate_total"))
+    previous_filtered_total = _safe_int(summary.get("filtered_total"), summary.get("held_back_total"))
+    message = (
+        "Saved candidates were rechecked with the current rules. "
+        "Start a fresh search when you want new provider coverage too."
+    )
+    summary.update(
+        {
+            "ranked_candidates": ranked_candidates,
+            "ranked_total": len(ranked_candidates),
+            "ranked_candidate_total": len(ranked_candidates),
+            "listing_total": max(_safe_int(summary.get("listing_total")), len(ranked_candidates)),
+            "filtered_total": 0,
+            "held_back_total": 0,
+            "score_demoted_total": 0,
+            "filtered_low_fit_total": 0,
+            "brief_preferences_revalidated": True,
+            "brief_snapshot_status": "revalidated_saved_candidates",
+            "brief_revalidated_reason": "hard_rules_relaxed",
+            "brief_revalidated_message": message,
+            "brief_revalidated_changed_keys": changed_keys[:20],
+            "brief_revalidated_filters": sorted(relaxed_filter_keys),
             "previous_ranked_total": previous_ranked_total,
             "previous_filtered_total": previous_filtered_total,
             "revalidated_ranked_total": len(ranked_candidates),
@@ -36894,6 +37290,11 @@ class ProductService:
         )
         if not bool(snapshot.get("brief_preferences_revalidated")):
             snapshot = _property_search_revalidate_area_expansion_snapshot(
+                snapshot,
+                current_preferences=current_brief_preferences,
+            )
+        if not bool(snapshot.get("brief_preferences_revalidated")):
+            snapshot = _property_search_revalidate_relaxed_hard_rules_snapshot(
                 snapshot,
                 current_preferences=current_brief_preferences,
             )

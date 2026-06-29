@@ -13644,6 +13644,262 @@ def test_property_search_run_status_reopens_area_filtered_candidate_after_radius
     assert ranked[0]["area_revalidated"] is True
 
 
+def _property_search_revalidation_status_for_candidate(
+    monkeypatch,
+    *,
+    principal_id: str,
+    workspace_name: str,
+    run_id: str,
+    current_preferences: dict[str, object],
+    run_preferences: dict[str, object],
+    candidate: dict[str, object],
+) -> dict[str, object] | None:
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name=workspace_name)
+    service = ProductService(client.app.state.container)
+    client.app.state.container.onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json=dict(current_preferences),
+    )
+
+    now = datetime.now(timezone.utc).isoformat()
+    run_record = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "created_at": now,
+        "updated_at": now,
+        "status": "processed",
+        "status_url": f"/app/api/signals/property/search/run/{run_id}",
+        "selected_platforms": list(run_preferences.get("selected_platforms") or ["willhaben"]),
+        "progress": 100,
+        "current_step": "completed",
+        "message": "Property scouting run completed.",
+        "summary": {
+            "status": "processed",
+            "sources_total": 1,
+            "provider_total": 1,
+            "listing_total": 1,
+            "ranked_total": 0,
+            "filtered_total": 1,
+            "held_back_total": 1,
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "status": "completed",
+                    "listing_total": 1,
+                    "research_candidates": [dict(candidate)],
+                }
+            ],
+        },
+        "events": [],
+        "property_search_preferences": dict(run_preferences),
+        "generated_at": now,
+    }
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", lambda **kwargs: None)
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", lambda **kwargs: None)
+    previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
+    try:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(run_record)
+
+        return service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
+
+
+def test_property_search_run_status_reopens_min_area_filtered_candidate_after_size_relaxation(monkeypatch) -> None:
+    current_preferences = {
+        "country_code": "AT",
+        "region_code": "vienna",
+        "listing_mode": "rent",
+        "location_query": "1020 Vienna",
+        "selected_locations": ["1020 Vienna"],
+        "property_type": "apartment",
+        "selected_platforms": ["willhaben"],
+        "min_area_m2": 60,
+    }
+    candidate = {
+        "title": "Kompakte Wohnung im zweiten Bezirk",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/area-hard-reopen/",
+        "fit_score": 71,
+        "status": "filtered",
+        "filter_status": "hard_filtered",
+        "hard_filter_reason": "min_area_m2",
+        "property_facts": {
+            "postal_name": "1020 Wien",
+            "property_type": "apartment",
+            "area_sqm": 65,
+            "total_rent_eur": 1300,
+            "country_code": "AT",
+        },
+    }
+
+    snapshot = _property_search_revalidation_status_for_candidate(
+        monkeypatch,
+        principal_id="exec-property-min-area-relaxed-run",
+        workspace_name="Min Area Revalidation Office",
+        run_id="run-min-area-revalidated-regression",
+        current_preferences=current_preferences,
+        run_preferences={**current_preferences, "min_area_m2": 80},
+        candidate=candidate,
+    )
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    ranked = [dict(row) for row in list(summary.get("ranked_candidates") or [])]
+    assert snapshot["brief_preferences_revalidated"] is True
+    assert summary["brief_revalidated_reason"] == "hard_rules_relaxed"
+    assert summary["previous_filtered_total"] == 1
+    assert summary["filtered_total"] == 0
+    assert summary["ranked_total"] == 1
+    assert ranked[0]["property_url"] == candidate["property_url"]
+    assert ranked[0]["hard_rules_revalidated"] is True
+    assert ranked[0]["hard_rules_revalidated_filters"] == ["min_area_m2"]
+    assert "current rules" in snapshot["message"]
+
+
+def test_property_search_run_status_reopens_floorplan_filtered_candidate_after_requirement_removed(monkeypatch) -> None:
+    current_preferences = {
+        "country_code": "AT",
+        "region_code": "vienna",
+        "listing_mode": "rent",
+        "location_query": "1020 Vienna",
+        "selected_locations": ["1020 Vienna"],
+        "property_type": "apartment",
+        "selected_platforms": ["willhaben"],
+        "require_floorplan": False,
+    }
+    candidate = {
+        "title": "Altbauwohnung ohne Grundriss",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/floorplan-hard-reopen/",
+        "fit_score": 68,
+        "status": "filtered",
+        "filter_status": "hard_filtered",
+        "hard_filter_reason": "require_floorplan",
+        "property_facts": {
+            "postal_name": "1020 Wien",
+            "property_type": "apartment",
+            "area_sqm": 72,
+            "total_rent_eur": 1450,
+            "country_code": "AT",
+        },
+    }
+
+    snapshot = _property_search_revalidation_status_for_candidate(
+        monkeypatch,
+        principal_id="exec-property-floorplan-relaxed-run",
+        workspace_name="Floorplan Revalidation Office",
+        run_id="run-floorplan-revalidated-regression",
+        current_preferences=current_preferences,
+        run_preferences={**current_preferences, "require_floorplan": True, "floorplan_requirement_mode": "hard"},
+        candidate=candidate,
+    )
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    ranked = [dict(row) for row in list(summary.get("ranked_candidates") or [])]
+    assert snapshot["brief_preferences_revalidated"] is True
+    assert summary["brief_revalidated_reason"] == "hard_rules_relaxed"
+    assert summary["ranked_total"] == 1
+    assert ranked[0]["hard_rules_revalidated_filters"] == ["require_floorplan"]
+    assert ranked[0].get("hard_filter_reason") in (None, "")
+
+
+def test_property_search_run_status_reopens_property_type_filtered_candidate_after_type_widening(monkeypatch) -> None:
+    current_preferences = {
+        "country_code": "AT",
+        "region_code": "vienna",
+        "listing_mode": "rent",
+        "location_query": "1020 Vienna",
+        "selected_locations": ["1020 Vienna"],
+        "property_type": ["apartment", "house"],
+        "selected_platforms": ["willhaben"],
+    }
+    candidate = {
+        "title": "Haus mit Garten in Leopoldstadt",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/haus-mieten/wien/type-hard-reopen/",
+        "fit_score": 73,
+        "status": "filtered",
+        "filter_status": "hard_filtered",
+        "hard_filter_reason": "property_type_mismatch",
+        "property_facts": {
+            "postal_name": "1020 Wien",
+            "property_type": "house",
+            "area_sqm": 95,
+            "total_rent_eur": 2200,
+            "country_code": "AT",
+        },
+    }
+
+    snapshot = _property_search_revalidation_status_for_candidate(
+        monkeypatch,
+        principal_id="exec-property-type-relaxed-run",
+        workspace_name="Property Type Revalidation Office",
+        run_id="run-property-type-revalidated-regression",
+        current_preferences=current_preferences,
+        run_preferences={**current_preferences, "property_type": "apartment"},
+        candidate=candidate,
+    )
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    ranked = [dict(row) for row in list(summary.get("ranked_candidates") or [])]
+    assert snapshot["brief_preferences_revalidated"] is True
+    assert summary["brief_revalidated_reason"] == "hard_rules_relaxed"
+    assert summary["ranked_total"] == 1
+    assert ranked[0]["hard_rules_revalidated_filters"] == ["property_type"]
+
+
+def test_property_search_run_status_keeps_wrong_country_candidate_old_after_size_relaxation(monkeypatch) -> None:
+    current_preferences = {
+        "country_code": "AT",
+        "region_code": "vienna",
+        "listing_mode": "rent",
+        "location_query": "1020 Vienna",
+        "selected_locations": ["1020 Vienna"],
+        "property_type": "apartment",
+        "selected_platforms": ["willhaben"],
+        "min_area_m2": 60,
+    }
+    candidate = {
+        "title": "Kompakte Wohnung im zweiten Bezirk",
+        "property_url": "https://example.pl/listing/wrong-country-area-relaxed",
+        "fit_score": 71,
+        "status": "filtered",
+        "filter_status": "hard_filtered",
+        "hard_filter_reason": "min_area_m2",
+        "property_facts": {
+            "postal_name": "1020 Wien",
+            "property_type": "apartment",
+            "area_sqm": 65,
+            "total_rent_eur": 1300,
+            "country_code": "PL",
+        },
+    }
+
+    snapshot = _property_search_revalidation_status_for_candidate(
+        monkeypatch,
+        principal_id="exec-property-min-area-wrong-country-old-run",
+        workspace_name="Wrong Country Revalidation Office",
+        run_id="run-min-area-wrong-country-old-regression",
+        current_preferences=current_preferences,
+        run_preferences={**current_preferences, "min_area_m2": 80},
+        candidate=candidate,
+    )
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    assert snapshot["brief_preferences_stale"] is True
+    assert snapshot["stale_run_snapshot"] is True
+    assert summary["brief_snapshot_status"] == "old_run"
+    assert summary["previous_filtered_total"] == 1
+    assert summary["filtered_total"] == 0
+    assert summary["ranked_total"] == 0
+
+
 def test_property_search_run_rejects_saved_out_of_scope_country_preferences(monkeypatch) -> None:
     principal_id = "exec-property-search-country-defaults"
     client = build_property_client(principal_id=principal_id)
