@@ -36149,8 +36149,6 @@ class ProductService:
             )
         records.sort(key=_property_search_run_activity_sort_key, reverse=True)
         terminal_statuses = set(_PROPERTY_SEARCH_TERMINAL_STATUSES) | {"not started"}
-        best_run: dict[str, object] | None = None
-        best_key: tuple[int, int, float, int, int, int, int, float] | None = None
         for record in records:
             run_id = str(record.get("run_id") or "").strip()
             if not run_id:
@@ -36171,17 +36169,12 @@ class ProductService:
             candidate_status = _property_search_run_snapshot_status(candidate)
             if candidate_status and candidate_status in terminal_statuses:
                 continue
-            candidate_key = _property_search_run_activity_sort_key(candidate)
-            if best_key is None or candidate_key > best_key:
-                best_run = candidate
-                best_key = candidate_key
-        if isinstance(best_run, dict):
-            best_status = _property_search_run_snapshot_status(best_run)
-            if best_status in {"in_progress", "running", "processing", "scanning", "repairing", "starting"}:
+            if candidate_status in {"in_progress", "running", "processing", "scanning", "repairing", "starting"}:
                 with contextlib.suppress(Exception):
-                    if _property_search_active_run_is_stale(best_run):
-                        return None
-        return dict(best_run) if isinstance(best_run, dict) else None
+                    if _property_search_active_run_is_stale(candidate):
+                        continue
+            return dict(candidate)
+        return None
 
     def delete_property_search_run(
         self,

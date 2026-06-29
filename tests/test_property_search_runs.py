@@ -9178,7 +9178,14 @@ def test_find_active_property_search_run_prefers_in_progress_over_newer_queued(m
         ),
     )
 
-    def _fake_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+    def _fake_status(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        lightweight: bool = False,
+        account_email: str = "",
+    ):
         if run_id == queued_run_id:
             return {
                 "run_id": run_id,
@@ -9204,6 +9211,68 @@ def test_find_active_property_search_run_prefers_in_progress_over_newer_queued(m
     assert active is not None
     assert active["run_id"] == running_run_id
     assert active["status"] == "in_progress"
+
+
+def test_find_active_property_search_run_hydrates_only_until_first_fresh_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-search-active-fast"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    first_run_id = f"first-{uuid.uuid4().hex}"
+    second_run_id = f"second-{uuid.uuid4().hex}"
+    now = datetime.now(timezone.utc)
+
+    monkeypatch.setattr(
+        product_service,
+        "_list_property_search_run_records",
+        lambda **kwargs: (
+            {
+                "run_id": first_run_id,
+                "principal_id": principal_id,
+                "status": "in_progress",
+                "created_at": (now - timedelta(minutes=1)).isoformat(),
+                "updated_at": (now - timedelta(seconds=3)).isoformat(),
+                "summary": {"status": "in_progress", "reviewed_listing_total": 8, "sources_completed": 2},
+            },
+            {
+                "run_id": second_run_id,
+                "principal_id": principal_id,
+                "status": "in_progress",
+                "created_at": (now - timedelta(minutes=2)).isoformat(),
+                "updated_at": (now - timedelta(seconds=7)).isoformat(),
+                "summary": {"status": "in_progress", "reviewed_listing_total": 4, "sources_completed": 1},
+            },
+        ),
+    )
+    hydrated_run_ids: list[str] = []
+
+    def _fake_status(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        lightweight: bool = False,
+        account_email: str = "",
+    ):
+        hydrated_run_ids.append(run_id)
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "created_at": (now - timedelta(minutes=1)).isoformat(),
+            "updated_at": (now - timedelta(seconds=3)).isoformat(),
+            "progress": 48,
+            "summary": {"status": "in_progress", "reviewed_listing_total": 8, "sources_completed": 2},
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+
+    active = service.find_active_property_search_run(principal_id=principal_id, limit=8)
+
+    assert active is not None
+    assert active["run_id"] == first_run_id
+    assert hydrated_run_ids == [first_run_id]
 
 
 def test_find_active_property_search_run_prefers_fresh_active_run_over_stale_in_progress(monkeypatch: pytest.MonkeyPatch) -> None:
