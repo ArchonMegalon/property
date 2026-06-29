@@ -38,7 +38,7 @@ Runs the focused PropertyQuarry release bundle:
   - live provider smoke receipt contracts
   - hosted tour control readiness receipts for Matterport, 3DVista, Pano2VR, krpano, and MagicFit
   - consolidated PropertyQuarry gold-status receipt for mobile/performance, provider matrix, tour controls, repair, and export discovery
-  - furniture-style variant contract for five visible styles, plan caps, examples, UI handoff, and style-aware cached rendering
+  - furniture-style variant contract for five request-time 3D-tour styles, UI handoff, and style-aware cached rendering
   - BTS score-PDF methodology contract for source provenance and selected-district no-reward policy
   - public-safe tour delivery contract shape for Matterport, 3DVista, Pano2VR, krpano, and MagicFit
   - required live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack, including a current /app/research/{id} detail route

@@ -3,7 +3,8 @@
 <style>
   .prd-topbar,
   .prd-shell,
-  .prd-lightbox {
+  .prd-lightbox,
+  .prd-style-dialog {
     --prd-gold: #b88a2b;
     --prd-gold-deep: #7b5518;
     --prd-gold-soft: color-mix(in srgb, var(--prd-gold) 14%, transparent);
@@ -1499,6 +1500,98 @@
     display: block;
     background: var(--panel);
   }
+  .prd-style-dialog {
+    width: min(640px, calc(100vw - 24px));
+    max-width: min(640px, calc(100vw - 24px));
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .prd-style-dialog::backdrop {
+    background: rgba(12, 10, 7, 0.62);
+    backdrop-filter: blur(8px);
+  }
+  .prd-style-card {
+    display: grid;
+    gap: 14px;
+    padding: 16px;
+    border: 1px solid color-mix(in srgb, var(--line) 82%, var(--prd-gold) 18%);
+    border-radius: 16px;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--panel) 97%, var(--prd-gold) 3%), var(--panel));
+    box-shadow: 0 28px 80px rgba(20, 16, 9, 0.28);
+    color: var(--text);
+  }
+  .prd-style-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 14px;
+  }
+  .prd-style-head h2 {
+    margin: 0;
+    font-size: clamp(1.18rem, 2vw, 1.55rem);
+    letter-spacing: -0.04em;
+  }
+  .prd-style-head p {
+    margin: 4px 0 0;
+    max-width: 46ch;
+    color: var(--text-soft);
+    font-size: 0.9rem;
+    line-height: 1.35;
+  }
+  .prd-style-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+    gap: 8px;
+  }
+  .prd-style-option {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-height: 72px;
+    padding: 9px;
+    border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--panel-2) 76%, var(--panel));
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .prd-style-option:hover,
+  .prd-style-option:focus-visible,
+  .prd-style-option.is-selected {
+    border-color: color-mix(in srgb, var(--prd-gold) 54%, var(--line));
+    background: color-mix(in srgb, var(--prd-gold) 10%, var(--panel));
+    outline: none;
+  }
+  .prd-style-swatch {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
+  }
+  .prd-style-option strong,
+  .prd-style-option small {
+    display: block;
+  }
+  .prd-style-option strong {
+    font-size: 0.9rem;
+    line-height: 1.15;
+  }
+  .prd-style-option small {
+    margin-top: 3px;
+    color: var(--text-soft);
+    font-size: 0.76rem;
+    line-height: 1.25;
+  }
+  .prd-style-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
   .prd-side-stack {
     position: sticky;
     top: 16px;
@@ -2288,6 +2381,29 @@
       width: calc(100vw - 16px);
       max-width: calc(100vw - 16px);
     }
+    .prd-style-dialog {
+      width: calc(100vw - 12px);
+      max-width: calc(100vw - 12px);
+      margin: auto 6px max(6px, env(safe-area-inset-bottom, 0px));
+    }
+    .prd-style-card {
+      max-height: calc(100svh - 18px);
+      overflow-y: auto;
+      border-radius: 18px;
+      padding: 12px;
+    }
+    .prd-style-head {
+      align-items: stretch;
+    }
+    .prd-style-head p {
+      display: none;
+    }
+    .prd-style-options {
+      grid-template-columns: 1fr;
+    }
+    .prd-style-option {
+      min-height: 58px;
+    }
     .prd-side-stack .object-feedback {
       max-height: min(52svh, 440px);
       overflow-y: auto;
@@ -3003,6 +3119,7 @@
               data-pw-visual-detail="{{ action.get('status_detail') or '' }}"
               data-pw-visual-poll-seconds="{% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
               {% if is_walkthrough_request %}data-pw-walkthrough-provider="magicfit"{% endif %}
+              {% if action.get('kind') == 'tour' %}data-pw-visual-style-required="1"{% endif %}
               {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}disabled aria-disabled="true"{% endif %}
               aria-label="{{ action.get('label') or 'Request visual review' }}"
             >{{ action.get('label') }}</button>
@@ -3691,6 +3808,47 @@
   </div>
 </dialog>
 
+{% set visual_style_catalog = research_visual_style_catalog|default([]) %}
+{% set visual_default_style = research_default_visual_style|default('warm_scandi') %}
+{% if visual_style_catalog %}
+<dialog class="prd-style-dialog" data-prd-visual-style-dialog aria-label="Choose 3D tour style">
+  <div class="prd-style-card">
+    <div class="prd-style-head">
+      <div>
+        <div class="prd-kicker">3D tour style</div>
+        <h2>Choose the look</h2>
+        <p>This is only for the generated tour. It does not change the search brief.</p>
+      </div>
+      <button class="console-action" type="button" data-prd-style-cancel>Close</button>
+    </div>
+    <div class="prd-style-options" data-prd-style-options>
+      {% for style in visual_style_catalog %}
+      {% set style_value = style.get('value') or '' %}
+      <button
+        class="prd-style-option{% if style_value == visual_default_style %} is-selected{% endif %}"
+        type="button"
+        data-prd-style-option
+        data-style-value="{{ style_value }}"
+        data-style-label="{{ style.get('label') or style_value }}"
+        data-style-prompt="{{ style.get('prompt') or style_value }}"
+        aria-pressed="{% if style_value == visual_default_style %}true{% else %}false{% endif %}"
+      >
+        <span class="prd-style-swatch" style="background: {{ style.get('example_tone') or 'linear-gradient(135deg, #f5efe3, #d8c4a0)' }};" aria-hidden="true"></span>
+        <span>
+          <strong>{{ style.get('label') or style_value }}</strong>
+          <small>{{ style.get('example_caption') or style.get('detail') or 'Generated staging style' }}</small>
+        </span>
+      </button>
+      {% endfor %}
+    </div>
+    <div class="prd-style-actions">
+      <button class="console-action" type="button" data-prd-style-cancel>Cancel</button>
+      <button class="console-action is-primary" type="button" data-prd-style-confirm>Request 3D tour</button>
+    </div>
+  </div>
+</dialog>
+{% endif %}
+
 <script>
 (() => {
   const visualRequestStatusNode = document.querySelector('[data-prd-visual-status]');
@@ -3702,6 +3860,71 @@
   const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];
   const visualTerminalStates = ['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'];
   let visualPollTimer = 0;
+  const visualStyleDialog = document.querySelector('[data-prd-visual-style-dialog]');
+  const visualStyleOptions = Array.from(document.querySelectorAll('[data-prd-style-option]'));
+  const visualStyleConfirm = document.querySelector('[data-prd-style-confirm]');
+  const visualStyleCancelButtons = Array.from(document.querySelectorAll('[data-prd-style-cancel]'));
+  const readVisualStyleOption = (option) => ({
+    value: String(option?.getAttribute?.('data-style-value') || '').trim(),
+    label: String(option?.getAttribute?.('data-style-label') || '').trim(),
+    prompt: String(option?.getAttribute?.('data-style-prompt') || '').trim(),
+  });
+  let selectedVisualStyle = readVisualStyleOption(
+    visualStyleOptions.find((option) => option.classList.contains('is-selected')) || visualStyleOptions[0],
+  );
+  const syncVisualStyleOptions = () => {
+    visualStyleOptions.forEach((option) => {
+      const isSelected = String(option.getAttribute('data-style-value') || '').trim() === selectedVisualStyle.value;
+      option.classList.toggle('is-selected', isSelected);
+      option.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+    });
+  };
+  visualStyleOptions.forEach((option) => {
+    option.addEventListener('click', () => {
+      selectedVisualStyle = readVisualStyleOption(option);
+      syncVisualStyleOptions();
+    });
+  });
+  let pendingVisualStyleResolver = null;
+  const closeVisualStyleDialog = () => {
+    if (visualStyleDialog && typeof visualStyleDialog.close === 'function' && visualStyleDialog.open) {
+      visualStyleDialog.close();
+    }
+  };
+  const settleVisualStyleChoice = (choice) => {
+    const resolver = pendingVisualStyleResolver;
+    pendingVisualStyleResolver = null;
+    closeVisualStyleDialog();
+    if (typeof resolver === 'function') resolver(choice);
+  };
+  visualStyleConfirm?.addEventListener('click', () => {
+    settleVisualStyleChoice(selectedVisualStyle);
+  });
+  visualStyleCancelButtons.forEach((button) => {
+    button.addEventListener('click', () => settleVisualStyleChoice(null));
+  });
+  visualStyleDialog?.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    settleVisualStyleChoice(null);
+  });
+  const chooseVisualStyleForRequest = (requestKind) => {
+    if (String(requestKind || '').trim().toLowerCase() !== 'tour') return Promise.resolve(null);
+    if (!visualStyleOptions.length) return Promise.resolve(selectedVisualStyle);
+    if (!visualStyleDialog || typeof visualStyleDialog.showModal !== 'function') {
+      return Promise.resolve(selectedVisualStyle);
+    }
+    syncVisualStyleOptions();
+    if (pendingVisualStyleResolver) settleVisualStyleChoice(null);
+    return new Promise((resolve) => {
+      pendingVisualStyleResolver = resolve;
+      try {
+        visualStyleDialog.showModal();
+      } catch (_error) {
+        pendingVisualStyleResolver = null;
+        resolve(selectedVisualStyle);
+      }
+    });
+  };
   const normalizeWalkthroughProvider = (_value) => 'magicfit';
   const getWalkthroughProviderFromButton = (button) => {
     if (!button) return 'magicfit';
@@ -3956,6 +4179,11 @@
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
         return;
       }
+      const visualStyleChoice = await chooseVisualStyleForRequest(requestKind);
+      if (requestKind === 'tour' && !visualStyleChoice) return;
+      const dioramaStyleHint = requestKind === 'tour'
+        ? String(visualStyleChoice?.prompt || visualStyleChoice?.value || '').trim()
+        : '';
       const original = button.textContent || (isWalkthroughRequest ? 'Request walkthrough' : 'Request 3D tour');
       button.disabled = true;
       button.textContent = isWalkthroughRequest ? 'Requesting walkthrough...' : 'Requesting 3D tour...';
@@ -3984,6 +4212,7 @@
             auto_deliver: false,
             allow_floorplan_only: true,
             walkthrough_provider_key: walkthroughProvider,
+            diorama_style_hint: dioramaStyleHint,
           }),
         });
         const payload = await response.json().catch(() => ({}));

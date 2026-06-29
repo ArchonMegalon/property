@@ -2158,24 +2158,21 @@ def test_propertyquarry_search_route_does_not_use_generic_workspace_search(monke
     response = client.get("/app/search", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
     assert 'data-property-decision-workbench' in response.text
-    assert 'name="furniture_style"' in response.text
-    assert 'data-furniture-style-select' in response.text
-    assert 'data-furniture-style-card' in response.text
-    assert "Warm Scandinavian" in response.text
-    assert "Trump gold" in response.text
-    assert "Furniture style examples" in response.text
-    assert "Playful luxe" in response.text
-    assert "maximalist tower drama" in response.text
+    assert 'name="furniture_style"' not in response.text
+    assert 'data-furniture-style-select' not in response.text
+    assert 'data-furniture-style-card' not in response.text
+    assert "Furniture style examples" not in response.text
     assert "Search people, threads, commitments, decisions, deadlines, evidence, rules, and handoffs." not in response.text
 
 
-def test_propertyquarry_workbench_uses_live_furniture_style_picker_for_visual_requests() -> None:
+def test_propertyquarry_workbench_asks_for_furniture_style_at_visual_request_time() -> None:
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
 
-    assert "data-furniture-style-select" in script
-    assert "const syncFurnitureStylePicker = () => {" in script
-    assert "const setFurnitureStyleValue = (value) => {" in script
-    assert "const liveValue = String(furnitureStyleSelect?.value || '').trim();" in script
+    assert "data-furniture-style-select" not in script
+    assert "const chooseFurnitureStyleForVisualRequest = (requestKind) => {" in script
+    assert "data-pqx-visual-style-dialog" in script
+    assert "diorama_style_hint: dioramaStyleHint" in script
+    assert "Only the generated tour changes. Your search brief stays as it is." in script
 
 
 def test_propertyquarry_magicfit_scene_cache_is_furniture_style_aware(monkeypatch) -> None:
@@ -17427,7 +17424,14 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert 'data-pw-visual-request="tour"' in rendered_html
+    assert 'data-pw-visual-style-required="1"' in rendered_html
     assert '>Request 3D tour</button>' in rendered_html
+    assert 'data-prd-visual-style-dialog' in rendered_html
+    assert 'data-prd-style-option' in rendered_html
+    assert "Choose the look" in rendered_html
+    assert "This is only for the generated tour. It does not change the search brief." in rendered_html
+    assert "Warm Scandinavian" in rendered_html
+    assert "Trump gold" in rendered_html
     assert 'data-pw-visual-request="flythrough"' in rendered_html
     assert '>Request walkthrough</button>' in rendered_html
     assert 'data-pw-walkthrough-provider="magicfit"' in rendered_html

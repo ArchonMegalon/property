@@ -107,30 +107,9 @@ PROPERTY_FURNITURE_STYLE_CATALOG: tuple[dict[str, str], ...] = (
     },
 )
 
-
-def _property_furniture_style_options(*, plan_key: object, selected_value: object) -> list[dict[str, object]]:
-    cap = property_furniture_style_cap(plan_key)
-    normalized_selected = str(selected_value or "").strip()
-    allowed_values = {row["value"] for row in PROPERTY_FURNITURE_STYLE_CATALOG[:cap]}
-    if normalized_selected not in allowed_values:
-        normalized_selected = PROPERTY_FURNITURE_STYLE_CATALOG[0]["value"]
-    rows: list[dict[str, object]] = []
-    for index, row in enumerate(PROPERTY_FURNITURE_STYLE_CATALOG):
-        unlocked = index < cap
-        rows.append(
-            {
-                **row,
-                "disabled": not unlocked,
-                "locked": not unlocked,
-                "upgrade_hint": "" if unlocked else ("Plus render slot" if cap < 3 else "Agent render slot"),
-                "selected": normalized_selected == row["value"],
-            }
-        )
-    return rows
 from app.api.routes.landing_property_workspace_payload import (
     property_workspace_payload as build_property_workspace_payload,
 )
-from app.services.property_billing import property_furniture_style_cap
 from app.api.routes.landing_property_workspace_helpers import (
     _artifact_receipt_rows,
     _candidate_detail_sections,
@@ -3710,16 +3689,6 @@ def app_section_payload(
         for plan in list(property_state.get("commercial", {}).get("plan_catalog") or [])
         if isinstance(plan, dict)
     ]
-    property_current_plan_key = str(property_state.get("commercial", {}).get("current_plan_key") or "free").strip().lower() or "free"
-    property_furniture_style_options = _property_furniture_style_options(
-        plan_key=property_current_plan_key,
-        selected_value=property_preferences.get("furniture_style"),
-    )
-    property_furniture_style_value = next(
-        (str(option.get("value") or "") for option in property_furniture_style_options if option.get("selected")),
-        PROPERTY_FURNITURE_STYLE_CATALOG[0]["value"],
-    )
-
     def _positive_int(value: object, *, default: int = 0) -> int:
         try:
             parsed = int(float(str(value or "").strip()))
@@ -3846,15 +3815,6 @@ def app_section_payload(
                 "label": "Property type",
                 "values": selected_property_type_values,
                 "options": property_type_options,
-                "step": "what",
-            },
-            {
-                "type": "select",
-                "name": "furniture_style",
-                "label": "Furniture style",
-                "value": property_furniture_style_value,
-                "options": property_furniture_style_options,
-                "tooltip": "Used for generated lifestyle previews, furnished 3D-tour variants, and walkthrough staging. Locked styles stay visible so plan differences are clear.",
                 "step": "what",
             },
             {

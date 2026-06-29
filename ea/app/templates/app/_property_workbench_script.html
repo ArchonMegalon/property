@@ -304,16 +304,151 @@
       return hasUnlimitedProviderResults() ? normalized.slice() : normalized.slice(0, limit);
     };
     const furnitureStyleCatalog = Array.isArray(meta?.furniture_style_catalog) ? meta.furniture_style_catalog : [];
-    let furnitureStyleSelect = null;
-    const selectedFurnitureStyle = () => {
-      const liveValue = String(furnitureStyleSelect?.value || '').trim();
-      if (liveValue) return liveValue;
-      return String(briefPreferences.furniture_style || 'warm_scandi').trim() || 'warm_scandi';
-    };
-    const selectedFurnitureStylePrompt = () => {
-      const selected = selectedFurnitureStyle();
+    let selectedFurnitureStyleValue = String(
+      briefPreferences.furniture_style
+        || furnitureStyleCatalog.find((row) => String(row?.value || '').trim())?.value
+        || 'warm_scandi'
+    ).trim() || 'warm_scandi';
+    const selectedFurnitureStylePrompt = (styleValue = selectedFurnitureStyleValue) => {
+      const selected = String(styleValue || selectedFurnitureStyleValue || '').trim();
       const match = furnitureStyleCatalog.find((row) => String(row?.value || '').trim() === selected);
       return String(match?.prompt || selected).trim();
+    };
+    const selectedFurnitureStyleLabel = (styleValue = selectedFurnitureStyleValue) => {
+      const selected = String(styleValue || selectedFurnitureStyleValue || '').trim();
+      const match = furnitureStyleCatalog.find((row) => String(row?.value || '').trim() === selected);
+      return String(match?.label || selected || 'Default style').trim();
+    };
+    let visualStyleDialog = null;
+    let visualStyleResolver = null;
+    const visualStyleDialogMarkup = () => {
+      const rows = furnitureStyleCatalog.length
+        ? furnitureStyleCatalog
+        : [{ value: selectedFurnitureStyleValue, label: selectedFurnitureStyleLabel(), prompt: selectedFurnitureStylePrompt(), example_caption: 'Default generated staging style.', example_tone: 'linear-gradient(135deg, #f5efe3, #d8c4a0)' }];
+      return `
+        <dialog class="pqx-visual-style-dialog" data-pqx-visual-style-dialog aria-label="Choose 3D tour style">
+          <div class="pqx-visual-style-card">
+            <div class="pqx-visual-style-head">
+              <div>
+                <p class="pqx-eyebrow">3D tour style</p>
+                <h2>Choose the look</h2>
+                <p>Only the generated tour changes. Your search brief stays as it is.</p>
+              </div>
+              <button class="pqx-button" type="button" data-pqx-visual-style-cancel>Close</button>
+            </div>
+            <div class="pqx-visual-style-options">
+              ${rows.map((row) => {
+                const value = String(row?.value || '').trim();
+                const selected = value === selectedFurnitureStyleValue;
+                return `
+                  <button class="pqx-visual-style-option${selected ? ' is-selected' : ''}" type="button" data-pqx-visual-style-option data-style-value="${escapeHtml(value)}" aria-pressed="${selected ? 'true' : 'false'}">
+                    <span class="pqx-visual-style-swatch" style="background:${escapeHtml(String(row?.example_tone || 'linear-gradient(135deg, #f5efe3, #d8c4a0)').trim())};" aria-hidden="true"></span>
+                    <span><strong>${escapeHtml(String(row?.label || value || 'Default style').trim())}</strong><small>${escapeHtml(String(row?.example_caption || row?.detail || 'Generated staging style.').trim())}</small></span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+            <div class="pqx-visual-style-actions">
+              <button class="pqx-button" type="button" data-pqx-visual-style-cancel>Cancel</button>
+              <button class="pqx-button pqx-primary" type="button" data-pqx-visual-style-confirm>Request 3D tour</button>
+            </div>
+          </div>
+        </dialog>
+      `;
+    };
+    const ensureVisualStyleDialog = () => {
+      if (visualStyleDialog && visualStyleDialog.isConnected) return visualStyleDialog;
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = visualStyleDialogMarkup();
+      visualStyleDialog = wrapper.firstElementChild;
+      if (!visualStyleDialog) return null;
+      const style = document.createElement('style');
+      style.textContent = `
+        .pqx-visual-style-dialog{width:min(640px,calc(100vw - 24px));max-width:min(640px,calc(100vw - 24px));padding:0;border:0;background:transparent}
+        .pqx-visual-style-dialog::backdrop{background:rgba(12,10,7,.62);backdrop-filter:blur(8px)}
+        .pqx-visual-style-card{display:grid;gap:14px;padding:16px;border:1px solid var(--line);border-radius:18px;background:var(--panel);color:var(--text);box-shadow:0 28px 80px rgba(20,16,9,.28)}
+        .pqx-visual-style-head{display:flex;justify-content:space-between;align-items:start;gap:14px}
+        .pqx-visual-style-head h2{margin:0;font-size:clamp(1.18rem,2vw,1.55rem);letter-spacing:-.04em}
+        .pqx-visual-style-head p{margin:4px 0 0;color:var(--text-soft);font-size:.9rem;line-height:1.35}
+        .pqx-visual-style-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:8px}
+        .pqx-visual-style-option{display:grid;grid-template-columns:42px minmax(0,1fr);align-items:center;gap:10px;min-height:72px;padding:9px;border:1px solid var(--line);border-radius:13px;background:var(--panel-2);color:var(--text);text-align:left;cursor:pointer}
+        .pqx-visual-style-option:hover,.pqx-visual-style-option:focus-visible,.pqx-visual-style-option.is-selected{border-color:color-mix(in srgb,var(--gold,#b88a2b) 54%,var(--line));background:color-mix(in srgb,var(--gold,#b88a2b) 10%,var(--panel));outline:none}
+        .pqx-visual-style-swatch{width:42px;height:42px;border-radius:12px;border:1px solid var(--line)}
+        .pqx-visual-style-option strong,.pqx-visual-style-option small{display:block}
+        .pqx-visual-style-option strong{font-size:.9rem;line-height:1.15}
+        .pqx-visual-style-option small{margin-top:3px;color:var(--text-soft);font-size:.76rem;line-height:1.25}
+        .pqx-visual-style-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+        @media(max-width:760px){.pqx-visual-style-dialog{width:calc(100vw - 12px);max-width:calc(100vw - 12px);margin:auto 6px max(6px,env(safe-area-inset-bottom,0px))}.pqx-visual-style-card{max-height:calc(100svh - 18px);overflow-y:auto;padding:12px}.pqx-visual-style-head p{display:none}.pqx-visual-style-options{grid-template-columns:1fr}.pqx-visual-style-option{min-height:58px}}
+      `;
+      visualStyleDialog.prepend(style);
+      document.body.appendChild(visualStyleDialog);
+      visualStyleDialog.querySelectorAll('[data-pqx-visual-style-option]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const nextValue = String(button.getAttribute('data-style-value') || '').trim();
+          if (nextValue) selectedFurnitureStyleValue = nextValue;
+          visualStyleDialog.querySelectorAll('[data-pqx-visual-style-option]').forEach((option) => {
+            const isSelected = String(option.getAttribute('data-style-value') || '').trim() === selectedFurnitureStyleValue;
+            option.classList.toggle('is-selected', isSelected);
+            option.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+          });
+        });
+      });
+      visualStyleDialog.querySelector('[data-pqx-visual-style-confirm]')?.addEventListener('click', () => {
+        const resolver = visualStyleResolver;
+        visualStyleResolver = null;
+        if (typeof visualStyleDialog.close === 'function' && visualStyleDialog.open) visualStyleDialog.close();
+        if (typeof resolver === 'function') {
+          resolver({
+            value: selectedFurnitureStyleValue,
+            label: selectedFurnitureStyleLabel(),
+            prompt: selectedFurnitureStylePrompt(),
+          });
+        }
+      });
+      visualStyleDialog.querySelectorAll('[data-pqx-visual-style-cancel]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const resolver = visualStyleResolver;
+          visualStyleResolver = null;
+          if (typeof visualStyleDialog.close === 'function' && visualStyleDialog.open) visualStyleDialog.close();
+          if (typeof resolver === 'function') resolver(null);
+        });
+      });
+      visualStyleDialog.addEventListener('cancel', (event) => {
+        event.preventDefault();
+        const resolver = visualStyleResolver;
+        visualStyleResolver = null;
+        if (typeof visualStyleDialog.close === 'function' && visualStyleDialog.open) visualStyleDialog.close();
+        if (typeof resolver === 'function') resolver(null);
+      });
+      return visualStyleDialog;
+    };
+    const chooseFurnitureStyleForVisualRequest = (requestKind) => {
+      if (String(requestKind || '').trim().toLowerCase() !== 'tour') return Promise.resolve(null);
+      const dialog = ensureVisualStyleDialog();
+      if (!dialog || typeof dialog.showModal !== 'function') {
+        return Promise.resolve({
+          value: selectedFurnitureStyleValue,
+          label: selectedFurnitureStyleLabel(),
+          prompt: selectedFurnitureStylePrompt(),
+        });
+      }
+      if (visualStyleResolver) {
+        visualStyleResolver(null);
+        visualStyleResolver = null;
+      }
+      return new Promise((resolve) => {
+        visualStyleResolver = resolve;
+        try {
+          dialog.showModal();
+        } catch (_error) {
+          visualStyleResolver = null;
+          resolve({
+            value: selectedFurnitureStyleValue,
+            label: selectedFurnitureStyleLabel(),
+            prompt: selectedFurnitureStylePrompt(),
+          });
+        }
+      });
     };
     const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
     const propertyDecisionSaveEndpoint = () => '/app/api/property/decisions';
@@ -1060,6 +1195,11 @@
         return;
       }
       const requestKind = String(kind || 'tour').trim().toLowerCase();
+      const visualStyleChoice = await chooseFurnitureStyleForVisualRequest(requestKind);
+      if (requestKind === 'tour' && !visualStyleChoice) return;
+      const dioramaStyleHint = requestKind === 'tour'
+        ? String(visualStyleChoice?.prompt || selectedFurnitureStylePrompt()).trim()
+        : '';
       const original = button?.textContent || (requestKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour');
       if (button) {
         button.disabled = true;
@@ -1087,7 +1227,7 @@
             auto_deliver: false,
             allow_floorplan_only: true,
             walkthrough_provider_key: requestKind === 'flythrough' ? getWalkthroughProviderFromButton(button) : '',
-            diorama_style_hint: selectedFurnitureStylePrompt(),
+            diorama_style_hint: dioramaStyleHint,
           }),
         });
         const payload = await response.json().catch(() => ({}));
@@ -3134,48 +3274,6 @@
     window.setTimeout(normalizeMobileTopNavigation, 160);
     root.querySelector('[data-pqx-mobile-nav-menu]')?.addEventListener('toggle', normalizeMobileTopNavigation);
     window.addEventListener('resize', normalizeMobileTopNavigation);
-    furnitureStyleSelect = form?.querySelector('[data-furniture-style-select]') || null;
-    const furnitureStyleCards = () => (form ? [...form.querySelectorAll('[data-furniture-style-card]')] : []);
-    const syncFurnitureStylePicker = () => {
-      const selected = selectedFurnitureStyle();
-      furnitureStyleCards().forEach((card) => {
-        const value = String(card.getAttribute('data-style-value') || '').trim();
-        const isSelected = Boolean(value) && value === selected;
-        card.classList.toggle('is-selected', isSelected);
-        card.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-        if (card.hasAttribute('disabled')) return;
-        const pill = card.querySelector('.pqx-style-example-pill');
-        if (!pill) return;
-        const defaultLabel = String(card.getAttribute('data-style-default-label') || 'Included').trim() || 'Included';
-        const selectedLabel = String(card.getAttribute('data-style-selected-label') || 'Selected').trim() || 'Selected';
-        pill.textContent = isSelected ? selectedLabel : defaultLabel;
-      });
-    };
-    const setFurnitureStyleValue = (value) => {
-      const normalized = String(value || '').trim();
-      if (!normalized || !furnitureStyleSelect) return;
-      const available = [...furnitureStyleSelect.options].some((option) => {
-        return !option.disabled && String(option.value || '').trim() === normalized;
-      });
-      if (!available) return;
-      if (String(furnitureStyleSelect.value || '').trim() === normalized) {
-        syncFurnitureStylePicker();
-        return;
-      }
-      furnitureStyleSelect.value = normalized;
-      furnitureStyleSelect.dispatchEvent(new Event('input', { bubbles: true }));
-      furnitureStyleSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      syncFurnitureStylePicker();
-    };
-    furnitureStyleCards().forEach((card) => {
-      card.addEventListener('click', () => {
-        if (card.hasAttribute('disabled')) return;
-        setFurnitureStyleValue(card.getAttribute('data-style-value'));
-      });
-    });
-    furnitureStyleSelect?.addEventListener('input', syncFurnitureStylePicker);
-    furnitureStyleSelect?.addEventListener('change', syncFurnitureStylePicker);
-    syncFurnitureStylePicker();
     const wizardStepPresentation = (step, isInvestment) => {
       const key = String(step?.key || '').trim();
       const fallbackLabel = String(step?.label || 'Search').trim() || 'Search';

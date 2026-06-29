@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +29,7 @@ def build_furniture_style_contract_receipt() -> dict[str, object]:
     billing = _read("ea/app/services/property_billing.py")
     workbench = _read("ea/app/templates/app/property_decision_workbench.html")
     workbench_script = _read("ea/app/templates/app/_property_workbench_script.html")
+    research_detail = _read("ea/app/templates/app/property_research_detail.html")
     service = _read("ea/app/product/service.py")
 
     for value, (label, prompt_token) in REQUIRED_STYLES.items():
@@ -39,20 +39,24 @@ def build_furniture_style_contract_receipt() -> dict[str, object]:
             failures.append(f"furniture style catalog missing label {label}")
         if prompt_token not in view_models:
             failures.append(f"furniture style catalog missing prompt token for {value}")
-    for token in ("example_tone", "example_caption", "PROPERTY_FURNITURE_STYLE_CATALOG[:cap]", '"locked": not unlocked'):
+    for token in ("example_tone", "example_caption"):
         if token not in view_models:
-            failures.append(f"furniture style options missing {token}")
-    if not re.search(r'return\s+\{"free":\s*1,\s*"plus":\s*3,\s*"agent":\s*5\}\.get', billing):
-        failures.append("property_furniture_style_cap must enforce free/plus/agent caps of 1/3/5")
-    for token in ("furniture_style_limit=1", "furniture_style_limit=3", "furniture_style_limit=5"):
+            failures.append(f"furniture style catalog missing {token}")
+    if "return 5" not in billing:
+        failures.append("property_furniture_style_cap must allow every tier to choose all request-time styles")
+    for token in ("furniture_style_limit=5",):
         if token not in billing:
             failures.append(f"plan catalog missing {token}")
-    for token in ("Furniture style examples", "pqx-style-example-swatch", "upgrade_hint"):
+    for token in ('name="furniture_style"', "data-furniture-style-select", "data-furniture-style-card", "field.name == 'furniture_style'"):
         if token not in workbench:
-            failures.append(f"workbench furniture-style examples missing {token}")
-    for token in ("furniture_style_catalog", "selectedFurnitureStylePrompt", "diorama_style_hint: selectedFurnitureStylePrompt()"):
+            continue
+        failures.append(f"search brief must not render furniture style filter token {token}")
+    for token in ("furniture_style_catalog", "chooseFurnitureStyleForVisualRequest", "data-pqx-visual-style-dialog", "diorama_style_hint: dioramaStyleHint"):
         if token not in workbench_script:
             failures.append(f"workbench script style handoff missing {token}")
+    for token in ("data-prd-visual-style-dialog", "data-prd-style-option", "data-pw-visual-style-required", "chooseVisualStyleForRequest", "diorama_style_hint: dioramaStyleHint"):
+        if token not in research_detail:
+            failures.append(f"research detail request-time style chooser missing {token}")
     service_tokens = (
         "styling_hint: str = \"\"",
         "normalized_style = compact_text",
@@ -71,10 +75,10 @@ def build_furniture_style_contract_receipt() -> dict[str, object]:
         "status": "pass" if not failures else "fail",
         "style_count": len(REQUIRED_STYLES),
         "style_values": sorted(REQUIRED_STYLES),
-        "plan_caps": {"free": 1, "plus": 3, "agent": 5},
+        "plan_caps": {"free": 5, "plus": 5, "agent": 5},
         "failure_count": len(failures),
         "failures": failures,
-        "note": "Verifies furniture-style catalog, entitlement caps, visible examples, UI handoff, and style-aware rendered-scene cache reuse.",
+        "note": "Verifies furniture-style catalog, request-time 3D-tour style choice, UI handoff, and style-aware rendered-scene cache reuse.",
     }
 
 
