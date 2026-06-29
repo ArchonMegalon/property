@@ -30,13 +30,20 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `b4e894ab4b1aff689105fc172b6c2f45efc0b990` |
+| Runtime commit SHA | `1cc7005f85186cd7979732c48647eff387bbf952` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current release candidate on 2026-06-28 after `b4e894ab`, carrying the live research-detail hero polish plus the removal of customer-visible score-filter/result-cap hints from the first-party Brilliant Directories billing handoff |
+| Deployment ID | current release candidate on 2026-06-29 after `1cc7005f`, carrying the gold-gate audit pass, mobile/account notification polish, warmed PropertyQuarry performance smoke, Brilliant Directories chrome cleanup, and scene-video provider account hardening |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The local audit pass on 2026-06-29 verified:
+
+- Commit `1cc7005f` is the current runtime candidate for this repo audit.
+- `python3 scripts/propertyquarry_authenticated_performance_smoke.py --write _completion/smoke/property-auth-performance-latest.json` returned `status=pass`, `failed_count=0`, and verified warmed `/app/search`, `/app/properties`, `/app/account`, `/app/billing`, and settings surfaces under the 1200 ms route budget.
+- `python3 scripts/propertyquarry_gold_status.py --write _completion/property_gold_status/release-gate.json --fail-on-blocked` now leaves only release hygiene before the manifest update; all product, mobile, analytics privacy, tour delivery, map preview, walkthrough, provider matrix, self-healing, scope, security, BTS methodology, and furniture-style contract gates are green.
+- Focused local regressions passed for Brilliant Directories handoff cleanup, scene-video provider account merging, Chummer scene-video delivery routing, public tour CSP/Matterport/3DVista contracts, ranked search visibility, furniture-style gate alignment, and PropertyQuarry gold status aggregation.
 
 The live rollout on 2026-06-28 verified:
 
