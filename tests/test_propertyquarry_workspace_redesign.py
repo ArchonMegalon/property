@@ -3725,11 +3725,10 @@ def test_propertyquarry_home_example_shortlist_labels_are_clickable(monkeypatch)
     public_home = public_client.get("/?home=1", headers={"host": "propertyquarry.com"})
     assert public_home.status_code == 200
     for label in (
-        "Balcony helps. Costs need confirmation.",
+        "Search result, presentation, 3D tour, walkthrough.",
     ):
         assert f'>{label}</a>' in public_home.text
-    assert "3D tour ready" not in public_home.text
-    assert "Walkthrough ready" not in public_home.text
+    assert "Danube Flats demo" in public_home.text
     assert "/app/shortlist?example=1#tour-preview" not in public_home.text
     assert "/app/shortlist?example=1#walkthrough-preview" not in public_home.text
 
@@ -3741,10 +3740,10 @@ def test_propertyquarry_home_example_shortlist_labels_are_clickable(monkeypatch)
     authed_home = authed_client.get("/?home=1", headers={"host": "propertyquarry.com"})
     assert authed_home.status_code == 200
     for label in (
-        "Balcony helps. Costs need confirmation.",
+        "Search result, presentation, 3D tour, walkthrough.",
     ):
         assert f'>{label}</a>' in authed_home.text
-    assert 'href="/app/shortlist?example=1#results-list"' in authed_home.text
+    assert "Danube Flats demo" in authed_home.text
     assert "/app/shortlist?example=1#tour-preview" not in authed_home.text
     assert "/app/shortlist?example=1#walkthrough-preview" not in authed_home.text
 
@@ -3803,8 +3802,68 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
     targets = landing_routes._propertyquarry_example_media_targets()
 
     assert targets == {
+        "demo_href": "/tours/demo-home-tour",
         "tour_href": "/tours/demo-home-tour/control/matterport",
+        "tour_label": "Matterport ready",
         "walkthrough_href": "/tours/files/demo-home-tour/tour.mp4",
+        "walkthrough_label": "Walkthrough ready",
+    }
+
+
+def test_propertyquarry_example_media_targets_prefer_propertyquarry_3dvista_private_viewer(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / "public_tours" / "demo-3dvista-propertyquarry"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "walkthrough.mp4").write_bytes(b"video")
+    (bundle_dir / "3dvista").mkdir()
+    (bundle_dir / "3dvista" / "index.htm").write_text("<html>private viewer runtime</html>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "demo-3dvista-propertyquarry",
+                "public_url": "/tours/demo-3dvista-propertyquarry",
+                "hosted_url": "/tours/demo-3dvista-propertyquarry",
+                "scene_strategy": "walkable_panorama",
+                "creation_mode": "hosted_walkable_360",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "matterport_url": "https://my.matterport.com/show/?m=DemoHomeTour",
+                "video_relpath": "walkthrough.mp4",
+                "video_provider": "magicfit",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
+                "scenes": [
+                    {
+                        "scene_id": "panorama-1",
+                        "role": "photo",
+                        "asset_relpath": "photo-01.png",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+
+    targets = landing_routes._propertyquarry_example_media_targets()
+
+    assert targets == {
+        "demo_href": "/tours/demo-3dvista-propertyquarry",
+        "tour_href": "/tours/demo-3dvista-propertyquarry/control/3dvista",
+        "tour_label": "3DVista ready",
+        "walkthrough_href": "/tours/files/demo-3dvista-propertyquarry/walkthrough.mp4",
+        "walkthrough_label": "Walkthrough ready",
     }
 
 
@@ -3871,7 +3930,11 @@ def test_propertyquarry_example_media_targets_keep_walkthrough_hidden_without_re
 
     targets = landing_routes._propertyquarry_example_media_targets()
 
-    assert targets == {"tour_href": "/tours/demo-3dvista-tour/control/3dvista"}
+    assert targets == {
+        "demo_href": "/tours/demo-3dvista-tour",
+        "tour_href": "/tours/demo-3dvista-tour/control/3dvista",
+        "tour_label": "3DVista ready",
+    }
 
 
 def test_propertyquarry_example_media_targets_ignore_unverified_public_control_shell(monkeypatch, tmp_path: Path) -> None:

@@ -8004,6 +8004,67 @@ def test_public_tour_routes_allow_matterport_thumb_preview_for_live_360(
     assert "my.matterport.com/show/?m=BmVWxvZQZLq" in page.text
 
 
+def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "propertyquarry-private-viewer-3dvista"
+    bundle_dir = tmp_path / slug
+    vista_dir = bundle_dir / "3dvista"
+    vista_dir.mkdir(parents=True)
+    (vista_dir / "index.htm").write_text("<html>private viewer runtime</html>", encoding="utf-8")
+    (bundle_dir / "walkthrough.mp4").write_bytes(b"video")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Private Viewer 3DVista",
+                "display_title": "Private Viewer 3DVista",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "scene_strategy": "walkable_panorama",
+                "creation_mode": "hosted_walkable_360",
+                "matterport_url": "https://my.matterport.com/show/?m=BmVWxvZQZLq",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "video_relpath": "walkthrough.mp4",
+                "video_provider": "magicfit",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
+                "scenes": [
+                    {
+                        "name": "Panorama",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-private-viewer-3dvista")
+    page = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"})
+    control = client.get(f"/tours/{slug}/control/3dvista", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert "Open 3DVista" in page.text
+    assert f"/tours/{slug}/control/3dvista" in page.text
+    assert "Open Fly-through" in page.text
+    assert control.status_code == 200
+    assert "3DVista Control" in control.text
+    assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control.text
+
+
 def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

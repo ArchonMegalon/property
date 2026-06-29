@@ -38,6 +38,37 @@ def _first_non_empty_text(*values: object) -> str:
     return ""
 
 
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "verified", "ready", "pass"}
+
+
+def _hosted_property_tour_has_propertyquarry_3dvista_private_viewer_proof(payload: dict[str, object]) -> bool:
+    proof = payload.get("three_d_vista_white_label_proof")
+    proof_payload = dict(proof) if isinstance(proof, dict) else {}
+    import_payload = payload.get("three_d_vista_import")
+    import_payload = dict(import_payload) if isinstance(import_payload, dict) else {}
+    source_project = str(
+        proof_payload.get("source_project")
+        or import_payload.get("source_project")
+        or proof_payload.get("project")
+        or import_payload.get("project")
+        or ""
+    ).strip().lower()
+    source_project = re.sub(r"[^a-z0-9]+", "", source_project)
+    if source_project not in {"propertyquarry", "propertyquarrycom"}:
+        return False
+    if _truthy(proof_payload.get("trial_branding_present")):
+        return False
+    return (
+        _truthy(proof_payload.get("private_viewer_verified") or proof_payload.get("private_viewer_delivered"))
+        and _truthy(proof_payload.get("non_trial_export_verified") or proof_payload.get("licensed_export_verified"))
+        and _truthy(proof_payload.get("propertyquarry_tour_metadata") or proof_payload.get("property_tour_metadata_verified"))
+        and _truthy(proof_payload.get("trial_branding_checked"))
+    )
+
+
 def _public_tour_dir() -> Path:
     raw_value = str(os.getenv("EA_PUBLIC_TOUR_DIR") or "").strip()
     if raw_value:
@@ -430,6 +461,11 @@ def _hosted_property_tour_has_3dvista_export(tour_url: object) -> bool:
         if not entry_relpath:
             continue
         if _hosted_property_tour_entry_has_marker(bundle_dir, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS):
+            return True
+        if (
+            _hosted_property_tour_has_propertyquarry_3dvista_private_viewer_proof(payload)
+            and _hosted_property_tour_file_exists(bundle_dir, entry_relpath)
+        ):
             return True
     return False
 

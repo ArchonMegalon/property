@@ -1010,6 +1010,7 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
     if not root.exists() or not root.is_dir():
         return {}
 
+    candidates: list[tuple[int, str, dict[str, str]]] = []
     for bundle_dir in sorted(path for path in root.iterdir() if path.is_dir()):
         manifest_path = bundle_dir / "tour.json"
         if not manifest_path.exists():
@@ -1027,22 +1028,50 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         )
         scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
         creation_mode = str(payload.get("creation_mode") or "").strip().lower()
-        if not has_floorplan_scene and scene_strategy != "layout_first" and "floorplan" not in creation_mode:
+        has_presentation_shape = has_floorplan_scene or scene_strategy != "photo_gallery_hosted" or "floorplan" in creation_mode
+        if not has_presentation_shape:
             continue
         bundle_tour_href = str(payload.get("public_url") or payload.get("hosted_url") or "").strip()
         if not bundle_tour_href:
             continue
         bundle_tour_url = _propertyquarry_absolute_public_url(bundle_tour_href)
-        verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(bundle_tour_url)
+        slug = str(payload.get("slug") or bundle_dir.name).strip()
+        verified_tour_href = ""
+        tour_label = ""
+        try:
+            if property_tour_hosting._hosted_property_tour_has_3dvista_export(bundle_tour_url):
+                verified_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/3dvista"
+                tour_label = "3DVista ready"
+        except Exception:
+            verified_tour_href = ""
+        if not verified_tour_href:
+            verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(bundle_tour_url)
+            if "/control/matterport" in verified_tour_href or "matterport.com" in verified_tour_href:
+                tour_label = "Matterport ready"
+            elif "/control/pano2vr" in verified_tour_href:
+                tour_label = "Pano2VR ready"
+            elif verified_tour_href:
+                tour_label = "3D tour ready"
         if not verified_tour_href:
             continue
         targets = {
-            "tour_href": _propertyquarry_public_href(verified_tour_href)
+            "demo_href": _propertyquarry_public_href(bundle_tour_url),
+            "tour_href": _propertyquarry_public_href(verified_tour_href),
+            "tour_label": tour_label or "3D tour ready",
         }
         walkthrough_asset_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(bundle_tour_url)
         if walkthrough_asset_href:
             targets["walkthrough_href"] = _propertyquarry_public_href(walkthrough_asset_href)
-        return targets
+            targets["walkthrough_label"] = "Walkthrough ready"
+        score = 0
+        score += 100 if targets.get("walkthrough_href") else 0
+        score += 80 if "/control/3dvista" in targets.get("tour_href", "") else 0
+        score += 40 if "/control/matterport" in targets.get("tour_href", "") else 0
+        score += 20 if "/control/pano2vr" in targets.get("tour_href", "") else 0
+        candidates.append((score, str(payload.get("display_title") or payload.get("title") or slug), targets))
+    if candidates:
+        candidates.sort(key=lambda row: (-row[0], row[1]))
+        return candidates[0][2]
     return {}
 
 
@@ -3382,18 +3411,20 @@ def landing(
         else "/sign-in?signing_in=1"
     )
     example_media_targets = _propertyquarry_example_media_targets()
+    example_demo_href = example_media_targets.get("demo_href") or example_shortlist_href
+    example_demo_detail_href = example_media_targets.get("demo_href") or example_shortlist_detail_href
     example_shortlist = [
         {
-            "title": "Clear floorplan, right district",
-            "detail": "Balcony helps. Costs need confirmation.",
+            "title": "Danube Flats demo",
+            "detail": "Search result, presentation, 3D tour, walkthrough.",
             "score": 84,
-            "href": example_shortlist_href,
-            "detail_href": example_shortlist_detail_href,
+            "href": example_demo_href,
+            "detail_href": example_demo_detail_href,
             "tour_href": example_media_targets.get("tour_href", ""),
             "walkthrough_href": example_media_targets.get("walkthrough_href", ""),
-            "tour_label": "3D tour ready" if example_media_targets.get("tour_href", "") else "",
+            "tour_label": example_media_targets.get("tour_label", "") if example_media_targets.get("tour_href", "") else "",
             "walkthrough_label": (
-                "Walkthrough ready" if example_media_targets.get("walkthrough_href", "") else ""
+                example_media_targets.get("walkthrough_label", "") if example_media_targets.get("walkthrough_href", "") else ""
             ),
             "scope_preview": _property_scope_preview_map_only("AT", "wien", "1010 Vienna, 1020 Vienna"),
         },

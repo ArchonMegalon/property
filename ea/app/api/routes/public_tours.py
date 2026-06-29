@@ -117,6 +117,12 @@ _3DVISTA_EXPORT_ALLOWED_EXTENSIONS = frozenset(
         ".xml",
     }
 )
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "verified", "ready", "pass"}
 _PANO2VR_EXPORT_MARKERS = ("ggpkg", "ggskin", "pano.xml", "tour.js")
 _KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
 _KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
@@ -414,6 +420,7 @@ def _redacted_public_tour_payload(
         url_allowed=_public_tour_static_media_url_allowed,
         bundle_dir_resolver=_tour_bundle_dir,
     )
+    slug = str(rendered.get("slug") or payload.get("slug") or "").strip()
     if include_external_tour_urls:
         for key in ("source_virtual_tour_url", "source_virtual_tour_origin"):
             safe_url = _safe_live_360_url(payload.get(key))
@@ -426,6 +433,21 @@ def _redacted_public_tour_payload(
                 rendered[key] = safe_url
         if (rendered.get("source_virtual_tour_url") or rendered.get("source_virtual_tour_origin")) and payload.get("panorama_source"):
             rendered["panorama_source"] = str(payload.get("panorama_source") or "").strip()[:120]
+    if slug and _3dvista_private_viewer_proof_ready(payload):
+        for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath"):
+            relpath = _public_tour_safe_asset_relpath(str(payload.get(key) or "").strip())
+            if relpath and _local_tour_asset_path(slug, relpath) is not None:
+                rendered["three_d_vista_entry_relpath"] = relpath
+                rendered["three_d_vista_import"] = {"source_project": "propertyquarry"}
+                rendered["three_d_vista_white_label_proof"] = {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                }
+                break
     return rendered
 
 
@@ -502,7 +524,7 @@ def _3dvista_export_file(slug: str, asset_path: str) -> Path:
     verified_entries = {
         entry_relpath
         for entry_relpath in entries
-        if _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS)
+        if _3dvista_entry_ready(slug, payload, entry_relpath)
     }
     if not verified_entries:
         raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
@@ -1535,6 +1557,40 @@ def _3dvista_export_allowed_relpaths(payload: dict[str, object]) -> tuple[set[st
     return {entry for entry in entries if entry}, {root.rstrip("/") for root in roots if root}
 
 
+def _3dvista_private_viewer_proof_ready(payload: dict[str, object]) -> bool:
+    proof = payload.get("three_d_vista_white_label_proof")
+    proof_payload = dict(proof) if isinstance(proof, dict) else {}
+    import_payload = payload.get("three_d_vista_import")
+    import_payload = dict(import_payload) if isinstance(import_payload, dict) else {}
+    source_project = str(
+        proof_payload.get("source_project")
+        or import_payload.get("source_project")
+        or proof_payload.get("project")
+        or import_payload.get("project")
+        or ""
+    ).strip().lower()
+    source_project = re.sub(r"[^a-z0-9]+", "", source_project)
+    if source_project not in {"propertyquarry", "propertyquarrycom"}:
+        return False
+    if _truthy(proof_payload.get("trial_branding_present")):
+        return False
+    return (
+        _truthy(proof_payload.get("private_viewer_verified") or proof_payload.get("private_viewer_delivered"))
+        and _truthy(proof_payload.get("non_trial_export_verified") or proof_payload.get("licensed_export_verified"))
+        and _truthy(proof_payload.get("propertyquarry_tour_metadata") or proof_payload.get("property_tour_metadata_verified"))
+        and _truthy(proof_payload.get("trial_branding_checked"))
+    )
+
+
+def _3dvista_entry_ready(slug: object, payload: dict[str, object], entry_relpath: object) -> bool:
+    relpath = _public_tour_safe_asset_relpath(str(entry_relpath or "").strip())
+    if not relpath:
+        return False
+    if _local_tour_html_asset_has_marker(slug, relpath, markers=_3DVISTA_EXPORT_MARKERS):
+        return True
+    return _3dvista_private_viewer_proof_ready(payload) and _local_tour_asset_path(slug, relpath) is not None
+
+
 def _pano2vr_export_root_relpath(payload: dict[str, object]) -> str:
     for key in ("pano2vr_export_root_relpath", "pano2vr_root_relpath"):
         relpath = _public_tour_safe_asset_relpath(str(payload.get(key) or "").strip())
@@ -1750,7 +1806,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         if (
             not three_d_vista_url
             and local_3dvista_entry
-            and _local_tour_html_asset_has_marker(slug, local_3dvista_entry, markers=_3DVISTA_EXPORT_MARKERS)
+            and _3dvista_entry_ready(slug, payload, local_3dvista_entry)
         ):
             three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
     pano2vr_url = _pano2vr_control_url(slug, payload)
@@ -2353,6 +2409,26 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     brand_html = html.escape(brand_name)
     listing_link = f'<a class="ghost" href="{html.escape(listing_url)}" target="_blank" rel="noreferrer">Open Listing</a>' if listing_url else ""
     hosted_link = f'<a class="ghost" href="{html.escape(hosted_url)}">Permalink</a>' if hosted_url else ""
+    provider_action_links = [
+        ("Open Matterport", matterport_url, "ghost"),
+        ("Open 3DVista", three_d_vista_url, "ghost"),
+        ("Open Pano2VR", pano2vr_url, "ghost"),
+        ("Open Fly-through", video_url, "ghost"),
+    ]
+    provider_actions_html = "".join(
+        f'<a class="{css_class}" href="{html.escape(href)}">{html.escape(label)}</a>'
+        for label, href, css_class in provider_action_links
+        if href
+    )
+    provider_actions_block = (
+        f"""
+        <div class="actions" aria-label="Provider views">
+          {provider_actions_html}
+        </div>
+        """
+        if provider_actions_html
+        else ""
+    )
     primary_cta = "Open Live 360" if source_virtual_tour_url else "Open Tour"
     primary_cta_href = "#live-360" if source_virtual_tour_url else "#viewer"
     assessment = dict(facts.get("personal_fit_assessment") or {}) if isinstance(facts.get("personal_fit_assessment"), dict) else {}
@@ -3201,6 +3277,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             <div class="eyebrow">{brand_html} <span>•</span> 3D tour</div>
             <h2>Inspect layout, light, and finish quality</h2>
             <p class="sub">Use the original interactive 360 experience as evidence after reviewing the decision brief, not as the decision brief itself.</p>
+            {provider_actions_block}
             <div class="live-frame-wrap">
               <iframe
                 class="live-frame"
@@ -4280,6 +4357,23 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         if source_virtual_tour_url
         else ""
     )
+    provider_access_shell = (
+        f'''
+        <section id="provider-views" class="live-shell">
+          <div class="live-head">
+            <div>
+              <div class="eyebrow">{brand_html} <span>•</span> 3D tour</div>
+              <h2>Open the prepared tour view</h2>
+              <p class="sub">Choose the interactive viewer or walkthrough that is ready for this property.</p>
+            </div>
+            <div class="actions">
+              {provider_actions_html}
+            </div>
+          </div>
+        </section>'''
+        if provider_actions_html
+        else ""
+    )
     legacy_decision_rows_html = "".join(
         f'<div class="kv"><b>{html.escape(label)}</b>{html.escape(value)}</div>'
         for label, value in decision_rows
@@ -4681,6 +4775,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             <a class="cta" href="{primary_cta_href}">{primary_cta}</a>
             {listing_link}
             {hosted_link}
+            {provider_actions_html}
           </div>
         </div>
         {tour_brief_panel}
@@ -4692,6 +4787,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       </section>
       <section class="stage">
         {live_shell}
+        {provider_access_shell}
         {(
             f'''<div class="hero-video">
               <video id="tour-video" controls playsinline preload="metadata" poster="{html.escape(scene_data[0]["image_url"])}">
@@ -5140,7 +5236,7 @@ def _tour_control_provider_layers(
                         or ""
                     ).strip()
                 )
-                if entry_relpath and _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS):
+                if entry_relpath and _3dvista_entry_ready(slug, payload, entry_relpath):
                     src = f"/tours/3dvista/{safe_slug}/{urllib.parse.quote(entry_relpath, safe='/')}"
             disclosure = disclosure or (
                 "Staged 3DVista layer. This uses a declared provider layer or second export, not a fake overlay."
@@ -5507,7 +5603,7 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
     entry_relpath = _3dvista_entry_relpath(payload)
     iframe_src = external_url
     if not iframe_src and entry_relpath and slug:
-        if not _local_tour_html_asset_has_marker(raw_slug, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS):
+        if not _3dvista_entry_ready(raw_slug, payload, entry_relpath):
             raise HTTPException(status_code=404, detail="tour_control_3dvista_export_missing")
         iframe_src = f"/tours/3dvista/{slug}/{urllib.parse.quote(entry_relpath, safe='/')}"
     if iframe_src:

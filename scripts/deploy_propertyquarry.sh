@@ -36,6 +36,9 @@ Environment:
                                   1 enables the full all-search-ready provider matrix with strict and
                                   soft-filter dispatch/readback checks after deploy. Default 0 keeps the
                                   lighter provider-catalog smoke.
+  PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E
+                                  1 requires the composed live presentation E2E, 0 skips it, auto runs it
+                                  only when PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1. Default auto.
   PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES
                                   Optional comma-separated country list for focused provider verification,
                                   for example AT,DE,CR. When set with PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1,
@@ -673,6 +676,35 @@ else
   fi
 fi
 cp "${provider_smoke_receipt}" _completion/smoke/property-live-provider-latest.json
+
+presentation_e2e_mode="$(effective_env_value PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E)"
+presentation_e2e_mode="${presentation_e2e_mode:-auto}"
+presentation_e2e_mode="$(printf '%s' "${presentation_e2e_mode}" | tr '[:upper:]' '[:lower:]')"
+run_presentation_e2e=0
+if env_truthy "${presentation_e2e_mode}"; then
+  run_presentation_e2e=1
+elif [[ "${presentation_e2e_mode}" == "auto" && "${provider_smoke_mode}" == "e2e" ]]; then
+  run_presentation_e2e=1
+elif [[ "${presentation_e2e_mode}" != "0" && "${presentation_e2e_mode}" != "false" && "${presentation_e2e_mode}" != "no" && "${presentation_e2e_mode}" != "off" && "${presentation_e2e_mode}" != "auto" ]]; then
+  echo "PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E must be 1, 0, or auto; got ${presentation_e2e_mode}." >&2
+  exit 2
+fi
+
+if (( run_presentation_e2e == 1 )); then
+  presentation_e2e_receipt="/tmp/propertyquarry_deploy_presentation_e2e.json"
+  if ! EA_API_TOKEN="${api_token}" \
+    PYTHONPATH=ea python3 scripts/propertyquarry_live_presentation_e2e.py \
+    --base-url "${base_url}" \
+    --host-header "propertyquarry.com" \
+    --principal-id "${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+    --provider-receipt _completion/smoke/property-live-provider-latest.json \
+    --write "${presentation_e2e_receipt}" >/dev/null; then
+    echo "PropertyQuarry live presentation E2E failed." >&2
+    cat "${presentation_e2e_receipt}" >&2 2>/dev/null || true
+    exit 1
+  fi
+  cp "${presentation_e2e_receipt}" _completion/smoke/property-live-presentation-e2e-latest.json
+fi
 
 gold_status_receipt="_completion/property_gold_status/release-gate.json"
 legacy_gold_status_receipt="_completion/propertyquarry-gold-status-latest.json"
