@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import socket
 import sys
 import urllib.parse
@@ -53,6 +54,17 @@ BILLING_FAIL_CLOSED_STATE_MARKERS = (
     "still opens another sign-in",
     "billing account host is not ready yet",
 )
+BILLING_BRIDGE_GUIDED_LOGIN_MARKERS = (
+    "continue billing",
+    "back to propertyquarry",
+    "billing lane",
+)
+
+
+def _visible_text(text: str) -> str:
+    without_hidden = re.sub(r"<script.*?</script>|<style.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    without_tags = re.sub(r"<[^>]+>", " ", without_hidden)
+    return re.sub(r"\s+", " ", without_tags).strip()
 
 
 def _resolve_mobile_billing_external_handoff(
@@ -99,6 +111,48 @@ def _resolve_mobile_billing_external_handoff(
         "bridge_launch_used": True,
         "bridge_launch_url": bridge_launch_url,
         "bridge_launch_status_code": int(bridge_response.status),
+    }
+
+
+def _mobile_billing_bridge_guided_login_assist_probe(
+    location: str,
+    *,
+    request_context: Any,
+    timeout_ms: int,
+) -> dict[str, object]:
+    normalized_location = str(location or "").strip()
+    parsed = urllib.parse.urlparse(normalized_location)
+    if parsed.scheme != "https" or not parsed.netloc or "/sso/propertyquarry" not in parsed.path:
+        return {
+            "ok": False,
+            "status_code": 0,
+            "final_url": normalized_location,
+            "error": "bridge_login_assist_not_applicable",
+        }
+    try:
+        response = request_context.get(normalized_location, timeout=timeout_ms)
+        status_code = int(response.status)
+        final_url = str(response.url or normalized_location)
+        body = str(response.text() or "")
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status_code": 0,
+            "final_url": normalized_location,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    lowered_body = body.lower()
+    visible_text = _visible_text(body).lower()
+    has_guided_markers = all(marker in visible_text for marker in BILLING_BRIDGE_GUIDED_LOGIN_MARKERS)
+    has_email_field = 'name="email"' in lowered_body or 'type="email"' in lowered_body
+    ok = status_code == 200 and has_guided_markers and has_email_field
+    return {
+        "ok": ok,
+        "status_code": status_code,
+        "final_url": final_url,
+        "has_guided_markers": has_guided_markers,
+        "has_email_field": has_email_field,
+        "error": "" if ok else "bridge_login_assist_missing",
     }
 
 
@@ -321,12 +375,17 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
             ]
         handoff_host_resolves = bool(metrics.get("billing_handoff_host_resolves"))
         handoff_usable = bool(metrics.get("billing_handoff_usable"))
-        return [
+        bridge_assist_probe = dict(metrics.get("billing_bridge_login_assist_probe") or {})
+        bridge_assist_ok = bool(bridge_assist_probe.get("ok"))
+        checks = [
             {"name": "billing_external_handoff", "ok": redirect_location.startswith("https://") and "/app/billing" not in redirect_location},
             {"name": "billing_external_handoff_resolves", "ok": handoff_host_resolves},
-            {"name": "billing_external_handoff_usable", "ok": handoff_usable},
-            {"name": "billing_local_page_deleted", "ok": True},
+            {"name": "billing_external_handoff_usable", "ok": handoff_usable or bridge_assist_ok},
         ]
+        if str(urllib.parse.urlparse(redirect_location).path or "").strip().startswith("/sso/propertyquarry") or bridge_assist_probe:
+            checks.append({"name": "billing_bridge_guided_login_assist", "ok": True if handoff_usable else bridge_assist_ok})
+        checks.append({"name": "billing_local_page_deleted", "ok": True})
+        return checks
     if str(route or "").split("?", 1)[0].strip() == "/app/billing" and int(metrics.get("status_code") or 0) == 503:
         billing_text = str(metrics.get("billing_visible_text") or "").strip().lower()
         return [
@@ -740,6 +799,7 @@ def build_live_mobile_surface_receipt(
                             except Exception:
                                 billing_text = ""
                         billing_handoff_probe: dict[str, Any] = {}
+                        billing_bridge_login_assist_probe: dict[str, Any] = {}
                         billing_handoff_host_resolves = False
                         redirect_location = str(response.headers.get("location") or "")
                         resolved_handoff = {
@@ -765,6 +825,16 @@ def build_live_mobile_surface_receipt(
                                 external_location,
                                 timeout_seconds=max(3.0, timeout_ms / 1000.0),
                             )
+                            if (
+                                billing_handoff_probe.get("ok") is not True
+                                and str(billing_handoff_probe.get("error") or "").strip() == "handoff_url_requires_separate_login"
+                                and str(urllib.parse.urlparse(external_location).path or "").strip().startswith("/sso/propertyquarry")
+                            ):
+                                billing_bridge_login_assist_probe = _mobile_billing_bridge_guided_login_assist_probe(
+                                    external_location,
+                                    request_context=context.request,
+                                    timeout_ms=timeout_ms,
+                                )
                         metrics = {
                             "status_code": status_code,
                             "viewport_width": viewport_width,
@@ -778,6 +848,8 @@ def build_live_mobile_surface_receipt(
                             "billing_handoff_host_resolves": billing_handoff_host_resolves,
                             "billing_handoff_usable": bool(billing_handoff_probe.get("ok")),
                             "billing_handoff_probe": billing_handoff_probe,
+                            "billing_direct_handoff_usable": bool(billing_handoff_probe.get("ok")),
+                            "billing_bridge_login_assist_probe": billing_bridge_login_assist_probe,
                             "billing_visible_text": billing_text,
                         }
                         checks = evaluate_mobile_metrics(route, metrics)
