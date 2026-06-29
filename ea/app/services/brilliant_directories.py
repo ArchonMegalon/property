@@ -1240,7 +1240,7 @@ def build_brilliant_directories_member_update_request(
         raise BrilliantDirectoriesApiError(400, "brilliant_directories_member_user_id_missing")
     return _build_brilliant_directories_member_private_api_request(
         config,
-        "POST",
+        "PUT",
         "user/update",
         payload={
             "user_id": normalized_user_id,

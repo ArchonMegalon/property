@@ -853,8 +853,18 @@ def _billing_handoff_ready(
     authenticated_external_handoff_usable = bool(authenticated_route_row) and (
         "billing_external_handoff_usable" in authenticated_passed_checks
     )
-    if "billing_bridge_guided_login_assist" in authenticated_passed_checks:
-        return False
+    member_token_ready = (
+        isinstance(member_token_handoff, dict)
+        and member_token_handoff.get("ready") is True
+        and bool(handoff.get("configured"))
+        and bool(handoff.get("host_resolves"))
+        and str(handoff.get("url") or "").strip().startswith("https://")
+        and str(billing_receipt.get("status") or "").strip() != "blocked"
+        and (authenticated_external_handoff_usable or not authenticated_route_row)
+        and not (isinstance(pricing_probe, dict) and pricing_probe.get("placeholder") is True)
+    )
+    if member_token_ready:
+        return True
     bridge_session_ready = (
         isinstance(bridge, dict)
         and bridge.get("ready") is True
@@ -864,18 +874,9 @@ def _billing_handoff_ready(
     authenticated_bridge_launch = bool(authenticated_route_row) and "billing_bridge_launch" in authenticated_passed_checks
     if bridge_session_ready and (authenticated_bridge_launch or authenticated_external_handoff_usable):
         return True
-    return (
-        isinstance(member_token_handoff, dict)
-        and member_token_handoff.get("ready") is True
-        and isinstance(bridge, dict)
-        and bridge.get("ready") is True
-        and bool(handoff.get("configured"))
-        and bool(handoff.get("host_resolves"))
-        and str(handoff.get("url") or "").strip().startswith("https://")
-        and str(billing_receipt.get("status") or "").strip() != "blocked"
-        and authenticated_external_handoff_usable
-        and not (isinstance(pricing_probe, dict) and pricing_probe.get("placeholder") is True)
-    )
+    if "billing_bridge_guided_login_assist" in authenticated_passed_checks:
+        return False
+    return False
 
 
 def _operator_drop_readme_status(

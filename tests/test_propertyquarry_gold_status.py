@@ -448,6 +448,35 @@ def _billing_bridge_payload() -> dict[str, object]:
     return payload
 
 
+def _billing_member_token_payload() -> dict[str, object]:
+    payload = _billing_bridge_payload()
+    payload["billing_sso_bridge"].update(
+        {
+            "ready": False,
+            "exchange_usable": False,
+            "exchange_probe": {
+                "checked": True,
+                "usable": False,
+                "status_code": 200,
+                "final_host": "billing.propertyquarry.com",
+                "final_path": "/login",
+                "redirected_to_login": True,
+                "error": "billing_sso_bridge_exchange_requires_login",
+            },
+            "error": "billing_sso_bridge_exchange_requires_login",
+        }
+    )
+    payload["member_login_token_handoff"] = {
+        "enabled": True,
+        "configured": True,
+        "ready": True,
+        "host": "billing.propertyquarry.com",
+        "error": "",
+        "next_action": "",
+    }
+    return payload
+
+
 def _tour_provider_ownership_payload() -> dict[str, object]:
     return {
         "status": "pass",
@@ -1598,6 +1627,56 @@ def test_gold_status_accepts_signed_billing_bridge_when_vendor_account_lane_need
 
     assert receipt["status"] == "pass"
     assert receipt["billing_handoff"]["ready"] is True
+    assert not any(row["area"] == "billing_handoff" for row in receipt["blockers"])
+
+
+def test_gold_status_accepts_member_token_handoff_when_sso_bridge_still_needs_login(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    authenticated_payload = _authenticated_smoke_payload(
+        billing_external=True,
+        billing_fail_closed=False,
+        billing_bridge_launch=True,
+    )
+    billing_row = next(row for row in authenticated_payload["checks"] if row["path"] == "/app/billing")
+    billing_row["checks"].append({"name": "billing_bridge_guided_login_assist", "ok": True})
+    authenticated_smoke = _write_json(tmp_path / "authenticated-smoke.json", authenticated_payload)
+    live_mobile = _write_json(tmp_path / "live-mobile.json", _live_mobile_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    billing = _write_json(tmp_path / "billing.json", _billing_member_token_payload())
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        authenticated_smoke_receipt_path=authenticated_smoke,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        billing_receipt_path=billing,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["billing_handoff"]["ready"] is True
+    assert receipt["billing_handoff"]["member_login_token"]["ready"] is True
     assert not any(row["area"] == "billing_handoff" for row in receipt["blockers"])
 
 

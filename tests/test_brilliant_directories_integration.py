@@ -1154,6 +1154,7 @@ def test_brilliant_directories_member_login_token_handoff_updates_existing_membe
     assert "property%5B%5D=email" in lookup_request.full_url
     assert "property_value%5B%5D=tibor%40example.com" in lookup_request.full_url
     assert update_request.full_url == "https://directory.propertyquarry.com/api/v2/user/update"
+    assert update_request.method == "PUT"
     update_body = (update_request.data or b"").decode("utf-8")
     assert "user_id=42" in update_body
     assert "token=" in update_body
