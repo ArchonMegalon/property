@@ -887,7 +887,7 @@ def test_property_billing_route_never_uses_hosted_href_without_usable_open_href(
     assert "https://billing.propertyquarry.com/account" not in response.text
 
 
-def test_property_billing_route_fails_closed_when_only_sso_bridge_is_available_but_direct_handoff_requires_second_login(
+def test_property_billing_route_uses_sso_bridge_when_direct_handoff_requires_second_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_env(monkeypatch)
@@ -922,10 +922,8 @@ def test_property_billing_route_fails_closed_when_only_sso_bridge_is_available_b
 
     response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    _assert_billing_fail_closed(
-        response,
-        marker="This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now.",
-    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/api/property/billing/bridge-launch"
 
 
 def test_property_billing_route_uses_member_token_handoff_when_direct_handoff_requires_second_login(
@@ -966,7 +964,7 @@ def test_property_billing_route_uses_member_token_handoff_when_direct_handoff_re
     assert response.headers["location"] == "/app/api/property/billing/bridge-launch"
 
 
-def test_property_billing_bridge_launch_falls_back_when_only_advisory_bridge_is_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_property_billing_bridge_launch_redirects_when_sso_bridge_is_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED", "1")
@@ -994,10 +992,15 @@ def test_property_billing_bridge_launch_falls_back_when_only_advisory_bridge_is_
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/app/account?billing=1#delivery"
+    parsed = urllib.parse.urlparse(response.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    assert parsed.netloc == "billing.propertyquarry.com"
+    assert parsed.path == "/sso/propertyquarry"
+    assert query.get("source") == ["propertyquarry"]
+    assert query.get("pq_bridge")
 
 
-def test_property_billing_bridge_launch_falls_back_when_only_bridge_ready_still_requires_separate_login(
+def test_property_billing_bridge_launch_uses_sso_bridge_when_direct_handoff_requires_separate_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_env(monkeypatch)
@@ -1040,7 +1043,12 @@ def test_property_billing_bridge_launch_falls_back_when_only_bridge_ready_still_
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/app/account?billing=1#delivery"
+    parsed = urllib.parse.urlparse(response.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    assert parsed.netloc == "billing.propertyquarry.com"
+    assert parsed.path == "/sso/propertyquarry"
+    assert query.get("source") == ["propertyquarry"]
+    assert query.get("pq_bridge")
 
 
 def test_property_billing_bridge_launch_redirects_with_member_login_token_handoff(

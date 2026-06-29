@@ -274,6 +274,15 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
                 "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
                 "member_token_status": "ready",
             }
+        if bridge_ready:
+            return {
+                "available": True,
+                "status": "bridge_ready",
+                "open_href": bridge_href,
+                "bridge_href": bridge_href,
+                "bridge_status": "ready",
+                "member_token_status": str(member_token_receipt.get("error") or "").strip(),
+            }
         return {
             "available": False,
             "status": "disabled",
@@ -342,10 +351,10 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
                     }
                 elif bridge_ready:
                     first_blocked_state = {
-                        "available": False,
-                        "status": "login_required",
+                        "available": True,
+                        "status": "bridge_ready",
                         "hosted_href": hosted_url,
-                        "open_href": "",
+                        "open_href": bridge_href,
                         "bridge_href": bridge_href,
                         "bridge_status": "ready",
                         "member_token_status": str(member_token_receipt.get("error") or "").strip(),
@@ -401,7 +410,7 @@ def _property_billing_usable_open_href(handoff: dict[str, object] | None) -> str
     if not bool(state.get("available")):
         return ""
     status = str(state.get("status") or "").strip().lower()
-    if status not in {"ready", "member_token_ready"}:
+    if status not in {"ready", "member_token_ready", "bridge_ready"}:
         return ""
     return str(state.get("open_href") or "").strip()
 
@@ -412,6 +421,11 @@ def _property_pricing_billing_link_copy(handoff: dict[str, object] | None = None
         return (
             "Continue billing sign-in",
             "Use the same email in the billing lane.",
+        )
+    if status == "bridge_ready":
+        return (
+            "Open billing account",
+            "Continue through the PropertyQuarry billing bridge.",
         )
     if status in {"login_required", "unresolved", "verifying", "disabled"}:
         return (
