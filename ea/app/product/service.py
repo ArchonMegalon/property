@@ -1267,6 +1267,18 @@ _PROPERTY_SEARCH_REVALIDATION_NEUTRAL_KEYS = {
     "preference_person_id",
 }
 
+_PROPERTY_SEARCH_AREA_KEYS = {
+    "adjacent_area_radius_m",
+    "adjacent_area_radius_unit",
+    "adjacent_area_radius_value",
+    "custom_location_query",
+    "full_region_scope",
+    "location_query",
+    "selected_districts",
+    "selected_location_values",
+    "selected_locations",
+}
+
 
 def _property_search_budget_limit(preferences: dict[str, object] | None) -> float | None:
     payload = dict(preferences or {})
@@ -1358,6 +1370,149 @@ def _property_search_budget_block_is_reopenable(candidate: dict[str, object]) ->
     return any(any(token in reason for token in budget_tokens) for reason in normalized_reasons)
 
 
+def _property_search_area_hint_keys(preferences: dict[str, object] | None) -> set[str]:
+    keys: set[str] = set()
+    for hint in _property_search_location_hints(preferences):
+        text = str(hint or "").strip().casefold()
+        if not text:
+            continue
+        text = re.sub(r"\bwien\b", "vienna", text)
+        for code in re.findall(r"\b\d{4,5}\b", text):
+            keys.add(f"postal:{code}")
+        normalized = re.sub(r"[^a-z0-9äöüß]+", "", text)
+        if normalized:
+            keys.add(f"text:{normalized}")
+    return keys
+
+
+def _property_search_area_change_is_expansion(
+    *,
+    run_preferences: dict[str, object] | None,
+    current_preferences: dict[str, object] | None,
+    changed_keys: list[str],
+) -> bool:
+    if (
+        not changed_keys
+        or not any(key in _PROPERTY_SEARCH_AREA_KEYS for key in changed_keys)
+        or any(
+            key not in _PROPERTY_SEARCH_AREA_KEYS
+            and key not in _PROPERTY_SEARCH_REVALIDATION_NEUTRAL_KEYS
+            for key in changed_keys
+        )
+    ):
+        return False
+
+    run_hints = _property_search_location_hints(run_preferences)
+    current_hints = _property_search_location_hints(current_preferences)
+    run_keys = _property_search_area_hint_keys(run_preferences)
+    current_keys = _property_search_area_hint_keys(current_preferences)
+    run_radius_m = _property_search_effective_adjacent_area_radius_m(
+        preferences=run_preferences,
+        location_hints=run_hints,
+    )
+    current_radius_m = _property_search_effective_adjacent_area_radius_m(
+        preferences=current_preferences,
+        location_hints=current_hints,
+    )
+    run_full_region = _property_truthy_flag(dict(run_preferences or {}).get("full_region_scope"))
+    current_full_region = _property_truthy_flag(dict(current_preferences or {}).get("full_region_scope"))
+
+    if run_keys and current_keys and run_keys.issubset(current_keys):
+        return current_keys != run_keys or current_radius_m > run_radius_m
+    if run_keys and current_full_region and not run_full_region and current_hints:
+        return True
+    return bool(run_keys and current_keys and current_radius_m > run_radius_m and run_keys == current_keys)
+
+
+def _property_search_candidate_has_concrete_location(candidate: dict[str, object]) -> bool:
+    facts = _property_candidate_display_facts(candidate)
+    title = str(candidate.get("title") or candidate.get("listing_title") or "").strip()
+    summary = str(candidate.get("summary") or candidate.get("fit_summary") or "").strip()
+    if _property_listing_observed_postal_codes(title=title, summary=summary, property_facts=facts):
+        return True
+    if _property_candidate_point(facts) is not None:
+        return True
+    broad_location_values = {
+        "austria",
+        "at",
+        "osterreich",
+        "österreich",
+        "vienna",
+        "wien",
+        "costa rica",
+        "costarica",
+        "germany",
+        "deutschland",
+    }
+    for key in ("district", "postal_name", "location", "address", "street_address", "exact_address", "city"):
+        value = str(facts.get(key) or "").strip()
+        if not value or _property_location_value_is_source_scope_placeholder(value, facts):
+            continue
+        normalized = re.sub(r"[^a-z0-9äöüß]+", " ", value.casefold()).strip()
+        compact = normalized.replace(" ", "")
+        if normalized in broad_location_values or compact in broad_location_values:
+            continue
+        if re.search(r"\b\d{4,5}\b", value):
+            return True
+        if key in {"address", "street_address", "exact_address"} and len(normalized) >= 6:
+            return True
+        if key in {"district", "postal_name", "location", "city"} and len(normalized) >= 3:
+            return True
+    return False
+
+
+def _property_search_area_block_is_reopenable(candidate: dict[str, object]) -> bool:
+    reason_values = [
+        candidate.get("hard_filter_reason"),
+        candidate.get("filter_reason"),
+        candidate.get("blocked_reason"),
+        candidate.get("suppression_reason"),
+    ]
+    facts = _property_candidate_display_facts(candidate)
+    for key in ("hard_filter_reason", "filter_reason", "blocked_reason", "suppression_reason"):
+        reason_values.append(facts.get(key))
+    normalized_reasons = [
+        str(value or "").strip().lower()
+        for value in reason_values
+        if str(value or "").strip()
+    ]
+    if not normalized_reasons:
+        return False
+    area_tokens = {
+        "area",
+        "district",
+        "location",
+        "outside_selected_area",
+        "postal",
+        "region",
+        "scope",
+    }
+    other_hard_tokens = {
+        "afford",
+        "availability",
+        "budget",
+        "cost",
+        "floorplan",
+        "generic",
+        "listing_mode",
+        "overview",
+        "price",
+        "property_type",
+        "rent",
+        "transaction",
+        "type",
+    }
+    area_reason_seen = False
+    for reason in normalized_reasons:
+        has_area_token = any(token in reason for token in area_tokens)
+        has_other_hard_token = any(token in reason for token in other_hard_tokens)
+        if has_other_hard_token and not has_area_token:
+            return False
+        if has_area_token:
+            area_reason_seen = True
+    return area_reason_seen
+
+
 def _property_search_snapshot_candidate_rows(snapshot: dict[str, object]) -> list[dict[str, object]]:
     summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
     rows: list[dict[str, object]] = []
@@ -1413,6 +1568,165 @@ def _property_search_candidate_identity(candidate: dict[str, object]) -> str:
         )
         if part
     )
+
+
+def _property_search_revalidate_area_expansion_snapshot(
+    snapshot: dict[str, object],
+    *,
+    current_preferences: dict[str, object] | None,
+) -> dict[str, object]:
+    if not isinstance(snapshot, dict) or not snapshot:
+        return snapshot
+    run_preferences = _property_search_run_preferences_payload(snapshot)
+    if not run_preferences:
+        return snapshot
+    changed_keys = _property_search_brief_changed_keys(
+        run_preferences=run_preferences,
+        current_preferences=current_preferences,
+    )
+    if not _property_search_area_change_is_expansion(
+        run_preferences=run_preferences,
+        current_preferences=current_preferences,
+        changed_keys=changed_keys,
+    ):
+        return snapshot
+
+    run_hints = _property_search_location_hints(run_preferences)
+    current_hints = _property_search_location_hints(current_preferences)
+    if not current_hints:
+        return snapshot
+    candidate_rows = _property_search_snapshot_candidate_rows(snapshot)
+    if not candidate_rows:
+        return snapshot
+
+    current_source_spec = {
+        "country_code": dict(current_preferences or {}).get("country_code"),
+        "region_code": dict(current_preferences or {}).get("region_code"),
+    }
+    run_source_spec = {
+        "country_code": dict(run_preferences or {}).get("country_code"),
+        "region_code": dict(run_preferences or {}).get("region_code"),
+    }
+    reopened_rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for raw_candidate in candidate_rows:
+        candidate = dict(raw_candidate)
+        facts = _property_candidate_display_facts(candidate)
+        if not _property_search_area_block_is_reopenable(candidate):
+            continue
+        if not _property_search_candidate_has_concrete_location(candidate):
+            continue
+        property_url = str(
+            candidate.get("property_url")
+            or candidate.get("listing_url")
+            or candidate.get("review_url")
+            or ""
+        ).strip()
+        title = str(candidate.get("title") or candidate.get("listing_title") or "").strip()
+        summary_text = str(candidate.get("summary") or candidate.get("fit_summary") or "").strip()
+        if _property_candidate_matches_search_area(
+            location_hints=run_hints,
+            request_preferences=run_preferences,
+            source_spec=run_source_spec,
+            property_url=property_url,
+            title=title,
+            summary=summary_text,
+            property_facts=facts,
+        ):
+            continue
+        if not _property_candidate_matches_search_area(
+            location_hints=current_hints,
+            request_preferences=current_preferences,
+            source_spec=current_source_spec,
+            property_url=property_url,
+            title=title,
+            summary=summary_text,
+            property_facts=facts,
+        ):
+            continue
+        identity = _property_search_candidate_identity(candidate)
+        if identity and identity in seen:
+            continue
+        if identity:
+            seen.add(identity)
+        cleaned = dict(candidate)
+        for key in (
+            "status",
+            "review_status",
+            "candidate_status",
+            "filter_status",
+            "hard_filter_reason",
+            "filter_reason",
+            "blocked_reason",
+            "suppression_reason",
+            "filtered_out",
+            "hard_filtered",
+        ):
+            cleaned.pop(key, None)
+        cleaned["area_revalidated"] = True
+        cleaned["revalidated_from_old_brief"] = True
+        cleaned["area_revalidated_current_hints"] = list(current_hints)
+        cleaned.setdefault(
+            "fit_score",
+            cleaned.get("ranking_score") or cleaned.get("assessment_fit_score") or 1.0,
+        )
+        reopened_rows.append(cleaned)
+    if not reopened_rows:
+        return snapshot
+
+    ranked_candidates = _property_search_ranked_candidates_from_sources(
+        [{"source_label": "Saved candidates", "top_candidates": reopened_rows}],
+        limit=None,
+    )
+    if not ranked_candidates:
+        return snapshot
+
+    summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+
+    def _safe_int(*values: object) -> int:
+        for value in values:
+            try:
+                return max(0, int(float(str(value or "").strip())))
+            except Exception:
+                continue
+        return 0
+
+    previous_ranked_total = _safe_int(summary.get("ranked_total"), summary.get("ranked_candidate_total"))
+    previous_filtered_total = _safe_int(summary.get("filtered_total"), summary.get("held_back_total"))
+    message = (
+        "Saved candidates were rechecked with the current area. "
+        "Start a fresh search when you want new provider coverage too."
+    )
+    summary.update(
+        {
+            "ranked_candidates": ranked_candidates,
+            "ranked_total": len(ranked_candidates),
+            "ranked_candidate_total": len(ranked_candidates),
+            "listing_total": max(_safe_int(summary.get("listing_total")), len(ranked_candidates)),
+            "filtered_total": 0,
+            "held_back_total": 0,
+            "score_demoted_total": 0,
+            "filtered_low_fit_total": 0,
+            "brief_preferences_revalidated": True,
+            "brief_snapshot_status": "revalidated_saved_candidates",
+            "brief_revalidated_reason": "area_expanded",
+            "brief_revalidated_message": message,
+            "brief_revalidated_changed_keys": changed_keys[:20],
+            "previous_ranked_total": previous_ranked_total,
+            "previous_filtered_total": previous_filtered_total,
+            "revalidated_ranked_total": len(ranked_candidates),
+            "can_refresh_with_current_brief": True,
+        }
+    )
+    return {
+        **dict(snapshot),
+        "summary": summary,
+        "property_search_preferences": dict(current_preferences or {}),
+        "message": message,
+        "brief_preferences_stale": False,
+        "stale_run_snapshot": False,
+        "brief_preferences_revalidated": True,
+    }
 
 
 def _property_search_revalidate_budget_expansion_snapshot(
@@ -7159,7 +7473,15 @@ def _property_austria_preference_score_adjustment(
 
 def _property_search_location_hints(preferences: dict[str, object] | None) -> tuple[str, ...]:
     preference_payload = dict(preferences or {})
-    selected_location_values = preference_payload.get("selected_location_values")
+    selected_location_values = next(
+        (
+            preference_payload.get(key)
+            for key in ("selected_location_values", "selected_locations")
+            if isinstance(preference_payload.get(key), (list, tuple, set))
+            and any(str(item or "").strip() for item in list(preference_payload.get(key) or []))
+        ),
+        None,
+    )
     if isinstance(selected_location_values, (list, tuple, set)):
         explicit_values = tuple(
             str(item or "").strip()
@@ -7179,7 +7501,15 @@ def _property_search_location_hints(preferences: dict[str, object] | None) -> tu
             return explicit_values
     if isinstance(preference_payload.get("raw_preferences"), dict):
         raw_preferences = dict(preference_payload.get("raw_preferences") or {})
-        raw_selected_district_values = raw_preferences.get("selected_districts")
+        raw_selected_district_values = next(
+            (
+                raw_preferences.get(key)
+                for key in ("selected_location_values", "selected_locations", "selected_districts")
+                if isinstance(raw_preferences.get(key), (list, tuple, set))
+                and any(str(item or "").strip() for item in list(raw_preferences.get(key) or []))
+            ),
+            None,
+        )
         if isinstance(raw_selected_district_values, (list, tuple, set)):
             explicit_values = tuple(
                 str(item or "").strip()
@@ -8130,13 +8460,13 @@ _PROPERTY_SEARCH_FUZZY_DISTRICT_ADJACENT_RADIUS_M = 4000
 
 def _property_search_has_explicit_selected_area(preferences: dict[str, object] | None) -> bool:
     payload = dict(preferences or {})
-    for key in ("selected_location_values", "selected_districts"):
+    for key in ("selected_location_values", "selected_locations", "selected_districts"):
         values = payload.get(key)
         if isinstance(values, (list, tuple, set)) and any(str(value or "").strip() for value in values):
             return True
     raw_preferences = payload.get("raw_preferences")
     if isinstance(raw_preferences, dict):
-        for key in ("selected_location_values", "selected_districts"):
+        for key in ("selected_location_values", "selected_locations", "selected_districts"):
             values = raw_preferences.get(key)
             if isinstance(values, (list, tuple, set)) and any(str(value or "").strip() for value in values):
                 return True
@@ -36562,6 +36892,11 @@ class ProductService:
             snapshot,
             current_preferences=current_brief_preferences,
         )
+        if not bool(snapshot.get("brief_preferences_revalidated")):
+            snapshot = _property_search_revalidate_area_expansion_snapshot(
+                snapshot,
+                current_preferences=current_brief_preferences,
+            )
         if not bool(snapshot.get("brief_preferences_revalidated")):
             snapshot = _property_search_mark_stale_brief_snapshot(
                 snapshot,

@@ -13333,6 +13333,317 @@ def test_property_search_run_status_reopens_budget_filtered_saved_candidate_afte
     assert "current budget" in snapshot["message"]
 
 
+def test_property_search_run_status_reopens_area_filtered_saved_candidate_after_district_expansion(monkeypatch) -> None:
+    principal_id = "exec-property-area-revalidated-run"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Area Revalidation Office")
+    service = ProductService(client.app.state.container)
+    client.app.state.container.onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna, 1020 Vienna",
+            "selected_locations": ["1010 Vienna", "1020 Vienna"],
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+
+    run_id = "run-area-revalidated-regression"
+    now = datetime.now(timezone.utc).isoformat()
+    area_filtered_candidate = {
+        "title": "Helle Wohnung nahe Prater",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/area-reopen/",
+        "fit_score": 64,
+        "status": "filtered",
+        "filter_status": "hard_filtered",
+        "hard_filter_reason": "outside_selected_area",
+        "property_facts": {
+            "postal_name": "1020 Wien",
+            "area_sqm": 72,
+            "rooms": 2,
+            "total_rent_eur": 1500,
+        },
+    }
+    run_record = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "created_at": now,
+        "updated_at": now,
+        "status": "processed",
+        "status_url": f"/app/api/signals/property/search/run/{run_id}",
+        "selected_platforms": ["willhaben"],
+        "progress": 100,
+        "current_step": "completed",
+        "message": "Property scouting run completed.",
+        "summary": {
+            "status": "processed",
+            "sources_total": 1,
+            "provider_total": 1,
+            "listing_total": 1,
+            "ranked_total": 0,
+            "filtered_total": 1,
+            "held_back_total": 1,
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "status": "completed",
+                    "listing_total": 1,
+                    "research_candidates": [dict(area_filtered_candidate)],
+                }
+            ],
+        },
+        "events": [],
+        "property_search_preferences": {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_locations": ["1010 Vienna"],
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+        },
+        "generated_at": now,
+    }
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", lambda **kwargs: None)
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", lambda **kwargs: None)
+    previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
+    try:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(run_record)
+
+        snapshot = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    ranked = [dict(row) for row in list(summary.get("ranked_candidates") or [])]
+
+    assert snapshot["brief_preferences_revalidated"] is True
+    assert not snapshot["brief_preferences_stale"]
+    assert summary["brief_snapshot_status"] == "revalidated_saved_candidates"
+    assert summary["brief_revalidated_reason"] == "area_expanded"
+    assert summary["previous_filtered_total"] == 1
+    assert summary["filtered_total"] == 0
+    assert summary["held_back_total"] == 0
+    assert summary["ranked_total"] == 1
+    assert ranked[0]["property_url"] == area_filtered_candidate["property_url"]
+    assert ranked[0]["area_revalidated"] is True
+    assert ranked[0]["revalidated_from_old_brief"] is True
+    assert ranked[0].get("hard_filter_reason") in (None, "")
+    assert "current area" in snapshot["message"]
+
+
+def test_property_search_run_status_keeps_source_scope_only_area_candidate_as_old_snapshot(monkeypatch) -> None:
+    principal_id = "exec-property-area-source-scope-stays-old"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Area Source Scope Office")
+    service = ProductService(client.app.state.container)
+    client.app.state.container.onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna, 1020 Vienna",
+            "selected_locations": ["1010 Vienna", "1020 Vienna"],
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+
+    run_id = "run-area-source-scope-old-regression"
+    now = datetime.now(timezone.utc).isoformat()
+    source_scope_candidate = {
+        "title": "Provider result page",
+        "property_url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/mietwohnung-angebote?areaId=1020",
+        "fit_score": 64,
+        "status": "filtered",
+        "filter_status": "hard_filtered",
+        "hard_filter_reason": "outside_selected_area",
+        "property_facts": {
+            "source_scope_location": "1020 Vienna",
+            "source_postal_code": "1020",
+            "source_city": "Vienna",
+        },
+    }
+    run_record = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "created_at": now,
+        "updated_at": now,
+        "status": "processed",
+        "status_url": f"/app/api/signals/property/search/run/{run_id}",
+        "selected_platforms": ["willhaben"],
+        "progress": 100,
+        "current_step": "completed",
+        "message": "Property scouting run completed.",
+        "summary": {
+            "status": "processed",
+            "sources_total": 1,
+            "provider_total": 1,
+            "listing_total": 1,
+            "ranked_total": 0,
+            "filtered_total": 1,
+            "held_back_total": 1,
+            "sources": [
+                {
+                    "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                    "status": "completed",
+                    "listing_total": 1,
+                    "research_candidates": [dict(source_scope_candidate)],
+                }
+            ],
+        },
+        "events": [],
+        "property_search_preferences": {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_locations": ["1010 Vienna"],
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+        },
+        "generated_at": now,
+    }
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", lambda **kwargs: None)
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", lambda **kwargs: None)
+    previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
+    try:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(run_record)
+
+        snapshot = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    assert snapshot["brief_preferences_stale"] is True
+    assert snapshot["stale_run_snapshot"] is True
+    assert summary["brief_snapshot_status"] == "old_run"
+    assert summary["previous_filtered_total"] == 1
+    assert summary["filtered_total"] == 0
+    assert summary["ranked_total"] == 0
+    assert "selected_locations" in summary["brief_stale_changed_keys"]
+
+
+def test_property_search_run_status_reopens_area_filtered_candidate_after_radius_expansion(monkeypatch) -> None:
+    principal_id = "exec-property-radius-revalidated-run"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Radius Revalidation Office")
+    service = ProductService(client.app.state.container)
+    client.app.state.container.onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_locations": ["1010 Vienna"],
+            "adjacent_area_radius_m": 900,
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    monkeypatch.setattr(product_service, "_property_search_area_boundary_geojsons", lambda **kwargs: ())
+    monkeypatch.setattr(product_service, "_property_search_area_reference_points", lambda **kwargs: ((48.2082, 16.3738),))
+    monkeypatch.setattr(product_service, "_property_research_distance_m", lambda *args, **kwargs: 700.0)
+
+    run_id = "run-radius-revalidated-regression"
+    now = datetime.now(timezone.utc).isoformat()
+    radius_filtered_candidate = {
+        "title": "Wohnung knapp außerhalb vom ersten Bezirk",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/radius-reopen/",
+        "fit_score": 61,
+        "status": "filtered",
+        "filter_status": "hard_filtered",
+        "hard_filter_reason": "outside_selected_area",
+        "property_facts": {
+            "postal_name": "1020 Wien",
+            "map_lat": 48.2144,
+            "map_lng": 16.3740,
+            "area_sqm": 65,
+            "total_rent_eur": 1400,
+        },
+    }
+    run_record = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "created_at": now,
+        "updated_at": now,
+        "status": "processed",
+        "status_url": f"/app/api/signals/property/search/run/{run_id}",
+        "selected_platforms": ["willhaben"],
+        "progress": 100,
+        "current_step": "completed",
+        "message": "Property scouting run completed.",
+        "summary": {
+            "status": "processed",
+            "sources_total": 1,
+            "provider_total": 1,
+            "listing_total": 1,
+            "ranked_total": 0,
+            "filtered_total": 1,
+            "held_back_total": 1,
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "status": "completed",
+                    "listing_total": 1,
+                    "research_candidates": [dict(radius_filtered_candidate)],
+                }
+            ],
+        },
+        "events": [],
+        "property_search_preferences": {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_locations": ["1010 Vienna"],
+            "adjacent_area_radius_m": 500,
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+        },
+        "generated_at": now,
+    }
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", lambda **kwargs: None)
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", lambda **kwargs: None)
+    previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
+    try:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(run_record)
+
+        snapshot = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    ranked = [dict(row) for row in list(summary.get("ranked_candidates") or [])]
+
+    assert snapshot["brief_preferences_revalidated"] is True
+    assert summary["brief_revalidated_reason"] == "area_expanded"
+    assert summary["ranked_total"] == 1
+    assert summary["filtered_total"] == 0
+    assert ranked[0]["property_url"] == radius_filtered_candidate["property_url"]
+    assert ranked[0]["area_revalidated"] is True
+
+
 def test_property_search_run_rejects_saved_out_of_scope_country_preferences(monkeypatch) -> None:
     principal_id = "exec-property-search-country-defaults"
     client = build_property_client(principal_id=principal_id)
