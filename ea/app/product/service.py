@@ -38798,7 +38798,6 @@ class ProductService:
                 status="in_progress",
                 steps_delta=1,
             )
-            listing_total += len(ranked_rows)
             candidate_properties = tuple(
                 {
                     "property_url": str(row.get("property_url") or "").strip(),
@@ -39068,6 +39067,19 @@ class ProductService:
                 key=lambda item: float(item.get("ranking_score") or item.get("fit_score") or 0.0),
                 reverse=True,
             )
+            visible_listing_total_for_source = len(sorted_top_candidates_for_source)
+            listing_total += visible_listing_total_for_source
+            visible_top_fit_score_for_source = max(
+                (
+                    _property_alert_fit_score(
+                        dict(item.get("assessment") or {})
+                        if isinstance(item.get("assessment"), dict)
+                        else {}
+                    )
+                    for item in sorted_top_candidates_for_source
+                ),
+                default=0.0,
+            )
             for index, candidate in enumerate(sorted_top_candidates_for_source):
                 candidate["compare_reason"] = _property_candidate_choice_reason(
                     candidate,
@@ -39241,7 +39253,7 @@ class ProductService:
                     "preference_person_id": source_preference_person_id,
                     "provider_filter_pushdown": provider_filter_pushdown,
                     "provider_cache": provider_cache_state,
-                    "listing_total": len(ranked_rows),
+                    "listing_total": visible_listing_total_for_source,
                     "reviewed_listing_total": len(listing_urls),
                     "duplicate_listing_total": duplicate_for_source,
                     "filtered_property_type_total": filtered_property_type_for_source,
@@ -39310,7 +39322,7 @@ class ProductService:
                     "filter_near_miss_total": len(filter_near_misses_for_source),
                     "filter_near_miss_notified_total": filter_near_miss_notified_for_source,
                     "filter_near_misses": filter_near_misses_for_source[:5],
-                    "top_fit_score": max((_property_alert_fit_score(dict(item.get("assessment") or {})) for item in ranked_rows), default=0.0),
+                    "top_fit_score": visible_top_fit_score_for_source,
                     "top_candidates": sorted_top_candidates_for_source if unlimited_provider_results else sorted_top_candidates_for_source[:5],
                     "research_candidates": sorted_top_candidates_for_source,
                     "status": "completed",

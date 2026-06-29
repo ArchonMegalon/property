@@ -349,6 +349,76 @@ def test_property_search_compact_run_synthesizes_ranked_candidates_from_source_r
     assert summary["sources"][0]["reviewed_listing_total"] == 2
 
 
+def test_property_search_compact_run_zeroes_stale_visible_counts_when_review_gate_kept_no_candidates() -> None:
+    compact = property_search_storage._compact_property_search_run_record(  # type: ignore[attr-defined]
+        {
+            "run_id": "suppressed-run",
+            "principal_id": "suppressed-principal",
+            "status": "processed",
+            "summary": {
+                "status": "processed",
+                "listing_total": 1,
+                "ranked_total": 1,
+                "reviewed_listing_total": 30,
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "listing_total": 1,
+                        "reviewed_listing_total": 30,
+                        "review_created_total": 0,
+                        "review_existing_total": 0,
+                        "top_fit_score": 54.0,
+                        "top_candidates": [],
+                        "research_candidates": [],
+                    }
+                ],
+            },
+        }
+    )
+
+    summary = dict(compact["summary"])
+    source = dict(summary["sources"][0])
+    assert summary["listing_total"] == 0
+    assert summary["ranked_total"] == 0
+    assert summary["ranked_candidate_total"] == 0
+    assert source["listing_total"] == 0
+    assert source["top_fit_score"] == 0.0
+
+
+def test_property_search_compact_run_backfills_visible_counts_from_review_packets_when_candidate_rows_are_pruned() -> None:
+    compact = property_search_storage._compact_property_search_run_record(  # type: ignore[attr-defined]
+        {
+            "run_id": "review-only-run",
+            "principal_id": "review-only-principal",
+            "status": "processed",
+            "summary": {
+                "status": "processed",
+                "listing_total": 7,
+                "ranked_total": 7,
+                "reviewed_listing_total": 42,
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "listing_total": 7,
+                        "reviewed_listing_total": 42,
+                        "review_created_total": 1,
+                        "review_existing_total": 1,
+                        "top_candidates": [],
+                        "research_candidates": [],
+                    }
+                ],
+            },
+        }
+    )
+
+    summary = dict(compact["summary"])
+    source = dict(summary["sources"][0])
+    assert summary["listing_total"] == 2
+    assert summary["ranked_total"] == 2
+    assert summary["ranked_candidate_total"] == 2
+    assert source["listing_total"] == 2
+
+
 def test_property_search_compact_run_backfills_missing_row_timestamps() -> None:
     compact = property_search_storage._compact_property_search_run_record_with_row_timestamps(  # type: ignore[attr-defined]
         {

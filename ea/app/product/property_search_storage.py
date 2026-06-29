@@ -355,6 +355,26 @@ def _property_search_run_canonicalize_record(record: dict[str, object]) -> dict[
     if not ranked_candidates and source_ranked_candidates:
         ranked_candidates = [dict(row) for row in source_ranked_candidates]
         summary["ranked_candidates"] = ranked_candidates
+    elif not ranked_candidates and not source_ranked_candidates and sources:
+        visible_review_total = 0
+        for source in sources:
+            review_visible_total = (
+                _coerce_non_negative_int(source.get("review_created_total"))
+                + _coerce_non_negative_int(source.get("review_existing_total"))
+            )
+            visible_review_total += review_visible_total
+            source["listing_total"] = review_visible_total
+            source["ranked_total"] = review_visible_total
+            if review_visible_total <= 0 and "top_fit_score" in source:
+                source["top_fit_score"] = 0.0
+        for key in (
+            "listing_total",
+            "ranked_total",
+            "ranked_candidate_total",
+            "results_total",
+            "survivor_total",
+        ):
+            summary[key] = visible_review_total
 
     raw_listing_total = sum(_coerce_non_negative_int(source.get("raw_listing_total")) for source in sources)
     scanned_listing_total = sum(
