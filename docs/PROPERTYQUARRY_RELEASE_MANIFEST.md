@@ -30,18 +30,19 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `9fce853eae41c784e620fd9185da8360bd737879` |
+| Runtime commit SHA | `9c49c40e686cf709469f179a231b6203a119dbda` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current release candidate on 2026-06-29 after `9fce853e`, carrying the gold-gate audit pass, mobile/account notification polish, deploy-smoke `.env` identity resolution, Brilliant Directories chrome cleanup, scene-video provider account hardening, and search-radius map-preview correction |
+| Deployment ID | current release candidate on 2026-06-29 after `9c49c40e`, carrying the gold-gate audit pass, mobile/account notification polish, deploy-smoke `.env` identity resolution, Brilliant Directories chrome cleanup, scene-video provider account hardening, search-radius map-preview correction, and bounded `/app/properties` first paint |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
 The local audit pass on 2026-06-29 verified:
 
-- Commit `9fce853e` is the current runtime candidate for this repo audit.
+- Commit `9c49c40e` is the current runtime candidate for this repo audit.
 - Search-area map previews now render the selected district polygon plus the saved adjacent-area radius in the red coverage overlay, so thumbnails no longer understate briefs that allow matches outside district borders.
+- `/app/properties` now keeps the canonical run ranking uncapped while bounding first-paint result cards and stripping heavy candidate arrays from the properties-surface serialized run summary.
 - Focused radius regressions passed in `tests/test_propertyquarry_workspace_redesign.py`; broader scope-preview and saved-search-agent regressions passed locally.
 - Paintit.ai provider-account metadata is synced into the private PropertyQuarry Teable base with secret env-key references only; the raw password remains in the untracked local secret layer.
 - `python3 scripts/propertyquarry_authenticated_performance_smoke.py --write _completion/smoke/property-auth-performance-latest.json` returned `status=pass`, `failed_count=0`, and verified warmed `/app/search`, `/app/properties`, `/app/account`, `/app/billing`, and settings surfaces under the 1200 ms route budget.
