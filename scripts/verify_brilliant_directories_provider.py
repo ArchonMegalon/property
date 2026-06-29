@@ -141,7 +141,7 @@ def main() -> int:
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json"
-    payload = build_brilliant_directories_verification_receipt()
+    payload = build_brilliant_directories_verification_receipt(verify_bridge_exchange=True)
     payload["admin_login_probe"] = _admin_login_probe()
     out_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (out_dir / "BRILLIANT_DIRECTORIES_BILLING_DNS_HANDOFF.md").write_text(

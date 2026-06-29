@@ -364,6 +364,45 @@ def test_brilliant_directories_billing_sso_bridge_launch_url_derives_email_from_
     assert payload["access_email"] == "troger.vienna@gmail.com"
 
 
+def test_brilliant_directories_billing_sso_bridge_exchange_probe_rejects_login_fallthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL", "https://billing.propertyquarry.com/sso/propertyquarry")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET", "bridge-secret")
+
+    class _LoginFallthroughResponse:
+        status = 200
+        url = "https://billing.propertyquarry.com/login?login_direct_url=%2Faccount"
+
+        def read(self, size: int = -1) -> bytes:
+            return b"<html><title>Login</title><input name='email'><input name='password'></html>"
+
+    class _LoginFallthroughOpener:
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            parsed = urllib.parse.urlparse(request.full_url)
+            query = urllib.parse.parse_qs(parsed.query)
+            assert parsed.path == "/sso/propertyquarry"
+            assert "pq_bridge" in query
+            return _LoginFallthroughResponse()
+
+    receipt = build_brilliant_directories_billing_sso_bridge_receipt(
+        resolver=lambda _host, _port: [(object(),)],
+        verify_exchange=True,
+        exchange_opener=_LoginFallthroughOpener(),
+    )
+
+    assert receipt["config_ready"] is True
+    assert receipt["ready"] is False
+    assert receipt["exchange_checked"] is True
+    assert receipt["exchange_usable"] is False
+    assert receipt["exchange_probe"]["redirected_to_login"] is True
+    assert receipt["error"] == "billing_sso_bridge_exchange_requires_login"
+    assert "create a billing session" in receipt["next_action"]
+
+
 def test_brilliant_directories_verifier_blocks_unresolved_billing_handoff(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
@@ -1300,6 +1339,88 @@ def test_brilliant_directories_verification_receipt_keeps_recaptcha_action_even_
     assert receipt["billing_sso_bridge"]["ready"] is True
     assert receipt["billing_handoff"]["login_form_probe"]["recaptcha_required"] is True
     assert "signed PropertyQuarry billing bridge" in receipt["billing_handoff"]["next_action"]
+
+
+def test_brilliant_directories_verification_receipt_blocks_bridge_that_falls_through_to_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL", "https://billing.propertyquarry.com/sso/propertyquarry")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET", "bridge-secret")
+
+    monkeypatch.setattr(
+        brilliant_directories_service,
+        "_billing_handoff_account_probe",
+        lambda _url: {
+            "account_handoff_usable": False,
+            "account_handoff_status_code": 302,
+            "account_handoff_redirect_location": "https://billing.propertyquarry.com/login?login_direct_url=%2Faccount",
+            "account_handoff_error": "billing_handoff_requires_separate_login",
+            "account_handoff_warning": "",
+            "account_handoff_redirect_chain": [
+                "https://billing.propertyquarry.com/login?login_direct_url=%2Faccount",
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        brilliant_directories_service,
+        "_billing_handoff_login_form_probe",
+        lambda _url: {
+            "login_url": "https://billing.propertyquarry.com/login?login_direct_url=%2Faccount",
+            "login_form_url": "https://billing.propertyquarry.com/api/widget/json/get/Bootstrap%20Theme%20-%20Member%20Login%20Page",
+            "configured": True,
+            "recaptcha_required": True,
+            "error": "billing_handoff_login_recaptcha_required",
+            "message": "Invalid recaptcha response or setup.",
+        },
+    )
+
+    class _BridgeAndPricingResponse:
+        def __init__(self, *, url: str, body: bytes = b"<html><title>Pricing</title><body>PropertyQuarry Agent</body></html>") -> None:
+            self.status = 200
+            self.url = url
+            self._body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self, size: int = -1) -> bytes:
+            return self._body if size is None or size < 0 else self._body[:size]
+
+    class _BridgeAndPricingOpener:
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            parsed = urllib.parse.urlparse(request.full_url)
+            if parsed.path == "/sso/propertyquarry":
+                return _BridgeAndPricingResponse(
+                    url="https://billing.propertyquarry.com/login?login_direct_url=%2Faccount",
+                    body=b"<html><title>Login</title><input name='email'><input name='password'></html>",
+                )
+            if parsed.path == "/join":
+                return _BridgeAndPricingResponse(url="https://billing.propertyquarry.com/join")
+            raise AssertionError(request.full_url)
+
+    monkeypatch.setattr(
+        brilliant_directories_service.urllib.request,
+        "build_opener",
+        lambda *args, **kwargs: _BridgeAndPricingOpener(),
+    )
+
+    receipt = build_brilliant_directories_verification_receipt(
+        billing_handoff_resolver=lambda _host, _port: [(object(),)],
+        verify_bridge_exchange=True,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["error"] == "billing_handoff_requires_separate_login"
+    assert receipt["billing_sso_bridge"]["ready"] is False
+    assert receipt["billing_sso_bridge"]["exchange_usable"] is False
+    assert receipt["billing_sso_bridge"]["error"] == "billing_sso_bridge_exchange_requires_login"
 
 
 def test_brilliant_directories_pricing_surface_probe_detects_stock_placeholder_copy(

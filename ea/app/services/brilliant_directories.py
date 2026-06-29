@@ -683,6 +683,8 @@ def build_brilliant_directories_billing_sso_bridge_receipt(
     *,
     resolver: object | None = None,
     config: BrilliantDirectoriesConfig | None = None,
+    verify_exchange: bool = False,
+    exchange_opener: object | None = None,
 ) -> dict[str, object]:
     enabled = brilliant_directories_billing_sso_bridge_enabled()
     allowed_hosts = _billing_sso_bridge_allowed_hosts(config)
@@ -739,11 +741,21 @@ def build_brilliant_directories_billing_sso_bridge_receipt(
     error = str(resolution.get("error") or "").strip()
     if not secret_configured and not error:
         error = "billing_sso_bridge_secret_missing"
-    ready = bool(secret_configured and resolution.get("host_resolves") and not error)
+    config_ready = bool(secret_configured and resolution.get("host_resolves") and not error)
+    exchange_probe: dict[str, object] = {}
+    if config_ready and verify_exchange:
+        exchange_probe = _billing_sso_bridge_exchange_probe(
+            bridge_url,
+            opener=exchange_opener,
+        )
+        if exchange_probe.get("usable") is not True:
+            error = str(exchange_probe.get("error") or "billing_sso_bridge_exchange_unusable").strip()
+    ready = bool(config_ready and not error)
     return {
         "enabled": True,
         "configured": True,
         "ready": ready,
+        "config_ready": config_ready,
         "url": bridge_url,
         "host": str(resolution.get("host") or "").strip().lower(),
         "host_resolves": bool(resolution.get("host_resolves")),
@@ -755,11 +767,84 @@ def build_brilliant_directories_billing_sso_bridge_receipt(
         "next_action": (
             "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET before enabling the billing-session bridge"
             if error == "billing_sso_bridge_secret_missing"
-            else str(resolution.get("next_action") or "")
+            else (
+                "configure the Brilliant Directories SSO endpoint to accept the PropertyQuarry signed token and create a billing session; it currently falls through to the vendor login page"
+                if error == "billing_sso_bridge_exchange_requires_login"
+                else str(resolution.get("next_action") or "")
+            )
         ),
         "resolution_source": resolution.get("resolution_source"),
         "local_resolver_error": resolution.get("local_resolver_error"),
         "public_dns": resolution.get("public_dns"),
+        "exchange_checked": bool(verify_exchange),
+        "exchange_usable": exchange_probe.get("usable") if verify_exchange else None,
+        "exchange_probe": exchange_probe,
+    }
+
+
+def _billing_sso_bridge_exchange_probe(
+    bridge_url: str,
+    *,
+    opener: object | None = None,
+) -> dict[str, object]:
+    if not bridge_url:
+        return {
+            "checked": False,
+            "usable": False,
+            "error": "billing_sso_bridge_url_missing",
+        }
+    try:
+        launch_url = build_brilliant_directories_billing_sso_bridge_launch_url(
+            principal_id="billing-bridge-probe@propertyquarry.local",
+            access_email="billing-bridge-probe@propertyquarry.local",
+            return_to="/app/account",
+            bridge_url=bridge_url,
+        )
+    except RuntimeError as exc:
+        return {
+            "checked": False,
+            "usable": False,
+            "error": str(exc),
+        }
+    request = urllib.request.Request(
+        launch_url,
+        headers={
+            "Accept": "text/html,application/json,*/*",
+            "User-Agent": "PropertyQuarryBillingBridgeVerifier/1.0",
+        },
+    )
+    http_opener = opener or urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+    try:
+        response = http_opener.open(request, timeout=10.0)
+        status_code = int(getattr(response, "status", 0) or getattr(response, "code", 0) or 0)
+        final_url = str(getattr(response, "url", "") or launch_url)
+        body = response.read(16_384).decode("utf-8", errors="replace").lower()
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code or 0)
+        final_url = str(getattr(exc, "url", "") or launch_url)
+        body = exc.read(16_384).decode("utf-8", errors="replace").lower()
+    except Exception as exc:
+        return {
+            "checked": True,
+            "usable": False,
+            "status_code": 0,
+            "final_host": str(urllib.parse.urlparse(bridge_url).hostname or "").strip().lower(),
+            "final_path": "",
+            "redirected_to_login": False,
+            "error": f"billing_sso_bridge_exchange_probe_failed:{type(exc).__name__}",
+        }
+    parsed_final = urllib.parse.urlparse(final_url)
+    final_path = parsed_final.path or "/"
+    redirected_to_login = _is_login_probe(final_url, body)
+    usable = bool(status_code and 200 <= status_code < 400 and not redirected_to_login)
+    return {
+        "checked": True,
+        "usable": usable,
+        "status_code": status_code,
+        "final_host": str(parsed_final.hostname or "").strip().lower(),
+        "final_path": final_path,
+        "redirected_to_login": redirected_to_login,
+        "error": "" if usable else ("billing_sso_bridge_exchange_requires_login" if redirected_to_login else _billing_handoff_probe_error(status_code=status_code, requires_login=False)),
     }
 
 
@@ -2242,7 +2327,11 @@ def build_brilliant_directories_projection_packet_from_profile_response(
     return build_brilliant_directories_projection_packet((profile,), purpose=purpose, projection_mode="public_directory_profile_detail")
 
 
-def build_brilliant_directories_verification_receipt(*, billing_handoff_resolver: object | None = None) -> dict[str, object]:
+def build_brilliant_directories_verification_receipt(
+    *,
+    billing_handoff_resolver: object | None = None,
+    verify_bridge_exchange: bool = False,
+) -> dict[str, object]:
     try:
         config = load_brilliant_directories_config()
         status = "dry_verified_configured" if config.configured else "disabled"
@@ -2257,6 +2346,7 @@ def build_brilliant_directories_verification_receipt(*, billing_handoff_resolver
     billing_sso_bridge = build_brilliant_directories_billing_sso_bridge_receipt(
         resolver=billing_handoff_resolver,
         config=config,
+        verify_exchange=verify_bridge_exchange,
     )
     member_login_token_handoff = build_brilliant_directories_member_login_token_receipt(config=config)
     billing_handoff = build_brilliant_directories_billing_handoff_receipt(

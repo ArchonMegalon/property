@@ -841,6 +841,17 @@ def _billing_handoff_ready(
     authenticated_external_handoff_usable = bool(authenticated_route_row) and (
         "billing_external_handoff_usable" in authenticated_passed_checks
     )
+    if "billing_bridge_guided_login_assist" in authenticated_passed_checks:
+        return False
+    bridge_session_ready = (
+        isinstance(bridge, dict)
+        and bridge.get("ready") is True
+        and bridge.get("exchange_checked") is True
+        and bridge.get("exchange_usable") is True
+    )
+    authenticated_bridge_launch = bool(authenticated_route_row) and "billing_bridge_launch" in authenticated_passed_checks
+    if bridge_session_ready and (authenticated_bridge_launch or authenticated_external_handoff_usable):
+        return True
     return (
         isinstance(member_token_handoff, dict)
         and member_token_handoff.get("ready") is True
@@ -1276,6 +1287,7 @@ def build_gold_status_receipt(
         )
     if not billing_ok:
         billing_handoff = billing_receipt.get("billing_handoff") if isinstance(billing_receipt.get("billing_handoff"), dict) else {}
+        billing_sso_bridge = billing_receipt.get("billing_sso_bridge") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else {}
         blockers.append(
             {
                 "area": "billing_handoff",
@@ -1285,6 +1297,12 @@ def build_gold_status_receipt(
                 "host_resolves": bool(billing_handoff.get("host_resolves")),
                 "required_dns_record": billing_handoff.get("required_dns_record") if isinstance(billing_handoff.get("required_dns_record"), dict) else {},
                 "next_action": str(billing_handoff.get("next_action") or ""),
+                "sso_bridge_ready": billing_sso_bridge.get("ready"),
+                "sso_bridge_config_ready": billing_sso_bridge.get("config_ready"),
+                "sso_bridge_exchange_checked": billing_sso_bridge.get("exchange_checked"),
+                "sso_bridge_exchange_usable": billing_sso_bridge.get("exchange_usable"),
+                "sso_bridge_error": str(billing_sso_bridge.get("error") or ""),
+                "sso_bridge_next_action": str(billing_sso_bridge.get("next_action") or ""),
                 "action": "configure the Brilliant Directories white-label billing host or signed member-login handoff so /app/billing opens a usable external account lane without a second login",
             }
         )
@@ -1727,6 +1745,14 @@ def build_gold_status_receipt(
             "account_handoff_error": str((billing_receipt.get("billing_handoff") or {}).get("account_handoff_error") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
             "required_dns_record": (billing_receipt.get("billing_handoff") or {}).get("required_dns_record") if isinstance(billing_receipt.get("billing_handoff"), dict) and isinstance((billing_receipt.get("billing_handoff") or {}).get("required_dns_record"), dict) else {},
             "next_action": str((billing_receipt.get("billing_handoff") or {}).get("next_action") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
+            "sso_bridge": {
+                "ready": (billing_receipt.get("billing_sso_bridge") or {}).get("ready") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else None,
+                "config_ready": (billing_receipt.get("billing_sso_bridge") or {}).get("config_ready") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else None,
+                "exchange_checked": (billing_receipt.get("billing_sso_bridge") or {}).get("exchange_checked") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else None,
+                "exchange_usable": (billing_receipt.get("billing_sso_bridge") or {}).get("exchange_usable") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else None,
+                "error": str((billing_receipt.get("billing_sso_bridge") or {}).get("error") or "") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else "",
+                "next_action": str((billing_receipt.get("billing_sso_bridge") or {}).get("next_action") or "") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else "",
+            },
             "ready": billing_ok,
             "receipt_path": str(billing_receipt_path) if billing_receipt_path is not None else "",
         },

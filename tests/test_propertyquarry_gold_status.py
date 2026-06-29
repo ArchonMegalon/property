@@ -416,9 +416,21 @@ def _billing_bridge_payload() -> dict[str, object]:
         "enabled": True,
         "configured": True,
         "ready": True,
+        "config_ready": True,
         "url": "https://billing.propertyquarry.com/sso/propertyquarry",
         "host": "billing.propertyquarry.com",
         "host_resolves": True,
+        "exchange_checked": True,
+        "exchange_usable": True,
+        "exchange_probe": {
+            "checked": True,
+            "usable": True,
+            "status_code": 200,
+            "final_host": "billing.propertyquarry.com",
+            "final_path": "/account",
+            "redirected_to_login": False,
+            "error": "",
+        },
         "error": "",
     }
     return payload
@@ -585,6 +597,8 @@ def _authenticated_smoke_payload(
     ]
     if billing_external:
         billing_checks.append({"name": "billing_external_handoff", "ok": True})
+        billing_checks.append({"name": "billing_external_handoff_resolves", "ok": True})
+        billing_checks.append({"name": "billing_external_handoff_usable", "ok": True})
     if billing_fail_closed:
         billing_checks.append({"name": "billing_fail_closed_recovery", "ok": True})
     if billing_bridge_launch:
@@ -1669,9 +1683,8 @@ def test_gold_status_accepts_signed_billing_bridge_with_internal_account_fallbac
     customer_surfaces = receipt["authenticated_customer_surfaces"]
     assert customer_surfaces["billing_checks_ok"] is True
     assert customer_surfaces["missing_billing_checks"] == []
-    blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
-    assert blocker["status"] == "dry_verified_configured"
-    assert "usable external account lane" in blocker["action"]
+    assert receipt["billing_handoff"]["ready"] is True
+    assert not any(row["area"] == "billing_handoff" for row in receipt["blockers"])
 
 
 def test_gold_status_keeps_bridge_guided_login_assist_as_billing_blocker_until_member_handoff_is_ready(tmp_path: Path) -> None:
