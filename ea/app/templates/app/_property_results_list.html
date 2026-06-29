@@ -37,6 +37,7 @@
       {% endif %}
     </div>
   </div>
+  {% include "app/_property_recent_run_strip.html" %}
   {% if score_methodology and not is_shortlist_surface and not is_research_surface %}
   <section class="pqx-score-bts" aria-label="{{ score_methodology.get('title') or 'Behind the score' }}">
     <div class="pqx-score-bts-head">

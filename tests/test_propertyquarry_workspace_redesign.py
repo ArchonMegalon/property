@@ -12647,6 +12647,96 @@ def test_propertyquarry_properties_auto_opens_latest_active_run_when_run_id_miss
     assert "run-active-42" in live.text
 
 
+def test_propertyquarry_running_surface_keeps_recent_search_history_visible(monkeypatch) -> None:
+    principal_id = "pq-running-history-visible"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Running History")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_list_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+        assert principal_id == "pq-running-history-visible"
+        assert hydrate is False
+        return [
+            {
+                "run_id": "run-active-99",
+                "status": "in_progress",
+                "updated_at": "2026-06-29T08:00:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "Vienna",
+                },
+                "summary": {"status": "in_progress", "listing_total": 21},
+            },
+            {
+                "run_id": "run-history-older",
+                "status": "processed",
+                "updated_at": "2026-06-28T08:00:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1090 Vienna",
+                },
+                "summary": {
+                    "status": "processed",
+                    "listing_total": 18,
+                    "ranked_candidates": [
+                        {
+                            "title": "Older shortlist flat",
+                            "fit_score": 61,
+                            "packet_url": "/app/research/older-flat?run_id=run-history-older",
+                        }
+                    ],
+                },
+            },
+        ]
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-running-history-visible"
+        assert run_id == "run-active-99"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 18,
+            "message": "Checking fresh rental listings for Vienna.",
+            "summary": {
+                "status": "in_progress",
+                "sources_total": 3,
+                "listing_total": 21,
+                "eta_label": "about 4 min",
+                "sources": [],
+            },
+            "events": [
+                {"step": "source_fetch", "message": "Checking fresh rental listings for Vienna.", "status": "in_progress"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", headers=headers)
+
+    assert response.status_code == 200
+    assert 'data-pqx-inline-run-history' in response.text
+    assert 'href="/app/shortlist?run_id=run-history-older"' in response.text
+    assert "1090 Vienna" in response.text
+
+
 def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkeypatch) -> None:
     principal_id = "pq-empty-outcome-fallback"
     client = build_property_client(principal_id=principal_id)
@@ -12697,6 +12787,205 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
     assert "What still worked" not in response.text
     assert "Main blocker" not in response.text
     assert "Best next move" not in response.text
+
+
+def test_propertyquarry_completed_empty_results_hide_run_updates(monkeypatch) -> None:
+    principal_id = "pq-completed-empty-hides-updates"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Completed Empty")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-completed-empty-hides-updates"
+        assert run_id == "run-completed-empty"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "completed",
+            "progress": 100,
+            "message": "Search finished without ranked homes.",
+            "summary": {
+                "status": "completed",
+                "sources_total": 2,
+                "listing_total": 14,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+            "events": [
+                {"step": "source_fetch", "message": "Fetched listings from Willhaben.", "status": "completed"},
+                {"step": "completed", "message": "Search finished without ranked homes.", "status": "completed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-completed-empty"}, headers=headers)
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
+
+    assert response.status_code == 200
+    assert "No homes in scope yet." in response.text
+    assert "Run updates" not in rendered_html
+    assert "Fetched listings from Willhaben." not in rendered_html
+
+
+def test_propertyquarry_failed_empty_results_keep_run_updates(monkeypatch) -> None:
+    principal_id = "pq-failed-empty-keeps-updates"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Failed Empty")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-failed-empty-keeps-updates"
+        assert run_id == "run-failed-empty"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "failed",
+            "progress": 100,
+            "message": "Provider repair is retrying the failed fetch.",
+            "summary": {
+                "status": "failed",
+                "sources_total": 1,
+                "listing_total": 12,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+            "events": [
+                {"step": "source_failed", "message": "Provider changed the listing page layout.", "status": "failed"},
+                {"step": "repair_retry", "message": "Repair is retrying the fetch with a safer path.", "status": "in_progress"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-failed-empty"}, headers=headers)
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
+
+    assert response.status_code == 200
+    assert "Run updates" in rendered_html
+    assert "Provider changed the listing page layout." in rendered_html
+    assert "Repair is retrying the fetch with a safer path." in rendered_html
+
+
+def test_propertyquarry_results_surface_keeps_recent_search_history_visible(monkeypatch) -> None:
+    principal_id = "pq-results-history-visible"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Results History")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_list_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+        assert principal_id == "pq-results-history-visible"
+        assert hydrate is False
+        return [
+            {
+                "run_id": "run-current-results",
+                "status": "processed",
+                "updated_at": "2026-06-29T09:00:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "Vienna",
+                },
+                "summary": {
+                    "status": "processed",
+                    "listing_total": 32,
+                    "ranked_candidates": [
+                        {
+                            "title": "Current shortlist home",
+                            "fit_score": 72,
+                            "packet_url": "/app/research/current-home?run_id=run-current-results",
+                        }
+                    ],
+                },
+            },
+            {
+                "run_id": "run-history-berlin",
+                "status": "processed",
+                "updated_at": "2026-06-28T09:00:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "DE",
+                    "listing_mode": "rent",
+                    "location_query": "Berlin",
+                },
+                "summary": {
+                    "status": "processed",
+                    "listing_total": 14,
+                    "ranked_candidates": [
+                        {
+                            "title": "Berlin archive home",
+                            "fit_score": 58,
+                            "packet_url": "/app/research/berlin-home?run_id=run-history-berlin",
+                        }
+                    ],
+                },
+            },
+        ]
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-results-history-visible"
+        assert run_id == "run-current-results"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Finished ranking the current shortlist.",
+            "summary": {
+                "status": "processed",
+                "sources_total": 2,
+                "listing_total": 32,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "candidate-current-1",
+                        "rank": 1,
+                        "title": "Current shortlist home",
+                        "source_label": "Willhaben",
+                        "packet_url": "/app/research/current-home?run_id=run-current-results",
+                        "review_url": "/app/research/current-home?run_id=run-current-results",
+                        "fit_score": 72,
+                        "price_display": "EUR 1,280",
+                        "match_reasons": ["Close to transit and daily errands."],
+                        "property_facts": {
+                            "price_display": "EUR 1,280",
+                            "listing_fact_confirmation": {
+                                "status": "confirmed",
+                                "label": "Facts confirmed",
+                                "summary": "4 listing facts confirmed automatically from provider evidence.",
+                            },
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", headers=headers)
+
+    assert response.status_code == 200
+    assert "Current shortlist home" in response.text
+    assert 'data-pqx-inline-run-history' in response.text
+    assert 'href="/app/shortlist?run_id=run-history-berlin"' in response.text
+    assert "Berlin" in response.text
 
 
 def test_propertyquarry_empty_completed_run_uses_premium_no_match_copy() -> None:

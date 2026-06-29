@@ -1,0 +1,40 @@
+{% set recent_run_strip_limit = recent_run_strip_limit if recent_run_strip_limit is defined else 4 %}
+{% set current_run_id = ((run.get('run_id') or '')|trim) if run is defined and run else '' %}
+{% set recent_run_total = namespace(value=0) %}
+{% for previous in previous_search_runs or [] %}
+{% if previous.get('run_id') != current_run_id and recent_run_total.value < recent_run_strip_limit %}
+{% set recent_run_total.value = recent_run_total.value + 1 %}
+{% endif %}
+{% endfor %}
+{% if recent_run_total.value %}
+{% set rendered_recent_runs = namespace(value=0) %}
+<section class="pqx-card" style="margin:0 0 12px;" data-pqx-inline-run-history>
+  <div class="pqx-section-head">
+    <div>
+      <h2>Recent searches</h2>
+      <div class="pqx-note">Open an earlier run without losing this screen.</div>
+    </div>
+  </div>
+  <div class="pqx-automation-history-strip">
+    {% for previous in previous_search_runs or [] %}
+    {% if previous.get('run_id') != current_run_id and rendered_recent_runs.value < recent_run_strip_limit %}
+    {% set rendered_recent_runs.value = rendered_recent_runs.value + 1 %}
+    <a class="pqx-automation-history-link" href="{{ previous.get('href') or '/app/shortlist' }}">
+      <span>{{ previous.get('status_label') or 'Saved search' }}</span>
+      <strong>{{ previous.get('title') or previous.get('scope_label') or 'Search' }}</strong>
+      <small>
+        {% if previous.get('ranked_total') %}
+        {{ previous.get('ranked_total') }} ranked
+        {% else %}
+        Open results
+        {% endif %}
+        {% if previous.get('held_back_total') %}
+        · {{ previous.get('held_back_total') }} filtered
+        {% endif %}
+      </small>
+    </a>
+    {% endif %}
+    {% endfor %}
+  </div>
+</section>
+{% endif %}

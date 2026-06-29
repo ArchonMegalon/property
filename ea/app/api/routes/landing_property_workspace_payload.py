@@ -441,6 +441,7 @@ def property_workspace_payload(
 
     surface_scope = PropertySurfaceScope.for_section(section)
     normalized_section = surface_scope.section
+    wants_recent_runs = surface_scope.wants_recent_runs
     wants_search_runs = surface_scope.wants_search_runs
     wants_agent_views = surface_scope.wants_agent_views
     wants_credit_digest = surface_scope.wants_credit_digest
@@ -984,7 +985,7 @@ def property_workspace_payload(
         )
         for index, row in enumerate(list(property_state.get("recent_search_runs") or []))
         if isinstance(row, dict) and str(row.get("run_id") or "").strip()
-    ] if (wants_search_runs or wants_agent_views) else []
+    ] if (wants_recent_runs or wants_agent_views) else []
     if wants_search_runs or wants_agent_views:
         selected_agent_context = select_property_search_agent(
             property_search_agents,

@@ -40,6 +40,7 @@
     {% endif %}
     <div class="pqx-note" data-pqx-run-message>{{ run_message_display or 'The search is queued.' }}</div>
     {{ progress_board(run, run_sources, research_task_counts) }}
+    {% include "app/_property_recent_run_strip.html" %}
     <details class="pqx-card" data-pqx-running-details>
       <summary><strong>Useful updates</strong></summary>
       {% if (research_task_counts.get('open') or 0) %}

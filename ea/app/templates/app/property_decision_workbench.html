@@ -11548,6 +11548,7 @@
               <a class="pqx-link-button primary" href="/app/search{{ topnav_query_suffix }}">Search brief</a>
             </div>
           </div>
+          {% include "app/_property_recent_run_strip.html" %}
         </aside>
         {% if not run_failed_no_results %}
         <section class="pqx-panel pqx-command pqx-empty-next-panel{% if mobile_primary == 'property' %} active{% endif %}" data-pqx-mobile-panel="property">
@@ -11777,50 +11778,50 @@
           </section>
           </div>
           {% endif %}
-          {% if run.get('events') %}
-          <details class="pqx-card">
-            <summary><strong>Run updates</strong><span class="pqx-note">Open only when you want the latest scan notes.</span></summary>
-          <div class="pqx-note" data-pqx-run-updated>Last update {{ run.get('updated_at') or run.get('generated_at') or 'not available' }}</div>
-          <div class="pqx-event-list" data-pqx-run-events>
-            {% for event in (run.get('events') or [])|reverse %}
-            {% set event_step = (event.get('step') or '')|lower %}
-            {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
-            {% set event_label = 'Preparing search' %}
-            {% elif event_step in ['source_search', 'provider_search', 'search'] %}
-            {% set event_label = 'Searching providers' %}
-            {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
-            {% set event_label = 'Checking details' %}
-            {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
-            {% set event_label = 'Checking listings' %}
-            {% elif event_step in ['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'] %}
-            {% set event_label = 'Ranking homes' %}
-            {% elif event_step == 'shortlist_ready' %}
-            {% set event_label = 'First shortlist' %}
-            {% elif event_step in ['source_review_packet', 'source_review_packet_failed'] %}
-            {% set event_label = 'Open property ready' %}
-            {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
-            {% set event_label = 'Applying hard rules' %}
-            {% elif event_step in ['source_completed', 'completed'] %}
-            {% set event_label = 'Provider finished' %}
-            {% elif event_step in ['source_notify'] %}
-            {% set event_label = 'Sending update' %}
-            {% elif event_step.startswith('repair') or event_step in ['source_repair_reuse', 'source_failed'] %}
-            {% set event_label = 'Recovery' %}
-            {% else %}
-            {% set event_label = 'Update' %}
-            {% endif %}
-            <div class="pqx-event-card">
-              <strong>{{ event_label }}</strong>
-              <span class="pqx-note">{{ event.get('message') or 'Search is still running.' }}</span>
-            </div>
-            {% endfor %}
-            {% if not run.get('events') %}
-            <div class="pqx-empty">No run events were recorded.</div>
-            {% endif %}
-          </div>
-          </details>
-          {% endif %}
         </section>
+        {% endif %}
+        {% if run_failed_no_results and run.get('events') %}
+        <details class="pqx-card">
+          <summary><strong>Run updates</strong><span class="pqx-note">Open only when you want the latest scan notes.</span></summary>
+        <div class="pqx-note" data-pqx-run-updated>Last update {{ run.get('updated_at') or run.get('generated_at') or 'not available' }}</div>
+        <div class="pqx-event-list" data-pqx-run-events>
+          {% for event in (run.get('events') or [])|reverse %}
+          {% set event_step = (event.get('step') or '')|lower %}
+          {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
+          {% set event_label = 'Preparing search' %}
+          {% elif event_step in ['source_search', 'provider_search', 'search'] %}
+          {% set event_label = 'Searching providers' %}
+          {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
+          {% set event_label = 'Checking details' %}
+          {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
+          {% set event_label = 'Checking listings' %}
+          {% elif event_step in ['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'] %}
+          {% set event_label = 'Ranking homes' %}
+          {% elif event_step == 'shortlist_ready' %}
+          {% set event_label = 'First shortlist' %}
+          {% elif event_step in ['source_review_packet', 'source_review_packet_failed'] %}
+          {% set event_label = 'Open property ready' %}
+          {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
+          {% set event_label = 'Applying hard rules' %}
+          {% elif event_step in ['source_completed', 'completed'] %}
+          {% set event_label = 'Provider finished' %}
+          {% elif event_step in ['source_notify'] %}
+          {% set event_label = 'Sending update' %}
+          {% elif event_step.startswith('repair') or event_step in ['source_repair_reuse', 'source_failed'] %}
+          {% set event_label = 'Recovery' %}
+          {% else %}
+          {% set event_label = 'Update' %}
+          {% endif %}
+          <div class="pqx-event-card">
+            <strong>{{ event_label }}</strong>
+            <span class="pqx-note">{{ event.get('message') or 'Search is still running.' }}</span>
+          </div>
+          {% endfor %}
+          {% if not run.get('events') %}
+          <div class="pqx-empty">No run events were recorded.</div>
+          {% endif %}
+        </div>
+        </details>
         {% endif %}
       </section>
       {% elif run_visible %}
