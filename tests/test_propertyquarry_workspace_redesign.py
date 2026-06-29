@@ -4291,12 +4291,86 @@ def test_property_workspace_payload_keeps_saved_brief_when_run_snapshot_is_old()
     )
 
     brief_preferences = dict(payload["decision_workbench"]["brief_preferences"])
-    run_summary = dict(payload["decision_workbench"]["run"]["summary"])
+    workbench = dict(payload["decision_workbench"])
+    run = dict(workbench["run"])
+    run_summary = dict(run["summary"])
 
     assert brief_preferences["max_price_eur"] == 26000
     assert brief_preferences["max_price_eur"] != 1200
+    assert run["status_label"] == "Old run"
+    assert run["filtered_total"] == 0
+    assert run["held_back_total"] == 0
     assert run_summary["brief_snapshot_status"] == "old_run"
-    assert run_summary["filtered_total"] == 22
+    assert run_summary["filtered_total"] == 0
+    assert run_summary["held_back_total"] == 0
+    assert run_summary["previous_filtered_total"] == 22
+    assert workbench["suppression_rows"][0]["rule_key"] == "Old run snapshot"
+    assert workbench["counterfactual_rows"][0]["adjustments"] == {}
+    assert workbench["empty_outcome"]["active_rule"] == "Old run"
+    assert "current saved brief" in workbench["empty_outcome"]["next_move"]
+
+
+def test_property_workspace_previous_search_marks_old_snapshot_without_filter_action() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "search",
+        status={"workspace": {"name": "Old Search History Office"}, "channels": {}},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+                "selected_platforms": ["willhaben"],
+                "max_price_eur": 26000,
+            },
+            "run": {},
+            "run_health": {},
+            "recent_search_runs": [
+                {
+                    "run_id": "run-old-history",
+                    "status": "processed",
+                    "property_search_preferences": {
+                        "country_code": "AT",
+                        "listing_mode": "rent",
+                        "location_query": "1020 Vienna",
+                        "selected_platforms": ["willhaben"],
+                        "max_price_eur": 1200,
+                    },
+                    "summary": {
+                        "status": "processed",
+                        "brief_preferences_stale": True,
+                        "brief_snapshot_status": "old_run",
+                        "brief_stale_message": "This run used an earlier brief. Start an updated search.",
+                        "previous_ranked_total": 3,
+                        "previous_filtered_total": 9,
+                        "filtered_total": 9,
+                        "held_back_total": 9,
+                        "ranked_candidates": [
+                            {
+                                "title": "Old ranked home",
+                                "fit_score": 71,
+                                "property_url": "https://example.test/old-ranked-home",
+                                "property_facts": {"postal_name": "1020 Vienna"},
+                            }
+                        ],
+                        "sources": [],
+                    },
+                }
+            ],
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    previous = dict(payload["decision_workbench"]["previous_search_runs"][0])
+
+    assert previous["is_old_snapshot"] is True
+    assert previous["status_label"] == "Old run"
+    assert previous["held_back_total"] == 0
+    assert previous["previous_filtered_total"] == 9
+    assert previous["previous_ranked_total"] == 3
+    assert "earlier brief" in previous["status_note"]
 
 
 def test_property_workspace_payload_marks_full_region_run_with_stale_district_source_scope() -> None:

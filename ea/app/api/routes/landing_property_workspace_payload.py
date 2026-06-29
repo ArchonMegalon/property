@@ -521,6 +521,62 @@ def _property_source_scope_mismatch_notice(
     }
 
 
+def _property_run_brief_is_old_snapshot(
+    *,
+    run_payload: dict[str, object],
+    run_summary: dict[str, object],
+) -> bool:
+    return bool(
+        run_payload.get("brief_preferences_stale")
+        or run_payload.get("stale_run_snapshot")
+        or run_summary.get("brief_preferences_stale")
+        or str(run_summary.get("brief_snapshot_status") or "").strip().lower() == "old_run"
+    )
+
+
+def _property_old_brief_snapshot_notice(
+    *,
+    run_summary: dict[str, object],
+) -> dict[str, object]:
+    if not bool(
+        run_summary.get("brief_preferences_stale")
+        or str(run_summary.get("brief_snapshot_status") or "").strip().lower() == "old_run"
+    ):
+        return {}
+    def _safe_int(*values: object) -> int:
+        for value in values:
+            try:
+                return max(0, int(float(str(value or "").strip())))
+            except Exception:
+                continue
+        return 0
+
+    previous_filtered_total = _safe_int(
+        run_summary.get("previous_filtered_total"),
+        run_summary.get("filtered_total"),
+        run_summary.get("held_back_total"),
+    )
+    previous_ranked_total = _safe_int(
+        run_summary.get("previous_ranked_total"),
+        run_summary.get("ranked_total"),
+        run_summary.get("ranked_candidate_total"),
+    )
+    message = str(run_summary.get("brief_stale_message") or "").strip() or (
+        "This run used an earlier brief. Start an updated search to refresh counts "
+        "with your current budget, area, providers, and filters."
+    )
+    return {
+        "title": "Run used an earlier brief",
+        "rule_key": "Old run snapshot",
+        "detail": message,
+        "tag": "Old run",
+        "affected_total": 0,
+        "previous_filtered_total": previous_filtered_total,
+        "previous_ranked_total": previous_ranked_total,
+        "action_label": str(run_summary.get("brief_stale_action_label") or "Start updated search").strip() or "Start updated search",
+    }
+
+
 def property_workspace_payload(
     section: str,
     *,
@@ -717,11 +773,9 @@ def property_workspace_payload(
         if isinstance(run_payload.get("summary"), dict)
         else {}
     )
-    run_brief_is_old_snapshot = bool(
-        run_payload.get("brief_preferences_stale")
-        or run_payload.get("stale_run_snapshot")
-        or run_summary_for_preferences.get("brief_preferences_stale")
-        or str(run_summary_for_preferences.get("brief_snapshot_status") or "").strip().lower() == "old_run"
+    run_brief_is_old_snapshot = _property_run_brief_is_old_snapshot(
+        run_payload=run_payload,
+        run_summary=run_summary_for_preferences,
     )
     property_preferences = (
         dict(saved_property_preferences)
@@ -838,19 +892,28 @@ def property_workspace_payload(
     run_payload_for_surface = {**run_payload, "summary": run_summary_for_surface} if management_surface else run_payload
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
     raw_run_sources = [dict(row) for row in list(raw_run_summary.get("sources") or []) if isinstance(row, dict)]
-    source_scope_mismatch_notice = _property_source_scope_mismatch_notice(
-        preferences=property_preferences,
-        run_summary=run_summary,
-        source_rows=run_sources,
+    old_brief_snapshot_notice = _property_old_brief_snapshot_notice(run_summary=run_summary)
+    source_scope_mismatch_notice = (
+        {}
+        if old_brief_snapshot_notice
+        else _property_source_scope_mismatch_notice(
+            preferences=property_preferences,
+            run_summary=run_summary,
+            source_rows=run_sources,
+        )
     )
-    if source_scope_mismatch_notice:
-        stale_scope_message = str(source_scope_mismatch_notice.get("detail") or "").strip()
+    if old_brief_snapshot_notice or source_scope_mismatch_notice:
+        stale_notice = dict(old_brief_snapshot_notice or source_scope_mismatch_notice)
+        stale_scope_message = str(stale_notice.get("detail") or "").strip()
         run_summary = {
             **run_summary,
-            "brief_scope_mismatch": dict(source_scope_mismatch_notice),
-            "previous_filtered_total": source_scope_mismatch_notice.get("previous_filtered_total") or 0,
+            ("brief_stale_notice" if old_brief_snapshot_notice else "brief_scope_mismatch"): stale_notice,
+            "previous_filtered_total": stale_notice.get("previous_filtered_total") or 0,
+            "previous_ranked_total": stale_notice.get("previous_ranked_total") or run_summary.get("previous_ranked_total") or 0,
             "filtered_total": 0,
             "held_back_total": 0,
+            "score_demoted_total": 0,
+            "filtered_low_fit_total": 0,
         }
         run_payload = {
             **run_payload,
@@ -861,8 +924,11 @@ def property_workspace_payload(
             **run_health,
             "filtered_total": 0,
             "held_back_total": 0,
+            "score_demoted_total": 0,
+            "filtered_low_fit_total": 0,
             "message": stale_scope_message or str(run_health.get("message") or "").strip(),
             "status_note": stale_scope_message or str(run_health.get("status_note") or "").strip(),
+            "status_label": "Old run" if old_brief_snapshot_notice else str(run_health.get("status_label") or "").strip(),
         }
         run_summary_for_surface = _management_safe_run_summary(run_summary) if management_surface else run_summary
         run_payload_for_surface = {**run_payload_for_surface, "summary": run_summary_for_surface}
@@ -1026,9 +1092,10 @@ def property_workspace_payload(
         or str(raw_run_summary.get("location_query") or "").strip()
     )
     review_scope_locations = selected_locations if run_has_explicit_scope_context else []
-    if source_scope_mismatch_notice:
-        stale_scope_action = {**dict(source_scope_mismatch_notice), "adjustments": {}}
-        suppression_rows = [dict(source_scope_mismatch_notice)]
+    if old_brief_snapshot_notice or source_scope_mismatch_notice:
+        stale_notice = dict(old_brief_snapshot_notice or source_scope_mismatch_notice)
+        stale_scope_action = {**stale_notice, "adjustments": {}}
+        suppression_rows = [stale_notice]
         counterfactual_rows = [stale_scope_action]
     else:
         suppression_rows = _property_suppression_rows(

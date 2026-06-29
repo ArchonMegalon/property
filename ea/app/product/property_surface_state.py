@@ -2002,6 +2002,12 @@ def build_property_previous_run_summary(
     preferences_json = dict(raw_run.get("property_search_preferences") or raw_run.get("preferences") or {}) if isinstance(raw_run.get("property_search_preferences") or raw_run.get("preferences"), dict) else {}
     run_status = str(raw_run.get("status") or summary.get("status") or "queued").strip().lower()
     run_id_value = str(raw_run.get("run_id") or "").strip()
+    is_old_snapshot = bool(
+        raw_run.get("brief_preferences_stale")
+        or raw_run.get("stale_run_snapshot")
+        or summary.get("brief_preferences_stale")
+        or str(summary.get("brief_snapshot_status") or "").strip().lower() == "old_run"
+    )
     country = str(preferences_json.get("country_code") or summary.get("country_code") or "").strip().upper()
     region = str(preferences_json.get("region_code") or summary.get("region_code") or "").strip()
     location = str(preferences_json.get("location_query") or summary.get("location_query") or "").strip()
@@ -2058,6 +2064,23 @@ def build_property_previous_run_summary(
             prefer_repair_step=True,
         ),
     )
+    previous_filtered_total = _previous_run_int(
+        summary.get("previous_filtered_total")
+        or summary.get("filtered_total")
+        or summary.get("held_back_total")
+        or held_back_total
+    )
+    previous_ranked_total = _previous_run_int(
+        summary.get("previous_ranked_total")
+        or summary.get("ranked_total")
+        or summary.get("ranked_candidate_total")
+        or len(ranked_candidates)
+    )
+    if is_old_snapshot:
+        status_label = "Old run"
+        status_note = str(summary.get("brief_stale_message") or "").strip() or (
+            "This run used an earlier brief. Start an updated search to refresh counts with the current saved brief."
+        )
     scope_preview = scope_preview_builder(country, region, location) if include_scope_preview else {}
     return {
         "run_id": run_id_value,
@@ -2076,7 +2099,11 @@ def build_property_previous_run_summary(
         "listing_total": _previous_run_int(summary.get("listing_total") or summary.get("raw_listing_total")),
         "ranked_total": len(ranked_candidates),
         "sent_total": _previous_run_int(summary.get("notified_total") or summary.get("watch_notified_total")),
-        "held_back_total": held_back_total,
+        "held_back_total": 0 if is_old_snapshot else held_back_total,
+        "previous_filtered_total": previous_filtered_total if is_old_snapshot else 0,
+        "previous_ranked_total": previous_ranked_total if is_old_snapshot else 0,
+        "is_old_snapshot": is_old_snapshot,
+        "brief_snapshot_status": "old_run" if is_old_snapshot else "",
         "top_fit_score": _previous_run_int(summary.get("top_fit_score") or (top_candidates[0].get("fit_score") if top_candidates else 0)),
         "top_price_display": str((top_candidates[0].get("price_display") if top_candidates else "") or "").strip(),
         "top_candidates": top_candidates,
@@ -2093,6 +2120,42 @@ def build_property_empty_outcome_summary(
     counterfactual_rows: list[dict[str, object]],
     suppression_rows: list[dict[str, object]],
 ) -> dict[str, str]:
+    is_old_snapshot = bool(
+        run_summary.get("brief_preferences_stale")
+        or str(run_summary.get("brief_snapshot_status") or "").strip().lower() == "old_run"
+    )
+    if is_old_snapshot:
+        def _safe_int(*values: object) -> int:
+            for value in values:
+                try:
+                    return max(0, int(float(str(value or "").strip())))
+                except Exception:
+                    continue
+            return 0
+
+        previous_filtered_total = _safe_int(
+            run_summary.get("previous_filtered_total"),
+            run_summary.get("filtered_total"),
+            run_summary.get("held_back_total"),
+        )
+        previous_ranked_total = _safe_int(
+            run_summary.get("previous_ranked_total"),
+            run_summary.get("ranked_total"),
+            run_summary.get("ranked_candidate_total"),
+        )
+        history_parts: list[str] = []
+        if previous_ranked_total:
+            history_parts.append(f"{previous_ranked_total} ranked")
+        if previous_filtered_total:
+            history_parts.append(f"{previous_filtered_total} filtered")
+        historical_detail = " · ".join(history_parts) if history_parts else "historical counts are kept with the old run"
+        return {
+            "happened": "This run used an earlier brief.",
+            "still_worked": f"Old snapshot: {historical_detail}.",
+            "next_move": "Start an updated search so counts, rankings, and filter explanations use the current saved brief.",
+            "active_rule": "Old run",
+            "eta_feedback": str(run_summary.get("brief_stale_message") or "").strip() or "The current brief has changed since this run finished.",
+        }
     filtered_total = int(run_summary.get("filtered_total") or run_summary.get("held_back_total") or 0)
     score_demoted_total = int(
         run_summary.get("score_demoted_total")

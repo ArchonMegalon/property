@@ -10579,7 +10579,12 @@
                   <a class="pqx-previous-open-link" href="{{ previous.get('href') }}"><b>{{ previous.get('ranked_total') or 0 }}</b> ranked</a>
                   {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
                   {% if previous.get('top_fit_score') %}<span>best <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
-                  {% if previous.get('held_back_total') %}
+                  {% if previous.get('is_old_snapshot') %}
+                  <span class="pqx-pill warn">Old run</span>
+                  {% if previous.get('previous_filtered_total') %}
+                  <span><b>{{ previous.get('previous_filtered_total') }}</b> old filtered</span>
+                  {% endif %}
+                  {% elif previous.get('held_back_total') %}
                   {% if surface_mode == 'shortlist' %}
                   <span
                     class="pqx-filtered-trigger"
@@ -10631,6 +10636,9 @@
                     <small>{{ previous.get('mode_label') }} · {{ previous.get('scope_summary') or previous.get('scope_label') }} · {{ previous.get('status_label') }}</small>
                   </div>
                   <div class="pqx-actions">
+                    {% if previous.get('is_old_snapshot') %}
+                    <span class="pqx-pill warn">Old run</span>
+                    {% endif %}
                     {% if previous.get('ranked_total') %}
                     <span class="pqx-pill">{{ previous.get('ranked_total') }} ranked</span>
                     {% endif %}
@@ -11490,7 +11498,7 @@
             </div>
             {% endif %}
             <div class="pqx-actions">
-              <a class="pqx-link-button primary" href="/app/search{{ topnav_query_suffix }}">Search brief</a>
+              <a class="pqx-link-button primary" href="/app/search{{ topnav_query_suffix }}">{% if run_summary.get('brief_snapshot_status') == 'old_run' or run_summary.get('brief_preferences_stale') %}{{ run_summary.get('brief_stale_action_label') or 'Start updated search' }}{% else %}Search brief{% endif %}</a>
             </div>
           </div>
           {% include "app/_property_recent_run_strip.html" %}
