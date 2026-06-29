@@ -768,7 +768,11 @@ def build_brilliant_directories_billing_sso_bridge_receipt(
             "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET before enabling the billing-session bridge"
             if error == "billing_sso_bridge_secret_missing"
             else (
-                "configure the Brilliant Directories SSO endpoint to accept the PropertyQuarry signed token and create a billing session; it currently falls through to the vendor login page"
+                "configure the Brilliant Directories SSO endpoint to accept the PropertyQuarry signed token and create a "
+                "billing session, or switch on the member-login token lane by setting "
+                "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY, PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER, "
+                "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED=1, and "
+                "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET; the current bridge falls through to the vendor login page"
                 if error == "billing_sso_bridge_exchange_requires_login"
                 else str(resolution.get("next_action") or "")
             )
@@ -881,7 +885,12 @@ def build_brilliant_directories_member_login_token_receipt(
             "secret_configured": bool(secret),
             "secret_fingerprint": _sha256_short(secret),
             "error": "",
-            "next_action": "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED=1 before using a member-session handoff",
+            "next_action": (
+                "generate a Brilliant Directories API key in the admin backend, confirm the member-login token account lane, "
+                "then set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY, PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER, "
+                "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED=1, and "
+                "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET before using a member-session handoff"
+            ),
         }
     error = ""
     if config_error:
@@ -902,7 +911,10 @@ def build_brilliant_directories_member_login_token_receipt(
         "secret_fingerprint": _sha256_short(secret),
         "error": error,
         "next_action": (
-            "configure the Brilliant Directories API client and billing handoff URL before using a member-session handoff"
+            "generate a Brilliant Directories API key in the admin backend and set "
+            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY, PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER, "
+            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS, and PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL "
+            "before using a member-session handoff"
             if error in {"brilliant_directories_not_configured", "brilliant_directories_base_url_missing", "brilliant_directories_api_key_missing", "brilliant_directories_allowed_hosts_missing", "billing_handoff_url_missing"}
             else (
                 "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET or PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET before using a member-session handoff"
@@ -2405,7 +2417,8 @@ def build_brilliant_directories_verification_receipt(
     elif login_recaptcha_required:
         billing_handoff["next_action"] = (
             "configure live reCAPTCHA keys for the billing domain or disable Brilliant Directories member-login reCAPTCHA, "
-            "or configure a trusted SSO/account handoff "
+            "or configure the member-login token handoff with PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY and "
+            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET "
             "before redirecting signed-in PropertyQuarry users"
         )
     elif pricing_placeholder:

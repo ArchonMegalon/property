@@ -76,6 +76,18 @@ REQUIRED_ACCOUNT_NOTIFICATION_CHECKS = (
     "account_notification_whatsapp_phone",
     "account_notification_save_action",
 )
+BILLING_MEMBER_TOKEN_REQUIRED_ENV = (
+    "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY",
+    "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER",
+    "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED",
+    "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET",
+)
+BILLING_MEMBER_TOKEN_ADMIN_ACTION = (
+    "generate a Brilliant Directories API key in the admin backend, confirm the member-login token account lane, "
+    "then set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY, PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER, "
+    "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED=1, and "
+    "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET so /app/billing opens without a second login"
+)
 COMMON_OPERATOR_DROP_README_TOKENS = (
     ("title", "PropertyQuarry provider export drop folder"),
     ("no_placeholders", "Do not copy placeholder HTML"),
@@ -1288,6 +1300,7 @@ def build_gold_status_receipt(
     if not billing_ok:
         billing_handoff = billing_receipt.get("billing_handoff") if isinstance(billing_receipt.get("billing_handoff"), dict) else {}
         billing_sso_bridge = billing_receipt.get("billing_sso_bridge") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else {}
+        member_token_handoff = billing_receipt.get("member_login_token_handoff") if isinstance(billing_receipt.get("member_login_token_handoff"), dict) else {}
         blockers.append(
             {
                 "area": "billing_handoff",
@@ -1303,6 +1316,13 @@ def build_gold_status_receipt(
                 "sso_bridge_exchange_usable": billing_sso_bridge.get("exchange_usable"),
                 "sso_bridge_error": str(billing_sso_bridge.get("error") or ""),
                 "sso_bridge_next_action": str(billing_sso_bridge.get("next_action") or ""),
+                "member_login_token_enabled": member_token_handoff.get("enabled"),
+                "member_login_token_configured": member_token_handoff.get("configured"),
+                "member_login_token_ready": member_token_handoff.get("ready"),
+                "member_login_token_error": str(member_token_handoff.get("error") or ""),
+                "member_login_token_next_action": str(member_token_handoff.get("next_action") or ""),
+                "member_login_token_required_env": list(BILLING_MEMBER_TOKEN_REQUIRED_ENV),
+                "admin_action": BILLING_MEMBER_TOKEN_ADMIN_ACTION,
                 "action": "configure the Brilliant Directories white-label billing host or signed member-login handoff so /app/billing opens a usable external account lane without a second login",
             }
         )
@@ -1752,6 +1772,14 @@ def build_gold_status_receipt(
                 "exchange_usable": (billing_receipt.get("billing_sso_bridge") or {}).get("exchange_usable") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else None,
                 "error": str((billing_receipt.get("billing_sso_bridge") or {}).get("error") or "") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else "",
                 "next_action": str((billing_receipt.get("billing_sso_bridge") or {}).get("next_action") or "") if isinstance(billing_receipt.get("billing_sso_bridge"), dict) else "",
+            },
+            "member_login_token": {
+                "enabled": (billing_receipt.get("member_login_token_handoff") or {}).get("enabled") if isinstance(billing_receipt.get("member_login_token_handoff"), dict) else None,
+                "configured": (billing_receipt.get("member_login_token_handoff") or {}).get("configured") if isinstance(billing_receipt.get("member_login_token_handoff"), dict) else None,
+                "ready": (billing_receipt.get("member_login_token_handoff") or {}).get("ready") if isinstance(billing_receipt.get("member_login_token_handoff"), dict) else None,
+                "error": str((billing_receipt.get("member_login_token_handoff") or {}).get("error") or "") if isinstance(billing_receipt.get("member_login_token_handoff"), dict) else "",
+                "next_action": str((billing_receipt.get("member_login_token_handoff") or {}).get("next_action") or "") if isinstance(billing_receipt.get("member_login_token_handoff"), dict) else "",
+                "required_env": list(BILLING_MEMBER_TOKEN_REQUIRED_ENV),
             },
             "ready": billing_ok,
             "receipt_path": str(billing_receipt_path) if billing_receipt_path is not None else "",

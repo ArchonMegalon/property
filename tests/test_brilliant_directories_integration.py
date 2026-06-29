@@ -463,6 +463,8 @@ def test_brilliant_directories_member_login_token_receipt_requires_config_and_se
     receipt = build_brilliant_directories_member_login_token_receipt()
     assert receipt["enabled"] is False
     assert receipt["ready"] is False
+    assert "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY" in receipt["next_action"]
+    assert "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED=1" in receipt["next_action"]
 
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
@@ -476,6 +478,7 @@ def test_brilliant_directories_member_login_token_receipt_requires_config_and_se
     assert receipt["enabled"] is True
     assert receipt["ready"] is False
     assert receipt["error"] == "billing_member_login_token_secret_missing"
+    assert "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET" in receipt["next_action"]
 
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET", "bridge-secret")
     receipt = build_brilliant_directories_member_login_token_receipt()

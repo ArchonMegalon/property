@@ -433,6 +433,18 @@ def _billing_bridge_payload() -> dict[str, object]:
         },
         "error": "",
     }
+    payload["member_login_token_handoff"] = {
+        "enabled": False,
+        "configured": False,
+        "ready": False,
+        "error": "",
+        "next_action": (
+            "generate a Brilliant Directories API key in the admin backend, confirm the member-login token account lane, "
+            "then set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY, PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER, "
+            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_ENABLED=1, and "
+            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET before using a member-session handoff"
+        ),
+    }
     return payload
 
 
@@ -1763,8 +1775,13 @@ def test_gold_status_keeps_bridge_guided_login_assist_as_billing_blocker_until_m
 
     assert receipt["authenticated_customer_surfaces"]["billing_checks_ok"] is True
     assert receipt["billing_handoff"]["ready"] is False
+    assert receipt["billing_handoff"]["member_login_token"]["ready"] is False
+    assert "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY" in receipt["billing_handoff"]["member_login_token"]["required_env"]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
     assert blocker["status"] == "dry_verified_configured"
+    assert blocker["member_login_token_ready"] is False
+    assert "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_TOKEN_SECRET" in blocker["member_login_token_required_env"]
+    assert "generate a Brilliant Directories API key" in blocker["admin_action"]
     assert "usable external account lane" in blocker["action"]
 
 
