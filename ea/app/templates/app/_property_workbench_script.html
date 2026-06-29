@@ -305,8 +305,7 @@
     };
     const furnitureStyleCatalog = Array.isArray(meta?.furniture_style_catalog) ? meta.furniture_style_catalog : [];
     let selectedFurnitureStyleValue = String(
-      briefPreferences.furniture_style
-        || furnitureStyleCatalog.find((row) => String(row?.value || '').trim())?.value
+      furnitureStyleCatalog.find((row) => String(row?.value || '').trim())?.value
         || 'warm_scandi'
     ).trim() || 'warm_scandi';
     const selectedFurnitureStylePrompt = (styleValue = selectedFurnitureStyleValue) => {
@@ -326,13 +325,13 @@
         ? furnitureStyleCatalog
         : [{ value: selectedFurnitureStyleValue, label: selectedFurnitureStyleLabel(), prompt: selectedFurnitureStylePrompt(), example_caption: 'Default generated staging style.', example_tone: 'linear-gradient(135deg, #f5efe3, #d8c4a0)' }];
       return `
-        <dialog class="pqx-visual-style-dialog" data-pqx-visual-style-dialog aria-label="Choose 3D tour style">
+        <dialog class="pqx-visual-style-dialog" data-pqx-visual-style-dialog aria-label="Choose visual style">
           <div class="pqx-visual-style-card">
             <div class="pqx-visual-style-head">
               <div>
-                <p class="pqx-eyebrow">3D tour style</p>
+                <p class="pqx-eyebrow">Visual style</p>
                 <h2>Choose the look</h2>
-                <p>Only the generated tour changes. Your search brief stays as it is.</p>
+                <p>Only this generated visual changes. Your search brief stays as it is.</p>
               </div>
               <button class="pqx-button" type="button" data-pqx-visual-style-cancel>Close</button>
             </div>
@@ -350,7 +349,7 @@
             </div>
             <div class="pqx-visual-style-actions">
               <button class="pqx-button" type="button" data-pqx-visual-style-cancel>Cancel</button>
-              <button class="pqx-button pqx-primary" type="button" data-pqx-visual-style-confirm>Request 3D tour</button>
+              <button class="pqx-button pqx-primary" type="button" data-pqx-visual-style-confirm>Continue</button>
             </div>
           </div>
         </dialog>
@@ -423,7 +422,8 @@
       return visualStyleDialog;
     };
     const chooseFurnitureStyleForVisualRequest = (requestKind) => {
-      if (String(requestKind || '').trim().toLowerCase() !== 'tour') return Promise.resolve(null);
+      const normalizedKind = String(requestKind || '').trim().toLowerCase();
+      if (!['tour', 'flythrough'].includes(normalizedKind)) return Promise.resolve(null);
       const dialog = ensureVisualStyleDialog();
       if (!dialog || typeof dialog.showModal !== 'function') {
         return Promise.resolve({
@@ -432,6 +432,8 @@
           prompt: selectedFurnitureStylePrompt(),
         });
       }
+      const confirm = dialog.querySelector('[data-pqx-visual-style-confirm]');
+      if (confirm) confirm.textContent = normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour';
       if (visualStyleResolver) {
         visualStyleResolver(null);
         visualStyleResolver = null;
@@ -1196,8 +1198,8 @@
       }
       const requestKind = String(kind || 'tour').trim().toLowerCase();
       const visualStyleChoice = await chooseFurnitureStyleForVisualRequest(requestKind);
-      if (requestKind === 'tour' && !visualStyleChoice) return;
-      const dioramaStyleHint = requestKind === 'tour'
+      if (['tour', 'flythrough'].includes(requestKind) && !visualStyleChoice) return;
+      const dioramaStyleHint = ['tour', 'flythrough'].includes(requestKind)
         ? String(visualStyleChoice?.prompt || selectedFurnitureStylePrompt()).trim()
         : '';
       const original = button?.textContent || (requestKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour');

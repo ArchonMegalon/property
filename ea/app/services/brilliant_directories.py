@@ -54,6 +54,7 @@ BRILLIANT_DIRECTORIES_MEMBER_UPDATE_ALLOWED_FIELDS = frozenset(
         "first_name",
         "last_name",
         "active",
+        "subscription_id",
     }
 )
 BRILLIANT_DIRECTORIES_PLACEHOLDER_PRICING_TOKENS = (
@@ -599,8 +600,29 @@ def brilliant_directories_member_login_token_secret() -> str:
     ).strip()
 
 
-def brilliant_directories_member_login_subscription_id() -> str:
-    raw = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID") or "").strip()
+def _brilliant_directories_plan_env_suffix(plan_key: object) -> str:
+    normalized = str(plan_key or "").strip().lower().replace("-", "_").replace(" ", "_")
+    normalized = {
+        "agency": "agent",
+        "agency_tier": "agent",
+        "agency_lifetime": "agent",
+        "agency_tier_lifetime": "agent",
+        "agent_lifetime": "agent",
+        "agent_tier_lifetime": "agent",
+    }.get(normalized, normalized)
+    return re.sub(r"[^a-z0-9_]+", "", normalized).upper()
+
+
+def brilliant_directories_member_login_subscription_id(plan_key: object = "") -> str:
+    plan_suffix = _brilliant_directories_plan_env_suffix(plan_key)
+    raw = ""
+    if plan_suffix:
+        raw = str(
+            os.getenv(f"PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID_{plan_suffix}")
+            or ""
+        ).strip()
+    if not raw:
+        raw = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID") or "").strip()
     return raw if re.fullmatch(r"[0-9]{1,12}", raw) else ""
 
 
@@ -983,6 +1005,7 @@ def _billing_sso_bridge_payload(
     principal_id: str,
     access_email: str = "",
     return_to: str = "",
+    plan_key: str = "",
     issued_at: int | None = None,
     bridge_url: str = "",
     public_base_url: str = "",
@@ -998,6 +1021,7 @@ def _billing_sso_bridge_payload(
         "iss": "propertyquarry.com",
         "principal_id": str(principal_id or "").strip(),
         "access_email": str(access_email or "").strip().lower(),
+        "plan_key": _brilliant_directories_plan_env_suffix(plan_key).lower(),
         "return_to_origin": normalized_public_base_url,
         "return_to": _safe_bridge_return_to(return_to, bridge_url, normalized_public_base_url),
         "issued_at": issued_epoch,
@@ -1010,6 +1034,7 @@ def sign_brilliant_directories_billing_sso_bridge_token(
     principal_id: str,
     access_email: str = "",
     return_to: str = "",
+    plan_key: str = "",
     issued_at: int | None = None,
     secret: str | None = None,
     bridge_url: str | None = None,
@@ -1023,6 +1048,7 @@ def sign_brilliant_directories_billing_sso_bridge_token(
         principal_id=principal_id,
         access_email=access_email,
         return_to=return_to,
+        plan_key=plan_key,
         issued_at=issued_at,
         bridge_url=resolved_bridge_url,
         public_base_url=str(public_base_url or _propertyquarry_public_base_url()).strip(),
@@ -1075,6 +1101,7 @@ def verify_brilliant_directories_billing_sso_bridge_token(
         str(payload.get("return_to") or ""),
         public_base_url=str(payload.get("return_to_origin") or ""),
     )
+    payload["plan_key"] = _brilliant_directories_plan_env_suffix(payload.get("plan_key") or "").lower()
     return payload
 
 
@@ -1083,6 +1110,7 @@ def build_brilliant_directories_billing_sso_bridge_launch_url(
     principal_id: str,
     access_email: str = "",
     return_to: str = "",
+    plan_key: str = "",
     bridge_url: str | None = None,
     issued_at: int | None = None,
     public_base_url: str | None = None,
@@ -1095,6 +1123,7 @@ def build_brilliant_directories_billing_sso_bridge_launch_url(
         principal_id=principal_id,
         access_email=resolved_access_email,
         return_to=return_to,
+        plan_key=plan_key,
         issued_at=issued_at,
         bridge_url=resolved_bridge_url,
         public_base_url=public_base_url,
@@ -1234,6 +1263,7 @@ def build_brilliant_directories_member_update_request(
     first_name: str = "",
     last_name: str = "",
     active: str = "",
+    subscription_id: str = "",
 ) -> BrilliantDirectoriesApiRequest:
     normalized_user_id = _string(user_id, max_length=96)
     if not normalized_user_id:
@@ -1248,6 +1278,7 @@ def build_brilliant_directories_member_update_request(
             "first_name": str(first_name or "").strip(),
             "last_name": str(last_name or "").strip(),
             "active": str(active or "").strip(),
+            "subscription_id": str(subscription_id or "").strip(),
         },
         allowed_payload_fields=BRILLIANT_DIRECTORIES_MEMBER_UPDATE_ALLOWED_FIELDS,
     )
@@ -1330,6 +1361,7 @@ def build_brilliant_directories_member_login_token_handoff_url(
     principal_id: str,
     access_email: str = "",
     display_name: str = "",
+    plan_key: str = "",
     config: BrilliantDirectoriesConfig | None = None,
     timeout_seconds: float = 30.0,
     opener: object | None = None,
@@ -1347,6 +1379,7 @@ def build_brilliant_directories_member_login_token_handoff_url(
     token = _brilliant_directories_member_login_token_for_email(resolved_email, secret=secret)
     password = _brilliant_directories_member_password_for_email(resolved_email, secret=secret)
     first_name, last_name = _brilliant_directories_member_name_parts(display_name, resolved_email)
+    subscription_id = brilliant_directories_member_login_subscription_id(plan_key)
     lookup_payload = execute_brilliant_directories_api_request(
         build_brilliant_directories_member_lookup_request(resolved_config, email=resolved_email),
         timeout_seconds=timeout_seconds,
@@ -1365,6 +1398,7 @@ def build_brilliant_directories_member_login_token_handoff_url(
                 first_name=first_name,
                 last_name=last_name,
                 active="2",
+                subscription_id=subscription_id,
             ),
             timeout_seconds=timeout_seconds,
             opener=opener,
@@ -1379,7 +1413,7 @@ def build_brilliant_directories_member_login_token_handoff_url(
                 first_name=first_name,
                 last_name=last_name,
                 active="2",
-                subscription_id=brilliant_directories_member_login_subscription_id(),
+                subscription_id=subscription_id,
             ),
             timeout_seconds=timeout_seconds,
             opener=opener,

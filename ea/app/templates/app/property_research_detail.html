@@ -3119,7 +3119,7 @@
               data-pw-visual-detail="{{ action.get('status_detail') or '' }}"
               data-pw-visual-poll-seconds="{% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
               {% if is_walkthrough_request %}data-pw-walkthrough-provider="magicfit"{% endif %}
-              {% if action.get('kind') == 'tour' %}data-pw-visual-style-required="1"{% endif %}
+              {% if action.get('kind') in ['tour', 'flythrough'] %}data-pw-visual-style-required="1"{% endif %}
               {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}disabled aria-disabled="true"{% endif %}
               aria-label="{{ action.get('label') or 'Request visual review' }}"
             >{{ action.get('label') }}</button>
@@ -3811,13 +3811,13 @@
 {% set visual_style_catalog = research_visual_style_catalog|default([]) %}
 {% set visual_default_style = research_default_visual_style|default('warm_scandi') %}
 {% if visual_style_catalog %}
-<dialog class="prd-style-dialog" data-prd-visual-style-dialog aria-label="Choose 3D tour style">
+<dialog class="prd-style-dialog" data-prd-visual-style-dialog aria-label="Choose visual style">
   <div class="prd-style-card">
     <div class="prd-style-head">
       <div>
-        <div class="prd-kicker">3D tour style</div>
+        <div class="prd-kicker">Visual style</div>
         <h2>Choose the look</h2>
-        <p>This is only for the generated tour. It does not change the search brief.</p>
+        <p>This is only for the generated visual. It does not change the search brief.</p>
       </div>
       <button class="console-action" type="button" data-prd-style-cancel>Close</button>
     </div>
@@ -3843,7 +3843,7 @@
     </div>
     <div class="prd-style-actions">
       <button class="console-action" type="button" data-prd-style-cancel>Cancel</button>
-      <button class="console-action is-primary" type="button" data-prd-style-confirm>Request 3D tour</button>
+      <button class="console-action is-primary" type="button" data-prd-style-confirm>Continue</button>
     </div>
   </div>
 </dialog>
@@ -3908,11 +3908,13 @@
     settleVisualStyleChoice(null);
   });
   const chooseVisualStyleForRequest = (requestKind) => {
-    if (String(requestKind || '').trim().toLowerCase() !== 'tour') return Promise.resolve(null);
+    const normalizedKind = String(requestKind || '').trim().toLowerCase();
+    if (!['tour', 'flythrough'].includes(normalizedKind)) return Promise.resolve(null);
     if (!visualStyleOptions.length) return Promise.resolve(selectedVisualStyle);
     if (!visualStyleDialog || typeof visualStyleDialog.showModal !== 'function') {
       return Promise.resolve(selectedVisualStyle);
     }
+    if (visualStyleConfirm) visualStyleConfirm.textContent = normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour';
     syncVisualStyleOptions();
     if (pendingVisualStyleResolver) settleVisualStyleChoice(null);
     return new Promise((resolve) => {
@@ -4180,8 +4182,8 @@
         return;
       }
       const visualStyleChoice = await chooseVisualStyleForRequest(requestKind);
-      if (requestKind === 'tour' && !visualStyleChoice) return;
-      const dioramaStyleHint = requestKind === 'tour'
+      if (['tour', 'flythrough'].includes(requestKind) && !visualStyleChoice) return;
+      const dioramaStyleHint = ['tour', 'flythrough'].includes(requestKind)
         ? String(visualStyleChoice?.prompt || visualStyleChoice?.value || '').trim()
         : '';
       const original = button.textContent || (isWalkthroughRequest ? 'Request walkthrough' : 'Request 3D tour');

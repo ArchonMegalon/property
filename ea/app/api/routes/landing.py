@@ -3549,16 +3549,24 @@ def property_billing_commercial_lane() -> HTMLResponse:
 @router.get("/app/api/property/billing/bridge-launch", include_in_schema=False, response_class=HTMLResponse)
 def property_billing_bridge_launch(
     request: Request,
+    container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
     if not (context.authenticated or context.principal_id):
         return RedirectResponse("/sign-in?current_session=missing", status_code=303)
+    plan_key = ""
+    with contextlib.suppress(Exception):
+        status = container.onboarding.status(principal_id=context.principal_id)
+        preferences = dict(status.get("property_search_preferences") or {})
+        commercial = dict(preferences.get("property_commercial") or {})
+        plan_key = str(commercial.get("active_plan_key") or commercial.get("plan_key") or "").strip()
     member_token_receipt = brilliant_directories_service.build_brilliant_directories_member_login_token_receipt()
     if member_token_receipt.get("ready"):
         try:
             login_url = brilliant_directories_service.build_brilliant_directories_member_login_token_handoff_url(
                 principal_id=context.principal_id,
                 access_email=context.access_email,
+                plan_key=plan_key,
             )
         except RuntimeError:
             login_url = ""
@@ -3572,6 +3580,7 @@ def property_billing_bridge_launch(
             principal_id=context.principal_id,
             access_email=context.access_email,
             return_to=str(request.query_params.get("return_to") or "/app/account").strip() or "/app/account",
+            plan_key=plan_key,
         )
     except RuntimeError:
         return RedirectResponse(_property_billing_fallback_href(), status_code=303)
@@ -5456,9 +5465,7 @@ def property_research_packet(
         "followup_status_endpoint_template": "/app/api/property-feedback/__FEEDBACK_ID__/followup-status",
     }
     review_page_neuronwriter = dict(candidate.get("review_page_neuronwriter") or {})
-    research_visual_default_style = str(
-        preferences.get("furniture_style") or PROPERTY_FURNITURE_STYLE_CATALOG[0]["value"]
-    ).strip() or PROPERTY_FURNITURE_STYLE_CATALOG[0]["value"]
+    research_visual_default_style = str(PROPERTY_FURNITURE_STYLE_CATALOG[0]["value"]).strip() or "warm_scandi"
     research_visual_priority_queue_active = str(commercial.get("current_plan_key") or "").strip().lower() in {"plus", "agent"}
     research_snapshot = build_property_research_packet_snapshot(
         title=display_title,

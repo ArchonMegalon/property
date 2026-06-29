@@ -78,7 +78,7 @@ def build_furniture_style_contract_receipt() -> dict[str, object]:
         "plan_caps": {"free": 5, "plus": 5, "agent": 5},
         "failure_count": len(failures),
         "failures": failures,
-        "note": "Verifies furniture-style catalog, request-time 3D-tour style choice, UI handoff, and style-aware rendered-scene cache reuse.",
+        "note": "Verifies furniture-style catalog, request-time 3D-tour and walkthrough style choice, UI handoff, and style-aware rendered-scene cache reuse.",
     }
 
 

@@ -276,6 +276,7 @@ def test_brilliant_directories_billing_sso_bridge_token_round_trip(monkeypatch: 
         principal_id="exec-bd-sso",
         access_email="TROGER.VIENNA@GMAIL.COM",
         return_to="/app/billing",
+        plan_key="agency_tier_lifetime",
         issued_at=1_717_200_000,
         bridge_url="https://billing.propertyquarry.com/sso/propertyquarry",
     )
@@ -287,6 +288,7 @@ def test_brilliant_directories_billing_sso_bridge_token_round_trip(monkeypatch: 
 
     assert payload["principal_id"] == "exec-bd-sso"
     assert payload["access_email"] == "troger.vienna@gmail.com"
+    assert payload["plan_key"] == "agent"
     assert payload["return_to_origin"] == "https://propertyquarry.com"
     assert payload["return_to"] == "/app/billing"
     assert payload["issued_at"] == 1_717_200_000
@@ -987,6 +989,16 @@ def test_property_billing_bridge_launch_redirects_when_sso_bridge_is_ready(monke
     )
     client = build_property_client(principal_id="exec-bd-billing-sso-launch")
     start_workspace(client, mode="personal", workspace_name="BD Billing SSO Launch")
+    client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            }
+        },
+    )
 
     response = client.get(
         "/app/api/property/billing/bridge-launch?return_to=/app/billing",
@@ -1001,6 +1013,8 @@ def test_property_billing_bridge_launch_redirects_when_sso_bridge_is_ready(monke
     assert parsed.path == "/sso/propertyquarry"
     assert query.get("source") == ["propertyquarry"]
     assert query.get("pq_bridge")
+    payload = verify_brilliant_directories_billing_sso_bridge_token(query["pq_bridge"][0])
+    assert payload["plan_key"] == "agent"
 
 
 def test_property_billing_bridge_launch_uses_sso_bridge_when_direct_handoff_requires_separate_login(
@@ -1058,6 +1072,7 @@ def test_property_billing_bridge_launch_redirects_with_member_login_token_handof
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_env(monkeypatch)
+    observed: dict[str, object] = {}
     monkeypatch.setattr(
         "app.api.routes.landing.brilliant_directories_service.build_brilliant_directories_member_login_token_receipt",
         lambda: {
@@ -1071,10 +1086,21 @@ def test_property_billing_bridge_launch_redirects_with_member_login_token_handof
     )
     monkeypatch.setattr(
         "app.api.routes.landing.brilliant_directories_service.build_brilliant_directories_member_login_token_handoff_url",
-        lambda **kwargs: "https://billing.propertyquarry.com/login/token/abcdef1234567890abcdef1234567890/account",
+        lambda **kwargs: observed.update(kwargs)
+        or "https://billing.propertyquarry.com/login/token/abcdef1234567890abcdef1234567890/account",
     )
     client = build_property_client(principal_id="cf-email:tibor@example.com")
     start_workspace(client, mode="personal", workspace_name="BD Billing Member Launch")
+    client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            }
+        },
+    )
 
     response = client.get(
         "/app/api/property/billing/bridge-launch",
@@ -1083,6 +1109,7 @@ def test_property_billing_bridge_launch_redirects_with_member_login_token_handof
     )
 
     assert response.status_code == 303
+    assert observed["plan_key"] == "agent"
     assert response.headers["location"] == "https://billing.propertyquarry.com/login/token/abcdef1234567890abcdef1234567890/account"
 
 
@@ -1124,6 +1151,7 @@ def test_brilliant_directories_member_login_token_handoff_updates_existing_membe
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET", "bridge-secret")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID", "5")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID_AGENT", "9")
 
     class _MemberSessionOpener:
         def __init__(self) -> None:
@@ -1142,6 +1170,7 @@ def test_brilliant_directories_member_login_token_handoff_updates_existing_membe
     opener = _MemberSessionOpener()
     handoff_url = build_brilliant_directories_member_login_token_handoff_url(
         principal_id="cf-email:tibor@example.com",
+        plan_key="agent",
         opener=opener,
     )
 
@@ -1158,6 +1187,7 @@ def test_brilliant_directories_member_login_token_handoff_updates_existing_membe
     update_body = (update_request.data or b"").decode("utf-8")
     assert "user_id=42" in update_body
     assert "active=2" in update_body
+    assert "subscription_id=9" in update_body
     assert "token=" in update_body
 
 
@@ -1174,6 +1204,7 @@ def test_brilliant_directories_member_login_token_handoff_creates_member_with_en
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET", "bridge-secret")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID", "5")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID_AGENT", "9")
 
     class _MemberCreateOpener:
         def __init__(self) -> None:
@@ -1192,6 +1223,7 @@ def test_brilliant_directories_member_login_token_handoff_creates_member_with_en
         principal_id="cf-email:new@example.com",
         access_email="new@example.com",
         display_name="New User",
+        plan_key="agent",
         opener=opener,
     )
 
@@ -1200,7 +1232,7 @@ def test_brilliant_directories_member_login_token_handoff_creates_member_with_en
     assert create_request.full_url == "https://directory.propertyquarry.com/api/v2/user/create"
     create_body = (create_request.data or b"").decode("utf-8")
     assert "email=new%40example.com" in create_body
-    assert "subscription_id=5" in create_body
+    assert "subscription_id=9" in create_body
     assert "active=2" in create_body
     assert "token=" in create_body
 
@@ -1604,6 +1636,7 @@ def test_billing_handoff_worker_rewrites_join_to_propertyquarry_pricing() -> Non
     )
 
     assert "incoming.pathname === '/join' || incoming.pathname === '/join/'" in source
+    assert "incoming.pathname === '/account/upgrade' || incoming.pathname === '/account/upgrade/'" in source
     assert "'x-pq-billing-worker-branch': 'pricing-redirect'" in source
     assert "status: 302" in source
     assert '"https://propertyquarry.com/pricing"' in source
@@ -1661,6 +1694,12 @@ def test_billing_handoff_worker_scrubs_score_filter_noise_from_proxied_html() ->
         pricing_url="https://propertyquarry.com/pricing",
     )
 
+    assert "billingSkinStyles" in source
+    assert "pq-billing-skin" in source
+    assert "PropertyQuarry billing" in source
+    assert "planLabel" in source
+    assert "bridgeContext && incoming.pathname === '/account'" in source
+    assert "injectBillingSkin(scrubCustomerFacingBillingNoise" in source
     assert "scrubCustomerFacingBillingNoise" in source
     assert "billingNoiseCleanupScript" in source
     assert "encodedBillingNoiseRules" in source
