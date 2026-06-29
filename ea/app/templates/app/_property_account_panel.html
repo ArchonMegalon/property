@@ -187,7 +187,7 @@
           <div class="pqx-account-channel-detail" data-channel-detail="whatsapp">
             <label for="whatsappAiSupportPhone">WhatsApp number</label>
             <input id="whatsappAiSupportPhone" type="tel" inputmode="tel" autocomplete="tel" name="whatsapp_ai_support_phone" value="{{ whatsapp_ai_support_phone }}" placeholder="+436641234567" aria-describedby="whatsappAiSupportCopy">
-            <span id="whatsappAiSupportCopy">Used for WhatsApp alerts, handoff, and support.</span>
+            <span id="whatsappAiSupportCopy">Used for WhatsApp alerts and support replies.</span>
           </div>
           <button class="pqx-link-button primary" type="submit">Save notification routing</button>
         </form>
@@ -238,7 +238,7 @@
           <div>
             <strong>Access links</strong>
             <small>{{ (access_links.get('active_total') or 0) }} active · {{ (access_links.get('revoked_total') or 0) }} revoked.</small>
-            <small>Issue clean account or collaborator access without leaving the account loop.</small>
+            <small>Create account or collaborator links without leaving this page.</small>
             {% if access_status_note %}<small>{{ access_status_note }}</small>{% endif %}
             {% for row in access_links.get('rows') or [] %}
             <small>{{ row.get('email') }} · {{ row.get('role_label') }}{% if row.get('expires_at') %} · expires {{ row.get('expires_at')[:19] }}{% endif %}</small>
