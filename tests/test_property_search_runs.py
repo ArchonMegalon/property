@@ -13900,6 +13900,114 @@ def test_property_search_run_status_keeps_wrong_country_candidate_old_after_size
     assert summary["ranked_total"] == 0
 
 
+def test_property_search_run_status_keeps_country_scope_change_old_even_with_relaxed_size(monkeypatch) -> None:
+    current_preferences = {
+        "country_code": "AT",
+        "region_code": "vienna",
+        "listing_mode": "rent",
+        "location_query": "1020 Vienna",
+        "selected_locations": ["1020 Vienna"],
+        "property_type": "apartment",
+        "selected_platforms": ["willhaben"],
+        "min_area_m2": 60,
+    }
+    candidate = {
+        "title": "Costa Rica apartment",
+        "property_url": "https://example.cr/listing/country-scope-stale",
+        "fit_score": 72,
+        "status": "filtered",
+        "filter_status": "hard_filtered",
+        "hard_filter_reason": "min_area_m2",
+        "property_facts": {
+            "postal_name": "Monteverde",
+            "property_type": "apartment",
+            "area_sqm": 65,
+            "monthly_rent_eur": 1200,
+            "country_code": "CR",
+        },
+    }
+
+    snapshot = _property_search_revalidation_status_for_candidate(
+        monkeypatch,
+        principal_id="exec-property-country-scope-old-run",
+        workspace_name="Country Scope Old Run Office",
+        run_id="run-country-scope-old-regression",
+        current_preferences=current_preferences,
+        run_preferences={
+            **current_preferences,
+            "country_code": "CR",
+            "region_code": "puntarenas",
+            "location_query": "Monteverde",
+            "selected_locations": ["Monteverde"],
+            "selected_platforms": ["encuentra24_cr"],
+            "min_area_m2": 80,
+        },
+        candidate=candidate,
+    )
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    assert snapshot["brief_preferences_stale"] is True
+    assert snapshot["stale_run_snapshot"] is True
+    assert summary["brief_snapshot_status"] == "old_run"
+    assert "country_code" in summary["brief_stale_changed_keys"]
+    assert summary["previous_filtered_total"] == 1
+    assert summary["filtered_total"] == 0
+    assert summary["ranked_total"] == 0
+
+
+def test_property_search_run_status_keeps_provider_scope_change_old_even_with_relaxed_budget(monkeypatch) -> None:
+    current_preferences = {
+        "country_code": "AT",
+        "region_code": "vienna",
+        "listing_mode": "rent",
+        "location_query": "1020 Vienna",
+        "selected_locations": ["1020 Vienna"],
+        "property_type": "apartment",
+        "selected_platforms": ["willhaben"],
+        "max_price_eur": 1800,
+    }
+    candidate = {
+        "title": "Leopoldstadt apartment from old provider scope",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/provider-scope-stale/",
+        "fit_score": 72,
+        "status": "filtered",
+        "filter_status": "hard_filtered",
+        "hard_filter_reason": "price_above_budget",
+        "property_facts": {
+            "postal_name": "1020 Wien",
+            "property_type": "apartment",
+            "area_sqm": 65,
+            "total_rent_eur": 1500,
+            "country_code": "AT",
+        },
+    }
+
+    snapshot = _property_search_revalidation_status_for_candidate(
+        monkeypatch,
+        principal_id="exec-property-provider-scope-old-run",
+        workspace_name="Provider Scope Old Run Office",
+        run_id="run-provider-scope-old-regression",
+        current_preferences=current_preferences,
+        run_preferences={
+            **current_preferences,
+            "selected_platforms": ["remax_at"],
+            "max_price_eur": 1200,
+        },
+        candidate=candidate,
+    )
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    assert snapshot["brief_preferences_stale"] is True
+    assert snapshot["stale_run_snapshot"] is True
+    assert summary["brief_snapshot_status"] == "old_run"
+    assert "selected_platforms" in summary["brief_stale_changed_keys"]
+    assert summary["previous_filtered_total"] == 1
+    assert summary["filtered_total"] == 0
+    assert summary["ranked_total"] == 0
+
+
 def test_property_search_run_rejects_saved_out_of_scope_country_preferences(monkeypatch) -> None:
     principal_id = "exec-property-search-country-defaults"
     client = build_property_client(principal_id=principal_id)
