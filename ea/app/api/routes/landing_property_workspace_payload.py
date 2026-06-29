@@ -455,6 +455,72 @@ def _property_provider_total(source_rows: list[dict[str, object]]) -> int:
     return len(provider_keys)
 
 
+def _property_source_scope_mismatch_notice(
+    *,
+    preferences: dict[str, object],
+    run_summary: dict[str, object],
+    source_rows: list[dict[str, object]],
+) -> dict[str, object]:
+    if not bool(preferences.get("full_region_scope")):
+        return {}
+    target_label = str(preferences.get("location_query") or "").strip()
+    if not target_label:
+        return {}
+
+    def _scope_key(value: object) -> str:
+        normalized = re.sub(r"\s+", " ", str(value or "").strip().lower())
+        if normalized in {"wien", "vienna"}:
+            return "vienna"
+        return normalized
+
+    target_key = _scope_key(target_label)
+    if not target_key:
+        return {}
+    source_locations: list[str] = []
+    for source in source_rows:
+        pushdown = dict(source.get("provider_filter_pushdown") or {}) if isinstance(source.get("provider_filter_pushdown"), dict) else {}
+        for bucket_name in ("applied", "requested", "attempted"):
+            bucket = dict(pushdown.get(bucket_name) or {}) if isinstance(pushdown.get(bucket_name), dict) else {}
+            location = str(bucket.get("location_query") or "").strip()
+            if location and location not in source_locations:
+                source_locations.append(location)
+        source_location = str(source.get("location_query") or "").strip()
+        if source_location and source_location not in source_locations:
+            source_locations.append(source_location)
+    mismatched_locations = [
+        location
+        for location in source_locations
+        if _scope_key(location)
+        and _scope_key(location) != target_key
+        and not (
+            re.search(r"\b[1-9]\d{3,4}\b", target_key)
+            and _scope_key(location) in target_key
+        )
+    ]
+    if not mismatched_locations:
+        return {}
+    try:
+        previous_total = max(
+            int(float(run_summary.get("filtered_total") or 0)),
+            int(float(run_summary.get("held_back_total") or 0)),
+        )
+    except Exception:
+        previous_total = 0
+    checked_label = ", ".join(mismatched_locations[:3])
+    return {
+        "title": "Run used an older area",
+        "rule_key": "Brief scope changed",
+        "detail": (
+            f"This run checked {checked_label}. Your current brief is {target_label}. "
+            "Start an updated search so the results are fetched with the current area."
+        ),
+        "tag": "Updated brief",
+        "affected_total": 0,
+        "previous_filtered_total": previous_total,
+        "action_label": "Start updated search",
+    }
+
+
 def property_workspace_payload(
     section: str,
     *,
@@ -761,6 +827,36 @@ def property_workspace_payload(
     run_payload_for_surface = {**run_payload, "summary": run_summary_for_surface} if management_surface else run_payload
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
     raw_run_sources = [dict(row) for row in list(raw_run_summary.get("sources") or []) if isinstance(row, dict)]
+    source_scope_mismatch_notice = _property_source_scope_mismatch_notice(
+        preferences=property_preferences,
+        run_summary=run_summary,
+        source_rows=run_sources,
+    )
+    if source_scope_mismatch_notice:
+        stale_scope_message = str(source_scope_mismatch_notice.get("detail") or "").strip()
+        run_summary = {
+            **run_summary,
+            "brief_scope_mismatch": dict(source_scope_mismatch_notice),
+            "previous_filtered_total": source_scope_mismatch_notice.get("previous_filtered_total") or 0,
+            "filtered_total": 0,
+            "held_back_total": 0,
+        }
+        run_payload = {
+            **run_payload,
+            "summary": run_summary,
+            "message": stale_scope_message or str(run_payload.get("message") or "").strip(),
+        }
+        run_health = {
+            **run_health,
+            "filtered_total": 0,
+            "held_back_total": 0,
+            "message": stale_scope_message or str(run_health.get("message") or "").strip(),
+            "status_note": stale_scope_message or str(run_health.get("status_note") or "").strip(),
+        }
+        run_summary_for_surface = _management_safe_run_summary(run_summary) if management_surface else run_summary
+        run_payload_for_surface = {**run_payload_for_surface, "summary": run_summary_for_surface}
+        if stale_scope_message:
+            run_payload_for_surface["message"] = stale_scope_message
     ranked_candidates = [
         {**dict(candidate), "_active_run_ranked": True}
         for candidate in list(raw_run_summary.get("ranked_candidates") or [])
@@ -919,20 +1015,25 @@ def property_workspace_payload(
         or str(raw_run_summary.get("location_query") or "").strip()
     )
     review_scope_locations = selected_locations if run_has_explicit_scope_context else []
-    suppression_rows = _property_suppression_rows(
-        run_summary=run_summary,
-        source_rows=run_sources,
-        preferences=property_preferences,
-        include_soft=False,
-    )
-    counterfactual_rows = _property_counterfactual_rows(
-        preferences=property_preferences,
-        raw_preferences=dict(property_state.get("raw_preferences") or {}),
-        run_summary=run_summary,
-        provider_options=provider_options,
-        current_platform_cap=current_platform_cap,
-        currency_code=workspace_currency_code,
-    )
+    if source_scope_mismatch_notice:
+        stale_scope_action = {**dict(source_scope_mismatch_notice), "adjustments": {}}
+        suppression_rows = [dict(source_scope_mismatch_notice)]
+        counterfactual_rows = [stale_scope_action]
+    else:
+        suppression_rows = _property_suppression_rows(
+            run_summary=run_summary,
+            source_rows=run_sources,
+            preferences=property_preferences,
+            include_soft=False,
+        )
+        counterfactual_rows = _property_counterfactual_rows(
+            preferences=property_preferences,
+            raw_preferences=dict(property_state.get("raw_preferences") or {}),
+            run_summary=run_summary,
+            provider_options=provider_options,
+            current_platform_cap=current_platform_cap,
+            currency_code=workspace_currency_code,
+        )
     delivery_proof_rows = _delivery_proof_rows(run_summary)
     artifact_receipt_rows = _artifact_receipt_rows(run_summary)
     selected_candidate_ref = str(property_state.get("selected_candidate_ref") or "").strip()

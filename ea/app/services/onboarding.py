@@ -2291,6 +2291,11 @@ class OnboardingService(AssistantOnboardingService):
         country_code = normalize_country_code(raw.get("country_code") or base.get("country_code"))
         region_code = str(raw.get("region_code") or base.get("region_code") or "").strip().lower()
         location_query = str(raw.get("location_query") or base.get("location_query") or "").strip()
+        raw_full_region_scope = raw.get("full_region_scope", base.get("full_region_scope"))
+        full_region_scope = (
+            raw_full_region_scope is True
+            or str(raw_full_region_scope or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+        )
         listing_mode = normalize_listing_mode(raw.get("listing_mode") or base.get("listing_mode"))
         property_type = normalize_property_type_values(raw.get("property_type") or base.get("property_type"))
         raw_selected_location_values = (
@@ -2303,6 +2308,8 @@ class OnboardingService(AssistantOnboardingService):
             for normalized in dict.fromkeys(str(item or "").strip() for item in list(raw_selected_location_values or []))
             if normalized
         ]
+        if full_region_scope:
+            selected_location_values = []
         try:
             duration_days = max(7, min(365, int(float(str(raw.get("duration_days") or raw.get("search_agent_duration_days") or base.get("search_agent_duration_days") or 30).strip()))))
         except Exception:
@@ -2365,6 +2372,7 @@ class OnboardingService(AssistantOnboardingService):
                 "region_code": region_code,
                 "location_query": location_query,
                 "selected_location_values": selected_location_values,
+                "full_region_scope": full_region_scope,
                 "listing_mode": listing_mode,
                 "property_type": property_type,
                 "selected_platforms": selected_platforms,
@@ -2383,6 +2391,7 @@ class OnboardingService(AssistantOnboardingService):
             "region_code": region_code,
             "location_query": location_query,
             "selected_location_values": selected_location_values,
+            "full_region_scope": full_region_scope,
             "listing_mode": listing_mode,
             "property_type": property_type,
             "selected_platforms": selected_platforms,

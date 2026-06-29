@@ -880,6 +880,46 @@ def test_property_search_preferences_drop_removed_match_bar_from_saved_preferenc
     assert "min_match_score" not in normalized["search_agents"][0]["preferences_json"]
 
 
+def test_property_search_agent_full_region_scope_drops_stale_selected_locations() -> None:
+    normalized = OnboardingService._normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "full_region_scope": True,
+            "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+            "selected_platforms": ["willhaben"],
+            "search_agent_enabled": True,
+            "search_agents": [
+                {
+                    "agent_id": "agent-vienna",
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "Vienna",
+                    "full_region_scope": True,
+                    "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+                    "selected_platforms": ["willhaben"],
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "Vienna",
+                        "full_region_scope": True,
+                        "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+                        "selected_platforms": ["willhaben"],
+                    },
+                }
+            ],
+        }
+    )
+
+    assert normalized["selected_location_values"] == []
+    agent = normalized["search_agents"][0]
+    assert agent["full_region_scope"] is True
+    assert agent["selected_location_values"] == []
+    assert agent["preferences_json"]["full_region_scope"] is True
+    assert agent["preferences_json"]["selected_location_values"] == []
+
+
 def test_property_search_preferences_recover_paid_commercial_state_from_teable(monkeypatch) -> None:
     principal_id = "pq-teable-restore"
     client = build_property_client(principal_id=principal_id)

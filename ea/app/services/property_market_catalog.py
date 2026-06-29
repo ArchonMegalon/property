@@ -3788,6 +3788,9 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload["custom_location_query"] = raw_custom_location_query
     if payload["full_region_scope"] and not payload["location_query"] and payload["region_code"]:
         payload["location_query"] = region_label_for_country_region(payload["country_code"], payload["region_code"])
+    if payload["full_region_scope"]:
+        payload["selected_location_values"] = []
+        payload["selected_districts"] = []
     payload["keywords"] = str(payload.get("keywords") or "").strip()
     payload["avoid_keywords"] = str(payload.get("avoid_keywords") or "").strip()
     payload["keyword_preferences"] = _normalize_keyword_preferences(payload.get("keyword_preferences"))
@@ -4524,6 +4527,8 @@ def _location_query_variants(value: str) -> tuple[str, ...]:
 
 
 def _explicit_location_query_variants(preferences: dict[str, object]) -> tuple[str, ...]:
+    if bool(preferences.get("full_region_scope")):
+        return ()
     for key in ("selected_location_values", "selected_districts"):
         raw_values = preferences.get(key)
         if not isinstance(raw_values, (list, tuple, set)):

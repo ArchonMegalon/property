@@ -4247,6 +4247,77 @@ def test_property_workspace_payload_prefers_run_plan_for_live_run_brief() -> Non
     assert worker_state["visible_workers"] == 4
 
 
+def test_property_workspace_payload_marks_full_region_run_with_stale_district_source_scope() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Scope Guard Office"}, "channels": {}},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "listing_mode": "rent",
+                "location_query": "Vienna",
+                "full_region_scope": True,
+                "selected_location_values": [],
+                "selected_platforms": ["willhaben"],
+            },
+            "run": {
+                "run_id": "run-stale-scope",
+                "status": "processed",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "listing_mode": "rent",
+                    "location_query": "Vienna",
+                    "full_region_scope": True,
+                    "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+                    "selected_platforms": ["willhaben"],
+                },
+                "summary": {
+                    "status": "processed",
+                    "filtered_total": 20,
+                    "held_back_total": 20,
+                    "sources": [
+                        {
+                            "source_label": "Willhaben",
+                            "provider_filter_pushdown": {
+                                "applied": {"location_query": "1010 Vienna"},
+                                "requested": {"location_query": "1010 Vienna"},
+                            },
+                            "filtered_area_total": 9,
+                            "filtered_generic_page_total": 1,
+                        }
+                    ],
+                },
+            },
+            "run_health": {
+                "status": "processed",
+                "status_label": "Completed",
+                "filtered_total": 20,
+                "held_back_total": 20,
+            },
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    workbench = dict(payload["decision_workbench"])
+    run = dict(workbench["run"])
+    run_summary = dict(run["summary"])
+    counterfactual = dict(workbench["counterfactual_rows"][0])
+
+    assert run["filtered_total"] == 0
+    assert run["held_back_total"] == 0
+    assert "This run checked 1010 Vienna" in run["message"]
+    assert run_summary["previous_filtered_total"] == 20
+    assert run_summary["brief_scope_mismatch"]["title"] == "Run used an older area"
+    assert "1010 Vienna" in counterfactual["detail"]
+    assert "Your current brief is Vienna" in counterfactual["detail"]
+    assert counterfactual["adjustments"] == {}
+
+
 def test_property_workspace_payload_running_properties_highlight_uses_homes_checked_label() -> None:
     payload = landing_property_workspace_payload.property_workspace_payload(
         "properties",
