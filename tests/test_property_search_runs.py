@@ -5311,10 +5311,14 @@ def test_scheduler_property_results_finalize_processes_provider_repair_tasks(mon
     monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=lambda *args, **kwargs: None))
     app_runner = importlib.import_module("app.runner")
     monkeypatch.setattr(app_runner, "_scheduler_property_scout_principal_ids", lambda container: (principal_id,))
+    reconcile_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         ProductService,
         "reconcile_property_search_results_delivery",
-        lambda self, limit=40: {"attempted": 0, "finalized": 0, "emailed": 0, "pending": 0},
+        lambda self, limit=40, allow_notifications=True: reconcile_calls.append(
+            {"limit": limit, "allow_notifications": allow_notifications}
+        )
+        or {"attempted": 0, "finalized": 0, "emailed": 0, "pending": 0},
     )
     monkeypatch.setattr(
         ProductService,
@@ -5329,6 +5333,7 @@ def test_scheduler_property_results_finalize_processes_provider_repair_tasks(mon
 
     summary = app_runner._run_scheduler_property_results_finalize(client.app.state.container, SimpleNamespace(exception=lambda *a, **k: None))
 
+    assert reconcile_calls == [{"limit": 40, "allow_notifications": False}]
     assert summary["repair_resolved_total"] == 1
     assert summary["repair_deferred_total"] == 2
 
@@ -11315,20 +11320,24 @@ def test_property_search_results_ready_email_waits_for_tour_completion(monkeypat
 
     poll_state = {"calls": 0}
 
-    def _fake_latest_property_tour_event(self, *, principal_id: str, source_ref: str, property_url: str = ""):  # type: ignore[no-untyped-def]
+    def _fake_recent_observations(limit: int = 1000, principal_id: str = "") -> list[object]:
         poll_state["calls"] += 1
         if poll_state["calls"] < 2:
-            return None
-        return {
-            "event_type": "generic_property_tour_created",
-            "payload": {
-                "tour_url": "https://propertyquarry.com/tours/final-tour",
-                "vendor_tour_url": "https://vendor.example/tour",
-            },
-            "created_at": product_service._now_iso(),
-        }
+            return []
+        return [
+            SimpleNamespace(
+                channel="product",
+                event_type="generic_property_tour_created",
+                source_id="property-scout:test-1",
+                payload={
+                    "tour_url": "https://propertyquarry.com/tours/final-tour",
+                    "vendor_tour_url": "https://vendor.example/tour",
+                },
+                created_at=product_service._now_iso(),
+            )
+        ]
 
-    monkeypatch.setattr(ProductService, "_latest_property_tour_event", _fake_latest_property_tour_event)
+    monkeypatch.setattr(client.app.state.container.channel_runtime, "list_recent_observations", _fake_recent_observations)
 
     service = product_service.build_product_service(client.app.state.container)
     result = {
@@ -11360,6 +11369,64 @@ def test_property_search_results_ready_email_waits_for_tour_completion(monkeypat
 
     assert sent
     assert sent[0]["hosted_tour_total"] == 1
+
+
+def test_property_search_results_delivery_refresh_batches_tour_observation_lookup() -> None:
+    service = ProductService.__new__(ProductService)
+
+    class _Runtime:
+        calls = 0
+
+        def list_recent_observations(self, limit: int = 1000, principal_id: str = "") -> list[object]:
+            self.calls += 1
+            return [
+                SimpleNamespace(
+                    channel="product",
+                    event_type="generic_property_tour_created",
+                    source_id="source-1",
+                    payload={
+                        "property_url": "https://example.test/flat-1",
+                        "tour_url": "https://propertyquarry.com/tours/flat-1",
+                        "vendor_tour_url": "https://vendor.example/flat-1",
+                    },
+                    created_at=product_service._now_iso(),
+                )
+            ]
+
+    runtime = _Runtime()
+    service._container = SimpleNamespace(channel_runtime=runtime)
+
+    refreshed = service._refresh_property_search_results_delivery_state(
+        principal_id="cf-email:batched-tour-refresh@example.com",
+        result={
+            "sources": [
+                {
+                    "source_label": "Source",
+                    "top_candidates": [
+                        {
+                            "source_ref": "source-1",
+                            "property_url": "https://example.test/flat-1",
+                            "tour_status": "queued",
+                            "property_facts": {"has_360": True},
+                        },
+                        {
+                            "source_ref": "source-2",
+                            "property_url": "https://example.test/flat-2",
+                            "tour_status": "queued",
+                            "property_facts": {"has_360": True},
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert runtime.calls == 1
+    assert refreshed["ready_tour_total"] == 1
+    assert refreshed["pending_tour_total"] == 1
+    candidates = refreshed["sources"][0]["top_candidates"]
+    assert candidates[0]["tour_url"] == "https://propertyquarry.com/tours/flat-1"
+    assert candidates[1].get("tour_url") in {"", None}
 
 
 def test_property_search_run_status_snapshot_finishes_results_email_after_restart(monkeypatch) -> None:
@@ -11412,13 +11479,17 @@ def test_property_search_run_status_snapshot_finishes_results_email_after_restar
     product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
 
     monkeypatch.setattr(
-        ProductService,
-        "_latest_property_tour_event",
-        lambda self, *, principal_id, source_ref, property_url="": {
-            "event_type": "generic_property_tour_created",
-            "payload": {"tour_url": "https://propertyquarry.com/tours/recovered-tour"},
-            "created_at": product_service._now_iso(),
-        },
+        container.channel_runtime,
+        "list_recent_observations",
+        lambda limit=1000, principal_id="": [
+            SimpleNamespace(
+                channel="product",
+                event_type="generic_property_tour_created",
+                source_id="property-scout:test-2",
+                payload={"tour_url": "https://propertyquarry.com/tours/recovered-tour"},
+                created_at=product_service._now_iso(),
+            )
+        ],
     )
 
     status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
@@ -13823,6 +13894,9 @@ def test_property_search_run_lightweight_listing_strips_source_payloads(monkeypa
     assert summary["ranked_candidates"] == [{"candidate_ref": "ranked-1", "title": "Kept"}]
     assert summary["sources"] == [
         {
+            "listing_total": 1,
+            "reviewed_listing_total": 1,
+            "scanned_listing_total": 1,
             "source_label": "Willhaben",
         }
     ]
@@ -14305,6 +14379,8 @@ def test_property_search_run_schema_ready_does_not_backfill_existing_compact_col
             if "FROM pg_class c" in last_sql and self.last_params in (
                 ("idx_property_search_runs_updated",),
                 ("idx_property_search_runs_principal_updated",),
+                ("idx_property_search_runs_status_updated",),
+                ("idx_property_search_runs_principal_status_updated",),
             ):
                 return (1,)
             return None
@@ -14428,6 +14504,8 @@ def test_property_search_storage_schema_check_enforces_tenant_primary_key() -> N
     source = Path("scripts/check_property_search_storage_schema.py").read_text(encoding="utf-8")
 
     assert "idx_property_search_runs_principal_updated" in source
+    assert "idx_property_search_runs_status_updated" in source
+    assert "idx_property_search_runs_principal_status_updated" in source
     assert "_check_source_contracts()" in source
     assert "ON CONFLICT (principal_id, run_id) DO UPDATE" in source
     assert "payload_retention_status" in source
@@ -14438,6 +14516,7 @@ def test_property_search_storage_schema_check_enforces_tenant_primary_key() -> N
     assert "if not normalized_principal_id and not admin:" in source
     assert "run_primary_key != (\"principal_id\", \"run_id\")" in source
     assert "invalid_primary_key:property_search_runs" in source
+    assert "(payload_json->>'status') = ANY(%s)" in source
 
 
 def test_property_search_storage_schema_check_runs_source_contracts_without_database() -> None:

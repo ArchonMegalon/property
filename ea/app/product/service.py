@@ -32854,6 +32854,61 @@ class ProductService:
         result: dict[str, object],
     ) -> dict[str, object]:
         refreshed = dict(result or {})
+        wanted_tour_event_types = {
+            "willhaben_property_tour_created",
+            "willhaben_property_tour_email_sent",
+            "willhaben_property_tour_telegram_sent",
+            "willhaben_property_tour_delivery_failed",
+            "willhaben_property_tour_blocked",
+            "generic_property_tour_created",
+            "generic_property_tour_blocked",
+        }
+        tour_events_by_source: dict[str, list[dict[str, object]]] = {}
+        if list(refreshed.get("sources") or []):
+            try:
+                observations = self._container.channel_runtime.list_recent_observations(
+                    limit=_POCKET_SYNC_EVENT_LOOKBACK,
+                    principal_id=principal_id,
+                )
+            except Exception:
+                observations = []
+            for row in observations:
+                if str(getattr(row, "channel", "") or "").strip() != "product":
+                    continue
+                event_type = str(getattr(row, "event_type", "") or "").strip()
+                if event_type not in wanted_tour_event_types:
+                    continue
+                source_id = str(getattr(row, "source_id", "") or "").strip()
+                if not source_id:
+                    continue
+                tour_events_by_source.setdefault(source_id, []).append(
+                    {
+                        "event_type": event_type,
+                        "payload": dict(getattr(row, "payload", {}) or {}),
+                        "created_at": str(getattr(row, "created_at", "") or "").strip(),
+                    }
+                )
+
+        def _latest_tour_event_for_candidate(source_ref: str, property_url: str) -> dict[str, object] | None:
+            wanted_source = str(source_ref or "").strip()
+            if not wanted_source:
+                return None
+            wanted_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+            for event in tour_events_by_source.get(wanted_source, []):
+                payload = dict(event.get("payload") or {})
+                if wanted_property_url:
+                    payload_property_url = urllib.parse.urldefrag(str(payload.get("property_url") or "").strip())[0]
+                    if payload_property_url:
+                        if payload_property_url != wanted_property_url:
+                            continue
+                    else:
+                        source_url_candidate = urllib.parse.urldefrag(wanted_source)[0]
+                        parsed_source_url = urllib.parse.urlparse(source_url_candidate)
+                        if parsed_source_url.scheme and parsed_source_url.netloc and source_url_candidate != wanted_property_url:
+                            continue
+                return event
+            return None
+
         refreshed_sources: list[dict[str, object]] = []
         ready_total = 0
         pending_total = 0
@@ -32873,8 +32928,7 @@ class ProductService:
                 existing_status = str(candidate_row.get("tour_status") or "").strip().lower()
                 blocked_reason = str(candidate_row.get("blocked_reason") or "").strip()
                 if supports_tour and source_ref:
-                    latest_event = self._latest_property_tour_event(
-                        principal_id=principal_id,
+                    latest_event = _latest_tour_event_for_candidate(
                         source_ref=source_ref,
                         property_url=candidate_property_url,
                     )
@@ -34619,7 +34673,11 @@ class ProductService:
                 summary_updates=refreshed_summary,
                 force_status="processed",
             )
-            refreshed_state = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+            refreshed_state = self._snapshot_property_search_run(
+                run_id=run_id,
+                principal_id=principal_id,
+                allow_finalization_notifications=allow_notifications,
+            )
             if isinstance(refreshed_state, dict):
                 state = refreshed_state
             else:
@@ -36467,6 +36525,7 @@ class ProductService:
         *,
         principal_id: str = "",
         limit: int = 20,
+        allow_notifications: bool = True,
     ) -> dict[str, object]:
         normalized_principal = str(principal_id or "").strip()
         attempted = 0
@@ -36500,6 +36559,7 @@ class ProductService:
                 principal_id=state_principal,
                 run_id=run_id,
                 state=dict(state),
+                allow_notifications=allow_notifications,
             )
             pending_after = self._property_search_results_delivery_pending(result=dict(updated.get("summary") or {}))
             if pending_after:

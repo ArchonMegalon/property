@@ -1142,11 +1142,17 @@ def test_scheduler_actionable_nudge_delivery_sends_telegram_when_due(monkeypatch
 
 def test_scheduler_property_results_finalize_reconciles_ready_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = _load_runner_module(monkeypatch)
-    observed: list[int] = []
+    observed: list[dict[str, object]] = []
 
     class _FakeService:
-        def reconcile_property_search_results_delivery(self, *, principal_id: str = "", limit: int = 20):
-            observed.append(limit)
+        def reconcile_property_search_results_delivery(
+            self,
+            *,
+            principal_id: str = "",
+            limit: int = 20,
+            allow_notifications: bool = True,
+        ):
+            observed.append({"limit": limit, "allow_notifications": allow_notifications})
             return {"attempted": 2, "finalized": 1, "emailed": 1, "pending": 1}
 
     container = SimpleNamespace()
@@ -1167,5 +1173,7 @@ def test_scheduler_property_results_finalize_reconciles_ready_runs(monkeypatch: 
         "errors": 0,
         "repair_resolved_total": 0,
         "repair_deferred_total": 0,
+        "visual_followup_resolved_total": 0,
+        "visual_followup_failed_total": 0,
     }
-    assert observed == [40]
+    assert observed == [{"limit": 40, "allow_notifications": False}]

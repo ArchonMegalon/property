@@ -1114,7 +1114,7 @@ def _run_scheduler_property_results_finalize(container, log: logging.Logger) -> 
 
     service = build_product_service(container)
     try:
-        summary = service.reconcile_property_search_results_delivery(limit=40)
+        summary = service.reconcile_property_search_results_delivery(limit=40, allow_notifications=False)
     except Exception:
         log.exception("scheduler property results finalize failed")
         return {"ran": True, "attempted": 0, "finalized": 0, "emailed": 0, "pending": 0, "errors": 1}

@@ -25,6 +25,8 @@ def _check_source_contracts() -> None:
         "compact_only",
         "UPDATE property_search_runs AS runs",
         "COALESCE(NULLIF(compact_json, '{{}}'::jsonb)",
+        "idx_property_search_runs_status_updated",
+        "idx_property_search_runs_principal_status_updated",
         "if not normalized_principal_id and not admin:\n        return ()",
     )
     for fragment in required_storage_fragments:
@@ -36,6 +38,7 @@ def _check_source_contracts() -> None:
         "SET principal_id = EXCLUDED.principal_id",
         "SELECT payload_json FROM property_search_runs WHERE run_id = %s\"",
         "DELETE FROM property_search_runs WHERE run_id = %s\"",
+        "(payload_json->>'status') = ANY(%s)",
     )
     for fragment in forbidden_storage_fragments:
         if fragment in storage:
@@ -90,6 +93,10 @@ def main() -> int:
                 raise RuntimeError("missing_index:idx_property_search_runs_updated")
             if "idx_property_search_runs_principal_updated" not in run_indexes:
                 raise RuntimeError("missing_index:idx_property_search_runs_principal_updated")
+            if "idx_property_search_runs_status_updated" not in run_indexes:
+                raise RuntimeError("missing_index:idx_property_search_runs_status_updated")
+            if "idx_property_search_runs_principal_status_updated" not in run_indexes:
+                raise RuntimeError("missing_index:idx_property_search_runs_principal_status_updated")
 
             cur.execute(
                 """

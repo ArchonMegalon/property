@@ -742,6 +742,20 @@ def _ensure_property_search_run_schema() -> None:
                         ON property_search_runs(principal_id, updated_at DESC)
                         """
                     )
+                if not _property_search_run_index_exists(cur, "idx_property_search_runs_status_updated"):
+                    cur.execute(
+                        """
+                        CREATE INDEX idx_property_search_runs_status_updated
+                        ON property_search_runs(status, updated_at DESC)
+                        """
+                    )
+                if not _property_search_run_index_exists(cur, "idx_property_search_runs_principal_status_updated"):
+                    cur.execute(
+                        """
+                        CREATE INDEX idx_property_search_runs_principal_status_updated
+                        ON property_search_runs(principal_id, status, updated_at DESC)
+                        """
+                    )
                 if needs_compact_backfill:
                     cur.execute(
                         f"""
@@ -911,7 +925,7 @@ def _list_property_search_run_records(
         where_clauses.append("principal_id = %s")
         params.append(normalized_principal_id)
     if normalized_statuses:
-        where_clauses.append("status = ANY(%s)" if lightweight else "(payload_json->>'status') = ANY(%s)")
+        where_clauses.append("status = ANY(%s)")
         params.append(list(normalized_statuses))
     if where_clauses:
         query += " WHERE " + " AND ".join(where_clauses)
