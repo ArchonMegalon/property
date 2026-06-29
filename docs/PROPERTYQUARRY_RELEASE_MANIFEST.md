@@ -30,17 +30,20 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `d99be78a2846f86af5a275afc44f66fd9cc3508d` |
+| Runtime commit SHA | `9fce853eae41c784e620fd9185da8360bd737879` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current release candidate on 2026-06-29 after `d99be78a`, carrying the gold-gate audit pass, mobile/account notification polish, deploy-smoke `.env` identity resolution, Brilliant Directories chrome cleanup, and scene-video provider account hardening |
+| Deployment ID | current release candidate on 2026-06-29 after `9fce853e`, carrying the gold-gate audit pass, mobile/account notification polish, deploy-smoke `.env` identity resolution, Brilliant Directories chrome cleanup, scene-video provider account hardening, and search-radius map-preview correction |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
 The local audit pass on 2026-06-29 verified:
 
-- Commit `d99be78a` is the current runtime candidate for this repo audit.
+- Commit `9fce853e` is the current runtime candidate for this repo audit.
+- Search-area map previews now render the selected district polygon plus the saved adjacent-area radius in the red coverage overlay, so thumbnails no longer understate briefs that allow matches outside district borders.
+- Focused radius regressions passed in `tests/test_propertyquarry_workspace_redesign.py`; broader scope-preview and saved-search-agent regressions passed locally.
+- Paintit.ai provider-account metadata is synced into the private PropertyQuarry Teable base with secret env-key references only; the raw password remains in the untracked local secret layer.
 - `python3 scripts/propertyquarry_authenticated_performance_smoke.py --write _completion/smoke/property-auth-performance-latest.json` returned `status=pass`, `failed_count=0`, and verified warmed `/app/search`, `/app/properties`, `/app/account`, `/app/billing`, and settings surfaces under the 1200 ms route budget.
 - `python3 scripts/propertyquarry_gold_status.py --write _completion/property_gold_status/release-gate.json --fail-on-blocked` now leaves only release hygiene before the manifest update; all product, mobile, analytics privacy, tour delivery, map preview, walkthrough, provider matrix, self-healing, scope, security, BTS methodology, and furniture-style contract gates are green.
 - Focused local regressions passed for Brilliant Directories handoff cleanup, scene-video provider account merging, Chummer scene-video delivery routing, public tour CSP/Matterport/3DVista contracts, ranked search visibility, deploy-smoke principal resolution from `.env`, furniture-style gate alignment, and PropertyQuarry gold status aggregation.
