@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.cookies
 import json
 import re
 import urllib.parse
@@ -110,22 +111,66 @@ def https_handoff_follow_redirect_url(
     return next_url
 
 
+def _cookie_header_from_set_cookie(set_cookie_header: str) -> str:
+    if not str(set_cookie_header or "").strip():
+        return ""
+    cookie = http.cookies.SimpleCookie()
+    try:
+        cookie.load(str(set_cookie_header or ""))
+    except http.cookies.CookieError:
+        return ""
+    return "; ".join(f"{morsel.key}={morsel.value}" for morsel in cookie.values() if morsel.key)
+
+
+def _merge_cookie_headers(existing_cookie_header: str, set_cookie_header: str) -> str:
+    merged: dict[str, str] = {}
+    for cookie_header in (existing_cookie_header, _cookie_header_from_set_cookie(set_cookie_header)):
+        for chunk in str(cookie_header or "").split(";"):
+            if "=" not in chunk:
+                continue
+            key, value = chunk.split("=", 1)
+            key = key.strip()
+            if key:
+                merged[key] = value.strip()
+    return "; ".join(f"{key}={value}" for key, value in merged.items())
+
+
+def _handoff_body_has_account_marker(body: str) -> bool:
+    lowered = str(body or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "logout",
+            "log out",
+            "my account",
+            "account dashboard",
+            "member dashboard",
+            "/account/logout",
+            "/account/home",
+        )
+    )
+
+
 def https_handoff_url_usable(
     location: str,
     *,
     timeout_seconds: float = 8.0,
     visited_urls: tuple[str, ...] = (),
     allowed_hosts: tuple[str, ...] = (),
+    cookie_header: str = "",
 ) -> dict[str, object]:
     parsed = urllib.parse.urlparse(str(location or "").strip())
     if parsed.scheme != "https" or not parsed.hostname:
         return {"ok": False, "status_code": 0, "error": "handoff_url_not_https"}
+    request_headers = {
+        "User-Agent": "PropertyQuarry-billing-handoff-probe/1.0",
+        "Accept": "text/html,application/json,*/*",
+    }
+    if str(cookie_header or "").strip():
+        request_headers["Cookie"] = str(cookie_header or "").strip()
     request = urllib.request.Request(
         str(location),
-        headers={
-            "User-Agent": "PropertyQuarry-billing-handoff-probe/1.0",
-            "Accept": "text/html,application/json,*/*",
-        },
+        headers=request_headers,
     )
     opener = no_proxy_opener(NoRedirectHandler)
     response_headers: dict[str, object] = {}
@@ -144,7 +189,12 @@ def https_handoff_url_usable(
         return {"ok": False, "status_code": 0, "error": f"{type(exc).__name__}: {exc}"}
     login_target = str(redirect_location or urllib.parse.urlparse(str(location or "")).path or "").lower()
     body_is_login = "<title" in body and "login" in body and ("email" in body or "password" in body)
-    requires_login = "/login" in login_target or "login_direct_url" in login_target or body_is_login
+    body_has_account_marker = _handoff_body_has_account_marker(body)
+    requires_login = body_is_login or (
+        not redirect_location
+        and ("/login" in login_target or "login_direct_url" in login_target)
+        and not body_has_account_marker
+    )
     server_header = str(response_headers.get("server") or response_headers.get("Server") or "").strip().lower()
     cloudflare_error_code_match = (
         re.search(r"error code:\s*(\d{3,4})", body, flags=re.IGNORECASE)
@@ -167,9 +217,7 @@ def https_handoff_url_usable(
             )
         ),
     }
-    if not usable or not redirect_location:
-        if redirect_location:
-            result["redirect_chain"] = [urllib.parse.urljoin(str(location or "").strip(), redirect_location)]
+    if not redirect_location:
         return result
     if len(visited_urls) >= 2:
         return {
@@ -200,6 +248,7 @@ def https_handoff_url_usable(
         timeout_seconds=timeout_seconds,
         visited_urls=(*visited_urls, str(location or "").strip()),
         allowed_hosts=allowed_hosts,
+        cookie_header=_merge_cookie_headers(cookie_header, header_value(response_headers, "Set-Cookie")),
     )
     redirect_chain = [next_url, *list(downstream.get("redirect_chain") or [])]
     if not downstream.get("ok"):
