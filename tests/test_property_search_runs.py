@@ -13219,6 +13219,9 @@ def test_property_search_run_status_marks_old_snapshot_after_budget_change(monke
     assert summary["brief_stale_reason"] == "saved_brief_changed"
     assert "max_price_eur" in summary["brief_stale_changed_keys"]
     assert summary["previous_filtered_total"] == 22
+    assert summary["filtered_total"] == 0
+    assert summary["held_back_total"] == 0
+    assert summary["ranked_total"] == 0
     assert summary["can_refresh_with_current_brief"] is True
     assert snapshot["message"].startswith("This run used an earlier brief.")
 

@@ -1234,6 +1234,12 @@ def _property_search_mark_stale_brief_snapshot(
             ),
             "previous_ranked_total": previous_ranked_total,
             "previous_filtered_total": previous_filtered_total,
+            "ranked_total": 0,
+            "ranked_candidate_total": 0,
+            "filtered_total": 0,
+            "held_back_total": 0,
+            "score_demoted_total": 0,
+            "filtered_low_fit_total": 0,
             "can_refresh_with_current_brief": True,
         }
     )
