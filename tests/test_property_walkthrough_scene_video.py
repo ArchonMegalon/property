@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from app.product import service as product_service
+from app.product.service import ProductService
 
 
 def test_property_walkthrough_scene_video_context_collects_verified_controls_and_route_labels(tmp_path, monkeypatch) -> None:
@@ -71,6 +73,48 @@ def test_render_property_flythrough_does_not_silent_fallback_from_magicfit(monke
     assert result["reason"] == "magicfit_segment_render_failed"
     assert result["media_route_provider_key"] == "magicfit"
     assert "media_route_fallback_provider_key" not in result
+
+
+def test_run_scene_video_skill_uses_principal_context_and_scrubs_payload_principal() -> None:
+    captured_request = None
+
+    class _FakeOrchestrator:
+        def execute_task_artifact(self, request):
+            nonlocal captured_request
+            captured_request = request
+            return SimpleNamespace(
+                structured_output_json={
+                    "deliverable_type": "scene_video_packet",
+                    "provider_key": "magicfit",
+                    "render_status": "completed",
+                    "video_url": "https://cdn.example/property/walkthrough.mp4",
+                },
+                content="",
+            )
+
+    service = ProductService(
+        SimpleNamespace(
+            orchestrator=_FakeOrchestrator(),
+            preference_profiles=SimpleNamespace(),
+        )
+    )
+
+    result = service._run_scene_video_skill(
+        title="Sample Flat",
+        actor="property-worker",
+        provider_key="magicfit",
+        task_principal_id="cf-email:operator@example.test",
+        input_json={
+            "principal_id": "should-not-leak",
+            "context_kind": "property_walkthrough",
+            "tour_url": "/tours/sample-flat",
+        },
+    )
+
+    assert result["provider_key"] == "magicfit"
+    assert captured_request.principal_id == "cf-email:operator@example.test"
+    assert captured_request.input_json["provider_key"] == "magicfit"
+    assert "principal_id" not in captured_request.input_json
 
 
 def test_hosted_property_visual_progress_snapshot_roundtrip(tmp_path, monkeypatch) -> None:

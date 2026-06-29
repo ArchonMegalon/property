@@ -492,6 +492,8 @@ class ToolExecutionService:
                         "birthday_party_request": {"type": "boolean"},
                         "person_motion_hint": {"type": "string"},
                         "diorama_style_hint": {"type": "string"},
+                        "readiness_only": {"type": "boolean"},
+                        "telegram_delivery_requested": {"type": "boolean"},
                     },
                 },
                 output_schema_json={"type": "object"},
@@ -660,6 +662,74 @@ class ToolExecutionService:
                 or ("property_walkthrough" if str(payload.get("tour_url") or "").strip() else "scene_briefing")
             ).strip().lower() or "scene_briefing"
             title = str(payload.get("title") or "Scene video").strip() or "Scene video"
+            if bool(payload.get("readiness_only")):
+                from app.services.scene_video_contract import scene_video_provider_runtime_readiness
+
+                runtime_readiness = scene_video_provider_runtime_readiness(provider_key)
+                telegram_delivery_requested = bool(payload.get("telegram_delivery_requested") or payload.get("telegram_delivery"))
+                principal_id = str(dict(request.context_json or {}).get("principal_id") or payload.get("principal_id") or "").strip()
+                telegram_readiness = {
+                    "requested": telegram_delivery_requested,
+                    "status": "not_requested",
+                    "principal_id": principal_id,
+                    "binding_configured": False,
+                    "reason": "",
+                }
+                if telegram_delivery_requested:
+                    if not principal_id:
+                        telegram_readiness["status"] = "blocked"
+                        telegram_readiness["reason"] = "principal_id_missing"
+                    else:
+                        telegram_binding = resolve_primary_telegram_binding(self._tool_runtime, principal_id=principal_id)
+                        telegram_readiness["binding_configured"] = telegram_binding is not None
+                        telegram_readiness["status"] = "ready" if telegram_binding is not None else "blocked"
+                        telegram_readiness["reason"] = "" if telegram_binding is not None else "telegram_binding_not_found"
+                blockers = list(runtime_readiness.get("blockers") or [])
+                if telegram_readiness["status"] == "blocked":
+                    blockers.append(str(telegram_readiness.get("reason") or "telegram_delivery_blocked"))
+                render_status = "ready" if not blockers else "blocked"
+                normalized = {
+                    "deliverable_type": "scene_video_packet",
+                    "provider_key": str(runtime_readiness.get("provider_key") or _contract_provider_key(provider_key)),
+                    "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or provider_key),
+                    "render_status": render_status,
+                    "asset_url": "",
+                    "download_url": "",
+                    "video_url": "",
+                    "flythrough_url": "",
+                    "editor_url": "",
+                    "reason": ",".join(blockers),
+                    "runtime_readiness_json": runtime_readiness,
+                    "telegram_delivery_readiness_json": telegram_readiness,
+                    "structured_output_json": {
+                        "runtime_readiness_json": runtime_readiness,
+                        "telegram_delivery_readiness_json": telegram_readiness,
+                    },
+                }
+                normalized_text = json.dumps(normalized, ensure_ascii=False)
+                return ToolInvocationResult(
+                    tool_name=definition.tool_name,
+                    action_kind="video.generate",
+                    target_ref="",
+                    output_json={
+                        "normalized_text": normalized_text,
+                        "preview_text": normalized_text[:280],
+                        "mime_type": "application/json",
+                        "structured_output_json": normalized,
+                        "provider_key": normalized["provider_key"],
+                        "provider_backend_key": normalized["provider_backend_key"],
+                        "render_status": normalized["render_status"],
+                        "runtime_readiness_json": runtime_readiness,
+                        "telegram_delivery_readiness_json": telegram_readiness,
+                    },
+                    receipt_json={
+                        "provider_key": normalized["provider_key"],
+                        "provider_backend_key": normalized["provider_backend_key"],
+                        "context_kind": context_kind,
+                        "runtime_readiness_json": runtime_readiness,
+                        "telegram_delivery_readiness_json": telegram_readiness,
+                    },
+                )
             if context_kind == "property_walkthrough":
                 from app.product.service import _hosted_property_tour_video_delivery, _render_property_flythrough_into_hosted_tour
 
@@ -843,7 +913,9 @@ class ToolExecutionService:
                 import tempfile
                 from pathlib import Path
 
-                script_path = Path("/docker/property/scripts/render_magicfit_property_flythrough.py").resolve()
+                from app.services.scene_video_contract import resolve_scene_video_script_path
+
+                script_path = resolve_scene_video_script_path("render_magicfit_property_flythrough.py")
                 if not script_path.exists():
                     raise ToolExecutionError("scene_video_magicfit_script_missing")
                 timeout_seconds = int(payload.get("timeout_seconds") or 0)

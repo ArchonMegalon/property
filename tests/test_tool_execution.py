@@ -5958,6 +5958,58 @@ def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_
     assert tool_runtime.get_tool("ea.scene_video_generate") is not None
 
 
+def test_tool_execution_scene_video_readiness_only_reports_runtime_and_telegram_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "render_magicfit_property_flythrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("MAGICFIT_EMAIL", "operator@example.test")
+    monkeypatch.setenv("MAGICFIT_PASSWORD", "secret")
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-scene-video-ready",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-readiness-1",
+            step_id="step-scene-video-readiness-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "magic fit",
+                "context_kind": "scene_briefing",
+                "title": "Runsite readiness",
+                "readiness_only": True,
+                "telegram_delivery_requested": True,
+            },
+            context_json={"principal_id": "exec-scene-video-ready"},
+        )
+    )
+
+    assert result.output_json["provider_key"] == "magicfit"
+    assert result.output_json["render_status"] == "ready"
+    assert result.output_json["runtime_readiness_json"]["status"] == "ready"
+    assert result.output_json["telegram_delivery_readiness_json"]["status"] == "ready"
+    assert result.receipt_json["runtime_readiness_json"]["checks"]["credentials_configured"] is True
+
+
 def test_tool_execution_service_self_heals_missing_builtin_comfyui_image_generate_definition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
