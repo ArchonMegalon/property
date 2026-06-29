@@ -384,6 +384,7 @@ base_url="${base_url%/}"
 
 live_smoke_principal_id="$(effective_env_value PROPERTYQUARRY_LIVE_SMOKE_PRINCIPAL_ID)"
 live_smoke_principal_id="${live_smoke_principal_id:-$(effective_env_value EA_PRINCIPAL_ID)}"
+live_smoke_principal_id="${live_smoke_principal_id:-$(effective_env_value EA_TELEGRAM_DEFAULT_PRINCIPAL_ID)}"
 live_smoke_principal_id="${live_smoke_principal_id:-pq-live-smoke}"
 live_smoke_plan_label="$(effective_env_value PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL)"
 live_smoke_plan_label="${live_smoke_plan_label:-Agent}"

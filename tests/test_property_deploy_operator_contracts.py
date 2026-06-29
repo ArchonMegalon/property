@@ -115,6 +115,7 @@ def test_propertyquarry_deploy_wrapper_resolves_live_smoke_identity_from_env_fil
 
     assert "live_smoke_principal_id=\"$(effective_env_value PROPERTYQUARRY_LIVE_SMOKE_PRINCIPAL_ID)\"" in script
     assert "live_smoke_principal_id=\"${live_smoke_principal_id:-$(effective_env_value EA_PRINCIPAL_ID)}\"" in script
+    assert "live_smoke_principal_id=\"${live_smoke_principal_id:-$(effective_env_value EA_TELEGRAM_DEFAULT_PRINCIPAL_ID)}\"" in script
     assert "--principal-id \"${live_smoke_principal_id}\"" in script
     assert "live_smoke_plan_label=\"$(effective_env_value PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL)\"" in script
     assert "--expected-plan-label \"${live_smoke_plan_label}\"" in script
