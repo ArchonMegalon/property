@@ -60,6 +60,19 @@ def test_public_tour_security_headers_allow_rybbit_assets() -> None:
 
     assert "https://app.rybbit.io" in csp
     assert "https://js.clickrank.ai" in csp
+    assert "'wasm-unsafe-eval'" in csp
+    assert "media-src 'self' data: blob: https:" in csp
+    assert "connect-src 'self' data: blob:" in csp
+    assert "worker-src 'self' blob:" in csp
+
+
+def test_public_tour_matterport_discover_url_normalizes_to_embeddable_show_url() -> None:
+    from app.api.routes.public_tours import _safe_matterport_external_url
+
+    assert (
+        _safe_matterport_external_url("https://discover.matterport.com/space/uoRT7VqgY7E")
+        == "https://my.matterport.com/show/?m=uoRT7VqgY7E"
+    )
 
 
 def test_clickrank_only_runs_on_public_marketing_and_editorial_routes() -> None:
@@ -8014,7 +8027,11 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
     vista_dir = bundle_dir / "3dvista"
     vista_dir.mkdir(parents=True)
     (vista_dir / "index.htm").write_text("<html>private viewer runtime</html>", encoding="utf-8")
+    (vista_dir / "locale").mkdir()
+    (vista_dir / "locale" / "en.txt").write_text("#: locale=en\n", encoding="utf-8")
+    (vista_dir / "runtime.wasm").write_bytes(b"\0asm\x01\0\0\0")
     (bundle_dir / "walkthrough.mp4").write_bytes(b"video")
+    (bundle_dir / "scene-01.jpg").write_bytes(b"fake-jpeg-data")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -8024,7 +8041,6 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
                 "scene_strategy": "walkable_panorama",
                 "creation_mode": "hosted_walkable_360",
-                "matterport_url": "https://my.matterport.com/show/?m=BmVWxvZQZLq",
                 "three_d_vista_entry_relpath": "3dvista/index.htm",
                 "three_d_vista_import": {"source_project": "propertyquarry"},
                 "three_d_vista_white_label_proof": {
@@ -8034,6 +8050,11 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
                     "propertyquarry_tour_metadata": True,
                     "trial_branding_checked": True,
                     "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
                 },
                 "video_relpath": "walkthrough.mp4",
                 "video_provider": "magicfit",
@@ -8055,14 +8076,71 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
     client = _client(principal_id="exec-public-tour-private-viewer-3dvista")
     page = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"})
     control = client.get(f"/tours/{slug}/control/3dvista", headers={"host": "propertyquarry.com"})
+    locale = client.get(f"/tours/3dvista/{slug}/3dvista/locale/en.txt", headers={"host": "propertyquarry.com"})
+    wasm = client.get(f"/tours/3dvista/{slug}/3dvista/runtime.wasm", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
-    assert "Open 3DVista" in page.text
-    assert f"/tours/{slug}/control/3dvista" in page.text
     assert "Open Fly-through" in page.text
     assert control.status_code == 200
     assert "3DVista Control" in control.text
     assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control.text
+    assert locale.status_code == 200
+    assert wasm.status_code == 200
+
+
+def test_public_tour_hides_3dvista_link_without_browser_render_proof_but_keeps_probe_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "propertyquarry-private-viewer-3dvista-unrendered"
+    bundle_dir = tmp_path / slug
+    vista_dir = bundle_dir / "3dvista"
+    vista_dir.mkdir(parents=True)
+    (vista_dir / "index.htm").write_text("<html>private viewer runtime</html>", encoding="utf-8")
+    (bundle_dir / "scene-01.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Unrendered 3DVista",
+                "display_title": "Unrendered 3DVista",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "scenes": [
+                    {
+                        "name": "Panorama",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-private-viewer-3dvista-unrendered")
+    page = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"})
+    control = client.get(f"/tours/{slug}/control/3dvista", headers={"host": "propertyquarry.com"})
+    asset = client.get(f"/tours/3dvista/{slug}/3dvista/index.htm", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert "Open 3DVista" not in page.text
+    assert f"/tours/{slug}/control/3dvista" not in page.text
+    assert control.status_code == 200
+    assert "3DVista Control" in control.text
+    assert asset.status_code == 200
 
 
 def test_public_tour_routes_render_pure_360_cube_with_continuing_links(

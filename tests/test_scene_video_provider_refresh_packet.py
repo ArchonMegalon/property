@@ -69,11 +69,12 @@ def test_scene_video_provider_refresh_packet_names_env_contracts_without_secrets
 
     assert providers["magicfit"]["visible_account_gap"] == 2
     assert providers["magicfit"]["credential_contract"]["preferred_accounts_json_env"] == "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"
+    assert providers["magicfit"]["credential_contract"]["account_selector_env"] == "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX"
     assert providers["magicfit"]["credit_refresh_required"] is True
     assert providers["omagic"]["visible_account_gap"] == 8
     assert providers["omagic"]["credential_contract"]["preferred_accounts_json_env"] == "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON"
     assert providers["omagic"]["adapter_contract"]["enable_flag"] == "PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED"
-    assert "set provider account JSON file mode to 0o600 before --write" in rendered
+    assert "set provider account JSON file mode to 0o600 before merge" in rendered
     assert "merge_scene_video_provider_accounts_env.py" in rendered
     assert "--magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write" in rendered
     assert "--omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count 8 --write" in rendered
@@ -167,6 +168,46 @@ def test_scene_video_provider_refresh_packet_verifier_rejects_missing_secure_jso
 
     assert receipt["status"] == "fail"
     assert "magicfit_secure_account_json_mode_guidance_missing" in receipt["blockers"]
+
+
+def test_scene_video_provider_refresh_packet_verifier_rejects_missing_magicfit_account_selector_env(tmp_path: Path) -> None:
+    materializer = _load_script()
+    verifier = _load_verifier()
+
+    packet = materializer.build_packet(_receipt(), receipt_path=tmp_path / "receipt.json")
+    providers = {row["provider"]: row for row in packet["providers"]}
+    providers["magicfit"]["credential_contract"].pop("account_selector_env")
+
+    receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
+
+    assert receipt["status"] == "fail"
+    assert "magicfit_account_selector_env_missing" in receipt["blockers"]
+
+
+def test_scene_video_provider_refresh_packet_verifier_rejects_weakened_expected_account_counts(tmp_path: Path) -> None:
+    materializer = _load_script()
+    verifier = _load_verifier()
+
+    packet = materializer.build_packet(_receipt(), receipt_path=tmp_path / "receipt.json")
+    providers = {row["provider"]: row for row in packet["providers"]}
+    providers["magicfit"]["expected_account_count"] = 2
+    providers["magicfit"]["visible_account_gap"] = 1
+    providers["magicfit"]["post_refresh_checks"] = [
+        str(value).replace("--expected-magicfit-count 3", "--expected-magicfit-count 2")
+        for value in providers["magicfit"]["post_refresh_checks"]
+    ]
+    providers["omagic"]["expected_account_count"] = 7
+    providers["omagic"]["visible_account_gap"] = 7
+    providers["omagic"]["post_refresh_checks"] = [
+        str(value).replace("--expected-omagic-count 8", "--expected-omagic-count 7")
+        for value in providers["omagic"]["post_refresh_checks"]
+    ]
+
+    receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
+
+    assert receipt["status"] == "fail"
+    assert "magicfit_expected_account_count_below_required" in receipt["blockers"]
+    assert "omagic_expected_account_count_below_required" in receipt["blockers"]
 
 
 def test_scene_video_provider_refresh_packet_verifier_rejects_missing_expected_count_guard(tmp_path: Path) -> None:

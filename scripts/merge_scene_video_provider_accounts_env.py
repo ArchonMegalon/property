@@ -68,7 +68,7 @@ def _require_secure_account_json_file(path: str) -> None:
         raise ValueError(f"{path} account JSON file not found")
     mode = file_path.stat().st_mode & 0o777
     if mode != SECURE_FILE_MODE:
-        raise ValueError(f"{path} must have mode 0o600 before --write; current mode is {oct(mode)}")
+        raise ValueError(f"{path} must have mode 0o600 before merge; current mode is {oct(mode)}")
 
 
 def _compact_accounts_json(accounts: list[dict[str, str]]) -> str:
@@ -89,6 +89,11 @@ def _line_key(line: str) -> str:
     return key
 
 
+def _line_assignment_prefix(line: str) -> str:
+    stripped = line.strip()
+    return "export " if stripped.startswith("export ") else ""
+
+
 def _validate_updates(updates: dict[str, str]) -> None:
     forbidden = sorted(key for key in updates if key not in ALLOWED_UPDATE_KEYS)
     if forbidden:
@@ -102,15 +107,40 @@ def _validate_updates(updates: dict[str, str]) -> None:
         raise ValueError(f"refusing protected env keys: {', '.join(protected)}")
 
 
+def _protected_env_lines(text: str) -> list[str]:
+    return [
+        line
+        for line in text.splitlines()
+        if any(_line_key(line).startswith(prefix) for prefix in PROTECTED_KEY_PREFIXES)
+    ]
+
+
+def _ensure_protected_env_lines_preserved(existing: str, merged: str) -> None:
+    if _protected_env_lines(existing) != _protected_env_lines(merged):
+        raise ValueError("protected ONEMIN env lines changed during merge")
+
+
+def _ensure_no_duplicate_update_keys(existing: str, update_keys: set[str]) -> None:
+    counts: dict[str, int] = {}
+    for line in existing.splitlines():
+        key = _line_key(line)
+        if key in update_keys:
+            counts[key] = counts.get(key, 0) + 1
+    duplicates = sorted(key for key, count in counts.items() if count > 1)
+    if duplicates:
+        raise ValueError(f"duplicate provider account env keys in target env: {', '.join(duplicates)}")
+
+
 def merge_env_text(existing: str, updates: dict[str, str]) -> tuple[str, list[str]]:
     _validate_updates(updates)
+    _ensure_no_duplicate_update_keys(existing, set(updates))
     updated_keys: list[str] = []
     seen: set[str] = set()
     output: list[str] = []
     for line in existing.splitlines():
         key = _line_key(line)
         if key in updates:
-            output.append(f"{key}={_shell_quote(updates[key])}")
+            output.append(f"{_line_assignment_prefix(line)}{key}={_shell_quote(updates[key])}")
             updated_keys.append(key)
             seen.add(key)
         else:
@@ -172,10 +202,11 @@ def build_updates(
     elif magicfit_account_index is not None:
         raise ValueError("magicfit account index requires MagicFit accounts")
     if omagic_accounts:
+        if not write_magic_alias:
+            raise ValueError("magic alias account env is required when OMagic accounts are supplied")
         omagic_json = _compact_accounts_json(omagic_accounts)
         updates["PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON"] = omagic_json
-        if write_magic_alias:
-            updates["PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON"] = omagic_json
+        updates["PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON"] = omagic_json
     _validate_updates(updates)
     return updates
 
@@ -205,6 +236,7 @@ def merge_accounts_env(
         raise ValueError("no provider account updates supplied for --write")
     existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
     merged, updated_keys = merge_env_text(existing, updates)
+    _ensure_protected_env_lines_preserved(existing, merged)
     backup_path = ""
     if write and updates:
         backup_path = _write_backup(env_file, existing)
@@ -223,6 +255,7 @@ def merge_accounts_env(
         },
         "protected_key_prefixes": list(PROTECTED_KEY_PREFIXES),
         "protected_keys_touched": [],
+        "protected_line_count": len(_protected_env_lines(existing)),
         "secret_values_in_receipt": False,
     }
 
@@ -240,9 +273,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        if args.write:
-            _require_secure_account_json_file(args.magicfit_accounts_json_file)
-            _require_secure_account_json_file(args.omagic_accounts_json_file)
+        _require_secure_account_json_file(args.magicfit_accounts_json_file)
+        _require_secure_account_json_file(args.omagic_accounts_json_file)
         receipt = merge_accounts_env(
             env_file=Path(args.env_file).expanduser(),
             magicfit_accounts=_load_accounts(args.magicfit_accounts_json_file),

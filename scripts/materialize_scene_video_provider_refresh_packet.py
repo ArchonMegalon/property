@@ -97,7 +97,7 @@ def _magicfit_packet(row: dict[str, Any]) -> dict[str, Any]:
         },
         "credit_refresh_required": "magicfit_insufficient_credits" in blockers,
         "post_refresh_checks": [
-            "set provider account JSON file mode to 0o600 before --write",
+            "set provider account JSON file mode to 0o600 before merge",
             f"merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count {expected_count} --write",
             "regenerate property_scene_video_readiness_report.py",
             "run verify_property_scene_video_readiness.py",
@@ -132,7 +132,7 @@ def _omagic_packet(row: dict[str, Any]) -> dict[str, Any]:
             "enable_after": "successful OMagic model-upload proof render",
         },
         "post_refresh_checks": [
-            "set provider account JSON file mode to 0o600 before --write",
+            "set provider account JSON file mode to 0o600 before merge",
             f"merge provider-only OMagic/Magic account JSON with merge_scene_video_provider_accounts_env.py --omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count {expected_count} --write",
             "regenerate property_scene_video_readiness_report.py",
             "run verify_property_scene_video_readiness.py",

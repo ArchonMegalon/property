@@ -17,6 +17,7 @@ ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*(?:_\*)?$|^ONEMIN_\*$")
 SENSITIVE_PATH_RE = re.compile(r"(api[_-]?key|cookie|password|secret|session|token)", re.IGNORECASE)
 SAFE_ACCOUNT_MERGE_SCRIPT_NAME = "merge_scene_video_provider_accounts_env.py"
 ACCOUNT_JSON_MODE_GUIDANCE = "0o600"
+REQUIRED_EXPECTED_ACCOUNT_COUNTS = {"magicfit": 3, "omagic": 8}
 
 
 def _default_packet_path() -> Path:
@@ -107,7 +108,7 @@ def _has_safe_account_merge_guidance(row: dict[str, Any]) -> bool:
 
 def _has_secure_account_json_guidance(row: dict[str, Any]) -> bool:
     guidance = _post_refresh_guidance(row)
-    return ACCOUNT_JSON_MODE_GUIDANCE in guidance and "before --write" in guidance
+    return ACCOUNT_JSON_MODE_GUIDANCE in guidance and "before merge" in guidance
 
 
 def _merge_guidance_blockers(provider: str, row: dict[str, Any]) -> list[str]:
@@ -159,6 +160,8 @@ def verify_packet(packet: dict[str, Any], *, packet_path: str | None = None) -> 
             blockers.append(f"{provider}_safe_env_merge_guidance_missing")
         if not _has_secure_account_json_guidance(row):
             blockers.append(f"{provider}_secure_account_json_mode_guidance_missing")
+        if _int_value(row, "expected_account_count") < REQUIRED_EXPECTED_ACCOUNT_COUNTS[provider]:
+            blockers.append(f"{provider}_expected_account_count_below_required")
         blockers.extend(_merge_guidance_blockers(provider, row))
         blockers.extend(_validate_gap(provider, row))
 
@@ -168,6 +171,8 @@ def verify_packet(packet: dict[str, Any], *, packet_path: str | None = None) -> 
         blockers.append("magicfit_preferred_accounts_env_missing")
     if magicfit_contract.get("fallback_accounts_json_env") != "MAGICFIT_ACCOUNTS_JSON":
         blockers.append("magicfit_fallback_accounts_env_missing")
+    if magicfit_contract.get("account_selector_env") != "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX":
+        blockers.append("magicfit_account_selector_env_missing")
 
     omagic = providers.get("omagic") or {}
     aliases = {str(value or "").strip().lower() for value in list(omagic.get("aliases") or [])}

@@ -4282,7 +4282,7 @@
       max-width: 100%;
     }
     .pqx-what-matters-panel .pqx-choice-groupbox[data-active-distance-rows="true"] .pqx-pref-list {
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 248px), 320px));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 320px));
       justify-content: start;
     }
     .pqx-what-matters-panel .pqx-pref-row {
@@ -4348,6 +4348,7 @@
       justify-content: end;
       min-width: min(8rem, 100%);
       max-width: 100%;
+      max-width: 150px;
     }
     .pqx-what-matters-panel .pqx-pref-row-controls > :only-child {
       width: min(6.8rem, 100%);
@@ -5349,6 +5350,17 @@
       display: grid;
       gap: 10px;
       margin-top: 12px;
+    }
+    .pqx-account-settings-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 0 0 10px;
+    }
+    .pqx-account-settings-links .pqx-link-button {
+      min-height: 36px;
+      padding: 0 11px;
+      font-size: 12px;
     }
     .pqx-account-channel-options {
       display: grid;

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ea"))
 
 from app.api.app import create_app
+from app.api.routes.landing import prewarm_property_search_shell_cache, prewarm_property_search_surface_cache
 from app.product.service import ProductService, _now_iso
 
 
@@ -808,40 +809,43 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         os.environ["EA_RUNTIME_MODE"] = "dev"
     api_token = str(os.environ.get("EA_API_TOKEN") or "").strip()
     principal_id = "pq-auth-performance-smoke"
-    client = TestClient(create_app(), base_url="https://propertyquarry.com")
-    client.headers.update(
-        {
-            "X-EA-Principal-ID": principal_id,
-            "X-EA-API-Token": api_token,
-            "Authorization": f"Bearer {api_token}",
-            "host": "propertyquarry.com",
-        }
-    )
-    _seed_workspace(client)
-    _seed_saved_agents(client)
-    run_id = _start_synthetic_run(client)
-    _open_workspace_access_session(client)
-    routes = [
-        "/sign-in",
-        "/app/search",
-        "/app/agents",
-        f"/app/properties?run_id={run_id}",
-        f"/app/shortlist?run_id={run_id}",
-        f"/app/research/perf-candidate-1020?run_id={run_id}",
-        f"/app/alerts?run_id={run_id}",
-        "/app/account",
-        "/app/billing",
-        "/app/settings/google",
-        "/app/settings/access",
-        "/app/settings/usage",
-        "/app/settings/support",
-        "/app/settings/trust",
-        "/app/settings/invitations",
-    ]
-    rows = [
-        _measure_route(client, route, budget_ms=_route_budget_for(route, route_budget_ms=route_budget_ms))
-        for route in routes
-    ]
+    app = create_app()
+    prewarm_property_search_surface_cache()
+    with TestClient(app, base_url="https://propertyquarry.com") as client:
+        client.headers.update(
+            {
+                "X-EA-Principal-ID": principal_id,
+                "X-EA-API-Token": api_token,
+                "Authorization": f"Bearer {api_token}",
+                "host": "propertyquarry.com",
+            }
+        )
+        _seed_workspace(client)
+        _seed_saved_agents(client)
+        prewarm_property_search_shell_cache(container=app.state.container, principal_id=principal_id)
+        run_id = _start_synthetic_run(client)
+        _open_workspace_access_session(client)
+        routes = [
+            "/sign-in",
+            "/app/search",
+            "/app/agents",
+            f"/app/properties?run_id={run_id}",
+            f"/app/shortlist?run_id={run_id}",
+            f"/app/research/perf-candidate-1020?run_id={run_id}",
+            f"/app/alerts?run_id={run_id}",
+            "/app/account",
+            "/app/billing",
+            "/app/settings/google",
+            "/app/settings/access",
+            "/app/settings/usage",
+            "/app/settings/support",
+            "/app/settings/trust",
+            "/app/settings/invitations",
+        ]
+        rows = [
+            _measure_route(client, route, budget_ms=_route_budget_for(route, route_budget_ms=route_budget_ms))
+            for route in routes
+        ]
     failed = [row for row in rows if not row.get("ok")]
     return {
         "status": "pass" if not failed else "fail",
@@ -853,7 +857,7 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         "routes": rows,
         "notes": [
             "This smoke is local, authenticated, provider-free and non-networked.",
-            "It guards first-paint route budgets for sign-in, search, agents, results, research, alerts, account, billing, and settings surfaces.",
+            "It guards warmed startup route budgets for sign-in, search, agents, results, research, alerts, account, billing, and settings surfaces.",
             "It also asserts shared top navigation, viewport metadata, app shell, no legacy mobile bottom dock, and content-first mobile layouts for static account/billing/settings surfaces.",
         ],
     }

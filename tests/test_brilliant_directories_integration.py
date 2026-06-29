@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.bootstrap_billing_handoff_worker import _worker_source
+from scripts.bootstrap_billing_handoff_worker import _billing_noise_fragments, _worker_source
 from app.services.brilliant_directories import (
     BrilliantDirectoriesApiError,
     _billing_handoff_account_probe,
@@ -1653,6 +1653,45 @@ def test_billing_handoff_worker_rewrites_join_to_propertyquarry_pricing() -> Non
     assert "status: 302" in source
     assert '"https://propertyquarry.com/pricing"' in source
     assert '"https://propertyquarry.directoryup.com"' in source
+
+
+def test_billing_handoff_worker_sends_stock_directory_home_to_propertyquarry_hero() -> None:
+    source = _worker_source(
+        target_base_url="https://propertyquarry.directoryup.com",
+        pricing_url="https://propertyquarry.com/pricing",
+        property_origin="https://propertyquarry.com",
+    )
+
+    assert "const publicDirectoryRedirects = new Map" in source
+    assert "['/', `${propertyOrigin}/`]" in source
+    assert "['/home', `${propertyOrigin}/`]" in source
+    assert "['/search_results', `${propertyOrigin}/`]" in source
+    assert "['/events', `${propertyOrigin}/`]" in source
+    assert "['/directory', `${propertyOrigin}/`]" in source
+    assert "'x-pq-billing-worker-branch': branch" in source
+    assert "'hero-redirect'" in source
+    assert "rewriteCustomerFacingBillingLinks" in source
+    assert "href=$1${heroHref}$1" in source
+
+
+def test_billing_handoff_worker_hides_brilliant_directories_stock_real_estate_chrome() -> None:
+    source = _worker_source(
+        target_base_url="https://propertyquarry.directoryup.com",
+        pricing_url="https://propertyquarry.com/pricing",
+        property_origin="https://propertyquarry.com",
+    )
+
+    assert ".mobile-main-menu" in source
+    assert "#bs-main_menu" in source
+    assert ".btn_get_listed" in source
+    assert ".btn_footer_get_listed" in source
+    assert ".display-recent-members" in source
+    fragments = set(_billing_noise_fragments())
+    assert "find an agent" in fragments
+    assert "open houses" in fragments
+    assert "featured agents" in fragments
+    assert "list your home" in fragments
+    assert "real estate tips" in fragments
 
 
 def test_billing_handoff_worker_includes_propertyquarry_bridge_consumer() -> None:

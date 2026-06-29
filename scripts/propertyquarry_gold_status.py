@@ -1255,7 +1255,7 @@ def build_gold_status_receipt(
             furniture_style_contract.get("status") == "pass"
             and not list(furniture_style_contract.get("failures") or [])
             and int(furniture_style_contract.get("style_count") or 0) >= 5
-            and dict(furniture_style_contract.get("plan_caps") or {}) == {"free": 1, "plus": 3, "agent": 5}
+            and dict(furniture_style_contract.get("plan_caps") or {}) == {"free": 5, "plus": 5, "agent": 5}
         )
     )
     bts_methodology_contract_ok = (
@@ -1532,7 +1532,7 @@ def build_gold_status_receipt(
                 "style_count": furniture_style_contract.get("style_count"),
                 "plan_caps": furniture_style_contract.get("plan_caps") or {},
                 "failures": list(furniture_style_contract.get("failures") or [])[:12],
-                "action": "rerun check_property_furniture_style_contract.py --write and keep the five visible style choices, free/plus/agent caps, examples, UI handoff, and style-aware cached rendering contract passing",
+                "action": "rerun check_property_furniture_style_contract.py --write and keep the five visible style choices, all-tier request-time choice, examples, UI handoff, and style-aware cached rendering contract passing",
             }
         )
     if not bts_methodology_contract_ok:

@@ -302,8 +302,8 @@ def test_normalize_scene_video_backend_provider_key_maps_runtime_aliases() -> No
 
     assert worker._normalize_scene_video_backend_provider_key("mootion") == "mootion"
     assert worker._normalize_scene_video_backend_provider_key("magicfit") == "magicfit"
-    assert worker._normalize_scene_video_backend_provider_key("magic") == "onemin_i2v"
-    assert worker._normalize_scene_video_backend_provider_key("omagic") == "onemin_i2v"
+    assert worker._normalize_scene_video_backend_provider_key("magic") == "omagic"
+    assert worker._normalize_scene_video_backend_provider_key("omagic") == "omagic"
     assert worker._normalize_scene_video_backend_provider_key("onemin") == "onemin_i2v"
     assert worker._normalize_scene_video_backend_provider_key("onemin_i2v") == "onemin_i2v"
 
@@ -320,7 +320,7 @@ def test_scene_video_status_packet_normalizes_provider_and_backend_key() -> None
     assert packet == {
         "deliverable_type": "scene_video_packet",
         "provider_key": "omagic",
-        "provider_backend_key": "onemin_i2v",
+        "provider_backend_key": "omagic",
         "render_status": "skipped",
         "reason": "scene_video_execution_disabled",
     }
@@ -359,6 +359,70 @@ def test_execute_scene_video_request_routes_through_ea_task_json(monkeypatch) ->
     assert captured["text"] == "Render the runsite fight-scene briefing."
     assert captured["principal_id"] == "ea-scene_video_generate-runsite-worker"
     assert captured["input_json"]["title"] == "Runsite fight scene"
+    assert captured["input_json"]["telegram_delivery_requested"] is True
+
+
+def test_execute_scene_video_request_uses_and_scrubs_payload_principal(monkeypatch) -> None:
+    worker = _load_worker_module()
+    captured: dict[str, object] = {}
+
+    def _fake_ea_task_json(**kwargs):
+        captured.update(kwargs)
+        return {
+            "deliverable_type": "scene_video_packet",
+            "provider_key": "omagic",
+            "render_status": "blocked",
+        }
+
+    monkeypatch.setattr(worker, "ea_task_json", _fake_ea_task_json)
+
+    result = worker.execute_scene_video_request(
+        {
+            "skill_key": worker.SCENE_VIDEO_SKILL_KEY,
+            "input_json": {
+                "provider_key": "magic",
+                "context_kind": "scene_briefing",
+                "title": "Runsite fight scene",
+                "script_text": "Render the runsite fight-scene briefing.",
+                "principal_id": "cf-email:operator@example.test",
+            },
+        }
+    )
+
+    assert result["provider_key"] == "omagic"
+    assert captured["principal_id"] == "cf-email:operator@example.test"
+    assert "principal_id" not in captured["input_json"]
+    assert captured["input_json"]["telegram_delivery_requested"] is True
+
+
+def test_execute_scene_video_request_allows_runsite_telegram_delivery_opt_out(monkeypatch) -> None:
+    monkeypatch.setenv("CHUMMER6_RUNSITE_VIDEO_TELEGRAM_DELIVERY", "off")
+    worker = _load_worker_module()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        worker,
+        "ea_task_json",
+        lambda **kwargs: captured.setdefault("kwargs", kwargs) or {
+            "deliverable_type": "scene_video_packet",
+            "provider_key": "mootion",
+            "render_status": "skipped",
+        },
+    )
+
+    worker.execute_scene_video_request(
+        {
+            "skill_key": worker.SCENE_VIDEO_SKILL_KEY,
+            "input_json": {
+                "provider_key": "mootion",
+                "context_kind": "scene_briefing",
+                "title": "Runsite fight scene",
+                "script_text": "Render the runsite fight-scene briefing.",
+            },
+        }
+    )
+
+    assert captured["kwargs"]["input_json"]["telegram_delivery_requested"] is False
 
 
 def test_humanize_text_falls_back_to_brain_when_external_humanizer_fails(monkeypatch: pytest.MonkeyPatch) -> None:

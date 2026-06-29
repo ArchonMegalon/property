@@ -699,6 +699,92 @@ def test_ranked_candidates_return_all_rows_without_global_slice_by_default() -> 
     assert unlimited_ranked[-1]["rank"] == 75
 
 
+def test_private_brigittenau_showcase_injects_first_for_allowed_user_and_1200_search(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_ALLOWED_EMAILS", "property-showcase-owner@example.test")
+    monkeypatch.setenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_FLOOR", "6")
+    monkeypatch.setenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_HAS_LIFT", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_HAS_BALCONY", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_HAS_TERRACE", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_TITLE", "Private zero-cost flat")
+    monkeypatch.setenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_SUMMARY", "Private showcase flat.")
+    monkeypatch.setenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_FIT_SUMMARY", "Private match")
+    snapshot = product_service._property_search_snapshot_with_private_showcase(  # type: ignore[attr-defined]
+        {
+            "run_id": "run-private-20",
+            "property_search_preferences": {"country_code": "AT", "location_query": "1200 Vienna"},
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "top_candidates": [
+                            {
+                                "candidate_ref": "public-hit",
+                                "source_ref": "provider:public-hit",
+                                "title": "Normal Brigittenau hit",
+                                "property_url": "https://example.test/hit",
+                                "fit_score": 95,
+                                "ranking_score": 95,
+                                "property_facts": {"postal_name": "1200 Wien"},
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+        principal_id="cf-email:property-showcase-owner@example.test",
+    )
+
+    summary = dict(snapshot["summary"])
+    ranked = [dict(row) for row in list(summary["ranked_candidates"])]
+
+    assert ranked[0]["candidate_ref"] == product_service._PROPERTY_PRIVATE_SHOWCASE_CANDIDATE_REF  # type: ignore[attr-defined]
+    assert ranked[0]["rank"] == 1
+    assert ranked[0]["ranking_score"] == 999.0
+    assert ranked[0]["tour_url"].endswith("/control/3dvista")
+    assert ranked[0]["flythrough_url"].endswith("/generated-reconstruction/generated-walkthrough.mp4")
+    assert dict(ranked[0]["property_facts"])["total_rent_eur"] == 0
+    assert dict(ranked[0]["property_facts"])["floor"] == 6
+    assert dict(ranked[0]["property_facts"])["floorplan_urls_json"][0].endswith("/generated-reconstruction/source-floorplan.jpg")
+    assert ranked[1]["candidate_ref"] == "public-hit"
+
+
+def test_private_brigittenau_showcase_does_not_inject_for_other_users() -> None:
+    snapshot = product_service._property_search_snapshot_with_private_showcase(  # type: ignore[attr-defined]
+        {
+            "run_id": "run-private-20",
+            "property_search_preferences": {"country_code": "AT", "location_query": "Brigittenau"},
+            "summary": {"sources": []},
+        },
+        principal_id="cf-email:viewer@example.test",
+    )
+
+    summary = dict(snapshot["summary"])
+
+    assert summary.get("private_showcase_candidate_ref") is None
+    assert list(summary.get("sources") or []) == []
+
+
+def test_private_brigittenau_showcase_does_not_treat_budget_1200_as_district(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_ALLOWED_EMAILS", "property-showcase-owner@example.test")
+    snapshot = product_service._property_search_snapshot_with_private_showcase(  # type: ignore[attr-defined]
+        {
+            "run_id": "run-private-budget",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "location_query": "1020 Vienna",
+                "max_price_eur": 1200,
+            },
+            "summary": {"sources": []},
+        },
+        principal_id="cf-email:property-showcase-owner@example.test",
+    )
+
+    summary = dict(snapshot["summary"])
+
+    assert summary.get("private_showcase_candidate_ref") is None
+    assert list(summary.get("sources") or []) == []
+
+
 def test_ranked_candidates_exclude_false_positive_and_repair_only_rows() -> None:
     ranked = product_service._property_search_ranked_candidates_from_sources(
         [

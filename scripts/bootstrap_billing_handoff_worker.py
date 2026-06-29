@@ -153,6 +153,14 @@ def _billing_noise_fragments() -> list[str]:
         "result cap per provider",
         "all ranked",
         "per provider",
+        "find an agent",
+        "open houses",
+        "featured agents",
+        "featured agents & brokers",
+        "list your home",
+        "properties - join today",
+        "properties \u2013 join today",
+        "real estate tips",
     ]
 
 
@@ -199,6 +207,30 @@ def _worker_source(
         "    const bridgeCookieMaxAge = 300;\n"
         "    const bridgeSecret = String((env && env.PQ_BRIDGE_SECRET) || '');\n"
         "    const incoming = new URL(request.url);\n"
+        "    const normalizedPath = incoming.pathname.replace(/\\/+$/g, '') || '/';\n"
+        "    const redirectResponse = (location, branch) => new Response(null, {\n"
+        "      status: 302,\n"
+        "      headers: {\n"
+        "        'location': location,\n"
+        "        'cache-control': 'no-store',\n"
+        "        'x-robots-tag': 'noindex, nofollow',\n"
+        "        'x-pq-billing-worker': 'propertyquarry-billing-handoff',\n"
+        "        'x-pq-billing-worker-branch': branch,\n"
+        "      },\n"
+        "    });\n"
+        "    const publicDirectoryRedirects = new Map([\n"
+        "      ['/', `${propertyOrigin}/`],\n"
+        "      ['/home', `${propertyOrigin}/`],\n"
+        "      ['/search_results', `${propertyOrigin}/`],\n"
+        "      ['/events', `${propertyOrigin}/`],\n"
+        "      ['/blog', `${propertyOrigin}/`],\n"
+        "      ['/about', `${propertyOrigin}/`],\n"
+        "      ['/about/contact', `${propertyOrigin}/`],\n"
+        "      ['/directory', `${propertyOrigin}/`],\n"
+        "    ]);\n"
+        "    if ((request.method === 'GET' || request.method === 'HEAD') && publicDirectoryRedirects.has(normalizedPath)) {\n"
+        "      return redirectResponse(publicDirectoryRedirects.get(normalizedPath), 'hero-redirect');\n"
+        "    }\n"
         "    const htmlEscape = (value) => String(value || '')\n"
         "      .replaceAll('&', '&amp;')\n"
         "      .replaceAll('<', '&lt;')\n"
@@ -321,7 +353,7 @@ def _worker_source(
         "    const planLabel = (value) => ({ agent: 'Agent lifetime', plus: 'Plus', free: 'Free' }[String(value || '').trim().toLowerCase()] || 'PropertyQuarry account');\n"
         "    const bridgeCardHtml = ({ title, detail, primaryHref, primaryLabel, secondaryHref, secondaryLabel, email, planKey }) => `<section class=\"pq-bridge-card\" data-pq-billing-bridge=\"1\"><p class=\"pq-bridge-eyebrow\">PropertyQuarry billing</p><h1>${htmlEscape(title)}</h1>${email ? `<p class=\"pq-bridge-email\">${htmlEscape(email)}</p>` : ''}${planKey ? `<p class=\"pq-bridge-plan\">${htmlEscape(planLabel(planKey))}</p>` : ''}<p>${htmlEscape(detail)}</p><div class=\"pq-bridge-actions\"><a class=\"pq-bridge-primary\" href=\"${htmlEscape(primaryHref)}\">${htmlEscape(primaryLabel)}</a>${secondaryHref ? `<a class=\"pq-bridge-secondary\" href=\"${htmlEscape(secondaryHref)}\">${htmlEscape(secondaryLabel || 'View plans')}</a>` : ''}</div></section>`;\n"
         "    const bridgeStyles = '<style>:root{color-scheme:light dark;--pq-bg:#f6f2ea;--pq-card:#fffaf0;--pq-ink:#201a12;--pq-muted:#6d6254;--pq-border:#e0d5c4;--pq-accent:#9a5a22}@media(prefers-color-scheme:dark){:root{--pq-bg:#15120e;--pq-card:#201a13;--pq-ink:#fff7ea;--pq-muted:#cbbda8;--pq-border:#3a3025;--pq-accent:#e3aa62}}.pq-bridge-card{width:min(100%,560px);margin:24px auto;padding:28px;border:1px solid var(--pq-border);border-radius:28px;background:color-mix(in srgb,var(--pq-card) 92%,transparent);box-shadow:0 24px 60px rgba(32,26,18,.12);font:16px/1.5 ui-serif,Georgia,serif;color:var(--pq-ink)}.pq-bridge-eyebrow{margin:0 0 10px;color:var(--pq-accent);font:700 12px/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}.pq-bridge-card h1{margin:0 0 12px;font-size:clamp(30px,8vw,44px);line-height:.96;letter-spacing:-.04em}.pq-bridge-card p{margin:0 0 18px;color:var(--pq-muted)}.pq-bridge-actions{display:flex;flex-wrap:wrap;gap:12px}.pq-bridge-primary,.pq-bridge-secondary{display:inline-flex;min-height:48px;align-items:center;justify-content:center;border-radius:999px;padding:0 18px;font:700 14px/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none}.pq-bridge-primary{background:var(--pq-ink);color:var(--pq-card)}.pq-bridge-secondary{border:1px solid var(--pq-border);color:var(--pq-ink)}.pq-bridge-email{margin:0 0 18px;font:600 14px/1.4 ui-sans-serif,system-ui,sans-serif;color:var(--pq-ink)}</style>';\n"
-        "    const billingSkinStyles = '<style id=\"pq-billing-skin\">:root{color-scheme:light dark;--pq-bg:#f6f2ea;--pq-panel:#fffaf0;--pq-panel-2:#fffdf8;--pq-ink:#201a12;--pq-soft:#6d6254;--pq-line:#e0d5c4;--pq-gold:#9a5a22;--pq-shadow:0 24px 80px rgba(32,26,18,.12)}html,body{background:#f6f2ea!important;color:var(--pq-ink)!important}body{min-height:100vh!important;background:radial-gradient(circle at 12% 0%,rgba(154,90,34,.16),transparent 32%),linear-gradient(145deg,#f8f2e7,#f5ead9)!important;font-family:ui-serif,Georgia,serif!important}body:before{content:\"PropertyQuarry billing\";display:block;max-width:1120px;margin:18px auto 0;padding:0 18px;color:var(--pq-gold);font:800 12px/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}.container,.container-fluid,.main,.content,.member-dashboard,.module,.module-wrapper,.account-content{max-width:1120px!important;margin-left:auto!important;margin-right:auto!important}.panel,.well,.card,.box,.module,.module-wrapper,.dashboard-panel,.member-panel,form{border:1px solid var(--pq-line)!important;border-radius:24px!important;background:color-mix(in srgb,var(--pq-panel) 94%,transparent)!important;box-shadow:var(--pq-shadow)!important}.panel-heading,.module h1,.module h2,.page-title,h1,h2,h3{color:var(--pq-ink)!important;font-family:ui-serif,Georgia,serif!important;letter-spacing:-.035em!important}.panel-heading,.panel-footer,.module-header{background:transparent!important;border-color:var(--pq-line)!important}p,li,label,td,th,small,.help-block,.text-muted{color:var(--pq-soft)!important}.btn,button,input[type=\"submit\"],a.btn{min-height:44px!important;border-radius:999px!important;border:1px solid var(--pq-line)!important;background:var(--pq-ink)!important;color:var(--pq-panel)!important;font:800 13px/1 ui-sans-serif,system-ui,sans-serif!important;text-decoration:none!important;box-shadow:none!important}.btn-default,.btn-link,a:not(.btn){color:var(--pq-ink)!important;background:transparent!important}.btn-primary,.btn-success{background:var(--pq-ink)!important;color:var(--pq-panel)!important}input,select,textarea{min-height:44px!important;border-radius:14px!important;border:1px solid var(--pq-line)!important;background:var(--pq-panel-2)!important;color:var(--pq-ink)!important;font-family:ui-sans-serif,system-ui,sans-serif!important}.navbar,.navbar-default,.header,.footer,.breadcrumb,.pagination{background:transparent!important;border-color:var(--pq-line)!important;box-shadow:none!important}.homepage-join-module,.login-register-tabs,a[href*=\"/join\"],a[href*=\"join=\"],a[href*=\"register\"]{display:none!important}.pq-bridge-plan{display:inline-flex;margin:0 0 16px;padding:8px 12px;border:1px solid var(--pq-line);border-radius:999px;background:var(--pq-panel-2);color:var(--pq-ink)!important;font:800 12px/1 ui-sans-serif,system-ui,sans-serif!important;letter-spacing:.03em}@media(max-width:760px){body:before{margin-top:10px;padding:0 12px}.panel,.well,.card,.box,.module,.module-wrapper,.dashboard-panel,.member-panel,form{border-radius:18px!important;box-shadow:none!important}.container,.container-fluid,.main,.content,.member-dashboard,.module,.module-wrapper,.account-content{padding-left:10px!important;padding-right:10px!important}}</style>';\n"
+        "    const billingSkinStyles = '<style id=\"pq-billing-skin\">:root{color-scheme:light dark;--pq-bg:#f6f2ea;--pq-panel:#fffaf0;--pq-panel-2:#fffdf8;--pq-ink:#201a12;--pq-soft:#6d6254;--pq-line:#e0d5c4;--pq-gold:#9a5a22;--pq-shadow:0 24px 80px rgba(32,26,18,.12)}html,body{background:#f6f2ea!important;color:var(--pq-ink)!important}body{min-height:100vh!important;background:radial-gradient(circle at 12% 0%,rgba(154,90,34,.16),transparent 32%),linear-gradient(145deg,#f8f2e7,#f5ead9)!important;font-family:ui-serif,Georgia,serif!important}body:before{content:\"PropertyQuarry billing\";display:block;max-width:1120px;margin:18px auto 0;padding:0 18px;color:var(--pq-gold);font:800 12px/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}.container,.container-fluid,.main,.content,.member-dashboard,.module,.module-wrapper,.account-content{max-width:1120px!important;margin-left:auto!important;margin-right:auto!important}.panel,.well,.card,.box,.module,.module-wrapper,.dashboard-panel,.member-panel,form{border:1px solid var(--pq-line)!important;border-radius:24px!important;background:color-mix(in srgb,var(--pq-panel) 94%,transparent)!important;box-shadow:var(--pq-shadow)!important}.panel-heading,.module h1,.module h2,.page-title,h1,h2,h3{color:var(--pq-ink)!important;font-family:ui-serif,Georgia,serif!important;letter-spacing:-.035em!important}.panel-heading,.panel-footer,.module-header{background:transparent!important;border-color:var(--pq-line)!important}p,li,label,td,th,small,.help-block,.text-muted{color:var(--pq-soft)!important}.btn,button,input[type=\"submit\"],a.btn{min-height:44px!important;border-radius:999px!important;border:1px solid var(--pq-line)!important;background:var(--pq-ink)!important;color:var(--pq-panel)!important;font:800 13px/1 ui-sans-serif,system-ui,sans-serif!important;text-decoration:none!important;box-shadow:none!important}.btn-default,.btn-link,a:not(.btn){color:var(--pq-ink)!important;background:transparent!important}.btn-primary,.btn-success{background:var(--pq-ink)!important;color:var(--pq-panel)!important}input,select,textarea{min-height:44px!important;border-radius:14px!important;border:1px solid var(--pq-line)!important;background:var(--pq-panel-2)!important;color:var(--pq-ink)!important;font-family:ui-sans-serif,system-ui,sans-serif!important}.navbar,.navbar-default,.header,.footer,.breadcrumb,.pagination{background:transparent!important;border-color:var(--pq-line)!important;box-shadow:none!important}.mobile-main-menu,#bs-main_menu,.tablet-menu-ul,.main_menu,.btn_get_listed,.btn_footer_get_listed,.homepage-join-module,.login-register-tabs,.display-recent-members,.slickMembers,a[href*=\"/join\"],a[href*=\"join=\"],a[href*=\"register\"]{display:none!important}.pq-bridge-plan{display:inline-flex;margin:0 0 16px;padding:8px 12px;border:1px solid var(--pq-line);border-radius:999px;background:var(--pq-panel-2);color:var(--pq-ink)!important;font:800 12px/1 ui-sans-serif,system-ui,sans-serif!important;letter-spacing:.03em}@media(max-width:760px){body:before{margin-top:10px;padding:0 12px}.panel,.well,.card,.box,.module,.module-wrapper,.dashboard-panel,.member-panel,form{border-radius:18px!important;box-shadow:none!important}.container,.container-fluid,.main,.content,.member-dashboard,.module,.module-wrapper,.account-content{padding-left:10px!important;padding-right:10px!important}}</style>';\n"
         "    const injectBillingSkin = (value) => {\n"
         "      const skin = billingSkinStyles;\n"
         "      if (!value) return skin;\n"
@@ -409,6 +441,25 @@ def _worker_source(
         "        .replaceAll(`//${targetHost}`, `//${publicHost}`)\n"
         "        .replaceAll(targetHost, publicHost);\n"
         "    };\n"
+        "    const rewriteCustomerFacingBillingLinks = (value) => {\n"
+        "      if (!value) return value;\n"
+        "      const heroHref = `${propertyOrigin}/`;\n"
+        "      const publicOriginPattern = escapePattern(publicOrigin).replace(/\\/$/, '');\n"
+        "      return String(value)\n"
+        "        .replace(new RegExp(`href=(['\\\"])${publicOriginPattern}/?\\\\1`, 'ig'), `href=$1${heroHref}$1`)\n"
+        "        .replace(/href=(['\\\"])(?:\\/|\\/home|\\/search_results|\\/events|\\/blog|\\/about|\\/about\\/contact)\\1/ig, `href=$1${heroHref}$1`)\n"
+        "        .replace(/href=(['\\\"])(?:\\/join|\\/account\\/upgrade)\\1/ig, `href=$1${pricingUrl}$1`);\n"
+        "    };\n"
+        "    const stripPublicDirectoryChrome = (value) => {\n"
+        "      if (!value) return value;\n"
+        "      return String(value)\n"
+        "        .replace(/<div\\b[^>]*class=(['\\\"])[^'\\\"]*mobile-main-menu[^'\\\"]*\\1[^>]*>[\\s\\S]*?<\\/div>/ig, '')\n"
+        "        .replace(/<div\\b[^>]*id=(['\\\"])bs-main_menu\\1[^>]*>[\\s\\S]*?<\\/div>/ig, '')\n"
+        "        .replace(/<ul\\b[^>]*class=(['\\\"])[^'\\\"]*(?:sidebar-nav|tablet-menu-ul|mini-nav)[^'\\\"]*\\1[^>]*>[\\s\\S]*?<\\/ul>/ig, '')\n"
+        "        .replace(/<li\\b[^>]*>[\\s\\S]*?<a\\b[^>]*class=(['\\\"])[^'\\\"]*(?:btn_get_listed|btn_footer_get_listed)[^'\\\"]*\\1[\\s\\S]*?<\\/a>[\\s\\S]*?<\\/li>/ig, '')\n"
+        "        .replace(/<a\\b[^>]*class=(['\\\"])[^'\\\"]*(?:btn_get_listed|btn_footer_get_listed)[^'\\\"]*\\1[\\s\\S]*?<\\/a>/ig, '')\n"
+        "        .replace(/<section\\b[^>]*class=(['\\\"])[^'\\\"]*(?:display-recent-members|slickMembers)[^'\\\"]*\\1[\\s\\S]*?<\\/section>/ig, '');\n"
+        "    };\n"
         "    const rewriteLocation = (value) => {\n"
         "      if (!value) return value;\n"
         "      try {\n"
@@ -471,7 +522,7 @@ def _worker_source(
         "    }\n"
         "\n"
         "    const bridgeContext = await bridgeContextFromRequest();\n"
-        "    let html = injectBillingSkin(scrubCustomerFacingBillingNoise(rewriteOriginText(await upstreamResponse.text())));\n"
+        "    let html = injectBillingSkin(scrubCustomerFacingBillingNoise(stripPublicDirectoryChrome(rewriteCustomerFacingBillingLinks(rewriteOriginText(await upstreamResponse.text())))));\n"
         "    if (bridgeContext && incoming.pathname === '/account') {\n"
         "      const detail = bridgeContext.planKey\n"
         "        ? `PropertyQuarry access is managed on your main account. This billing lane is only the external account shell.`\n"

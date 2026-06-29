@@ -2439,14 +2439,27 @@ def _runsite_scene_video_execution_enabled() -> bool:
     return raw not in {"0", "false", "no", "off"}
 
 
+def _runsite_scene_video_telegram_delivery_requested() -> bool:
+    raw = str(
+        os.environ.get("CHUMMER6_RUNSITE_VIDEO_TELEGRAM_DELIVERY")
+        or LOCAL_ENV.get("CHUMMER6_RUNSITE_VIDEO_TELEGRAM_DELIVERY")
+        or os.environ.get("EA_RUNSITE_VIDEO_TELEGRAM_DELIVERY")
+        or LOCAL_ENV.get("EA_RUNSITE_VIDEO_TELEGRAM_DELIVERY")
+        or "1"
+    ).strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 def execute_scene_video_request(packet: dict[str, object], *, principal_id: str = "") -> dict[str, object]:
     request = dict(packet or {})
     input_json = dict(request.get("input_json") or {}) if isinstance(request.get("input_json"), dict) else {}
     skill_key = str(request.get("skill_key") or request.get("task_key") or SCENE_VIDEO_SKILL_KEY).strip() or SCENE_VIDEO_SKILL_KEY
     title = str(input_json.get("title") or "scene").strip() or "scene"
     request_principal_id = str(
-        principal_id or request.get("principal_id") or _runsite_scene_video_principal_id()
+        principal_id or request.get("principal_id") or input_json.get("principal_id") or _runsite_scene_video_principal_id()
     ).strip() or _runsite_scene_video_principal_id()
+    input_json.pop("principal_id", None)
+    input_json.setdefault("telegram_delivery_requested", _runsite_scene_video_telegram_delivery_requested())
     return ea_task_json(
         skill_key=skill_key,
         goal=str(request.get("goal") or f"Generate a shared scene video packet for {title}.").strip()

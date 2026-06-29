@@ -526,7 +526,7 @@ def _furniture_style_contract_payload(*, status: str = "pass") -> dict[str, obje
         "status": status,
         "style_count": 5 if status == "pass" else 4,
         "style_values": ["gilded_penthouse", "ikea_practical", "landhaus", "urban_jungle", "warm_scandi"],
-        "plan_caps": {"free": 1, "plus": 3, "agent": 5},
+        "plan_caps": {"free": 5, "plus": 5, "agent": 5},
         "failure_count": len(failures),
         "failures": failures,
     }
@@ -1644,7 +1644,7 @@ def test_gold_status_blocks_when_furniture_style_contract_fails(tmp_path: Path) 
     assert receipt["status"] == "blocked"
     assert receipt["furniture_style_variants"]["status"] == "fail"
     assert blocker["style_count"] == 4
-    assert "five visible style choices" in blocker["action"]
+    assert "all-tier request-time choice" in blocker["action"]
 
 
 def test_gold_status_blocks_when_bts_methodology_contract_fails(tmp_path: Path) -> None:

@@ -141,6 +141,11 @@
             <span>{{ selected_notification_summary }}</span>
             <span>{{ preferred_notification_channel|title if preferred_notification_channel else 'Choose a primary route for follow-up.' }}</span>
           </div>
+          <div class="pqx-account-channel-detail">
+            <strong>Destination mix</strong>
+            <span>Strong matches go to every selected channel.</span>
+            <span>Near-miss follow-up stays Telegram-only when Telegram is primary.</span>
+          </div>
           <div class="pqx-account-channel-options" role="group" aria-label="Property alert destinations">
             <label class="pqx-account-channel-option">
               <input type="checkbox" name="notification_channels" value="email"{% if 'email' in selected_notification_channels %} checked{% endif %}>
@@ -218,6 +223,14 @@
         </span>
       </summary>
       <div class="pqx-mobile-fold-content">
+      <nav class="pqx-account-settings-links" aria-label="Account settings shortcuts">
+        <a class="pqx-link-button subtle" href="/app/settings/google">Google</a>
+        <a class="pqx-link-button subtle" href="/app/settings/access">Access</a>
+        <a class="pqx-link-button subtle" href="/app/settings/usage">Usage</a>
+        <a class="pqx-link-button subtle" href="/app/settings/support">Support</a>
+        <a class="pqx-link-button subtle" href="/app/settings/trust">Trust</a>
+        <a class="pqx-link-button subtle" href="/app/settings/invitations">Invites</a>
+      </nav>
       <div class="pqx-pref-list pqx-account-link-list">
         <div class="pqx-pref-row">
           <div>

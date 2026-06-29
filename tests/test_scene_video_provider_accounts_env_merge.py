@@ -72,6 +72,7 @@ def test_scene_video_provider_accounts_env_merge_writes_only_allowlisted_provide
     assert "magicfit0@example.test" not in rendered_receipt
     assert "omagic7@example.test" not in rendered_receipt
     assert receipt["protected_keys_touched"] == []
+    assert receipt["protected_line_count"] == 2
     backup_path = Path(receipt["backup_path"])
     assert backup_path.exists()
     assert "ONEMIN_AI_API_KEY='keep-this'" in backup_path.read_text(encoding="utf-8")
@@ -102,6 +103,7 @@ def test_scene_video_provider_accounts_env_merge_dry_run_preserves_file(tmp_path
     assert receipt["dry_run"] is True
     assert receipt["backup_path"] == ""
     assert receipt["secure_file_mode"] == "0o600"
+    assert receipt["protected_line_count"] == 1
     assert env_file.read_text(encoding="utf-8") == original
 
 
@@ -114,6 +116,46 @@ def test_scene_video_provider_accounts_env_merge_refuses_onemin_updates() -> Non
         assert "unsupported env keys" in str(exc)
     else:
         raise AssertionError("expected ONEMIN update to be rejected")
+
+
+def test_scene_video_provider_accounts_env_merge_refuses_duplicate_existing_provider_key() -> None:
+    module = _load_script()
+
+    try:
+        module.merge_env_text(
+            "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON='old-a'\nPROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON='old-b'\n",
+            {"PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON": "new"},
+        )
+    except ValueError as exc:
+        assert str(exc) == "duplicate provider account env keys in target env: PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"
+    else:
+        raise AssertionError("expected duplicate provider account env key to be rejected")
+
+
+def test_scene_video_provider_accounts_env_merge_preserves_existing_export_prefix() -> None:
+    module = _load_script()
+
+    rendered, updated_keys = module.merge_env_text(
+        "export PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON='old'\n",
+        {"PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON": "new"},
+    )
+
+    assert rendered == "export PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON='new'\n"
+    assert updated_keys == ["PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"]
+
+
+def test_scene_video_provider_accounts_env_merge_refuses_protected_line_mutation() -> None:
+    module = _load_script()
+
+    try:
+        module._ensure_protected_env_lines_preserved(
+            "ONEMIN_AI_API_KEY='keep-this'\nPROPERTYQUARRY_ONEMIN_I2V_MODEL=veo3\n",
+            "ONEMIN_AI_API_KEY='changed'\nPROPERTYQUARRY_ONEMIN_I2V_MODEL=veo3\n",
+        )
+    except ValueError as exc:
+        assert "protected ONEMIN env lines changed" in str(exc)
+    else:
+        raise AssertionError("expected protected ONEMIN line mutation to be rejected")
 
 
 def test_scene_video_provider_accounts_env_merge_rejects_magicfit_account_index_without_accounts() -> None:
@@ -254,9 +296,82 @@ def test_scene_video_provider_accounts_env_merge_cli_rejects_insecure_account_js
 
     assert result.returncode == 1
     assert stdout["status"] == "fail"
-    assert "must have mode 0o600 before --write" in stdout["blockers"][0]
+    assert "must have mode 0o600 before merge" in stdout["blockers"][0]
     assert "current mode is 0o644" in stdout["blockers"][0]
     assert env_file.read_text(encoding="utf-8") == "ONEMIN_AI_API_KEY='keep-this'\n"
+
+
+def test_scene_video_provider_accounts_env_merge_cli_rejects_insecure_account_json_file_in_dry_run(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    accounts_file = tmp_path / "magicfit.json"
+    env_file.write_text("ONEMIN_AI_API_KEY='keep-this'\n", encoding="utf-8")
+    accounts_file.write_text(json.dumps(_accounts("magicfit", 3)), encoding="utf-8")
+    accounts_file.chmod(0o644)
+    script = ROOT / "scripts" / "merge_scene_video_provider_accounts_env.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--env-file",
+            str(env_file),
+            "--magicfit-accounts-json-file",
+            str(accounts_file),
+            "--expected-magicfit-count",
+            "3",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    stdout = json.loads(result.stdout)
+
+    assert result.returncode == 1
+    assert stdout["status"] == "fail"
+    assert "must have mode 0o600 before merge" in stdout["blockers"][0]
+    assert "current mode is 0o644" in stdout["blockers"][0]
+    assert env_file.read_text(encoding="utf-8") == "ONEMIN_AI_API_KEY='keep-this'\n"
+
+
+def test_scene_video_provider_accounts_env_merge_cli_rejects_duplicate_existing_provider_key_before_write(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    accounts_file = tmp_path / "magicfit.json"
+    original = (
+        "ONEMIN_AI_API_KEY='keep-this'\n"
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON='old-a'\n"
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON='old-b'\n"
+    )
+    env_file.write_text(original, encoding="utf-8")
+    accounts_file.write_text(json.dumps(_accounts("magicfit", 3)), encoding="utf-8")
+    accounts_file.chmod(0o600)
+    script = ROOT / "scripts" / "merge_scene_video_provider_accounts_env.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--env-file",
+            str(env_file),
+            "--magicfit-accounts-json-file",
+            str(accounts_file),
+            "--expected-magicfit-count",
+            "3",
+            "--write",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    stdout = json.loads(result.stdout)
+
+    assert result.returncode == 1
+    assert stdout["status"] == "fail"
+    assert stdout["blockers"] == ["duplicate provider account env keys in target env: PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"]
+    assert "old-a" not in result.stdout
+    assert "old-b" not in result.stdout
+    assert env_file.read_text(encoding="utf-8") == original
 
 
 def test_scene_video_provider_accounts_env_merge_cli_rejects_missing_account_json_file_with_stable_error(tmp_path: Path) -> None:
@@ -376,6 +491,41 @@ def test_scene_video_provider_accounts_env_merge_cli_rejects_noop_write(tmp_path
     assert result.returncode == 1
     assert stdout["status"] == "fail"
     assert stdout["blockers"] == ["no provider account updates supplied for --write"]
+    assert env_file.read_text(encoding="utf-8") == "ONEMIN_AI_API_KEY='keep-this'\n"
+
+
+def test_scene_video_provider_accounts_env_merge_cli_rejects_omagic_without_magic_alias(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    accounts_file = tmp_path / "omagic.json"
+    env_file.write_text("ONEMIN_AI_API_KEY='keep-this'\n", encoding="utf-8")
+    accounts_file.write_text(json.dumps(_accounts("omagic", 8)), encoding="utf-8")
+    accounts_file.chmod(0o600)
+    script = ROOT / "scripts" / "merge_scene_video_provider_accounts_env.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--env-file",
+            str(env_file),
+            "--omagic-accounts-json-file",
+            str(accounts_file),
+            "--expected-omagic-count",
+            "8",
+            "--no-magic-alias",
+            "--write",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    stdout = json.loads(result.stdout)
+
+    assert result.returncode == 1
+    assert stdout["status"] == "fail"
+    assert stdout["blockers"] == ["magic alias account env is required when OMagic accounts are supplied"]
+    assert "omagic0@example.test" not in json.dumps(stdout)
     assert env_file.read_text(encoding="utf-8") == "ONEMIN_AI_API_KEY='keep-this'\n"
 
 
