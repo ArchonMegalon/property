@@ -13288,6 +13288,43 @@ def test_property_search_run_drops_saved_unready_and_mode_mismatched_providers(m
     assert removed_details["community_signals_at"]["reason"] == "wrong_country"
 
 
+def test_property_search_run_status_does_not_send_results_ready_email(monkeypatch) -> None:
+    principal_id = "exec-property-search-status-read-only"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"run-status-read-only-{uuid.uuid4().hex}"
+    state = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "created_at": product_service._now_iso(),
+        "updated_at": product_service._now_iso(),
+        "status": "processed",
+        "summary": {
+            "sources_total": 1,
+            "listing_total": 1,
+            "eligible_tour_total": 1,
+            "pending_tour_total": 0,
+            "ready_tour_total": 1,
+            "blocked_tour_total": 0,
+            "sources": [],
+        },
+        "events": [],
+        "selected_platforms": ["willhaben"],
+    }
+    product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+    product_service._store_property_search_run_record(state)
+
+    def _unexpected_notify(self, *, principal_id: str, run_id: str, result: dict[str, object]) -> None:
+        raise AssertionError("status reads must not send result email")
+
+    monkeypatch.setattr(ProductService, "_notify_property_search_results_ready", _unexpected_notify)
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert dict(status.get("summary") or {})["listing_total"] == 1
+
+
 def test_reconcile_property_search_results_delivery_completes_unsent_ready_run(monkeypatch) -> None:
     client = build_property_client(principal_id="exec-property-search-reconcile")
     service = product_service.build_product_service(client.app.state.container)

@@ -32019,7 +32019,7 @@ class ProductService:
         *,
         run_id: str,
         principal_id: str,
-        allow_finalization_notifications: bool = True,
+        allow_finalization_notifications: bool = False,
     ) -> dict[str, object] | None:
         normalized_run_id = str(run_id or "").strip()
         normalized_principal = str(principal_id or "").strip()
@@ -35687,7 +35687,11 @@ class ProductService:
                     if isinstance(full_snapshot, dict) and full_snapshot:
                         return _property_search_run_backfill_response_timestamps(full_snapshot)
                 return _property_search_run_backfill_response_timestamps(compact_snapshot)
-        snapshot = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+        snapshot = self._snapshot_property_search_run(
+            run_id=run_id,
+            principal_id=principal_id,
+            allow_finalization_notifications=False,
+        )
         if not isinstance(snapshot, dict):
             return snapshot
         stale_result_refresh_copy = "The final results email was sent. Refreshing this page will continue to show the completed result desk."
@@ -35743,7 +35747,11 @@ class ProductService:
                 parent_run_ids=replacement_parent_refs,
             )
             if str(pickup.get("status") or "").strip() == "started":
-                refreshed = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+                refreshed = self._snapshot_property_search_run(
+                    run_id=run_id,
+                    principal_id=principal_id,
+                    allow_finalization_notifications=False,
+                )
                 if isinstance(refreshed, dict) and refreshed:
                     snapshot = refreshed
                     summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
@@ -35774,7 +35782,11 @@ class ProductService:
                 )
                 repair_summary = {}
             if int(dict(repair_summary or {}).get("resolved_total") or 0) > 0:
-                refreshed = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+                refreshed = self._snapshot_property_search_run(
+                    run_id=run_id,
+                    principal_id=principal_id,
+                    allow_finalization_notifications=False,
+                )
                 if isinstance(refreshed, dict) and refreshed:
                     snapshot = refreshed
                     summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
