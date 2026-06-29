@@ -111,20 +111,27 @@ def https_handoff_follow_redirect_url(
     return next_url
 
 
-def _cookie_header_from_set_cookie(set_cookie_header: str) -> str:
-    if not str(set_cookie_header or "").strip():
+def _cookie_header_from_set_cookie(set_cookie_headers: str | list[str] | tuple[str, ...]) -> str:
+    if isinstance(set_cookie_headers, str):
+        header_rows = [set_cookie_headers]
+    else:
+        header_rows = [str(row or "") for row in set_cookie_headers]
+    if not any(str(row or "").strip() for row in header_rows):
         return ""
     cookie = http.cookies.SimpleCookie()
-    try:
-        cookie.load(str(set_cookie_header or ""))
-    except http.cookies.CookieError:
-        return ""
+    for row in header_rows:
+        if not str(row or "").strip():
+            continue
+        try:
+            cookie.load(str(row or ""))
+        except http.cookies.CookieError:
+            continue
     return "; ".join(f"{morsel.key}={morsel.value}" for morsel in cookie.values() if morsel.key)
 
 
-def _merge_cookie_headers(existing_cookie_header: str, set_cookie_header: str) -> str:
+def _merge_cookie_headers(existing_cookie_header: str, set_cookie_headers: str | list[str] | tuple[str, ...]) -> str:
     merged: dict[str, str] = {}
-    for cookie_header in (existing_cookie_header, _cookie_header_from_set_cookie(set_cookie_header)):
+    for cookie_header in (existing_cookie_header, _cookie_header_from_set_cookie(set_cookie_headers)):
         for chunk in str(cookie_header or "").split(";"):
             if "=" not in chunk:
                 continue
@@ -174,15 +181,24 @@ def https_handoff_url_usable(
     )
     opener = no_proxy_opener(NoRedirectHandler)
     response_headers: dict[str, object] = {}
+    set_cookie_headers: list[str] = []
     try:
         with opener.open(request, timeout=timeout_seconds) as response:
             status_code = int(response.status)
             response_headers = dict(response.headers.items())
+            try:
+                set_cookie_headers = [str(row or "") for row in (response.headers.get_all("Set-Cookie") or [])]
+            except Exception:
+                set_cookie_headers = []
             redirect_location = ""
             body = response.read(16_384).decode("utf-8", errors="replace").lower()
     except urllib.error.HTTPError as exc:
         status_code = int(exc.code)
         response_headers = dict(exc.headers.items())
+        try:
+            set_cookie_headers = [str(row or "") for row in (exc.headers.get_all("Set-Cookie") or [])]
+        except Exception:
+            set_cookie_headers = []
         redirect_location = header_value(dict(exc.headers or {}), "Location")
         body = exc.read(16_384).decode("utf-8", errors="replace").lower()
     except Exception as exc:
@@ -248,7 +264,7 @@ def https_handoff_url_usable(
         timeout_seconds=timeout_seconds,
         visited_urls=(*visited_urls, str(location or "").strip()),
         allowed_hosts=allowed_hosts,
-        cookie_header=_merge_cookie_headers(cookie_header, header_value(response_headers, "Set-Cookie")),
+        cookie_header=_merge_cookie_headers(cookie_header, set_cookie_headers or header_value(response_headers, "Set-Cookie")),
     )
     redirect_chain = [next_url, *list(downstream.get("redirect_chain") or [])]
     if not downstream.get("ok"):

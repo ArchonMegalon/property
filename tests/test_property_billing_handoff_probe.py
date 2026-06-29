@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import urllib.error
+from email.message import Message
 
 from scripts import propertyquarry_billing_handoff_probe as probe
 
@@ -69,18 +70,21 @@ def test_billing_handoff_accepts_member_token_redirect_into_account_page(monkeyp
     class _Opener:
         def open(self, request, timeout: float = 0):  # noqa: ANN001
             if request.full_url == token_url:
+                headers = Message()
+                headers.add_header("Location", login_url)
+                headers.add_header("Set-Cookie", "token=ready; Path=/; Secure; HttpOnly")
+                headers.add_header("Set-Cookie", "loggedin=1; Path=/; Secure; HttpOnly")
                 raise urllib.error.HTTPError(
                     request.full_url,
                     302,
                     "redirect",
-                    {
-                        "Location": login_url,
-                        "Set-Cookie": "bd_member_session=ready; Path=/; Secure; HttpOnly",
-                    },
+                    headers,
                     io.BytesIO(b""),
                 )
             if request.full_url == login_url:
-                assert request.get_header("Cookie") == "bd_member_session=ready"
+                cookie_header = request.get_header("Cookie")
+                assert "token=ready" in cookie_header
+                assert "loggedin=1" in cookie_header
                 return _BodyResponse(
                     b"<html><body><a href=\"/account/home\">My Account</a><a href=\"/account/logout\">Log out</a></body></html>",
                     status=200,

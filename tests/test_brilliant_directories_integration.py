@@ -1146,7 +1146,7 @@ def test_brilliant_directories_member_login_token_handoff_updates_existing_membe
     )
 
     assert handoff_url.startswith("https://billing.propertyquarry.com/login/token/")
-    assert handoff_url.endswith("/account")
+    assert handoff_url.endswith("/home")
     assert len(opener.requests) == 2
     lookup_request = opener.requests[0]
     update_request = opener.requests[1]
@@ -1157,6 +1157,7 @@ def test_brilliant_directories_member_login_token_handoff_updates_existing_membe
     assert update_request.method == "PUT"
     update_body = (update_request.data or b"").decode("utf-8")
     assert "user_id=42" in update_body
+    assert "active=2" in update_body
     assert "token=" in update_body
 
 
@@ -1200,6 +1201,7 @@ def test_brilliant_directories_member_login_token_handoff_creates_member_with_en
     create_body = (create_request.data or b"").decode("utf-8")
     assert "email=new%40example.com" in create_body
     assert "subscription_id=5" in create_body
+    assert "active=2" in create_body
     assert "token=" in create_body
 
 

@@ -1300,7 +1300,7 @@ def build_brilliant_directories_member_login_token_url(
     *,
     token: str,
     config: BrilliantDirectoriesConfig | None = None,
-    account_path: str = "/account",
+    account_path: str = "/home",
 ) -> str:
     normalized_token = str(token or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9]{32,96}", normalized_token):
@@ -1364,6 +1364,7 @@ def build_brilliant_directories_member_login_token_handoff_url(
                 token=token,
                 first_name=first_name,
                 last_name=last_name,
+                active="2",
             ),
             timeout_seconds=timeout_seconds,
             opener=opener,
@@ -1377,6 +1378,7 @@ def build_brilliant_directories_member_login_token_handoff_url(
                 token=token,
                 first_name=first_name,
                 last_name=last_name,
+                active="2",
                 subscription_id=brilliant_directories_member_login_subscription_id(),
             ),
             timeout_seconds=timeout_seconds,
