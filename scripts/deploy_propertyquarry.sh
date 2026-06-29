@@ -382,6 +382,23 @@ base_url="$(effective_env_value PROPERTYQUARRY_DEPLOY_BASE_URL)"
 base_url="${base_url:-http://localhost:${host_port}}"
 base_url="${base_url%/}"
 
+live_smoke_principal_id="$(effective_env_value PROPERTYQUARRY_LIVE_SMOKE_PRINCIPAL_ID)"
+live_smoke_principal_id="${live_smoke_principal_id:-$(effective_env_value EA_PRINCIPAL_ID)}"
+live_smoke_principal_id="${live_smoke_principal_id:-pq-live-smoke}"
+live_smoke_plan_label="$(effective_env_value PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL)"
+live_smoke_plan_label="${live_smoke_plan_label:-Agent}"
+live_smoke_country_code="$(effective_env_value PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE)"
+live_smoke_country_code="${live_smoke_country_code:-AT}"
+live_mobile_smoke_principal_id="$(effective_env_value PROPERTYQUARRY_LIVE_MOBILE_SMOKE_PRINCIPAL_ID)"
+live_mobile_smoke_principal_id="${live_mobile_smoke_principal_id:-$(effective_env_value PROPERTYQUARRY_LIVE_PRINCIPAL_ID)}"
+live_mobile_smoke_principal_id="${live_mobile_smoke_principal_id:-${live_smoke_principal_id}}"
+live_market_scope_principal_id="$(effective_env_value PROPERTYQUARRY_LIVE_MARKET_SCOPE_PRINCIPAL_ID)"
+live_market_scope_principal_id="${live_market_scope_principal_id:-${live_smoke_principal_id}}"
+live_provider_smoke_principal_id="$(effective_env_value PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID)"
+live_provider_smoke_principal_id="${live_provider_smoke_principal_id:-${live_smoke_principal_id}}"
+live_presentation_e2e_principal_id="$(effective_env_value PROPERTYQUARRY_LIVE_PRESENTATION_E2E_PRINCIPAL_ID)"
+live_presentation_e2e_principal_id="${live_presentation_e2e_principal_id:-${live_smoke_principal_id}}"
+
 wait_for_http_ready() {
   local deadline=$((SECONDS + 120))
   local body=""
@@ -565,9 +582,9 @@ authenticated_smoke_receipt="/tmp/propertyquarry_deploy_authenticated_smoke.json
 authenticated_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_AUTHENTICATED_SMOKE_TIMEOUT_SECONDS:-20}"
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_authenticated_smoke.py \
   --base-url "${base_url}" \
-  --principal-id "${EA_PRINCIPAL_ID:-pq-live-smoke}" \
-  --expected-plan-label "${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Agent}" \
-  --country-code "${PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE:-AT}" \
+  --principal-id "${live_smoke_principal_id}" \
+  --expected-plan-label "${live_smoke_plan_label}" \
+  --country-code "${live_smoke_country_code}" \
   --timeout-seconds "${authenticated_smoke_timeout_seconds}" >"${authenticated_smoke_receipt}"; then
   echo "PropertyQuarry authenticated route smoke failed." >&2
   cat "${authenticated_smoke_receipt}" >&2 2>/dev/null || true
@@ -577,12 +594,11 @@ cp "${authenticated_smoke_receipt}" _completion/smoke/property-live-authenticate
 
 mobile_smoke_receipt="/tmp/propertyquarry_deploy_mobile_smoke.json"
 mobile_smoke_timeout_ms="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
-mobile_smoke_principal_id="${PROPERTYQUARRY_LIVE_MOBILE_SMOKE_PRINCIPAL_ID:-pq-live-mobile-smoke}"
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_mobile_surface_smoke.py \
   --base-url "${base_url}" \
   --host-header "propertyquarry.com" \
   --api-token "${api_token}" \
-  --principal-id "${mobile_smoke_principal_id}" \
+  --principal-id "${live_mobile_smoke_principal_id}" \
   --seed-research-detail-fixture \
   --timeout-ms "${mobile_smoke_timeout_ms}" \
   --write "${mobile_smoke_receipt}" >/dev/null; then
@@ -597,7 +613,7 @@ map_preview_gate_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MAP_PREVIEW_GATE_TIMEO
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_map_preview_flagship_gate.py \
   --base-url "${base_url}" \
   --host-header "propertyquarry.com" \
-  --principal-id "${mobile_smoke_principal_id}" \
+  --principal-id "${live_mobile_smoke_principal_id}" \
   --timeout-seconds "${map_preview_gate_timeout_seconds}" \
   --write "${map_preview_gate_receipt}" >/dev/null; then
   echo "PropertyQuarry map preview flagship gate failed." >&2
@@ -611,7 +627,7 @@ market_scope_smoke_receipt="/tmp/propertyquarry_deploy_market_scope_smoke.json"
 market_scope_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MARKET_SCOPE_SMOKE_TIMEOUT_SECONDS:-8}"
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_market_scope_smoke.py \
   --base-url "${base_url}" \
-  --principal-id "${EA_PRINCIPAL_ID:-pq-live-market-scope}" \
+  --principal-id "${live_market_scope_principal_id}" \
   --timeout-seconds "${market_scope_smoke_timeout_seconds}" \
   --write "${market_scope_smoke_receipt}" >/dev/null; then
   echo "PropertyQuarry market-scope smoke failed." >&2
@@ -662,7 +678,7 @@ if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"; then
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
-    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-pq-live-provider-smoke}" \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${live_provider_smoke_principal_id}" \
     PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
     --base-url "${base_url}" \
     "${provider_smoke_scope_args[@]}" \
@@ -680,7 +696,7 @@ else
   if ! EA_API_TOKEN="${api_token}" \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
-    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-pq-live-provider-smoke}" \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${live_provider_smoke_principal_id}" \
     PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
     --base-url "${base_url}" \
     "${provider_country_args[@]}" \
@@ -716,7 +732,7 @@ if (( run_presentation_e2e == 1 )); then
     PYTHONPATH=ea python3 scripts/propertyquarry_live_presentation_e2e.py \
     --base-url "${base_url}" \
     --host-header "propertyquarry.com" \
-    --principal-id "${EA_PRINCIPAL_ID:-pq-live-presentation-e2e}" \
+    --principal-id "${live_presentation_e2e_principal_id}" \
     --provider-receipt _completion/smoke/property-live-provider-latest.json \
     "${presentation_provider_matrix_args[@]}" \
     --write "${presentation_e2e_receipt}" >/dev/null; then

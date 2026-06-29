@@ -110,6 +110,21 @@ def test_propertyquarry_deploy_wrapper_supports_focused_provider_country_matrix(
     assert "provider verification: ${provider_smoke_scope_label}" in script
 
 
+def test_propertyquarry_deploy_wrapper_resolves_live_smoke_identity_from_env_file() -> None:
+    script = _read("scripts/deploy_propertyquarry.sh")
+
+    assert "live_smoke_principal_id=\"$(effective_env_value PROPERTYQUARRY_LIVE_SMOKE_PRINCIPAL_ID)\"" in script
+    assert "live_smoke_principal_id=\"${live_smoke_principal_id:-$(effective_env_value EA_PRINCIPAL_ID)}\"" in script
+    assert "--principal-id \"${live_smoke_principal_id}\"" in script
+    assert "live_smoke_plan_label=\"$(effective_env_value PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL)\"" in script
+    assert "--expected-plan-label \"${live_smoke_plan_label}\"" in script
+    assert "live_smoke_country_code=\"$(effective_env_value PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE)\"" in script
+    assert "--country-code \"${live_smoke_country_code}\"" in script
+    assert "live_provider_smoke_principal_id=\"$(effective_env_value PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID)\"" in script
+    assert "PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID=\"${live_provider_smoke_principal_id}\"" in script
+    assert "--principal-id \"${live_presentation_e2e_principal_id}\"" in script
+
+
 def test_propertyquarry_deploy_wrapper_stays_property_only() -> None:
     script = _read("scripts/deploy_propertyquarry.sh").lower()
 
