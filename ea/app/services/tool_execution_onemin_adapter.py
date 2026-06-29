@@ -298,6 +298,23 @@ def _infer_media_feature_type(payload: dict[str, Any]) -> str:
 
 
 class OneminToolAdapter:
+    def _mark_onemin_feature_failure(self, upstream: Any, *, api_key: str, detail: str) -> None:
+        cleaned_detail = str(detail or "").strip() or "onemin_feature_failed"
+        if upstream._is_auth_error(cleaned_detail):
+            quarantine_seconds = (
+                upstream._deleted_onemin_key_quarantine_seconds()
+                if upstream._is_deleted_onemin_key_error(cleaned_detail)
+                else None
+            )
+            upstream._mark_onemin_failure(
+                api_key,
+                cleaned_detail,
+                temporary_quarantine=True,
+                quarantine_seconds=quarantine_seconds,
+            )
+            return
+        upstream._mark_onemin_failure(api_key, cleaned_detail, temporary_quarantine=False)
+
     def _request_principal_id(self, request: ToolInvocationRequest) -> str:
         context_json = dict(request.context_json or {})
         return str(context_json.get("principal_id") or "").strip()
@@ -568,24 +585,7 @@ class OneminToolAdapter:
             latency_ms = upstream._now_ms() - started_at
             if status < 200 or status >= 300:
                 detail = upstream._trim_error_payload(payload)
-                if upstream._is_auth_error(detail):
-                    quarantine_seconds = (
-                        upstream._deleted_onemin_key_quarantine_seconds()
-                        if upstream._is_deleted_onemin_key_error(detail)
-                        else None
-                    )
-                    upstream._mark_onemin_failure(
-                        api_key,
-                        detail,
-                        temporary_quarantine=True,
-                        quarantine_seconds=quarantine_seconds,
-                    )
-                else:
-                    upstream._mark_onemin_failure(
-                        api_key,
-                        detail,
-                        temporary_quarantine=False,
-                    )
+                self._mark_onemin_feature_failure(upstream, api_key=api_key, detail=detail)
                 _release_failed(detail)
                 errors.append(f"{key_slot}:http_{status}:{detail}")
                 continue
@@ -597,20 +597,7 @@ class OneminToolAdapter:
 
             onemin_error = upstream._extract_onemin_error(payload)
             if onemin_error:
-                if upstream._is_auth_error(onemin_error):
-                    quarantine_seconds = (
-                        upstream._deleted_onemin_key_quarantine_seconds()
-                        if upstream._is_deleted_onemin_key_error(onemin_error)
-                        else None
-                    )
-                    upstream._mark_onemin_failure(
-                        api_key,
-                        onemin_error,
-                        temporary_quarantine=True,
-                        quarantine_seconds=quarantine_seconds,
-                    )
-                else:
-                    upstream._mark_onemin_failure(api_key, onemin_error, temporary_quarantine=False)
+                self._mark_onemin_feature_failure(upstream, api_key=api_key, detail=onemin_error)
                 _release_failed(onemin_error)
                 errors.append(f"{key_slot}:{onemin_error}")
                 continue
@@ -1080,15 +1067,18 @@ class OneminToolAdapter:
                         raw_response = response.text
                 if status < 200 or status >= 300:
                     detail = upstream._trim_error_payload(raw_response)
+                    self._mark_onemin_feature_failure(upstream, api_key=api_key, detail=detail)
                     manager.release_lease(lease_id=lease_id, status="failed", error=detail)
                     errors.append(f"{key_slot}:http_{status}:{detail}")
                     continue
                 if not isinstance(raw_response, dict):
+                    upstream._mark_onemin_failure(api_key, "invalid_payload", temporary_quarantine=False)
                     manager.release_lease(lease_id=lease_id, status="failed", error="invalid_payload")
                     errors.append(f"{key_slot}:invalid_payload")
                     continue
                 onemin_error = upstream._extract_onemin_error(raw_response)
                 if onemin_error:
+                    self._mark_onemin_feature_failure(upstream, api_key=api_key, detail=onemin_error)
                     manager.release_lease(lease_id=lease_id, status="failed", error=onemin_error)
                     errors.append(f"{key_slot}:{onemin_error}")
                     continue
@@ -1098,6 +1088,7 @@ class OneminToolAdapter:
                 return raw_response, account_name, key_slot, resolved_model, 0, 0
             except Exception as exc:  # noqa: BLE001
                 detail = str(exc or "").strip() or "property_walkthrough_video_failed"
+                upstream._mark_onemin_failure(api_key, detail, temporary_quarantine=False)
                 if lease_id:
                     manager.release_lease(lease_id=lease_id, status="failed", error=detail)
                 errors.append(f"{key_slot}:{detail}")

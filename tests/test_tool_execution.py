@@ -5958,6 +5958,160 @@ def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_
     assert tool_runtime.get_tool("ea.scene_video_generate") is not None
 
 
+def test_tool_execution_scene_video_forwards_omagic_model_order_to_delegate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    provider_registry = ProviderRegistryService()
+
+    def _route_tool_with_context(tool_name: str, *, principal_id: str | None = None) -> CapabilityRoute:
+        if tool_name == "ea.scene_video_generate":
+            return CapabilityRoute(
+                provider_key="ea",
+                capability_key="scene_video_generate",
+                tool_name="ea.scene_video_generate",
+                executable=True,
+            )
+        assert tool_name == "provider.onemin.property_walkthrough_video"
+        assert principal_id == "exec-scene-video-model-order"
+        return CapabilityRoute(
+            provider_key="onemin",
+            capability_key="property_walkthrough_video",
+            tool_name="provider.onemin.property_walkthrough_video",
+            executable=True,
+        )
+
+    monkeypatch.setattr(provider_registry, "route_tool_with_context", _route_tool_with_context)
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "omagic",
+            "provider_backend_key": "onemin_i2v",
+            "ready": True,
+            "status": "ready",
+            "blockers": [],
+            "checks": {},
+        },
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
+    captured_payload: dict[str, object] = {}
+
+    def _fake_onemin_scene_video(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        captured_payload.update(dict(request.payload_json or {}))
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="video.generate",
+            target_ref="https://cdn.example/runsite-scene.mp4",
+            output_json={
+                "video_url": "https://cdn.example/runsite-scene.mp4",
+                "asset_url": "https://cdn.example/runsite-scene.mp4",
+                "structured_output_json": {"video_url": "https://cdn.example/runsite-scene.mp4"},
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("provider.onemin.property_walkthrough_video", _fake_onemin_scene_video)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-model-order-1",
+            step_id="step-scene-video-model-order-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "magic",
+                "context_kind": "scene_briefing",
+                "title": "Runsite fight scene",
+                "script_text": "A tactical runsite briefing push-in.",
+                "first_frame_path": str(tmp_path / "first-frame.png"),
+                "model_order": ["skyreels"],
+                "duration_seconds": 4,
+                "timeout_seconds": 120,
+            },
+            context_json={"principal_id": "exec-scene-video-model-order"},
+        )
+    )
+
+    assert result.output_json["provider_key"] == "omagic"
+    assert captured_payload["model_order"] == ["skyreels"]
+    assert captured_payload["duration"] == 4
+    assert captured_payload["timeout_seconds"] == 120
+
+
+def test_tool_execution_scene_video_blocks_before_delegate_when_runtime_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    provider_registry = ProviderRegistryService()
+
+    monkeypatch.setattr(
+        provider_registry,
+        "route_tool_with_context",
+        lambda tool_name, principal_id=None: CapabilityRoute(
+            provider_key="ea",
+            capability_key="scene_video_generate",
+            tool_name="ea.scene_video_generate",
+            executable=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "omagic",
+            "provider_backend_key": "onemin_i2v",
+            "ready": False,
+            "status": "blocked",
+            "blockers": ["onemin_i2v_insufficient_credits"],
+            "checks": {"credit_state": "insufficient", "remaining_credits": 19},
+        },
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
+
+    def _unexpected_delegate(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        raise AssertionError("blocked scene-video render should not call the provider delegate")
+
+    service.register_handler("provider.onemin.property_walkthrough_video", _unexpected_delegate)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-blocked-1",
+            step_id="step-scene-video-blocked-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "magic",
+                "context_kind": "scene_briefing",
+                "title": "Runsite fight scene",
+                "script_text": "A tactical runsite briefing push-in.",
+                "first_frame_path": "/tmp/first-frame.png",
+            },
+            context_json={"principal_id": "exec-scene-video-blocked"},
+        )
+    )
+
+    assert result.output_json["provider_key"] == "omagic"
+    assert result.output_json["render_status"] == "blocked"
+    assert result.output_json["runtime_readiness_json"]["checks"]["credit_state"] == "insufficient"
+    assert result.receipt_json["runtime_readiness_json"]["blockers"] == ["onemin_i2v_insufficient_credits"]
+
+
 def test_tool_execution_scene_video_readiness_only_reports_runtime_and_telegram_status(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -6491,6 +6645,105 @@ def test_onemin_tool_adapter_releases_manager_lease_on_transport_failure(
             principal_id="image-principal",
         )
 
+    leases = manager.leases_snapshot()
+    assert len(leases) == 1
+    assert leases[0]["status"] == "failed"
+    assert leases[0]["finished_at"]
+    assert manager.occupancy_snapshot()["active_lease_count"] == 0
+
+    register_onemin_manager(None)
+
+
+def test_onemin_property_walkthrough_auth_failure_quarantines_key_and_releases_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services import responses_upstream as upstream
+    from app.services.onemin_manager import OneminManagerService, register_onemin_manager
+    from app.services.tool_execution_onemin_adapter import OneminToolAdapter
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    register_onemin_manager(manager)
+
+    class _Config:
+        api_keys = ("key-video",)
+        timeout_seconds = 1
+
+    class _State:
+        def __init__(self, key: str) -> None:
+            self.key = key
+            self.failure_count = 0
+            self.last_success_at = 0.0
+            self.last_used_at = 0.0
+            self.last_error = ""
+
+    monkeypatch.setattr(upstream, "_provider_configs", lambda: {"onemin": _Config()})
+    monkeypatch.setattr(upstream, "_ordered_onemin_keys_allow_reserve", lambda allow_reserve: ("key-video",))
+    monkeypatch.setattr(upstream, "_onemin_states_snapshot", lambda keys: {key: _State(key) for key in keys})
+    monkeypatch.setattr(upstream, "_onemin_reserve_keys", lambda: ())
+    monkeypatch.setattr(upstream, "_onemin_key_state_label", lambda state, now=0.0: "ready")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 0.0)
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda provider, key_names, key: "acct-video")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names=(): "ONEMIN_AI_API_KEY")
+    monkeypatch.setattr(upstream, "_onemin_slot_role_for_key", lambda key, active_keys=(), reserve_keys=(): "mixed")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "acct-video",
+                            "slot": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "state": "ready",
+                            "estimated_remaining_credits": 2_000_000,
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(upstream, "_onemin_code_url", lambda: "https://api.1min.test/api/features")
+    monkeypatch.setattr(upstream, "_trim_error_payload", lambda payload: "deleted_api_key")
+    monkeypatch.setattr(upstream, "_extract_onemin_error", lambda payload: "")
+    monkeypatch.setattr(upstream, "_is_auth_error", lambda payload: "deleted" in str(payload) or "auth" in str(payload))
+    monkeypatch.setattr(upstream, "_is_deleted_onemin_key_error", lambda payload: "deleted" in str(payload))
+    monkeypatch.setattr(upstream, "_deleted_onemin_key_quarantine_seconds", lambda: 86_400)
+
+    failures: list[tuple[str, str, bool, int | None]] = []
+
+    def _mark_failure(api_key: str, detail: str, temporary_quarantine: bool = False, quarantine_seconds: int | None = None) -> None:
+        failures.append((api_key, detail, temporary_quarantine, quarantine_seconds))
+
+    monkeypatch.setattr(upstream, "_mark_onemin_failure", _mark_failure)
+
+    class _Response:
+        status_code = 401
+        text = "deleted api key"
+
+        def json(self) -> dict[str, str]:
+            return {"error": "deleted api key"}
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_onemin_adapter.requests.post",
+        lambda *args, **kwargs: _Response(),
+    )
+
+    adapter = OneminToolAdapter()
+    with pytest.raises(ToolExecutionError, match="onemin_property_walkthrough_video_failed"):
+        adapter._call_property_walkthrough_feature(
+            first_frame_path="",
+            image_url="https://cdn.example.test/frame.jpg",
+            feature_model="kling",
+            prompt_object={"prompt": "slow premium apartment walkthrough"},
+            principal_id="property-user",
+            allow_reserve=False,
+            timeout_seconds=1,
+        )
+
+    assert failures == [("key-video", "deleted_api_key", True, 86_400)]
     leases = manager.leases_snapshot()
     assert len(leases) == 1
     assert leases[0]["status"] == "failed"

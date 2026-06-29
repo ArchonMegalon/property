@@ -810,6 +810,74 @@ class ToolExecutionService:
                 )
             nested_context = dict(request.context_json or {})
             nested_context.pop("telegram_delivery", None)
+            from app.services.scene_video_contract import scene_video_provider_runtime_readiness
+
+            runtime_readiness = scene_video_provider_runtime_readiness(provider_key)
+            if not bool(runtime_readiness.get("ready")):
+                telegram_delivery_requested = bool(payload.get("telegram_delivery_requested") or payload.get("telegram_delivery"))
+                principal_id = str(dict(request.context_json or {}).get("principal_id") or payload.get("principal_id") or "").strip()
+                telegram_readiness = {
+                    "requested": telegram_delivery_requested,
+                    "status": "not_requested",
+                    "principal_id": principal_id,
+                    "binding_configured": False,
+                    "reason": "",
+                }
+                if telegram_delivery_requested:
+                    if not principal_id:
+                        telegram_readiness["status"] = "blocked"
+                        telegram_readiness["reason"] = "principal_id_missing"
+                    else:
+                        telegram_binding = resolve_primary_telegram_binding(self._tool_runtime, principal_id=principal_id)
+                        telegram_readiness["binding_configured"] = telegram_binding is not None
+                        telegram_readiness["status"] = "ready" if telegram_binding is not None else "blocked"
+                        telegram_readiness["reason"] = "" if telegram_binding is not None else "telegram_binding_not_found"
+                blockers = list(runtime_readiness.get("blockers") or [])
+                if telegram_readiness["status"] == "blocked":
+                    blockers.append(str(telegram_readiness.get("reason") or "telegram_delivery_blocked"))
+                normalized = {
+                    "deliverable_type": "scene_video_packet",
+                    "provider_key": str(runtime_readiness.get("provider_key") or _contract_provider_key(provider_key)),
+                    "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or provider_key),
+                    "render_status": "blocked",
+                    "asset_url": "",
+                    "download_url": "",
+                    "video_url": "",
+                    "flythrough_url": "",
+                    "editor_url": "",
+                    "reason": ",".join(blockers),
+                    "runtime_readiness_json": runtime_readiness,
+                    "telegram_delivery_readiness_json": telegram_readiness,
+                    "structured_output_json": {
+                        "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or provider_key),
+                        "runtime_readiness_json": runtime_readiness,
+                        "telegram_delivery_readiness_json": telegram_readiness,
+                    },
+                }
+                normalized_text = json.dumps(normalized, ensure_ascii=False)
+                return ToolInvocationResult(
+                    tool_name=definition.tool_name,
+                    action_kind="video.generate",
+                    target_ref="",
+                    output_json={
+                        "normalized_text": normalized_text,
+                        "preview_text": normalized_text[:280],
+                        "mime_type": "application/json",
+                        "structured_output_json": normalized,
+                        "provider_key": normalized["provider_key"],
+                        "provider_backend_key": normalized["provider_backend_key"],
+                        "render_status": normalized["render_status"],
+                        "runtime_readiness_json": runtime_readiness,
+                        "telegram_delivery_readiness_json": telegram_readiness,
+                    },
+                    receipt_json={
+                        "provider_key": normalized["provider_key"],
+                        "provider_backend_key": normalized["provider_backend_key"],
+                        "context_kind": context_kind,
+                        "runtime_readiness_json": runtime_readiness,
+                        "telegram_delivery_readiness_json": telegram_readiness,
+                    },
+                )
             if provider_key == "mootion":
                 nested = self.execute_invocation(
                     ToolInvocationRequest(
@@ -1048,6 +1116,7 @@ class ToolExecutionService:
                         "image_url": image_url,
                         "first_frame_path": first_frame_path,
                         "model": payload.get("model"),
+                        "model_order": payload.get("model_order") or payload.get("modelOrder"),
                         "duration": payload.get("duration_seconds"),
                         "timeout_seconds": payload.get("timeout_seconds"),
                     },
