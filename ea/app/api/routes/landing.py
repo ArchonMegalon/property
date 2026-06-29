@@ -396,12 +396,27 @@ def _property_billing_fallback_href() -> str:
     return "/app/account?billing=1#delivery"
 
 
+def _property_billing_usable_open_href(handoff: dict[str, object] | None) -> str:
+    state = dict(handoff or {})
+    if not bool(state.get("available")):
+        return ""
+    status = str(state.get("status") or "").strip().lower()
+    if status not in {"ready", "member_token_ready"}:
+        return ""
+    return str(state.get("open_href") or "").strip()
+
+
 def _property_pricing_billing_link_copy(handoff: dict[str, object] | None = None) -> tuple[str, str]:
     status = str((handoff or {}).get("status") or "").strip().lower()
-    if status in {"bridge_ready", "member_token_ready"}:
+    if status == "member_token_ready":
         return (
             "Continue billing sign-in",
             "Use the same email in the billing lane.",
+        )
+    if status in {"login_required", "unresolved", "verifying", "disabled"}:
+        return (
+            "Billing account",
+            "Use the account page while the billing handoff is being connected.",
         )
     return (
         "Open billing account",
@@ -2241,12 +2256,8 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
     if request_brand(request)["key"] == "propertyquarry":
         billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
         billing_label, _billing_detail = _property_pricing_billing_link_copy(billing_handoff)
-        billing_open_href = str(
-            billing_handoff.get("open_href")
-            or billing_handoff.get("hosted_href")
-            or ""
-        ).strip()
-        if billing_handoff.get("available") and billing_open_href:
+        billing_open_href = _property_billing_usable_open_href(billing_handoff)
+        if billing_open_href:
             billing_target = billing_open_href
         elif run_id:
             billing_target = "/app/billing"
@@ -3880,7 +3891,7 @@ def pricing_page(
     if checkout_session_ready and request_brand(request)["key"] == "propertyquarry":
         billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
         pricing_signed_in_billing_href = (
-            str(billing_handoff.get("open_href") or "").strip()
+            _property_billing_usable_open_href(billing_handoff)
             or pricing_signed_in_billing_href
         )
         (
@@ -5977,19 +5988,11 @@ def app_shell(
     workspace = dict(status.get("workspace") or {})
     if property_brand and resolved_section in property_sections:
         billing_handoff = dict((property_context or {}).get("billing_handoff") or {}) if property_context else {}
-        billing_open_href = str(
-            billing_handoff.get("open_href")
-            or billing_handoff.get("hosted_href")
-            or ""
-        ).strip()
+        billing_open_href = _property_billing_usable_open_href(billing_handoff)
         if current_nav == "billing":
             billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
-            billing_open_href = str(
-                billing_handoff.get("open_href")
-                or billing_handoff.get("hosted_href")
-                or ""
-            ).strip()
-            if billing_handoff.get("available") and billing_open_href:
+            billing_open_href = _property_billing_usable_open_href(billing_handoff)
+            if billing_open_href:
                 return RedirectResponse(billing_open_href, status_code=303)
             return _render_property_billing_unavailable_page(
                 request,

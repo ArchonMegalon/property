@@ -861,6 +861,32 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_requires
     )
 
 
+def test_property_billing_route_never_uses_hosted_href_without_usable_open_href(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setattr(
+        "app.api.routes.landing._property_brilliant_directories_billing_handoff",
+        lambda *, allow_verified_direct_handoff=False: {
+            "available": True,
+            "status": "login_required",
+            "hosted_href": "https://billing.propertyquarry.com/account",
+            "open_href": "",
+            "error": "billing_handoff_requires_separate_login",
+        },
+    )
+    client = build_property_client(principal_id="exec-bd-billing-hosted-href-only")
+    start_workspace(client, mode="personal", workspace_name="BD Billing Hosted Href Only")
+
+    response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+
+    _assert_billing_fail_closed(
+        response,
+        marker="This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now.",
+    )
+    assert "https://billing.propertyquarry.com/account" not in response.text
+
+
 def test_property_billing_route_fails_closed_when_only_sso_bridge_is_available_but_direct_handoff_requires_second_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
