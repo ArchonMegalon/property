@@ -1,0 +1,17 @@
+{
+  "contract_name": "propertyquarry.scene_video_provider_inventory.v1",
+  "providers": {
+    "magicfit": {
+      "expected_account_count": 3,
+      "notes": "Count-only inventory from operator report; credential values stay in runtime secret stores."
+    },
+    "omagic": {
+      "expected_account_count": 8,
+      "aliases": [
+        "magic"
+      ],
+      "notes": "Count-only inventory for OMagic/Magic accounts; credential values stay in runtime secret stores."
+    }
+  },
+  "notes": "This file intentionally stores only provider account counts and aliases, never emails, passwords, API keys, or session tokens."
+}

@@ -126,7 +126,7 @@ def _candidate_external_listing_url(
 
 
 def _hosted_tour_unavailable_detail() -> str:
-    return "The saved tour link exists, but no Matterport, 3DVista, or Pano2VR tour is available yet."
+    return "The saved tour link exists, but no usable 3D tour is available yet."
 
 
 def _property_workbench_lightweight_image_url(value: object, *, max_data_url_chars: int = 4096) -> str:
@@ -1965,24 +1965,24 @@ def property_workspace_payload(
     def _visual_provider_label(value: object) -> str:
         normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
         label_map = {
-            "matterport": "Matterport",
-            "3dvista": "3DVista",
-            "threedvista": "3DVista",
-            "three_d_vista": "3DVista",
-            "pano2vr": "Pano2VR",
-            "pano_2_vr": "Pano2VR",
-            "krpano": "Panorama tour",
-            "magicfit": "MagicFit",
-            "mootion": "Mootion",
-            "omagic": "OMagic",
-            "magic": "OMagic",
-            "ea_one_manager_onemin_i2v": "OMagic",
-            "onemin_i2v": "OMagic",
-            "poppy_ai": "Poppy AI",
+            "matterport": "3D tour",
+            "3dvista": "3D tour",
+            "threedvista": "3D tour",
+            "three_d_vista": "3D tour",
+            "pano2vr": "3D tour",
+            "pano_2_vr": "3D tour",
+            "krpano": "3D tour",
+            "magicfit": "Walkthrough",
+            "mootion": "Walkthrough",
+            "omagic": "Walkthrough",
+            "magic": "Walkthrough",
+            "ea_one_manager_onemin_i2v": "Walkthrough",
+            "onemin_i2v": "Walkthrough",
+            "poppy_ai": "Walkthrough",
         }
         if normalized in label_map:
             return label_map[normalized]
-        return str(value or "").strip().replace("_", " ").title()
+        return "3D tour" if normalized else ""
 
     def _tour_payload(candidate: dict[str, object]) -> dict[str, object]:
         tour_url = str(candidate.get("tour_url") or "").strip()
@@ -2039,11 +2039,7 @@ def property_workspace_payload(
             provider_label = _visual_provider_label(provider_key) if provider_key else "3D tour"
             if verified_tour_url:
                 verified_provider_keys = {"matterport", "3dvista", "pano2vr", "krpano"}
-                status_detail = (
-                    f"{provider_label} is live on this page."
-                    if provider_key in verified_provider_keys
-                    else "3D tour is live."
-                )
+                status_detail = "3D tour is live on this page."
                 visual_runtime = _visual_runtime_payload(
                     candidate,
                     request_kind="tour",
@@ -2061,7 +2057,7 @@ def property_workspace_payload(
                     "provider_key": provider_key,
                     "status_detail": status_detail,
                     "recovery_label": "",
-                    "control_label": f"Open {provider_label}" if provider_key in verified_provider_keys else "Open 3D tour",
+                    "control_label": "Open 3D tour",
                 }
             return {
                 "status": "blocked",

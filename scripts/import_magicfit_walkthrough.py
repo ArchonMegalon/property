@@ -137,6 +137,19 @@ def _load_magicfit_receipt(path_value: str, *, source: Path, slug: str, allow_un
     return payload, str(receipt_path)
 
 
+def _coverage_proof_from_receipt(payload: dict[str, object]) -> dict[str, object]:
+    for key in (
+        "walkthrough_coverage_proof",
+        "magicfit_walkthrough_coverage",
+        "walkthrough_quality_receipt",
+        "coverage_proof",
+    ):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import a verified MagicFit walkthrough video into a public tour bundle.")
     parser.add_argument("--slug", required=True, help="Existing PropertyQuarry public tour slug.")
@@ -158,7 +171,7 @@ def main() -> int:
         raise SystemExit("magicfit_video_missing")
     if not _video_is_playable(source):
         raise SystemExit("magicfit_video_unverified")
-    _receipt_payload, receipt_relpath = _load_magicfit_receipt(
+    receipt_payload, receipt_relpath = _load_magicfit_receipt(
         args.source_receipt,
         source=source,
         slug=slug,
@@ -189,7 +202,7 @@ def main() -> int:
     payload["video_provider"] = "magicfit"
     payload["video_relpath"] = target_relpath
     payload["video_coverage_proof"] = "boundary_verified_frame_continuation"
-    payload["magicfit_import"] = {
+    magicfit_import = {
         "source": "magicfit_rendered_walkthrough",
         "imported_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "target_relpath": target_relpath,
@@ -197,6 +210,11 @@ def main() -> int:
         "size_bytes": target.stat().st_size,
         "source_receipt_path": receipt_relpath,
     }
+    coverage_proof = _coverage_proof_from_receipt(receipt_payload)
+    if coverage_proof:
+        payload["walkthrough_coverage_proof"] = coverage_proof
+        magicfit_import["coverage_proof"] = coverage_proof
+    payload["magicfit_import"] = magicfit_import
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(
         json.dumps(

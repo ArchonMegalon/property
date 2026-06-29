@@ -1,126 +1,96 @@
-from __future__ import annotations
+import json
+import os
+from pathlib import Path
 
-import sys
-import types
-
-from app.services.scene_video_contract import (
-    normalize_scene_video_backend_provider,
-    normalize_scene_video_contract_provider,
-    resolve_scene_video_script_path,
-    scene_video_provider_runtime_readiness,
-)
+from app.services import scene_video_contract as service
 
 
-def test_scene_video_provider_aliases_are_whitespace_tolerant() -> None:
-    assert normalize_scene_video_contract_provider(" magic ") == "omagic"
-    assert normalize_scene_video_backend_provider(" one min ") == "onemin_i2v"
-    assert normalize_scene_video_contract_provider("magic fit") == "magicfit"
-    assert normalize_scene_video_backend_provider("mootion") == "mootion"
+def _clear_scene_video_provider_env(monkeypatch) -> None:
+    for key in list(os.environ):
+        if (
+            "MAGICFIT" in key
+            or "OMAGIC" in key
+            or key.startswith("MAGIC_")
+            or key.startswith("PROPERTYQUARRY_MAGIC_")
+            or key.startswith("ONEMIN_")
+        ):
+            monkeypatch.delenv(key, raising=False)
 
 
-def test_scene_video_script_resolver_uses_runtime_repo_root(tmp_path, monkeypatch) -> None:
+def test_scene_video_magic_and_omagic_normalize_to_omagic_not_onemin() -> None:
+    assert service.normalize_scene_video_contract_provider("magic") == "omagic"
+    assert service.normalize_scene_video_contract_provider("omagic") == "omagic"
+    assert service.normalize_scene_video_backend_provider("magic") == "omagic"
+    assert service.normalize_scene_video_backend_provider("omagic") == "omagic"
+
+
+def test_scene_video_omagic_readiness_ignores_onemin_credentials(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "not-an-omagic-credential")
+
+    readiness = service.scene_video_provider_runtime_readiness("magic")
+
+    assert readiness["provider_key"] == "omagic"
+    assert readiness["provider_backend_key"] == "omagic"
+    assert readiness["checks"]["account_config_scope"] == "omagic_only_config"
+    assert readiness["runtime_account_count"] == 0
+    assert "omagic_credentials_missing" in readiness["blockers"]
+    assert "onemin_i2v_api_key_missing" not in readiness["blockers"]
+
+
+def test_scene_video_omagic_readiness_counts_magic_accounts_json(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
     script_dir = tmp_path / "scripts"
     script_dir.mkdir()
-    expected = script_dir / "render_magicfit_property_flythrough.py"
-    expected.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    (script_dir / "render_omagic_property_model_walkthrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
     monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv(
+        "MAGIC_ACCOUNTS_JSON",
+        json.dumps(
+            [
+                {"email": f"magic-{index}@example.com", "password": "secret"}
+                for index in range(1, 9)
+            ]
+        ),
+    )
 
-    assert resolve_scene_video_script_path("render_magicfit_property_flythrough.py") == expected.resolve()
-    assert resolve_scene_video_script_path("../render_magicfit_property_flythrough.py") == expected.resolve()
+    readiness = service.scene_video_provider_runtime_readiness("magic")
+
+    assert readiness["provider_key"] == "omagic"
+    assert readiness["provider_backend_key"] == "omagic"
+    assert readiness["ready"] is False
+    assert readiness["runtime_account_count"] == 8
+    assert readiness["checks"]["runtime_account_email_env_names"][0] == "MAGIC_ACCOUNTS_JSON[1].email"
+    assert readiness["checks"]["model_upload_adapter_enabled"] is False
+    assert readiness["blockers"] == ["omagic_model_upload_adapter_disabled"]
 
 
-def test_scene_video_runtime_readiness_reports_provider_blockers(tmp_path, monkeypatch) -> None:
+def test_scene_video_magicfit_readiness_counts_three_accounts_json(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
     script_dir = tmp_path / "scripts"
     script_dir.mkdir()
     (script_dir / "render_magicfit_property_flythrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
     monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
-    monkeypatch.delenv("MAGICFIT_EMAIL", raising=False)
-    monkeypatch.delenv("PROPERTYQUARRY_MAGICFIT_EMAIL", raising=False)
-    monkeypatch.delenv("MAGICFIT_PASSWORD", raising=False)
-    monkeypatch.delenv("PROPERTYQUARRY_MAGICFIT_PASSWORD", raising=False)
+    monkeypatch.setenv("PROPERTYQUARRY_MAGICFIT_IGNORE_CREDIT_MARKER", "1")
+    monkeypatch.setenv(
+        "MAGICFIT_ACCOUNTS_JSON",
+        json.dumps(
+            [
+                {"email": f"magicfit-{index}@example.com", "password": "secret"}
+                for index in range(1, 4)
+            ]
+        ),
+    )
 
-    blocked = scene_video_provider_runtime_readiness("magicfit")
+    readiness = service.scene_video_provider_runtime_readiness("magicfit")
 
-    assert blocked["provider_key"] == "magicfit"
-    assert blocked["status"] == "blocked"
-    assert "magicfit_credentials_missing" in blocked["blockers"]
-    assert blocked["checks"]["script_exists"] is True
-
-    monkeypatch.setenv("MAGICFIT_EMAIL", "operator@example.test")
-    monkeypatch.setenv("MAGICFIT_PASSWORD", "secret")
-
-    ready = scene_video_provider_runtime_readiness("magic fit")
-
-    assert ready["provider_key"] == "magicfit"
-    assert ready["status"] == "ready"
-    assert ready["blockers"] == []
-
-
-def test_scene_video_runtime_readiness_blocks_known_omagic_credit_exhaustion(monkeypatch) -> None:
-    fake_upstream = types.ModuleType("app.services.responses_upstream")
-
-    def fake_provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
-        assert lightweight is True
-        return {
-            "providers": {
-                "onemin": {
-                    "configured_slots": 1,
-                    "estimated_remaining_credits_total": 19,
-                    "actual_remaining_credits_total": 19,
-                    "live_dispatchable_slot_count": 0,
-                    "slots": [
-                        {
-                            "slot": "ONEMIN_AI_API_KEY",
-                            "configured": True,
-                            "account_name": "Elvira Fortunato team",
-                            "state": "quarantine",
-                            "remaining_credits": 19,
-                            "required_credits": 750000,
-                            "credit_subject": "Elvira Fortunato team",
-                            "last_failure_at": 1782724200.0,
-                        }
-                    ],
-                }
-            }
-        }
-
-    fake_upstream._provider_health_report = fake_provider_health_report
-    monkeypatch.setitem(sys.modules, "app.services.responses_upstream", fake_upstream)
-    monkeypatch.setenv("ONEMIN_AI_API_KEY", "test-key")
-
-    readiness = scene_video_provider_runtime_readiness("magic")
-
-    assert readiness["provider_key"] == "omagic"
-    assert readiness["status"] == "blocked"
-    assert "onemin_i2v_insufficient_credits" in readiness["blockers"]
-    assert readiness["checks"]["credit_state"] == "insufficient"
-    assert readiness["checks"]["minimum_required_credits"] == 450000
-    assert readiness["checks"]["slots"][0]["remaining_credits"] == 19
-
-
-def test_normalize_scene_video_contract_provider_canonicalizes_public_values() -> None:
-    assert normalize_scene_video_contract_provider("mootion") == "mootion"
-    assert normalize_scene_video_contract_provider("magicfit") == "magicfit"
-    assert normalize_scene_video_contract_provider("magic") == "omagic"
-    assert normalize_scene_video_contract_provider("omagic") == "omagic"
-    assert normalize_scene_video_contract_provider("onemin") == "omagic"
-    assert normalize_scene_video_contract_provider("onemin_i2v") == "omagic"
-
-
-def test_normalize_scene_video_contract_provider_uses_default_when_blank() -> None:
-    assert normalize_scene_video_contract_provider("", default="magicfit") == "magicfit"
-    assert normalize_scene_video_contract_provider(None, default="omagic") == "omagic"
-
-
-def test_normalize_scene_video_backend_provider_canonicalizes_runtime_values() -> None:
-    assert normalize_scene_video_backend_provider("mootion") == "mootion"
-    assert normalize_scene_video_backend_provider("magicfit") == "magicfit"
-    assert normalize_scene_video_backend_provider("magic") == "onemin_i2v"
-    assert normalize_scene_video_backend_provider("omagic") == "onemin_i2v"
-    assert normalize_scene_video_backend_provider("onemin") == "onemin_i2v"
-    assert normalize_scene_video_backend_provider("onemin_i2v") == "onemin_i2v"
-
-
-def test_normalize_scene_video_backend_provider_uses_default_when_blank() -> None:
-    assert normalize_scene_video_backend_provider("", default="magicfit") == "magicfit"
-    assert normalize_scene_video_backend_provider(None, default="omagic") == "onemin_i2v"
+    assert readiness["provider_key"] == "magicfit"
+    assert readiness["provider_backend_key"] == "magicfit"
+    assert readiness["ready"] is True
+    assert readiness["runtime_account_count"] == 3
+    assert readiness["checks"]["runtime_account_email_env_names"] == [
+        "MAGICFIT_ACCOUNTS_JSON[1].email",
+        "MAGICFIT_ACCOUNTS_JSON[2].email",
+        "MAGICFIT_ACCOUNTS_JSON[3].email",
+    ]

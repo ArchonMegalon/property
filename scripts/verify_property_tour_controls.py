@@ -920,12 +920,13 @@ def _probe_url(url: str, *, timeout_seconds: float, provider: str = "") -> dict[
                     "ffprobe": ffprobe_markers,
                 }
             body = response.read(80_000).decode("utf-8", errors="replace")
+            generic_3d_control_ready = "3D Tour" in body and "Load 3D tour" in body
             return {
                 "http_status": int(getattr(response, "status", 0) or 0),
                 "body_markers": {
-                    "matterport": "Matterport Control" in body,
-                    "3dvista": "3DVista Control" in body,
-                    "pano2vr": "Pano2VR Control" in body,
+                    "matterport": generic_3d_control_ready,
+                    "3dvista": generic_3d_control_ready,
+                    "pano2vr": generic_3d_control_ready,
                     "krpano": "krpano" in body and "krpano-license" in body,
                 },
             }

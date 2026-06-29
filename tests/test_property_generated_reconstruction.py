@@ -106,6 +106,9 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert receipt["walkthrough"]["status"] in {"generated", "failed", "skipped"}
     if receipt["walkthrough"]["status"] == "generated":
         assert (output_dir / "generated-walkthrough.mp4").is_file()
+        assert (output_dir / "generated-walkthrough.quality.json").is_file()
+        assert receipt["walkthrough"]["duration_seconds"] >= 30.0
+        assert receipt["walkthrough"]["coverage_proof"]["status"] == "pass"
 
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     generated_reconstruction = manifest["generated_reconstruction"]
@@ -115,6 +118,9 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert generated_reconstruction["glb_export_status"] in {"generated", "failed", "skipped"}
     if generated_reconstruction["glb_export_status"] == "generated":
         assert generated_reconstruction["glb_model_relpath"] == "generated-reconstruction/model.glb"
+    if receipt["walkthrough"]["status"] == "generated":
+        assert generated_reconstruction["walkthrough_sidecar_relpath"] == "generated-reconstruction/generated-walkthrough.quality.json"
+        assert generated_reconstruction["walkthrough_coverage_proof"]["status"] == "pass"
     assert generated_reconstruction["verified_provider_capture"] is False
     assert "control_mode" not in manifest
     assert "viewer_provider" not in manifest

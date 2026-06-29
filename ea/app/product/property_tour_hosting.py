@@ -23,7 +23,13 @@ _PANO2VR_EXPORT_MARKERS = ("ggpkg", "ggskin", "pano.xml", "tour.js")
 _KRPANO_PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 _KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
 _KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
-_CUSTOMER_FACING_TOUR_PROVIDERS = ("matterport", "3dvista", "pano2vr")
+_CUSTOMER_FACING_TOUR_PROVIDERS = ("matterport", "3dvista")
+_3DVISTA_FORBIDDEN_PUBLIC_MARKERS = (
+    "created with the trial of 3dvista",
+    "created with 3dvista",
+    "3dvista virtual tour suite",
+    "immocontract",
+)
 
 
 def _now_iso() -> str:
@@ -67,6 +73,30 @@ def _hosted_property_tour_has_propertyquarry_3dvista_private_viewer_proof(payloa
         and _truthy(proof_payload.get("propertyquarry_tour_metadata") or proof_payload.get("property_tour_metadata_verified"))
         and _truthy(proof_payload.get("trial_branding_checked"))
     )
+
+
+def _hosted_property_tour_has_3dvista_browser_render_proof(payload: dict[str, object]) -> bool:
+    for key in (
+        "three_d_vista_browser_render_proof",
+        "threedvista_browser_render_proof",
+        "3dvista_browser_render_proof",
+        "browser_render_proof",
+    ):
+        proof = payload.get(key)
+        if not isinstance(proof, dict):
+            continue
+        provider = str(proof.get("provider") or proof.get("viewer_provider") or "3dvista").strip().lower()
+        if provider not in {"3dvista", "3d_vista", "three_d_vista"}:
+            continue
+        status = str(proof.get("status") or proof.get("result") or "").strip().lower()
+        if status not in {"pass", "ready", "rendered"}:
+            continue
+        if _truthy(proof.get("rendered_viewer") or proof.get("viewer_rendered") or proof.get("browser_rendered")):
+            return True
+        checks = list(proof.get("checks") or [])
+        if checks and all(isinstance(row, dict) and row.get("ok") is True for row in checks):
+            return True
+    return False
 
 
 def _public_tour_dir() -> Path:
@@ -448,6 +478,10 @@ def _hosted_property_tour_entry_has_marker(bundle_dir: Path, relpath: object, *,
 
 def _hosted_property_tour_has_3dvista_export(tour_url: object) -> bool:
     payload = _hosted_property_tour_payload_for_url(tour_url)
+    if not _hosted_property_tour_has_propertyquarry_3dvista_private_viewer_proof(payload):
+        return False
+    if not _hosted_property_tour_has_3dvista_browser_render_proof(payload):
+        return False
     for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
         value = str(payload.get(key) or "").strip()
         if value and _property_tour_provider_host_kind(value) == "3dvista":
@@ -460,12 +494,9 @@ def _hosted_property_tour_has_3dvista_export(tour_url: object) -> bool:
         entry_relpath = str(payload.get(key) or "").strip().lstrip("/")
         if not entry_relpath:
             continue
+        if _hosted_property_tour_entry_has_marker(bundle_dir, entry_relpath, markers=_3DVISTA_FORBIDDEN_PUBLIC_MARKERS):
+            return False
         if _hosted_property_tour_entry_has_marker(bundle_dir, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS):
-            return True
-        if (
-            _hosted_property_tour_has_propertyquarry_3dvista_private_viewer_proof(payload)
-            and _hosted_property_tour_file_exists(bundle_dir, entry_relpath)
-        ):
             return True
     return False
 
@@ -597,8 +628,6 @@ def _hosted_property_tour_verified_provider(tour_url: object) -> str:
             return "matterport"
         if _hosted_property_tour_has_3dvista_export(normalized_url):
             return "3dvista"
-        if _hosted_property_tour_has_pano2vr_export(normalized_url):
-            return "pano2vr"
     return ""
 
 

@@ -86,14 +86,14 @@ def test_tool_execution_service_sends_rendered_video_to_telegram_when_audio_is_p
         principal_id="exec-video-send",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "operator_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
     service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "operator_concierge_bot"}}),
     )
     monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: True)
     monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
@@ -5896,8 +5896,8 @@ def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_
         captured_render_kwargs.update(kwargs)
         return {
             "status": "rendered",
-            "provider_key": "onemin_i2v",
-            "media_route_provider_key": "onemin_i2v",
+            "provider_key": "omagic",
+            "media_route_provider_key": "omagic",
             "editor_url": "https://editor.example/scene-video",
             "reason": "",
         }
@@ -5911,7 +5911,18 @@ def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_
         lambda tour_url: {
             "video_url": "https://cdn.example/property/walkthrough.mp4",
             "flythrough_url": "https://viewer.example/property/walkthrough",
-            "provider_key": "onemin_i2v",
+            "provider_key": "omagic",
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "omagic",
+            "provider_backend_key": "omagic",
+            "ready": True,
+            "status": "ready",
+            "blockers": [],
+            "checks": {},
         },
     )
     registry._rows.pop("ea.scene_video_generate", None)  # type: ignore[attr-defined]
@@ -5941,7 +5952,7 @@ def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_
     assert result.tool_name == "ea.scene_video_generate"
     assert result.action_kind == "video.generate"
     assert result.output_json["provider_key"] == "omagic"
-    assert result.output_json["provider_backend_key"] == "onemin_i2v"
+    assert result.output_json["provider_backend_key"] == "omagic"
     assert result.output_json["video_url"] == "https://cdn.example/property/walkthrough.mp4"
     assert captured_render_kwargs["tour_context_json"] == {
         "verified_provider": "3dvista",
@@ -5949,16 +5960,130 @@ def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_
     }
     structured = result.output_json["structured_output_json"]
     assert structured["provider_key"] == "omagic"
-    assert structured["provider_backend_key"] == "onemin_i2v"
-    assert structured["structured_output_json"]["provider_backend_key"] == "onemin_i2v"
+    assert structured["provider_backend_key"] == "omagic"
+    assert structured["structured_output_json"]["provider_backend_key"] == "omagic"
     assert structured["tour_context_json"]["verified_provider"] == "3dvista"
     assert result.receipt_json["provider_key"] == "omagic"
-    assert result.receipt_json["provider_backend_key"] == "onemin_i2v"
+    assert result.receipt_json["provider_backend_key"] == "omagic"
     assert result.receipt_json["tour_context_present"] is True
     assert tool_runtime.get_tool("ea.scene_video_generate") is not None
 
 
-def test_tool_execution_scene_video_forwards_omagic_model_order_to_delegate(
+def test_tool_execution_property_walkthrough_blocks_before_render_when_runtime_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    monkeypatch.setattr(
+        "app.product.service._render_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("blocked walkthrough should not render")),
+    )
+    monkeypatch.setattr("app.product.service._hosted_property_tour_video_delivery", lambda tour_url: {})
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "omagic",
+            "provider_backend_key": "omagic",
+            "ready": False,
+            "status": "blocked",
+            "blockers": ["omagic_model_upload_adapter_missing"],
+            "checks": {"model_upload_supported": False},
+        },
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-property-walkthrough-blocked-1",
+            step_id="step-property-walkthrough-blocked-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "magic",
+                "context_kind": "property_walkthrough",
+                "title": "Blocked Walkthrough",
+                "tour_url": "https://property.example/tours/blocked",
+                "tour_context_json": {"verified_provider": "3dvista"},
+                "telegram_delivery_requested": True,
+            },
+            context_json={"principal_id": "exec-property-walkthrough-blocked"},
+        )
+    )
+
+    assert result.output_json["provider_key"] == "omagic"
+    assert result.output_json["render_status"] == "blocked"
+    assert result.output_json["runtime_readiness_json"]["checks"]["model_upload_supported"] is False
+    assert result.output_json["telegram_delivery_readiness_json"]["status"] == "blocked"
+    assert result.output_json["tour_context_json"]["verified_provider"] == "3dvista"
+
+
+def test_tool_execution_property_walkthrough_returns_cached_video_when_provider_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    monkeypatch.setattr(
+        "app.product.service._render_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("cached walkthrough should not render")),
+    )
+    monkeypatch.setattr(
+        "app.product.service._hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://cdn.example/property/cached-walkthrough.mp4",
+            "flythrough_url": "https://viewer.example/property/cached-walkthrough",
+            "provider_key": "magicfit",
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "omagic",
+            "provider_backend_key": "omagic",
+            "ready": False,
+            "status": "blocked",
+            "blockers": ["omagic_model_upload_adapter_missing"],
+            "checks": {"model_upload_supported": False},
+        },
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-property-walkthrough-cached-1",
+            step_id="step-property-walkthrough-cached-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "magic",
+                "context_kind": "property_walkthrough",
+                "title": "Cached Walkthrough",
+                "tour_url": "https://property.example/tours/cached",
+                "tour_context_json": {"verified_provider": "3dvista"},
+            },
+            context_json={"principal_id": "exec-property-walkthrough-cached"},
+        )
+    )
+
+    assert result.output_json["provider_key"] == "magicfit"
+    assert result.output_json["render_status"] == "completed"
+    assert result.output_json["video_url"] == "https://cdn.example/property/cached-walkthrough.mp4"
+    assert result.receipt_json["cached_video_used"] is True
+    assert result.receipt_json["runtime_readiness_json"]["status"] == "blocked"
+
+
+def test_tool_execution_scene_video_forwards_onemin_model_order_to_delegate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5990,7 +6115,7 @@ def test_tool_execution_scene_video_forwards_omagic_model_order_to_delegate(
     monkeypatch.setattr(
         "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
         lambda provider_key: {
-            "provider_key": "omagic",
+            "provider_key": "onemin_i2v",
             "provider_backend_key": "onemin_i2v",
             "ready": True,
             "status": "ready",
@@ -6028,7 +6153,7 @@ def test_tool_execution_scene_video_forwards_omagic_model_order_to_delegate(
             tool_name="ea.scene_video_generate",
             action_kind="video.generate",
             payload_json={
-                "provider_key": "magic",
+                "provider_key": "onemin_i2v",
                 "context_kind": "scene_briefing",
                 "title": "Runsite fight scene",
                 "script_text": "A tactical runsite briefing push-in.",
@@ -6041,10 +6166,451 @@ def test_tool_execution_scene_video_forwards_omagic_model_order_to_delegate(
         )
     )
 
-    assert result.output_json["provider_key"] == "omagic"
+    assert result.output_json["provider_key"] == "onemin_i2v"
     assert captured_payload["model_order"] == ["skyreels"]
     assert captured_payload["duration"] == 4
     assert captured_payload["timeout_seconds"] == 120
+
+
+def test_tool_execution_scene_video_sends_successful_video_to_telegram(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-scene-video-telegram",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "operator_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    provider_registry = ProviderRegistryService()
+
+    def _route_tool_with_context(tool_name: str, *, principal_id: str | None = None) -> CapabilityRoute:
+        if tool_name == "ea.scene_video_generate":
+            return CapabilityRoute(
+                provider_key="ea",
+                capability_key="scene_video_generate",
+                tool_name="ea.scene_video_generate",
+                executable=True,
+            )
+        assert tool_name == "provider.onemin.property_walkthrough_video"
+        assert principal_id == "exec-scene-video-telegram"
+        return CapabilityRoute(
+            provider_key="onemin",
+            capability_key="property_walkthrough_video",
+            tool_name="provider.onemin.property_walkthrough_video",
+            executable=True,
+        )
+
+    monkeypatch.setattr(provider_registry, "route_tool_with_context", _route_tool_with_context)
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "onemin_i2v",
+            "provider_backend_key": "onemin_i2v",
+            "ready": True,
+            "status": "ready",
+            "blockers": [],
+            "checks": {},
+        },
+    )
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "operator_concierge_bot"}}),
+    )
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: True)
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 177}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(
+            {
+                "url": request.full_url,
+                "payload": json.loads(request.data.decode("utf-8")),
+                "timeout": timeout,
+            }
+        )
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
+
+    def _fake_onemin_scene_video(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        encoded_video = json.dumps(
+            {
+                "video_url": "https://cdn.example/runsite-scene.mp4",
+                "model": "pika",
+                "provider_account_name": "ONEMIN_AI_API_KEY_FALLBACK_35",
+            }
+        )
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="video.generate",
+            target_ref=encoded_video,
+            output_json={
+                "video_url": encoded_video,
+                "asset_url": encoded_video,
+                "structured_output_json": {"video_url": encoded_video},
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("provider.onemin.property_walkthrough_video", _fake_onemin_scene_video)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-telegram-1",
+            step_id="step-scene-video-telegram-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "onemin_i2v",
+                "context_kind": "scene_briefing",
+                "title": "Runsite Telegram scene",
+                "script_text": "A tactical runsite briefing push-in.",
+                "first_frame_path": "/tmp/first-frame.png",
+                "model_order": ["skyreels"],
+            },
+            context_json={"principal_id": "exec-scene-video-telegram"},
+        )
+    )
+
+    assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token/sendVideo"
+    assert sent[0]["payload"]["video"] == "https://cdn.example/runsite-scene.mp4"
+    assert sent[0]["payload"]["caption"] == "Runsite Telegram scene"
+    assert result.output_json["provider_key"] == "onemin_i2v"
+    assert result.output_json["video_url"] == "https://cdn.example/runsite-scene.mp4"
+    assert result.output_json["telegram_delivery_json"]["status"] == "sent"
+    assert result.output_json["telegram_delivery_json"]["message_ids"] == ["177"]
+    assert result.receipt_json["telegram_delivery_json"]["media_ref"] == "https://cdn.example/runsite-scene.mp4"
+
+
+def test_tool_execution_scene_video_delivery_probe_sends_existing_video_without_delegate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-scene-video-probe",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "operator_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    provider_registry = ProviderRegistryService()
+    delegate_routes: list[str] = []
+
+    def _route_tool_with_context(tool_name: str, *, principal_id: str | None = None) -> CapabilityRoute:
+        if tool_name == "ea.scene_video_generate":
+            return CapabilityRoute(
+                provider_key="ea",
+                capability_key="scene_video_generate",
+                tool_name="ea.scene_video_generate",
+                executable=True,
+            )
+        delegate_routes.append(tool_name)
+        raise AssertionError(f"unexpected delegate route: {tool_name}")
+
+    monkeypatch.setattr(provider_registry, "route_tool_with_context", _route_tool_with_context)
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "omagic",
+            "provider_backend_key": "omagic",
+            "ready": True,
+            "status": "ready",
+            "blockers": [],
+            "checks": {},
+        },
+    )
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "operator_concierge_bot"}}),
+    )
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: True)
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 188}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(
+            {
+                "url": request.full_url,
+                "payload": json.loads(request.data.decode("utf-8")),
+                "timeout": timeout,
+            }
+        )
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-probe-1",
+            step_id="step-scene-video-probe-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "magic",
+                "context_kind": "scene_briefing",
+                "title": "Runsite Telegram probe",
+                "delivery_probe_video_url": "https://cdn.example/runsite-probe.mp4",
+                "telegram_delivery_requested": True,
+            },
+            context_json={"principal_id": "exec-scene-video-probe"},
+        )
+    )
+
+    assert delegate_routes == []
+    assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token/sendVideo"
+    assert sent[0]["payload"]["video"] == "https://cdn.example/runsite-probe.mp4"
+    assert sent[0]["payload"]["caption"] == "Runsite Telegram probe"
+    assert result.output_json["provider_key"] == "omagic"
+    assert result.output_json["render_status"] == "completed"
+    assert result.output_json["telegram_delivery_json"]["status"] == "sent"
+    assert result.receipt_json["delivery_probe"] is True
+    assert result.receipt_json["telegram_delivery_json"]["media_ref"] == "https://cdn.example/runsite-probe.mp4"
+
+
+def test_tool_execution_scene_video_mootion_remote_browseract_bypasses_local_docker_blockers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    provider_registry = ProviderRegistryService()
+
+    def _route_tool_with_context(tool_name: str, *, principal_id: str | None = None) -> CapabilityRoute:
+        if tool_name == "ea.scene_video_generate":
+            return CapabilityRoute(
+                provider_key="ea",
+                capability_key="scene_video_generate",
+                tool_name="ea.scene_video_generate",
+                executable=True,
+            )
+        assert tool_name == "browseract.mootion_movie"
+        assert principal_id == "exec-scene-video-mootion-remote"
+        return CapabilityRoute(
+            provider_key="browseract",
+            capability_key="mootion_movie",
+            tool_name="browseract.mootion_movie",
+            executable=True,
+        )
+
+    monkeypatch.setattr(provider_registry, "route_tool_with_context", _route_tool_with_context)
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "mootion",
+            "provider_backend_key": "mootion",
+            "ready": False,
+            "status": "blocked",
+            "blockers": ["mootion_docker_socket_missing", "mootion_docker_cli_missing"],
+            "checks": {
+                "script_exists": True,
+                "docker_socket_configured": False,
+                "docker_cli_configured": False,
+            },
+        },
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
+    captured_payload: dict[str, object] = {}
+
+    def _fake_mootion_scene_video(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        captured_payload.update(dict(request.payload_json or {}))
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="movie.render",
+            target_ref="https://cdn.example/mootion/runsite-remote.mp4",
+            output_json={
+                "render_status": "rendered",
+                "asset_url": "https://cdn.example/mootion/runsite-remote.mp4",
+                "download_url": "https://cdn.example/mootion/runsite-remote.mp4",
+                "editor_url": "https://mootion.example/project/runsite",
+                "structured_output_json": {
+                    "asset_url": "https://cdn.example/mootion/runsite-remote.mp4",
+                    "workflow_id": "wf-mootion-remote",
+                },
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("browseract.mootion_movie", _fake_mootion_scene_video)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-mootion-remote-1",
+            step_id="step-scene-video-mootion-remote-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "mootion",
+                "context_kind": "scene_briefing",
+                "title": "Runsite Mootion remote scene",
+                "script_text": "A remote BrowserAct Mootion briefing render.",
+                "workflow_id": "wf-mootion-remote",
+                "timeout_seconds": 120,
+            },
+            context_json={"principal_id": "exec-scene-video-mootion-remote"},
+        )
+    )
+
+    assert captured_payload["force_browseract"] is True
+    assert captured_payload["allow_browseract_remote_fallback"] is True
+    assert captured_payload["remote_fallback_allowed"] is True
+    assert captured_payload["workflow_id"] == "wf-mootion-remote"
+    assert result.output_json["provider_key"] == "mootion"
+    assert result.output_json["render_status"] == "rendered"
+    assert result.output_json["video_url"] == "https://cdn.example/mootion/runsite-remote.mp4"
+
+
+def test_tool_execution_scene_video_mootion_auto_selects_browseract_bridge_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-scene-video-mootion-auto",
+        connector_name="browseract",
+        external_account_ref="mootion-scene-video-bridge",
+        scope_json={"services": ["mootion", "mootion_movie", "browseract.mootion_movie"]},
+        auth_metadata_json={
+            "mootion_browseract_bridge": True,
+            "service_key": "mootion_movie",
+            "mootion_movie_workflow_id": "wf-mootion-auto",
+            "browseract_mootion_movie_workflow_id": "wf-mootion-auto",
+        },
+        status="enabled",
+    )
+    provider_registry = ProviderRegistryService()
+
+    def _route_tool_with_context(tool_name: str, *, principal_id: str | None = None) -> CapabilityRoute:
+        if tool_name == "ea.scene_video_generate":
+            return CapabilityRoute(
+                provider_key="ea",
+                capability_key="scene_video_generate",
+                tool_name="ea.scene_video_generate",
+                executable=True,
+            )
+        assert tool_name == "browseract.mootion_movie"
+        assert principal_id == "exec-scene-video-mootion-auto"
+        return CapabilityRoute(
+            provider_key="browseract",
+            capability_key="mootion_movie",
+            tool_name="browseract.mootion_movie",
+            executable=True,
+        )
+
+    monkeypatch.setattr(provider_registry, "route_tool_with_context", _route_tool_with_context)
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "mootion",
+            "provider_backend_key": "mootion",
+            "ready": False,
+            "status": "blocked",
+            "blockers": ["mootion_docker_socket_missing", "mootion_docker_cli_missing"],
+            "checks": {
+                "script_exists": True,
+                "docker_socket_configured": False,
+                "docker_cli_configured": False,
+            },
+        },
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
+    captured_payload: dict[str, object] = {}
+
+    def _fake_mootion_scene_video(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        captured_payload.update(dict(request.payload_json or {}))
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="movie.render",
+            target_ref="https://cdn.example/mootion/auto-bridge.mp4",
+            output_json={
+                "render_status": "rendered",
+                "asset_url": "https://cdn.example/mootion/auto-bridge.mp4",
+                "structured_output_json": {
+                    "asset_url": "https://cdn.example/mootion/auto-bridge.mp4",
+                    "workflow_id": "wf-mootion-auto",
+                },
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("browseract.mootion_movie", _fake_mootion_scene_video)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-mootion-auto-1",
+            step_id="step-scene-video-mootion-auto-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "mootion",
+                "context_kind": "scene_briefing",
+                "title": "Runsite Mootion auto bridge scene",
+                "script_text": "Auto-select the principal Mootion BrowserAct bridge.",
+            },
+            context_json={"principal_id": "exec-scene-video-mootion-auto"},
+        )
+    )
+
+    assert captured_payload["binding_id"] == binding.binding_id
+    assert captured_payload["workflow_id"] == "wf-mootion-auto"
+    assert captured_payload["force_browseract"] is True
+    assert captured_payload["allow_browseract_remote_fallback"] is True
+    assert result.output_json["provider_key"] == "mootion"
+    assert result.output_json["video_url"] == "https://cdn.example/mootion/auto-bridge.mp4"
 
 
 def test_tool_execution_scene_video_blocks_before_delegate_when_runtime_not_ready(
@@ -6071,11 +6637,11 @@ def test_tool_execution_scene_video_blocks_before_delegate_when_runtime_not_read
         "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
         lambda provider_key: {
             "provider_key": "omagic",
-            "provider_backend_key": "onemin_i2v",
+            "provider_backend_key": "omagic",
             "ready": False,
             "status": "blocked",
-            "blockers": ["onemin_i2v_insufficient_credits"],
-            "checks": {"credit_state": "insufficient", "remaining_credits": 19},
+            "blockers": ["omagic_model_upload_adapter_missing"],
+            "checks": {"model_upload_supported": False},
         },
     )
     service = _tool_execution_service(
@@ -6108,8 +6674,8 @@ def test_tool_execution_scene_video_blocks_before_delegate_when_runtime_not_read
 
     assert result.output_json["provider_key"] == "omagic"
     assert result.output_json["render_status"] == "blocked"
-    assert result.output_json["runtime_readiness_json"]["checks"]["credit_state"] == "insufficient"
-    assert result.receipt_json["runtime_readiness_json"]["blockers"] == ["onemin_i2v_insufficient_credits"]
+    assert result.output_json["runtime_readiness_json"]["checks"]["model_upload_supported"] is False
+    assert result.receipt_json["runtime_readiness_json"]["blockers"] == ["omagic_model_upload_adapter_missing"]
 
 
 def test_tool_execution_scene_video_readiness_only_reports_runtime_and_telegram_status(
@@ -6131,7 +6697,7 @@ def test_tool_execution_scene_video_readiness_only_reports_runtime_and_telegram_
         principal_id="exec-scene-video-ready",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "operator_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
@@ -6748,6 +7314,109 @@ def test_onemin_property_walkthrough_auth_failure_quarantines_key_and_releases_l
     assert len(leases) == 1
     assert leases[0]["status"] == "failed"
     assert leases[0]["finished_at"]
+    assert manager.occupancy_snapshot()["active_lease_count"] == 0
+
+    register_onemin_manager(None)
+
+
+def test_onemin_property_walkthrough_gateway_timeout_does_not_retry_other_accounts_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services import responses_upstream as upstream
+    from app.services.onemin_manager import OneminManagerService, register_onemin_manager
+    from app.services.tool_execution_onemin_adapter import OneminToolAdapter
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    register_onemin_manager(manager)
+
+    class _Config:
+        api_keys = ("key-video-1", "key-video-2")
+        timeout_seconds = 1
+
+    class _State:
+        def __init__(self, key: str) -> None:
+            self.key = key
+            self.failure_count = 0
+            self.last_success_at = 0.0
+            self.last_used_at = 0.0
+            self.last_error = ""
+
+    monkeypatch.delenv("PROPERTYQUARRY_ONEMIN_VIDEO_RETRY_GATEWAY_TIMEOUTS", raising=False)
+    monkeypatch.setattr(upstream, "_provider_configs", lambda: {"onemin": _Config()})
+    monkeypatch.setattr(upstream, "_ordered_onemin_keys_allow_reserve", lambda allow_reserve: ("key-video-1", "key-video-2"))
+    monkeypatch.setattr(upstream, "_onemin_states_snapshot", lambda keys: {key: _State(key) for key in keys})
+    monkeypatch.setattr(upstream, "_onemin_reserve_keys", lambda: ())
+    monkeypatch.setattr(upstream, "_onemin_key_state_label", lambda state, now=0.0: "ready")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 0.0)
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda provider, key_names, key: f"acct-{key[-1]}")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names=(): f"fallback_3{key[-1]}")
+    monkeypatch.setattr(upstream, "_onemin_slot_role_for_key", lambda key, active_keys=(), reserve_keys=(): "mixed")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "acct-1",
+                            "slot": "fallback_31",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_31",
+                            "state": "ready",
+                            "estimated_remaining_credits": 2_000_000,
+                        },
+                        {
+                            "account_name": "acct-2",
+                            "slot": "fallback_32",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_32",
+                            "state": "ready",
+                            "estimated_remaining_credits": 2_000_000,
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(upstream, "_onemin_code_url", lambda: "https://api.1min.test/api/features")
+    monkeypatch.setattr(upstream, "_trim_error_payload", lambda payload: "cloudflare_timeout")
+    monkeypatch.setattr(upstream, "_extract_onemin_error", lambda payload: "")
+    monkeypatch.setattr(upstream, "_is_auth_error", lambda payload: False)
+    monkeypatch.setattr(upstream, "_is_deleted_onemin_key_error", lambda payload: False)
+    monkeypatch.setattr(upstream, "_deleted_onemin_key_quarantine_seconds", lambda: 86_400)
+    monkeypatch.setattr(upstream, "_mark_onemin_failure", lambda *args, **kwargs: None)
+
+    calls: list[str] = []
+
+    class _Response:
+        status_code = 524
+        text = "gateway timeout"
+
+        def json(self) -> dict[str, str]:
+            return {"error": "gateway timeout"}
+
+    def _fake_post(*args, **kwargs):
+        calls.append(str((kwargs.get("headers") or {}).get("API-KEY") or ""))
+        return _Response()
+
+    monkeypatch.setattr("app.services.tool_execution_onemin_adapter.requests.post", _fake_post)
+
+    adapter = OneminToolAdapter()
+    with pytest.raises(ToolExecutionError, match="http_524"):
+        adapter._call_property_walkthrough_feature(
+            first_frame_path="",
+            image_url="https://cdn.example.test/frame.jpg",
+            feature_model="pika",
+            prompt_object={"prompt": "short runsite fight scene", "duration": 5},
+            principal_id="property-user",
+            allow_reserve=False,
+            timeout_seconds=1,
+        )
+
+    assert calls == ["key-video-1"]
+    leases = manager.leases_snapshot()
+    assert len(leases) == 1
+    assert leases[0]["status"] == "failed"
     assert manager.occupancy_snapshot()["active_lease_count"] == 0
 
     register_onemin_manager(None)

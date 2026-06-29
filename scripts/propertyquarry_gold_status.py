@@ -160,6 +160,9 @@ DEFAULT_RECEIPT_PATTERNS = {
     "furniture_style_contract": ("_completion/furniture_styles/property-furniture-style-contract*.json",),
     "bts_methodology_contract": ("_completion/bts_methodology/property-bts-methodology-contract*.json",),
     "tour_delivery_contract": ("_completion/tour_delivery/property-tour-delivery-contract*.json",),
+    "map_preview_flagship": ("_completion/smoke/property-live-map-preview-flagship*.json",),
+    "browser_3d_gate": ("_completion/smoke/property-live-3d-browser-gate*.json",),
+    "walkthrough_quality": ("_completion/smoke/property-live-walkthrough-quality*.json",),
 }
 DEFAULT_RECEIPT_FALLBACKS = {
     "performance": "_completion/smoke/property-auth-performance-latest.json",
@@ -180,6 +183,9 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "furniture_style_contract": "_completion/furniture_styles/property-furniture-style-contract-latest.json",
     "bts_methodology_contract": "_completion/bts_methodology/property-bts-methodology-contract-latest.json",
     "tour_delivery_contract": "_completion/tour_delivery/property-tour-delivery-contract-latest.json",
+    "map_preview_flagship": "_completion/smoke/property-live-map-preview-flagship-latest.json",
+    "browser_3d_gate": "_completion/smoke/property-live-3d-browser-gate-latest.json",
+    "walkthrough_quality": "_completion/smoke/property-live-walkthrough-quality-latest.json",
 }
 
 _CANONICAL_GOLD_STATUS_LATEST_PATHS = (
@@ -450,11 +456,11 @@ def _missing_provider_modes(tour_receipt: dict[str, Any]) -> list[str]:
 
 def _tour_provider_evidence_action(missing_provider_modes: list[str]) -> str:
     actions = {
-        "matterport": "verified Matterport model URL/control receipt",
-        "3dvista": "verified 3DVista export or allowlisted 3DVista tour URL",
-        "pano2vr": "verified Pano2VR export",
-        "krpano": "real krpano walkable_scene from panorama/cube assets plus the licensed environment",
-        "magicfit": "receipt-backed playable MagicFit walkthrough",
+        "matterport": "verified hosted 3D model URL/control receipt",
+        "3dvista": "verified branded 3D tour export or allowlisted hosted tour URL",
+        "pano2vr": "verified panorama tour export",
+        "krpano": "real panorama/cube walkable_scene plus the licensed environment",
+        "magicfit": "receipt-backed playable walkthrough",
     }
     parts = [actions[provider] for provider in missing_provider_modes if provider in actions]
     if not parts:
@@ -464,11 +470,11 @@ def _tour_provider_evidence_action(missing_provider_modes: list[str]) -> str:
 
 def _tour_provider_missing_note(missing_provider_modes: list[str]) -> str:
     labels = {
-        "matterport": "Matterport",
-        "3dvista": "3DVista",
-        "pano2vr": "Pano2VR",
-        "krpano": "krpano",
-        "magicfit": "MagicFit",
+        "matterport": "hosted 3D model",
+        "3dvista": "branded 3D tour export",
+        "pano2vr": "panorama tour export",
+        "krpano": "panorama/cube viewer",
+        "magicfit": "playable walkthrough",
     }
     names = [labels[provider] for provider in missing_provider_modes if provider in labels]
     if not names:
@@ -720,6 +726,31 @@ def _authenticated_account_notification_checks(authenticated_smoke: dict[str, An
     return not missing and not notification_failed, missing, notification_failed
 
 
+def _failed_receipt_checks(receipt: dict[str, Any], *, limit: int = 12) -> list[dict[str, Any]]:
+    failed: list[dict[str, Any]] = []
+    for row in list(receipt.get("checks") or []):
+        if not isinstance(row, dict) or row.get("ok") is True:
+            continue
+        failed.append(
+            {
+                "name": str(row.get("name") or "unnamed_check"),
+                "detail": str(row.get("detail") or row.get("reason") or row.get("error") or ""),
+                **({"state": row.get("state")} if isinstance(row.get("state"), dict) else {}),
+                **({"coverage": row.get("coverage")} if isinstance(row.get("coverage"), dict) else {}),
+                **({"frame_delta_stats": row.get("frame_delta_stats")} if isinstance(row.get("frame_delta_stats"), dict) else {}),
+            }
+        )
+    return failed[:limit]
+
+
+def _hard_gate_receipt_ok(receipt: dict[str, Any]) -> bool:
+    return (
+        receipt.get("status") == "pass"
+        and int(receipt.get("failed_count") or 0) == 0
+        and all(isinstance(row, dict) and row.get("ok") is True for row in list(receipt.get("checks") or []))
+    )
+
+
 def _route_covers_required_detail(route: str, required_prefix: str) -> bool:
     normalized_route = str(route or "").split("?", 1)[0].strip().rstrip("/")
     normalized_prefix = str(required_prefix or "").strip().rstrip("/")
@@ -955,6 +986,13 @@ def build_gold_status_receipt(
     furniture_style_contract_receipt_path: Path | None = None,
     bts_methodology_contract_receipt_path: Path | None = None,
     tour_delivery_contract_receipt_path: Path | None = None,
+    map_preview_flagship_receipt_path: Path | None = None,
+    browser_3d_gate_receipt_path: Path | None = None,
+    walkthrough_quality_receipt_path: Path | None = None,
+    scene_video_readiness_receipt_path: Path | None = None,
+    scene_video_readiness_verifier_receipt_path: Path | None = None,
+    scene_video_provider_refresh_packet_path: Path | None = None,
+    scene_video_provider_refresh_packet_verifier_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -978,6 +1016,17 @@ def build_gold_status_receipt(
     furniture_style_contract = _load_json(furniture_style_contract_receipt_path) if furniture_style_contract_receipt_path is not None else {}
     bts_methodology_contract = _load_json(bts_methodology_contract_receipt_path) if bts_methodology_contract_receipt_path is not None else {}
     tour_delivery_contract = _load_json(tour_delivery_contract_receipt_path) if tour_delivery_contract_receipt_path is not None else {}
+    map_preview_flagship = _load_json(map_preview_flagship_receipt_path) if map_preview_flagship_receipt_path is not None else {}
+    browser_3d_gate = _load_json(browser_3d_gate_receipt_path) if browser_3d_gate_receipt_path is not None else {}
+    walkthrough_quality = _load_json(walkthrough_quality_receipt_path) if walkthrough_quality_receipt_path is not None else {}
+    scene_video_readiness = _load_json(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else {}
+    scene_video_readiness_verifier = _load_json(scene_video_readiness_verifier_receipt_path) if scene_video_readiness_verifier_receipt_path is not None else {}
+    scene_video_provider_refresh_packet = _load_json(scene_video_provider_refresh_packet_path) if scene_video_provider_refresh_packet_path is not None else {}
+    scene_video_provider_refresh_packet_verifier = (
+        _load_json(scene_video_provider_refresh_packet_verifier_receipt_path)
+        if scene_video_provider_refresh_packet_verifier_receipt_path is not None
+        else {}
+    )
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_matrix = _load_json(provider_matrix_receipt_path)
     receipt_freshness_ok, stale_receipts = _receipt_freshness_status(
@@ -999,6 +1048,13 @@ def build_gold_status_receipt(
             **({"furniture_style_contract": furniture_style_contract} if furniture_style_contract_receipt_path is not None else {}),
             **({"bts_methodology_contract": bts_methodology_contract} if bts_methodology_contract_receipt_path is not None else {}),
             **({"tour_delivery_contract": tour_delivery_contract} if tour_delivery_contract_receipt_path is not None else {}),
+            **({"map_preview_flagship": map_preview_flagship} if map_preview_flagship_receipt_path is not None else {}),
+            **({"browser_rendered_3d": browser_3d_gate} if browser_3d_gate_receipt_path is not None else {}),
+            **({"walkthrough_quality": walkthrough_quality} if walkthrough_quality_receipt_path is not None else {}),
+            **({"scene_video_readiness": scene_video_readiness} if scene_video_readiness_receipt_path is not None else {}),
+            **({"scene_video_readiness_verifier": scene_video_readiness_verifier} if scene_video_readiness_verifier_receipt_path is not None else {}),
+            **({"scene_video_provider_refresh_packet": scene_video_provider_refresh_packet} if scene_video_provider_refresh_packet_path is not None else {}),
+            **({"scene_video_provider_refresh_packet_verifier": scene_video_provider_refresh_packet_verifier} if scene_video_provider_refresh_packet_verifier_receipt_path is not None else {}),
         },
         now=now,
         max_age_hours=max_receipt_age_hours,
@@ -1095,6 +1151,22 @@ def build_gold_status_receipt(
         )
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes and magicfit_playback_ok
+    browser_3d_gate_ok = browser_3d_gate_receipt_path is None or _hard_gate_receipt_ok(browser_3d_gate)
+    walkthrough_quality_ok = walkthrough_quality_receipt_path is None or _hard_gate_receipt_ok(walkthrough_quality)
+    scene_video_readiness_verifier_ok = (
+        scene_video_readiness_verifier_receipt_path is None
+        or (
+            scene_video_readiness_verifier.get("status") == "pass"
+            and not list(scene_video_readiness_verifier.get("blockers") or [])
+        )
+    )
+    scene_video_provider_refresh_packet_verifier_ok = (
+        scene_video_provider_refresh_packet_verifier_receipt_path is None
+        or (
+            scene_video_provider_refresh_packet_verifier.get("status") == "pass"
+            and not list(scene_video_provider_refresh_packet_verifier.get("blockers") or [])
+        )
+    )
     export_discovery_ok = export_discovery.get("status") in {"ready", "pass"}
     billing_ok = billing_receipt_path is None or _billing_handoff_ready(
         billing_receipt,
@@ -1205,6 +1277,7 @@ def build_gold_status_receipt(
             and set(tour_delivery_contract.get("required_providers") or []) == set(REQUIRED_TOUR_PROVIDER_MODES)
         )
     )
+    map_preview_flagship_ok = map_preview_flagship_receipt_path is None or _hard_gate_receipt_ok(map_preview_flagship)
 
     blockers: list[dict[str, Any]] = []
     if not performance_ok:
@@ -1290,12 +1363,68 @@ def build_gold_status_receipt(
                 "action": "rerun verify_property_tour_controls.py and keep MagicFit ready only when every ready MagicFit control has local playable or live-probed video evidence",
             }
         )
+    if not browser_3d_gate_ok:
+        blockers.append(
+            {
+                "area": "browser_rendered_3d",
+                "status": browser_3d_gate.get("status") or ("not_configured" if browser_3d_gate_receipt_path is None else "missing"),
+                "failed_count": browser_3d_gate.get("failed_count"),
+                "providers": browser_3d_gate.get("providers") or [],
+                "provider_results": browser_3d_gate.get("provider_results") or [],
+                "failed_checks": _failed_receipt_checks(browser_3d_gate),
+                "action": "rerun propertyquarry_3d_browser_gate.py and only claim 3D readiness when every visible 3D tour renders in a real browser without CSP, frame, network, loading, or blank-viewer failures",
+            }
+        )
+    if not map_preview_flagship_ok:
+        blockers.append(
+            {
+                "area": "map_preview_flagship",
+                "status": map_preview_flagship.get("status") or ("not_configured" if map_preview_flagship_receipt_path is None else "missing"),
+                "failed_count": map_preview_flagship.get("failed_count"),
+                "preview_count": map_preview_flagship.get("preview_count"),
+                "failed_checks": _failed_receipt_checks(map_preview_flagship),
+                "preview_results": list(map_preview_flagship.get("preview_results") or [])[:6],
+                "action": "rerun propertyquarry_map_preview_flagship_gate.py and keep generated map thumbnails ready, non-placeholder, calm, readable, and free of excessive red overlays or artifact text",
+            }
+        )
+    if not walkthrough_quality_ok:
+        blockers.append(
+            {
+                "area": "walkthrough_quality",
+                "status": walkthrough_quality.get("status") or ("not_configured" if walkthrough_quality_receipt_path is None else "missing"),
+                "failed_count": walkthrough_quality.get("failed_count"),
+                "video_relpath": str(walkthrough_quality.get("video_relpath") or ""),
+                "failed_checks": _failed_receipt_checks(walkthrough_quality),
+                "action": "rerun propertyquarry_walkthrough_quality_gate.py after generating a walkthrough with explicit room coverage, sufficient duration, and frame-continuity proof",
+            }
+        )
+    if not scene_video_readiness_verifier_ok:
+        blockers.append(
+            {
+                "area": "scene_video_readiness",
+                "status": scene_video_readiness_verifier.get("status") or ("not_configured" if scene_video_readiness_verifier_receipt_path is None else "missing"),
+                "verifier_blockers": list(scene_video_readiness_verifier.get("blockers") or [])[:12],
+                "provider_summary": scene_video_readiness.get("summary") or {},
+                "action": "rerun property_scene_video_readiness_report.py and verify_property_scene_video_readiness.py, then repair any Mootion BrowserAct, Telegram, 1min isolation, MagicFit, or OMagic/Magic routing regressions",
+            }
+        )
+    if not scene_video_provider_refresh_packet_verifier_ok:
+        blockers.append(
+            {
+                "area": "scene_video_provider_refresh_packet",
+                "status": scene_video_provider_refresh_packet_verifier.get("status") or ("not_configured" if scene_video_provider_refresh_packet_verifier_receipt_path is None else "missing"),
+                "verifier_blockers": list(scene_video_provider_refresh_packet_verifier.get("blockers") or [])[:12],
+                "checked_providers": scene_video_provider_refresh_packet_verifier.get("checked_providers") or [],
+                "packet_path": str(scene_video_provider_refresh_packet_path) if scene_video_provider_refresh_packet_path is not None else "",
+                "action": "rerun materialize_scene_video_provider_refresh_packet.py and verify_scene_video_provider_refresh_packet.py; do not modify ONEMIN_* credentials while refreshing MagicFit or OMagic/Magic accounts",
+            }
+        )
     if not export_discovery_ok:
         blockers.append(
             {
                 "area": "tour_export_drop",
                 "status": export_discovery.get("status") or "unknown",
-                "action": "place verified 3DVista/Pano2VR exports in the configured drop directory and rerun discovery/import",
+                "action": "place verified 3D-tour exports in the configured drop directory and rerun discovery/import",
             }
         )
     if not billing_ok:
@@ -1344,7 +1473,7 @@ def build_gold_status_receipt(
                 "status": import_manifest.get("status") or "missing",
                 "missing_prepared_providers": sorted(expected_import_providers - prepared_drop_providers),
                 "hardened_readmes_ok": hardened_readmes_ok,
-                "action": "prepare the 3DVista, Pano2VR, krpano, and MagicFit operator import lanes before claiming gold",
+                "action": "prepare the 3D tour, panorama, and walkthrough operator import lanes before claiming gold",
             }
         )
     if not repair_canary_ok:
@@ -1593,6 +1722,52 @@ def build_gold_status_receipt(
         }
         if tour_delivery_contract_receipt_path is not None and tour_delivery_contract_ok
         else None,
+        {
+            "area": "map_preview_flagship",
+            "status": "pass",
+            "preview_count": map_preview_flagship.get("preview_count"),
+            "receipt_path": str(map_preview_flagship_receipt_path),
+        }
+        if map_preview_flagship_receipt_path is not None and map_preview_flagship_ok
+        else None,
+        {
+            "area": "browser_rendered_3d",
+            "status": "pass",
+            "providers": browser_3d_gate.get("providers") or [],
+            "receipt_path": str(browser_3d_gate_receipt_path),
+        }
+        if browser_3d_gate_receipt_path is not None and browser_3d_gate_ok
+        else None,
+        {
+            "area": "walkthrough_quality",
+            "status": "pass",
+            "video_relpath": str(walkthrough_quality.get("video_relpath") or ""),
+            "receipt_path": str(walkthrough_quality_receipt_path),
+        }
+        if walkthrough_quality_receipt_path is not None and walkthrough_quality_ok
+        else None,
+        {
+            "area": "scene_video_readiness",
+            "status": "pass",
+            "checked_providers": scene_video_readiness_verifier.get("checked_providers") or [],
+            "provider_count": scene_video_readiness_verifier.get("provider_count"),
+            "receipt_path": str(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else "",
+            "verifier_receipt_path": str(scene_video_readiness_verifier_receipt_path),
+            "note": "Verifier pass means scene-video routing and actionability invariants hold; provider-specific MagicFit/OMagic gaps remain in the readiness receipt until refreshed.",
+        }
+        if scene_video_readiness_verifier_receipt_path is not None and scene_video_readiness_verifier_ok
+        else None,
+        {
+            "area": "scene_video_provider_refresh_packet",
+            "status": "pass",
+            "checked_providers": scene_video_provider_refresh_packet_verifier.get("checked_providers") or [],
+            "provider_count": scene_video_provider_refresh_packet_verifier.get("provider_count"),
+            "packet_path": str(scene_video_provider_refresh_packet_path) if scene_video_provider_refresh_packet_path is not None else "",
+            "verifier_receipt_path": str(scene_video_provider_refresh_packet_verifier_receipt_path),
+            "note": "Provider-refresh packet verifier pass means MagicFit and OMagic/Magic account refresh instructions are secret-safe and preserve the 1min no-touch boundary.",
+        }
+        if scene_video_provider_refresh_packet_verifier_receipt_path is not None and scene_video_provider_refresh_packet_verifier_ok
+        else None,
         {"area": "receipt_freshness", "status": "pass"}
         if receipt_freshness_ok
         else None,
@@ -1617,6 +1792,11 @@ def build_gold_status_receipt(
             and furniture_style_contract_ok
             and bts_methodology_contract_ok
             and tour_delivery_contract_ok
+            and map_preview_flagship_ok
+            and browser_3d_gate_ok
+            and walkthrough_quality_ok
+            and scene_video_readiness_verifier_ok
+            and scene_video_provider_refresh_packet_verifier_ok
             and receipt_freshness_ok
         )
         else "blocked"
@@ -1657,6 +1837,14 @@ def build_gold_status_receipt(
             notes.append("Every required tour provider mode must stay backed by verified evidence.")
         if "magicfit" in missing_provider_modes and vendor_tooling_receipt_path is not None and not bool(magicfit_renderer.get("ready")):
             notes.append("MagicFit is still blocked on renderer configuration, not just a missing imported walkthrough asset.")
+        if not browser_3d_gate_ok:
+            notes.append("3D browser readiness is blocked until the viewer renders in Chromium, not merely until a tour route exists.")
+        if not map_preview_flagship_ok:
+            notes.append("Map preview readiness is blocked until generated thumbnails pass the visual-asset gate, not merely until the PNG route exists.")
+        if not walkthrough_quality_ok:
+            notes.append("Walkthrough readiness is blocked until room coverage and frame-continuity proof pass.")
+        if not scene_video_readiness_verifier_ok:
+            notes.append("Scene-video readiness is blocked until the verifier proves Mootion BrowserAct, Telegram, 1min isolation, and MagicFit/OMagic actionability invariants.")
     notes.append(_tour_provider_missing_note(missing_provider_modes))
     ready_for_notification = status == "pass" and not blockers and not next_required_actions
 
@@ -1729,6 +1917,73 @@ def build_gold_status_receipt(
             "ready_provider_modes": tour_controls.get("ready_provider_modes"),
             "missing_provider_modes": missing_provider_modes,
             "receipt_path": str(tour_control_receipt_path),
+        },
+        "browser_rendered_3d": {
+            "status": browser_3d_gate.get("status") or ("not_configured" if browser_3d_gate_receipt_path is None else "missing"),
+            "failed_count": browser_3d_gate.get("failed_count") if browser_3d_gate_receipt_path is not None else None,
+            "providers": browser_3d_gate.get("providers") or [],
+            "provider_results": browser_3d_gate.get("provider_results") or [],
+            "failed_checks": _failed_receipt_checks(browser_3d_gate) if browser_3d_gate_receipt_path is not None else [],
+            "ready": browser_3d_gate_ok if browser_3d_gate_receipt_path is not None else None,
+            "receipt_path": str(browser_3d_gate_receipt_path) if browser_3d_gate_receipt_path is not None else "",
+            "note": "Hard browser gate: route existence or static labels do not prove 3D readiness.",
+        },
+        "map_preview_flagship": {
+            "status": map_preview_flagship.get("status") or ("not_configured" if map_preview_flagship_receipt_path is None else "missing"),
+            "failed_count": map_preview_flagship.get("failed_count") if map_preview_flagship_receipt_path is not None else None,
+            "preview_count": map_preview_flagship.get("preview_count") if map_preview_flagship_receipt_path is not None else None,
+            "failed_checks": _failed_receipt_checks(map_preview_flagship) if map_preview_flagship_receipt_path is not None else [],
+            "preview_results": list(map_preview_flagship.get("preview_results") or [])[:6] if map_preview_flagship_receipt_path is not None else [],
+            "ready": map_preview_flagship_ok if map_preview_flagship_receipt_path is not None else None,
+            "receipt_path": str(map_preview_flagship_receipt_path) if map_preview_flagship_receipt_path is not None else "",
+            "note": "Hard visual-asset gate: image availability does not prove a flagship map thumbnail.",
+        },
+        "walkthrough_quality": {
+            "status": walkthrough_quality.get("status") or ("not_configured" if walkthrough_quality_receipt_path is None else "missing"),
+            "failed_count": walkthrough_quality.get("failed_count") if walkthrough_quality_receipt_path is not None else None,
+            "video_relpath": str(walkthrough_quality.get("video_relpath") or ""),
+            "failed_checks": _failed_receipt_checks(walkthrough_quality) if walkthrough_quality_receipt_path is not None else [],
+            "ready": walkthrough_quality_ok if walkthrough_quality_receipt_path is not None else None,
+            "receipt_path": str(walkthrough_quality_receipt_path) if walkthrough_quality_receipt_path is not None else "",
+            "note": "Hard walkthrough gate: video existence does not prove room coverage or continuity.",
+        },
+        "scene_video_readiness": {
+            "status": scene_video_readiness_verifier.get("status") or ("not_configured" if scene_video_readiness_verifier_receipt_path is None else "missing"),
+            "ready": (
+                scene_video_readiness_verifier_ok and scene_video_provider_refresh_packet_verifier_ok
+                if scene_video_readiness_verifier_receipt_path is not None
+                else None
+            ),
+            "provider_summary": scene_video_readiness.get("summary") or {},
+            "telegram_delivery_readiness": scene_video_readiness.get("telegram_delivery_readiness") or {},
+            "next_actions": scene_video_readiness.get("next_actions") or [],
+            "verifier_blockers": list(scene_video_readiness_verifier.get("blockers") or []) if scene_video_readiness_verifier_receipt_path is not None else [],
+            "checked_providers": scene_video_readiness_verifier.get("checked_providers") or [],
+            "receipt_path": str(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else "",
+            "verifier_receipt_path": str(scene_video_readiness_verifier_receipt_path) if scene_video_readiness_verifier_receipt_path is not None else "",
+            "provider_refresh_packet": {
+                "status": (
+                    scene_video_provider_refresh_packet_verifier.get("status")
+                    or ("not_configured" if scene_video_provider_refresh_packet_verifier_receipt_path is None else "missing")
+                ),
+                "ready": (
+                    scene_video_provider_refresh_packet_verifier_ok
+                    if scene_video_provider_refresh_packet_verifier_receipt_path is not None
+                    else None
+                ),
+                "checked_providers": scene_video_provider_refresh_packet_verifier.get("checked_providers") or [],
+                "verifier_blockers": list(scene_video_provider_refresh_packet_verifier.get("blockers") or [])
+                if scene_video_provider_refresh_packet_verifier_receipt_path is not None
+                else [],
+                "packet_provider_count": len(list(scene_video_provider_refresh_packet.get("providers") or []))
+                if scene_video_provider_refresh_packet_path is not None
+                else None,
+                "packet_path": str(scene_video_provider_refresh_packet_path) if scene_video_provider_refresh_packet_path is not None else "",
+                "verifier_receipt_path": str(scene_video_provider_refresh_packet_verifier_receipt_path)
+                if scene_video_provider_refresh_packet_verifier_receipt_path is not None
+                else "",
+            },
+            "note": "Scene-video verifier guards Mootion BrowserAct, Telegram delivery readiness, 1min isolation, and MagicFit/OMagic actionability without embedding secrets.",
         },
         "export_discovery": {
             "status": export_discovery.get("status"),
@@ -1804,7 +2059,7 @@ def build_gold_status_receipt(
             "magicfit_renderer": magicfit_renderer,
             "next_actions": vendor_tooling.get("next_actions") or [],
             "receipt_path": str(vendor_tooling_receipt_path) if vendor_tooling_receipt_path is not None else "",
-            "note": "Host tooling readiness is tracked separately from verified 3DVista/Pano2VR export evidence and MagicFit render-lane configuration.",
+            "note": "Host tooling readiness is tracked separately from verified 3D-tour export evidence and walkthrough render-lane configuration.",
         },
         "tour_provider_ownership": {
             "status": tour_provider_ownership.get("status") or ("not_configured" if tour_provider_ownership_receipt_path is None else "missing"),
@@ -1812,7 +2067,7 @@ def build_gold_status_receipt(
             "providers": sorted((tour_provider_ownership.get("providers") or {}).keys()) if isinstance(tour_provider_ownership.get("providers"), dict) else [],
             "ready": tour_provider_ownership_ok,
             "receipt_path": str(tour_provider_ownership_receipt_path) if tour_provider_ownership_receipt_path is not None else "",
-            "note": "This does not satisfy 3D-tour gold without verified 3DVista/Pano2VR exports or allowlisted hosted controls.",
+            "note": "This does not satisfy 3D-tour gold without verified polished 3D-tour exports or allowlisted hosted controls.",
         },
         "self_healing": {
             "status": repair_canary.get("status"),
@@ -1938,6 +2193,13 @@ def main() -> int:
     parser.add_argument("--furniture-style-contract-receipt", default="")
     parser.add_argument("--bts-methodology-contract-receipt", default="")
     parser.add_argument("--tour-delivery-contract-receipt", default="")
+    parser.add_argument("--map-preview-flagship-receipt", default="")
+    parser.add_argument("--browser-3d-gate-receipt", default="")
+    parser.add_argument("--walkthrough-quality-receipt", default="")
+    parser.add_argument("--scene-video-readiness-receipt", default="")
+    parser.add_argument("--scene-video-readiness-verifier-receipt", default="")
+    parser.add_argument("--scene-video-provider-refresh-packet", default="")
+    parser.add_argument("--scene-video-provider-refresh-packet-verifier-receipt", default="")
     parser.add_argument("--repair-canary-receipt", default="")
     parser.add_argument("--provider-matrix-receipt", default="")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
@@ -1962,6 +2224,13 @@ def main() -> int:
         furniture_style_contract_receipt_path=Path(args.furniture_style_contract_receipt) if args.furniture_style_contract_receipt else _default_receipt_path("furniture_style_contract"),
         bts_methodology_contract_receipt_path=Path(args.bts_methodology_contract_receipt) if args.bts_methodology_contract_receipt else _default_receipt_path("bts_methodology_contract"),
         tour_delivery_contract_receipt_path=Path(args.tour_delivery_contract_receipt) if args.tour_delivery_contract_receipt else _default_receipt_path("tour_delivery_contract"),
+        map_preview_flagship_receipt_path=Path(args.map_preview_flagship_receipt) if args.map_preview_flagship_receipt else _default_receipt_path("map_preview_flagship"),
+        browser_3d_gate_receipt_path=Path(args.browser_3d_gate_receipt) if args.browser_3d_gate_receipt else _default_receipt_path("browser_3d_gate"),
+        walkthrough_quality_receipt_path=Path(args.walkthrough_quality_receipt) if args.walkthrough_quality_receipt else _default_receipt_path("walkthrough_quality"),
+        scene_video_readiness_receipt_path=Path(args.scene_video_readiness_receipt) if args.scene_video_readiness_receipt else None,
+        scene_video_readiness_verifier_receipt_path=Path(args.scene_video_readiness_verifier_receipt) if args.scene_video_readiness_verifier_receipt else None,
+        scene_video_provider_refresh_packet_path=Path(args.scene_video_provider_refresh_packet) if args.scene_video_provider_refresh_packet else None,
+        scene_video_provider_refresh_packet_verifier_receipt_path=Path(args.scene_video_provider_refresh_packet_verifier_receipt) if args.scene_video_provider_refresh_packet_verifier_receipt else None,
         repair_canary_receipt_path=Path(args.repair_canary_receipt) if args.repair_canary_receipt else _default_receipt_path("repair_canary"),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt) if args.provider_matrix_receipt else _default_receipt_path("provider_matrix"),
         max_receipt_age_hours=args.max_receipt_age_hours,

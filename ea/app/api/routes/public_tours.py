@@ -90,12 +90,20 @@ _PANO2VR_EXPORT_ALLOWED_EXTENSIONS = frozenset(
         ".mp4",
         ".png",
         ".svg",
+        ".txt",
+        ".wasm",
         ".webm",
         ".webp",
         ".xml",
     }
 )
 _3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
+_3DVISTA_FORBIDDEN_PUBLIC_MARKERS = (
+    "created with the trial of 3dvista",
+    "created with 3dvista",
+    "3dvista virtual tour suite",
+    "immocontract",
+)
 _3DVISTA_EXPORT_ALLOWED_EXTENSIONS = frozenset(
     {
         ".css",
@@ -112,6 +120,10 @@ _3DVISTA_EXPORT_ALLOWED_EXTENSIONS = frozenset(
         ".mp4",
         ".png",
         ".svg",
+        ".cur",
+        ".glb",
+        ".txt",
+        ".wasm",
         ".webm",
         ".webp",
         ".xml",
@@ -1523,6 +1535,7 @@ def _3dvista_export_root_relpath(payload: dict[str, object]) -> str:
 
 def _3dvista_export_layer_entry_relpaths(payload: dict[str, object]) -> list[str]:
     relpaths: list[str] = []
+    slug = str(payload.get("slug") or "").strip()
     raw_layers = payload.get("tour_layers") or payload.get("provider_layers") or payload.get("interactive_layers")
     if not isinstance(raw_layers, list):
         return relpaths
@@ -1531,6 +1544,9 @@ def _3dvista_export_layer_entry_relpaths(payload: dict[str, object]) -> list[str
             continue
         provider = str(row.get("provider") or row.get("viewer_provider") or "").strip().lower()
         if provider not in {"3dvista", "3d_vista", "three_d_vista"}:
+            continue
+        provider_browser_ready = _3dvista_browser_render_proof_ready(row) or _3dvista_browser_render_proof_ready(payload)
+        if not provider_browser_ready:
             continue
         relpath = _public_tour_safe_asset_relpath(
             str(
@@ -1541,6 +1557,8 @@ def _3dvista_export_layer_entry_relpaths(payload: dict[str, object]) -> list[str
                 or ""
             ).strip()
         )
+        if slug and relpath and not _3dvista_entry_ready(slug, payload, relpath):
+            continue
         if relpath and relpath not in relpaths:
             relpaths.append(relpath)
     return relpaths
@@ -1582,13 +1600,41 @@ def _3dvista_private_viewer_proof_ready(payload: dict[str, object]) -> bool:
     )
 
 
+def _3dvista_browser_render_proof_ready(payload: dict[str, object]) -> bool:
+    for key in (
+        "three_d_vista_browser_render_proof",
+        "threedvista_browser_render_proof",
+        "3dvista_browser_render_proof",
+        "browser_render_proof",
+    ):
+        proof = payload.get(key)
+        if not isinstance(proof, dict):
+            continue
+        provider = str(proof.get("provider") or proof.get("viewer_provider") or "3dvista").strip().lower()
+        if provider not in {"3dvista", "3d_vista", "three_d_vista"}:
+            continue
+        status = str(proof.get("status") or proof.get("result") or "").strip().lower()
+        if status not in {"pass", "ready", "rendered"}:
+            continue
+        if _truthy(proof.get("rendered_viewer") or proof.get("viewer_rendered") or proof.get("browser_rendered")):
+            return True
+        checks = list(proof.get("checks") or [])
+        if checks and all(isinstance(row, dict) and row.get("ok") is True for row in checks):
+            return True
+    return False
+
+
 def _3dvista_entry_ready(slug: object, payload: dict[str, object], entry_relpath: object) -> bool:
     relpath = _public_tour_safe_asset_relpath(str(entry_relpath or "").strip())
     if not relpath:
         return False
-    if _local_tour_html_asset_has_marker(slug, relpath, markers=_3DVISTA_EXPORT_MARKERS):
-        return True
-    return _3dvista_private_viewer_proof_ready(payload) and _local_tour_asset_path(slug, relpath) is not None
+    if not _3dvista_private_viewer_proof_ready(payload):
+        return False
+    if not _3dvista_browser_render_proof_ready(payload):
+        return False
+    if _local_tour_html_asset_has_marker(slug, relpath, markers=_3DVISTA_FORBIDDEN_PUBLIC_MARKERS):
+        return False
+    return _local_tour_html_asset_has_marker(slug, relpath, markers=_3DVISTA_EXPORT_MARKERS)
 
 
 def _pano2vr_export_root_relpath(payload: dict[str, object]) -> str:
@@ -1604,12 +1650,18 @@ def _pano2vr_export_root_relpath(payload: dict[str, object]) -> str:
 
 
 def _pano2vr_control_url(slug: str, payload: dict[str, object]) -> str:
+    if not _pano2vr_public_enabled():
+        return ""
     entry_relpath = _pano2vr_entry_relpath(payload)
     if not slug or not entry_relpath:
         return ""
     if not _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_PANO2VR_EXPORT_MARKERS):
         return ""
     return f"/tours/{html.escape(slug)}/control/pano2vr"
+
+
+def _pano2vr_public_enabled() -> bool:
+    return str(os.getenv("PROPERTYQUARRY_SHOW_PANO2VR") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _local_tour_html_asset_has_marker(slug: object, relpath: object, *, markers: tuple[str, ...]) -> bool:
@@ -1728,28 +1780,19 @@ def _tour_spatial_review_experience(
         return {
             "mode": "spatial",
             "provider": "matterport",
-            "provenance": "Live Spatial Tour",
-            "summary": "Matterport is ready inside the PropertyQuarry tour shell.",
-            "primary_label": "Open Matterport",
+            "provenance": "Live 3D tour",
+            "summary": "The 3D tour is ready inside PropertyQuarry.",
+            "primary_label": "Open 3D tour",
             "primary_href": matterport_url,
         }
     if three_d_vista_url:
         return {
             "mode": "panorama",
             "provider": "3dvista",
-            "provenance": "Hosted Virtual Tour",
-            "summary": "3DVista is ready inside the PropertyQuarry tour shell.",
-            "primary_label": "Open 3DVista",
+            "provenance": "Hosted 3D tour",
+            "summary": "The 3D tour is ready inside PropertyQuarry.",
+            "primary_label": "Open 3D tour",
             "primary_href": three_d_vista_url,
-        }
-    if pano2vr_url:
-        return {
-            "mode": "panorama",
-            "provider": "pano2vr",
-            "provenance": "Prepared Panorama Tour",
-            "summary": "Pano2VR is available as a prepared self-hosted panorama export inside the PropertyQuarry tour shell.",
-            "primary_label": "Open Pano2VR",
-            "primary_href": pano2vr_url,
         }
     if video_url and video_provider:
         return {
@@ -1757,7 +1800,7 @@ def _tour_spatial_review_experience(
             "provider": video_provider,
             "provenance": "Walkthrough Video",
             "summary": "This walkthrough is ready for remote review, but it is not a live 3D tour.",
-            "primary_label": "Open Fly-through",
+            "primary_label": "Open walkthrough",
             "primary_href": video_url,
         }
     return {
@@ -1791,10 +1834,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             break
     three_d_vista_url = ""
     if slug:
-        for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
-            if _safe_3dvista_external_url(payload.get(key)):
-                three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
-                break
+        three_d_vista_browser_ready = _3dvista_browser_render_proof_ready(payload)
+        if three_d_vista_browser_ready:
+            for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
+                if _safe_3dvista_external_url(payload.get(key)):
+                    three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
+                    break
         local_3dvista_entry = _public_tour_safe_asset_relpath(
             str(
                 payload.get("three_d_vista_entry_relpath")
@@ -1805,6 +1850,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         )
         if (
             not three_d_vista_url
+            and three_d_vista_browser_ready
             and local_3dvista_entry
             and _3dvista_entry_ready(slug, payload, local_3dvista_entry)
         ):
@@ -1845,9 +1891,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       <p>{html.escape(spatial_review["summary"])}</p>
       <p>This bundle exposes only validated media controls. The generated 3D cube fallback has been removed.</p>
       <div class="actions">
-        {f'<a href="{matterport_url}">Open Matterport</a>' if matterport_url else ''}
-        {f'<a href="{three_d_vista_url}">Open 3DVista</a>' if three_d_vista_url else ''}
-        {f'<a href="{pano2vr_url}">Open Pano2VR</a>' if pano2vr_url else ''}
+        {f'<a href="{matterport_url}">Open 3D tour</a>' if matterport_url else ''}
+        {f'<a href="{three_d_vista_url}">Open 3D tour</a>' if three_d_vista_url else ''}
       </div>
     </main>
   </body>
@@ -1874,7 +1919,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <main>
       <h1>3D cube fallback blocked</h1>
       <p>No. This generated cube fallback is not allowed to masquerade as a real 3D tour.</p>
-      <p>Provide a real Matterport, 3DVista, or validated walkable 3D export instead.</p>
+      <p>Provide a real provider-backed 3D export instead.</p>
       <p><code>{safe_title}</code></p>
     </main>
   </body>
@@ -1934,10 +1979,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       <p>{html.escape(spatial_review["summary"])}</p>
       <p>This bundle exposes only validated media controls. The generated 3D cube fallback has been removed.</p>
       <div class="actions">
-        {f'<a href="{matterport_url}">Open Matterport</a>' if matterport_url else ''}
-        {f'<a href="{three_d_vista_url}">Open 3DVista</a>' if three_d_vista_url else ''}
-        {f'<a href="{pano2vr_url}">Open Pano2VR</a>' if pano2vr_url else ''}
-        {f'<a class="secondary" href="{video_url}">Open Fly-through</a>' if video_url else ''}
+        {f'<a href="{matterport_url}">Open 3D tour</a>' if matterport_url else ''}
+        {f'<a href="{three_d_vista_url}">Open 3D tour</a>' if three_d_vista_url else ''}
+        {f'<a class="secondary" href="{video_url}">Open walkthrough</a>' if video_url else ''}
       </div>
     </main>
   </body>
@@ -1985,7 +2029,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
   <body>
     <main>
       <h1>3D cube fallback blocked</h1>
-      <p>No. This generated cube fallback is not allowed to masquerade as a real 3D tour. Provide a real Matterport, 3DVista, or validated walkable 3D export instead.</p>
+      <p>No. This generated cube fallback is not allowed to masquerade as a real 3D tour. Provide a real provider-backed 3D export instead.</p>
       <p><code>{safe_title}</code></p>
     </main>
   </body>
@@ -2410,10 +2454,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     listing_link = f'<a class="ghost" href="{html.escape(listing_url)}" target="_blank" rel="noreferrer">Open Listing</a>' if listing_url else ""
     hosted_link = f'<a class="ghost" href="{html.escape(hosted_url)}">Permalink</a>' if hosted_url else ""
     provider_action_links = [
-        ("Open Matterport", matterport_url, "ghost"),
-        ("Open 3DVista", three_d_vista_url, "ghost"),
-        ("Open Pano2VR", pano2vr_url, "ghost"),
-        ("Open Fly-through", video_url, "ghost"),
+        ("Open 3D tour", matterport_url, "ghost"),
+        ("Open 3D tour", three_d_vista_url, "ghost"),
+        ("Open walkthrough", video_url, "ghost"),
     ]
     provider_actions_html = "".join(
         f'<a class="{css_class}" href="{html.escape(href)}">{html.escape(label)}</a>'
@@ -4959,11 +5002,12 @@ def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[st
             "object-src 'none'; "
             "frame-ancestors 'self'; "
             "img-src 'self' data: blob: https:; "
-            "media-src 'self' https:; "
+            "media-src 'self' data: blob: https:; "
             "frame-src 'self' https:; "
-            "script-src 'self' 'unsafe-inline' https://js.clickrank.ai https://app.rybbit.io https://cdn.jsdelivr.net; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://js.clickrank.ai https://app.rybbit.io https://cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-            "connect-src 'self' https://app.rybbit.io https://cdn.jsdelivr.net"
+            "connect-src 'self' data: blob: https://app.rybbit.io https://cdn.jsdelivr.net; "
+            "worker-src 'self' blob:"
         ),
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
@@ -5052,7 +5096,9 @@ def public_tour_3dvista_file(slug: str, asset_path: str):
     )
 
 
-def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> str:
+def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "", fullscreen: bool = False) -> str:
+    if fullscreen:
+        payload = {**payload, "_tour_control_fullscreen": True}
     forced_mode = str(viewer_mode or "").strip().lower()
     if forced_mode == "marzipano":
         raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
@@ -5080,8 +5126,10 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> 
     if control_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         return _tour_control_3dvista_html(payload)
     if control_mode in {"pano2vr", "pano_2_vr"}:
+        if not _pano2vr_public_enabled():
+            raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
         return _tour_control_pano2vr_html(payload)
-    if _pano2vr_entry_relpath(payload):
+    if _pano2vr_public_enabled() and _pano2vr_entry_relpath(payload):
         return _tour_control_pano2vr_html(payload)
     if control_mode == "internal_walkable_3d":
         raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
@@ -5126,6 +5174,10 @@ def _safe_matterport_external_url(value: object) -> str:
     host = str(parsed.hostname or "").strip().lower().rstrip(".")
     if host != "matterport.com" and not host.endswith(".matterport.com"):
         return ""
+    if host == "discover.matterport.com" and parsed.path.startswith("/space/"):
+        model_id = parsed.path.rsplit("/", 1)[-1].strip()
+        if re.fullmatch(r"[A-Za-z0-9_-]{6,32}", model_id):
+            return f"https://my.matterport.com/show/?m={urllib.parse.quote(model_id)}"
     return normalized
 
 
@@ -5182,8 +5234,8 @@ def _tour_control_provider_layers(
             "id": "as_listed",
             "label": "As listed",
             "src": str(default_src or "").strip(),
-            "provider": str(default_label or "Provider").strip(),
-            "disclosure": "Source provider tour. This is the evidence-grade visual baseline.",
+            "provider": "3D tour",
+            "disclosure": "Source tour. This is the evidence-grade visual baseline.",
         }
     ]
     seen = {layers[0]["src"]}
@@ -5203,8 +5255,11 @@ def _tour_control_provider_layers(
                 src = _safe_matterport_external_url(row.get(key))
                 if src:
                     break
-            disclosure = disclosure or "Staged Matterport variant. Requires a separate provider-backed model; the original source tour is unchanged."
+            disclosure = disclosure or "Staged variant. Requires a separate provider-backed model; the original source tour is unchanged."
         elif provider in {"3dvista", "3d_vista", "three_d_vista"}:
+            provider_browser_ready = _3dvista_browser_render_proof_ready(row) or _3dvista_browser_render_proof_ready(payload)
+            if not provider_browser_ready:
+                continue
             for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "url", "iframe_src"):
                 src = _safe_3dvista_external_url(row.get(key))
                 if src:
@@ -5238,9 +5293,7 @@ def _tour_control_provider_layers(
                 )
                 if entry_relpath and _3dvista_entry_ready(slug, payload, entry_relpath):
                     src = f"/tours/3dvista/{safe_slug}/{urllib.parse.quote(entry_relpath, safe='/')}"
-            disclosure = disclosure or (
-                "Staged 3DVista layer. This uses a declared provider layer or second export, not a fake overlay."
-            )
+            disclosure = disclosure or "Staged layer. This uses a declared provider layer or second export, not a fake overlay."
         if not src or src in seen:
             continue
         seen.add(src)
@@ -5249,7 +5302,7 @@ def _tour_control_provider_layers(
                 "id": layer_id or f"layer-{index}",
                 "label": label or f"Layer {index}",
                 "src": src,
-                "provider": "Matterport" if provider == "matterport" else "3DVista",
+                "provider": "3D tour",
                 "disclosure": disclosure,
             }
         )
@@ -5262,6 +5315,8 @@ def _tour_control_external_iframe_html(
     iframe_src: str,
     badge: str,
     payload: dict[str, object] | None = None,
+    fullscreen_href: str = "",
+    fullscreen: bool = False,
 ) -> str:
     payload = payload or {}
     scene_data, video_url, video_mime_type = _tour_control_media_context(payload)
@@ -5277,13 +5332,14 @@ def _tour_control_external_iframe_html(
         if has_provider_layers
         else ""
     )
-    if scene_data or video_url:
+    clean_fullscreen_href = html.escape(str(fullscreen_href or iframe_src or "#").strip())
+    if (scene_data or video_url) and not fullscreen:
         data_json = html.escape(json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/"), quote=False)
         first_scene = scene_data[0] if scene_data else {"name": title, "image_url": "", "role": "photo", "mime_type": ""}
-        provider_badge = html.escape(badge)
+        provider_badge = "3D Tour"
         video_provider = _tour_control_video_provider(payload)
         video_is_magicfit = video_provider == "magicfit"
-        video_label = "MagicFit walkthrough" if video_is_magicfit else "Video evidence"
+        video_label = "Walkthrough" if video_is_magicfit else "Video evidence"
         video_provider_attr = html.escape(video_provider or "attached_media")
         video_walkthrough_attr = "true" if video_is_magicfit else "false"
         video_html = (
@@ -5398,13 +5454,13 @@ def _tour_control_external_iframe_html(
           <div class="provider-launch">
             <div>
               <strong>{provider_badge}</strong>
-              <p class="hint">Load the external provider only when you need the live vendor control.</p>
+              <p class="hint">Load the interactive viewer when you want to inspect the space directly.</p>
               {provider_layer_switch_html}
               <p class="provider-layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>
             </div>
             <div class="provider-actions">
-              <button type="button" id="load-provider">Load provider viewer</button>
-              <a href="{html.escape(iframe_src)}" target="_blank" rel="noopener noreferrer">Open externally</a>
+              <button type="button" id="load-provider">Load 3D tour</button>
+              <a href="{clean_fullscreen_href}" target="_blank" rel="noopener noreferrer">Open fullscreen</a>
             </div>
           </div>
           <iframe src="about:blank" data-src="{html.escape(iframe_src)}" class="provider-frame" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
@@ -5412,7 +5468,7 @@ def _tour_control_external_iframe_html(
         <aside class="panel evidence" aria-label="Visual evidence">
           <div>
             <h2>Tour details</h2>
-            <p class="hint">Provider tour, floorplan, and walkthrough stay together so the spatial check does not split across tabs.</p>
+            <p class="hint">3D tour, floorplan, and walkthrough stay together so the spatial check does not split across tabs.</p>
           </div>
           {video_html}
           {scene_viewer_html}
@@ -5445,7 +5501,7 @@ def _tour_control_external_iframe_html(
           if (providerLayerNote) providerLayerNote.textContent = layer.disclosure || "";
           if (providerFrame && providerFrame.getAttribute("src") !== "about:blank") providerFrame.setAttribute("src", layer.src || "about:blank");
           if (loadProvider) {{
-            loadProvider.textContent = "Load " + (layer.label || "provider");
+            loadProvider.textContent = "Load 3D tour";
             loadProvider.disabled = false;
           }}
         }});
@@ -5454,7 +5510,7 @@ def _tour_control_external_iframe_html(
         loadProvider.addEventListener("click", () => {{
           const src = selectedProviderLayer.src || providerFrame.dataset.src || "";
           if (src && providerFrame.getAttribute("src") !== src) providerFrame.setAttribute("src", src);
-          loadProvider.textContent = "Provider loaded";
+          loadProvider.textContent = "3D tour loaded";
           loadProvider.disabled = true;
         }});
       }}
@@ -5526,7 +5582,7 @@ def _tour_control_external_iframe_html(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{title} - {html.escape(badge)}</title>
+    <title>{title} - 3D Tour</title>
     <style>
       html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0f1112; color: #f8f4eb; font-family: Inter, system-ui, sans-serif; }}
       iframe {{ position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; background: #0f1112; }}
@@ -5548,7 +5604,7 @@ def _tour_control_external_iframe_html(
   <body>
     <iframe id="provider-frame" src="{html.escape(iframe_src)}" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
     <div class="shell">
-      <div class="badge">{html.escape(badge)}</div>
+      <div class="badge">3D Tour</div>
       {f'<div class="layer-switch" aria-label="3D tour layer">{provider_layer_buttons}</div><p class="layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>' if has_provider_layers else ""}
       <section class="summary" aria-label="Property tour summary">
         <p>Property Tour</p>
@@ -5576,6 +5632,7 @@ def _tour_control_external_iframe_html(
 
 def _tour_control_matterport_html(payload: dict[str, object]) -> str:
     title = html.escape(str(payload.get("display_title") or payload.get("title") or "Matterport tour control").strip())
+    slug = str(payload.get("slug") or "").strip()
     external_url = ""
     for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
         external_url = _safe_matterport_external_url(payload.get(key))
@@ -5585,16 +5642,22 @@ def _tour_control_matterport_html(payload: dict[str, object]) -> str:
         return _tour_control_external_iframe_html(
             title=title,
             iframe_src=external_url,
-            badge="Matterport Control",
+            badge="3D Tour",
             payload=payload,
+            fullscreen_href=f"/tours/{urllib.parse.quote(slug, safe='')}/control/matterport?fullscreen=1" if slug else external_url,
+            fullscreen=bool(payload.get("_tour_control_fullscreen")),
         )
     raise HTTPException(status_code=404, detail="tour_control_matterport_export_missing")
 
 
 def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
-    title = html.escape(str(payload.get("display_title") or payload.get("title") or "3DVista tour control").strip())
+    title = html.escape(str(payload.get("display_title") or payload.get("title") or "3D tour control").strip())
     raw_slug = str(payload.get("slug") or "").strip()
     slug = html.escape(raw_slug)
+    if not _3dvista_private_viewer_proof_ready(payload):
+        raise HTTPException(status_code=404, detail="tour_control_3d_export_hidden")
+    if not _3dvista_browser_render_proof_ready(payload):
+        raise HTTPException(status_code=404, detail="tour_control_3d_export_hidden")
     external_url = ""
     for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
         external_url = _safe_3dvista_external_url(payload.get(key))
@@ -5610,14 +5673,18 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
         return _tour_control_external_iframe_html(
             title=title,
             iframe_src=iframe_src,
-            badge="3DVista Control",
+            badge="3D Tour",
             payload=payload,
+            fullscreen_href=f"/tours/{urllib.parse.quote(raw_slug, safe='')}/control/3dvista?fullscreen=1" if raw_slug else iframe_src,
+            fullscreen=bool(payload.get("_tour_control_fullscreen")),
         )
     raise HTTPException(status_code=404, detail="tour_control_3dvista_export_missing")
 
 
 def _tour_control_pano2vr_html(payload: dict[str, object]) -> str:
-    title = html.escape(str(payload.get("display_title") or payload.get("title") or "Pano2VR tour control").strip())
+    if not _pano2vr_public_enabled():
+        raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
+    title = html.escape(str(payload.get("display_title") or payload.get("title") or "3D tour control").strip())
     slug = str(payload.get("slug") or "").strip()
     entry_relpath = _pano2vr_entry_relpath(payload)
     if not slug or not entry_relpath:
@@ -5628,8 +5695,10 @@ def _tour_control_pano2vr_html(payload: dict[str, object]) -> str:
     return _tour_control_external_iframe_html(
         title=title,
         iframe_src=iframe_src,
-        badge="Pano2VR Control",
+        badge="3D Tour",
         payload=payload,
+        fullscreen_href=f"/tours/{urllib.parse.quote(slug, safe='')}/control/pano2vr?fullscreen=1" if slug else iframe_src,
+        fullscreen=bool(payload.get("_tour_control_fullscreen")),
     )
 
 
@@ -5808,7 +5877,7 @@ def _tour_control_walkable_html(
 
 @router.get("/tours/{slug}/control", response_class=HTMLResponse)
 @router.head("/tours/{slug}/control", response_class=HTMLResponse)
-def public_tour_control(slug: str) -> HTMLResponse:
+def public_tour_control(slug: str, request: Request) -> HTMLResponse:
     payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
@@ -5818,7 +5887,8 @@ def public_tour_control(slug: str) -> HTMLResponse:
         payload,
         expose_asset_relpaths=control_mode in {"pano2vr", "pano_2_vr"} or bool(_pano2vr_entry_relpath(payload)),
     )
-    return HTMLResponse(_tour_control_html(rendered_payload), headers=_public_tour_security_headers())
+    fullscreen = str(request.query_params.get("fullscreen") or "").strip().lower() in {"1", "true", "yes", "on"}
+    return HTMLResponse(_tour_control_html(rendered_payload, fullscreen=fullscreen), headers=_public_tour_security_headers())
 
 
 @router.get("/tours/{slug}/control/{viewer_mode}", response_class=HTMLResponse)
@@ -5829,15 +5899,16 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     normalized_viewer_mode = str(viewer_mode or "").strip().lower()
+    fullscreen = str(request.query_params.get("fullscreen") or "").strip().lower() in {"1", "true", "yes", "on"}
     if normalized_viewer_mode in {"matterport", "metaport", "3dvista", "3d_vista", "three_d_vista"}:
         # Provider controls need the verified private receipt URL server-side, but
         # the public JSON manifest must continue to omit source/provider URLs.
-        return HTMLResponse(_tour_control_html(payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
+        return HTMLResponse(_tour_control_html(payload, viewer_mode=viewer_mode, fullscreen=fullscreen), headers=_public_tour_security_headers())
     rendered_payload = _redacted_public_tour_payload(
         payload,
         expose_asset_relpaths=normalized_viewer_mode in {"pano2vr", "pano_2_vr"},
     )
-    return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
+    return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode, fullscreen=fullscreen), headers=_public_tour_security_headers())
 
 
 @router.post("/tours/{slug}/request-details", response_class=JSONResponse)

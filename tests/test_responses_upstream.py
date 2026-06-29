@@ -549,6 +549,11 @@ def test_onemin_json_manifest_slots_feed_keys_and_account_names(monkeypatch: pyt
                     "account_name": "ONEMIN_AI_API_KEY_FALLBACK_56",
                     "key": "json-key-56",
                 },
+                {
+                    "slot": "fallback_57",
+                    "account_name": "ONEMIN_AI_API_KEY_FALLBACK_57",
+                    "key": "json-key-57",
+                },
             ]
         ),
     )
@@ -558,9 +563,10 @@ def test_onemin_json_manifest_slots_feed_keys_and_account_names(monkeypatch: pyt
         "ONEMIN_AI_API_KEY_FALLBACK_1",
         "ONEMIN_AI_API_KEY_FALLBACK_55",
         "ONEMIN_AI_API_KEY_FALLBACK_56",
+        "ONEMIN_AI_API_KEY_FALLBACK_57",
     )
     key_names = upstream._onemin_key_names()
-    assert key_names == ("primary-key", "fallback-1", "json-key-55", "json-key-56")
+    assert key_names == ("primary-key", "fallback-1", "json-key-55", "json-key-56", "json-key-57")
     assert upstream._provider_account_name("onemin", key_names=key_names, key="json-key-55") == "ONEMIN_AI_API_KEY_FALLBACK_55"
     assert upstream._onemin_key_slot("json-key-55", key_names=key_names) == "fallback_55"
     assert upstream._provider_secret_from_account_name("ONEMIN_AI_API_KEY_FALLBACK_56") == "json-key-56"

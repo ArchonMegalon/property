@@ -7,6 +7,27 @@ from app.product import service as product_service
 from app.product.service import ProductService
 
 
+def test_omagic_keys_available_accepts_magic_accounts_json(monkeypatch) -> None:
+    for key in (
+        "OMAGIC_API_KEY",
+        "PROPERTYQUARRY_OMAGIC_API_KEY",
+        "OMAGIC_EMAIL",
+        "PROPERTYQUARRY_OMAGIC_EMAIL",
+        "OMAGIC_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
+        "MAGIC_API_KEY",
+        "PROPERTYQUARRY_MAGIC_API_KEY",
+        "MAGIC_EMAIL",
+        "PROPERTYQUARRY_MAGIC_EMAIL",
+        "MAGIC_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("MAGIC_ACCOUNTS_JSON", json.dumps([{"email": "magic@example.com", "password": "secret"}]))
+
+    assert product_service._omagic_keys_available() is True
+
+
 def test_property_walkthrough_scene_video_context_collects_verified_controls_and_route_labels(tmp_path, monkeypatch) -> None:
     public_dir = tmp_path / "public_tours"
     bundle_dir = public_dir / "sample-flat"
@@ -23,6 +44,19 @@ def test_property_walkthrough_scene_video_context_collects_verified_controls_and
                 "scene_count": 3,
                 "source_virtual_tour_url": "https://example.3dvista.com/tour/sample-flat",
                 "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
+                },
                 "walkable_scene": {
                     "route": [
                         {"label": "Entry"},
@@ -67,12 +101,59 @@ def test_render_property_flythrough_does_not_silent_fallback_from_magicfit(monke
     result = product_service._render_property_flythrough_into_hosted_tour(
         tour_url="/tours/sample-flat",
         title="Sample Flat",
+        preferred_provider_key="magicfit",
     )
 
     assert result["status"] == "failed"
     assert result["reason"] == "magicfit_segment_render_failed"
     assert result["media_route_provider_key"] == "magicfit"
     assert "media_route_fallback_provider_key" not in result
+
+
+def test_render_property_flythrough_routes_omagic_without_onemin_or_magicfit_fallback(tmp_path, monkeypatch) -> None:
+    public_dir = tmp_path / "public_tours"
+    bundle_dir = public_dir / "sample-flat"
+    model_dir = bundle_dir / "generated-reconstruction"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.glb").write_bytes(b"glTF")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "sample-flat",
+                "generated_reconstruction": {
+                    "glb_model_relpath": "generated-reconstruction/model.glb",
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_dir))
+    monkeypatch.setenv("OMAGIC_API_KEY", "test-key")
+    monkeypatch.setattr(
+        product_service,
+        "_render_onemin_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_onemin_fallback")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_magicfit_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_magicfit_fallback")),
+    )
+
+    result = product_service._render_property_flythrough_into_hosted_tour(
+        tour_url="/tours/sample-flat",
+        title="Sample Flat",
+        preferred_provider_key="omagic",
+    )
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "omagic_model_upload_adapter_missing"
+    assert result["provider_key"] == "omagic"
+    assert result["media_route_provider_key"] == "omagic"
+    assert result["model_input_required"] is True
+    assert result["model_asset_kind"] == "glb"
+    assert result["model_path"].endswith("generated-reconstruction/model.glb")
 
 
 def test_run_scene_video_skill_uses_principal_context_and_scrubs_payload_principal() -> None:

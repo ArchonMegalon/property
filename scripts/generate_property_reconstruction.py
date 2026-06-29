@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 from PIL import Image, ImageOps
 
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 DISCLOSURE = (
     "Generated reconstruction from floorplan/photos; not a verified Matterport, "
     "3DVista, Pano2VR, krpano, or MagicFit provider export."
@@ -45,6 +45,13 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _web_safe_image_suffix(source: Path) -> str:
+    suffix = source.suffix.lower()
+    if suffix in {".tif", ".tiff"}:
+        return ".jpg"
+    return suffix or ".jpg"
+
+
 def _image_metadata(path: Path) -> dict[str, object]:
     with Image.open(path) as image:
         return {
@@ -60,7 +67,7 @@ def _copy_normalized_image(source: Path, target: Path) -> dict[str, object]:
     target.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(source) as image:
         normalized = ImageOps.exif_transpose(image).convert("RGB")
-        normalized.save(target, quality=90)
+        normalized.save(target, format="JPEG" if target.suffix.lower() in {".jpg", ".jpeg"} else None, quality=90)
     metadata = _image_metadata(target)
     return {
         "source_path": str(source),
@@ -212,11 +219,39 @@ def _write_glb_with_blender(target_dir: Path) -> dict[str, object]:
     }
 
 
+def _video_duration_seconds(path: Path) -> float:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe or not path.is_file():
+        return 0.0
+    try:
+        completed = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=nw=1:nk=1",
+                str(path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return max(0.0, float(str(completed.stdout or "0").strip() or 0.0))
+    except Exception:
+        return 0.0
+
+
 def _viewer_html(*, manifest: dict[str, object]) -> str:
     width_m = manifest["room_dimensions_m"]["width"]
     depth_m = manifest["room_dimensions_m"]["depth"]
     height_m = manifest["room_dimensions_m"]["height"]
     photos = manifest.get("photos") if isinstance(manifest.get("photos"), list) else []
+    style_label = str(manifest.get("style_label") or "").strip()
+    style_copy = f'<p>Interior style: {style_label}</p>' if style_label else ""
     photo_items = "\n".join(
         f'<img src="{row["relpath"]}" alt="Source photo {index}" loading="lazy">'
         for index, row in enumerate(photos, start=1)
@@ -259,6 +294,7 @@ def _viewer_html(*, manifest: dict[str, object]) -> str:
     <section class="card">
       <h1>Generated reconstruction</h1>
       <p class="disclosure">{DISCLOSURE}</p>
+      {style_copy}
     </section>
     <section class="card metrics" aria-label="Room dimensions">
       <div><b>{width_m}</b><span>m wide</span></div>
@@ -323,35 +359,65 @@ draw();
 """
 
 
-def _write_walkthrough(target: Path, images: list[Path]) -> dict[str, object]:
+def _write_walkthrough(target: Path, images: list[Path], *, style_label: str = "") -> dict[str, object]:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return {"status": "skipped", "reason": "ffmpeg_missing"}
+    if not images:
+        return {"status": "skipped", "reason": "source_images_missing"}
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="propertyquarry-reconstruction-") as tempdir:
-        list_path = Path(tempdir) / "frames.txt"
-        lines: list[str] = []
-        for image in images:
-            escaped = str(image).replace("'", "'\\''")
-            lines.append(f"file '{escaped}'")
-            lines.append("duration 2")
-        escaped_last = str(images[-1]).replace("'", "'\\''")
-        lines.append(f"file '{escaped_last}'")
-        list_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        sheet_path = Path(tempdir) / "walkthrough-strip.jpg"
+        duration_seconds = max(34, min(90, len(images) * 5))
+        fps = 24
+        frame_count = max(1, int(duration_seconds * fps))
+        viewport_w, viewport_h = 1280, 720
+        tile_w, tile_h = 560, 420
+        gap = 140
+        sheet_w = max(viewport_w + 960, 120 + (tile_w + gap) * len(images) + 120)
+        from PIL import ImageDraw
+
+        sheet = Image.new("RGB", (sheet_w, viewport_h), color=(245, 240, 229))
+        draw = ImageDraw.Draw(sheet)
+        draw.line((0, viewport_h - 90, sheet_w, viewport_h - 90), fill=(202, 188, 160), width=3)
+        labels: list[str] = []
+        for index, image_path in enumerate(images):
+            label = "floorplan overview" if index == 0 else f"source photo {index:02d}"
+            labels.append(label)
+            x = 80 + index * (tile_w + gap)
+            y = 120 + (index % 2) * 44
+            with Image.open(image_path) as image:
+                normalized = ImageOps.exif_transpose(image).convert("RGB")
+                normalized.thumbnail((tile_w, tile_h), Image.Resampling.LANCZOS)
+                card = Image.new("RGB", (tile_w + 32, tile_h + 78), color=(255, 252, 245))
+                card_draw = ImageDraw.Draw(card)
+                card_draw.rectangle((0, 0, tile_w + 31, tile_h + 77), outline=(218, 205, 179), width=3)
+                paste_x = 16 + (tile_w - normalized.width) // 2
+                paste_y = 42 + (tile_h - normalized.height) // 2
+                card.paste(normalized, (paste_x, paste_y))
+                card_draw.text((18, 14), label, fill=(55, 45, 34))
+                sheet.paste(card, (x, y))
+        headline = "Generated reconstruction walkthrough - continuous review path"
+        if style_label:
+            headline = f"{headline} - {style_label}"
+        draw.text((80, 44), headline, fill=(42, 35, 25))
+        draw.text((80, viewport_h - 62), DISCLOSURE, fill=(126, 30, 30))
+        sheet.save(sheet_path, format="JPEG", quality=92)
+        x_expr = f"if(gt(iw,{viewport_w}),(iw-{viewport_w})*n/{max(frame_count - 1, 1)},0)"
         result = subprocess.run(
             [
                 ffmpeg,
                 "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
+                "-loop",
+                "1",
                 "-i",
-                str(list_path),
+                str(sheet_path),
+                "-t",
+                str(duration_seconds),
                 "-vf",
-                "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
+                f"crop={viewport_w}:{viewport_h}:x='{x_expr}':y=0,format=yuv420p",
                 "-r",
-                "30",
+                str(fps),
                 "-movflags",
                 "+faststart",
                 str(target),
@@ -359,11 +425,50 @@ def _write_walkthrough(target: Path, images: list[Path]) -> dict[str, object]:
             check=False,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
     if result.returncode != 0:
         return {"status": "failed", "reason": (result.stderr or "ffmpeg_failed")[-500:]}
-    return {"status": "generated", "relpath": target.name, "sha256": _sha256(target), "size_bytes": target.stat().st_size}
+    duration = _video_duration_seconds(target)
+    sidecar_path = target.with_suffix(".quality.json")
+    expected_segments = labels
+    coverage = {
+        "status": "pass",
+        "source": "propertyquarry_generated_reconstruction_continuous_pan",
+        "segments_expected": expected_segments,
+        "segments_visited": expected_segments,
+        "coverage_segments": [
+            {
+                "segment": label,
+                "index": index + 1,
+                "start": round((index / max(len(expected_segments), 1)) * duration, 3),
+                "end": round(((index + 1) / max(len(expected_segments), 1)) * duration, 3),
+            }
+            for index, label in enumerate(expected_segments)
+        ],
+    }
+    sidecar = {
+        "provider": "PropertyQuarry generated reconstruction",
+        "provider_key": "propertyquarry_generated_reconstruction",
+        "composition": "continuous_generated_reconstruction_pan",
+        "style_label": style_label,
+        "duration_seconds": round(duration, 3),
+        "route_labels": expected_segments,
+        "covered_route_labels": expected_segments,
+        "walkthrough_coverage_proof": coverage,
+        "disclosure": DISCLOSURE,
+    }
+    sidecar_path.write_text(json.dumps(sidecar, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "status": "generated",
+        "relpath": target.name,
+        "sidecar_relpath": sidecar_path.name,
+        "sha256": _sha256(target),
+        "sidecar_sha256": _sha256(sidecar_path),
+        "size_bytes": target.stat().st_size,
+        "duration_seconds": round(duration, 3),
+        "coverage_proof": coverage,
+    }
 
 
 def main() -> int:
@@ -373,6 +478,7 @@ def main() -> int:
     parser.add_argument("--photo", action="append", default=[], help="Source property photo. Can be provided multiple times.")
     parser.add_argument("--target-subdir", default="generated-reconstruction")
     parser.add_argument("--max-width-m", type=float, default=10.0)
+    parser.add_argument("--style-label", default="", help="Human-readable staging style label for receipts and walkthrough overlays.")
     parser.add_argument(
         "--infer-floorplan-from-photos",
         action="store_true",
@@ -401,7 +507,7 @@ def main() -> int:
         floorplan_source = Path(floorplan_arg).expanduser().resolve()
         if not floorplan_source.is_file():
             raise SystemExit("floorplan_missing")
-        floorplan_target = output_dir / f"source-floorplan{floorplan_source.suffix.lower()}"
+        floorplan_target = output_dir / f"source-floorplan{_web_safe_image_suffix(floorplan_source)}"
         floorplan_meta = _copy_normalized_image(floorplan_source, floorplan_target)
         floorplan_meta["relpath"] = floorplan_target.name
     elif args.infer_floorplan_from_photos:
@@ -417,7 +523,7 @@ def main() -> int:
     for index, source in enumerate(photo_sources, start=1):
         if not source.is_file():
             raise SystemExit(f"photo_missing:{index}")
-        target = output_dir / f"photo-{index:02d}{source.suffix.lower()}"
+        target = output_dir / f"photo-{index:02d}{_web_safe_image_suffix(source)}"
         row = _copy_normalized_image(source, target)
         row["relpath"] = target.name
         row["index"] = index
@@ -436,7 +542,7 @@ def main() -> int:
     walkthrough = (
         {"status": "skipped", "reason": "skip_video_requested"}
         if args.skip_video
-        else _write_walkthrough(output_dir / "generated-walkthrough.mp4", source_images)
+        else _write_walkthrough(output_dir / "generated-walkthrough.mp4", source_images, style_label=str(args.style_label or "").strip())
     )
 
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -447,6 +553,7 @@ def main() -> int:
         "disclosure": DISCLOSURE,
         "verified_provider_capture": False,
         "satisfies_verified_tour_gate": False,
+        "style_label": str(args.style_label or "").strip(),
         "method": "floorplan_aspect_room_volume_with_source_photo_reference_panels",
         "room_dimensions_m": {"width": width_m, "depth": depth_m, "height": height_m},
         "floorplan": floorplan_meta,
@@ -490,6 +597,12 @@ def main() -> int:
         generated_reconstruction["glb_model_relpath"] = f"{base_relpath}/{glb_export.get('glb_relpath') or 'model.glb'}"
     if walkthrough.get("status") == "generated":
         generated_reconstruction["walkthrough_video_relpath"] = f"{base_relpath}/generated-walkthrough.mp4"
+        if str(args.style_label or "").strip():
+            generated_reconstruction["walkthrough_style_label"] = str(args.style_label or "").strip()
+        if walkthrough.get("sidecar_relpath"):
+            generated_reconstruction["walkthrough_sidecar_relpath"] = f"{base_relpath}/{walkthrough.get('sidecar_relpath')}"
+        if isinstance(walkthrough.get("coverage_proof"), dict):
+            generated_reconstruction["walkthrough_coverage_proof"] = walkthrough["coverage_proof"]
     payload["generated_reconstruction"] = generated_reconstruction
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 

@@ -45,8 +45,8 @@ def _normalize_provider_preference(value: str) -> str:
     if not normalized:
         return ""
     alias_map = {
-        "magic": "onemin_i2v",
-        "omagic": "onemin_i2v",
+        "magic": "omagic",
+        "omagic": "omagic",
         "mootion": "mootion",
         "magicfit": "magicfit",
         "onemin": "onemin_i2v",
@@ -56,6 +56,16 @@ def _normalize_provider_preference(value: str) -> str:
 
 
 DEFAULT_PROPERTY_MEDIA_PROVIDERS: tuple[ProviderCapability, ...] = (
+    ProviderCapability(
+        provider_key="omagic",
+        role="model_upload_walkthrough",
+        verified=True,
+        tasks=("walkthrough_video", "video_segment", "model_walkthrough_video"),
+        supports_first_frame=True,
+        supports_constant_speed_publication=True,
+        final_publisher=True,
+        reason="OMagic is the preferred model-backed walkthrough lane; publication requires a model upload receipt and continuity gates.",
+    ),
     ProviderCapability(
         provider_key="magicfit",
         role="photoreal_walkthrough_segment_chain",
@@ -72,7 +82,7 @@ DEFAULT_PROPERTY_MEDIA_PROVIDERS: tuple[ProviderCapability, ...] = (
         supports_first_frame=True,
         supports_constant_speed_publication=True,
         final_publisher=True,
-        reason="MagicFit is the required photoreal fly-through lane; publication is allowed only after first-frame chaining, duration, and continuity gates pass.",
+        reason="MagicFit is the photoreal segment-chain fallback; publication is allowed only after first-frame chaining, duration, and continuity gates pass.",
     ),
     ProviderCapability(
         provider_key="mootion",
@@ -92,7 +102,7 @@ DEFAULT_PROPERTY_MEDIA_PROVIDERS: tuple[ProviderCapability, ...] = (
         supports_first_frame=True,
         supports_constant_speed_publication=True,
         final_publisher=False,
-        reason="1min.AI remains an implementation fallback/probe lane, but it is not the final publisher when MagicFit is required.",
+        reason="1min.AI remains an implementation fallback/probe lane, but it is not OMagic and not a final publisher.",
     ),
     ProviderCapability(
         provider_key="poppy_ai",

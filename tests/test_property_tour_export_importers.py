@@ -1229,6 +1229,16 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
                 "property_slug": slug,
                 "property_title": "Import target",
                 "generated_at": "2026-06-25T00:00:00Z",
+                "walkthrough_coverage_proof": {
+                    "status": "pass",
+                    "segments_expected": ["entry", "living", "kitchen"],
+                    "segments_visited": ["entry", "living", "kitchen"],
+                    "coverage_segments": [
+                        {"segment": "entry", "start": 0, "end": 10},
+                        {"segment": "living", "start": 10, "end": 22},
+                        {"segment": "kitchen", "start": 22, "end": 35},
+                    ],
+                },
             }
         ),
         encoding="utf-8",
@@ -1255,8 +1265,11 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     assert manifest["video_provider"] == "magicfit"
     assert manifest["video_relpath"] == "walkthrough/final.mp4"
     assert manifest["video_coverage_proof"] == "boundary_verified_frame_continuation"
+    assert manifest["walkthrough_coverage_proof"]["status"] == "pass"
+    assert manifest["walkthrough_coverage_proof"]["segments_expected"] == ["entry", "living", "kitchen"]
     assert manifest["magicfit_import"]["source"] == "magicfit_rendered_walkthrough"
     assert manifest["magicfit_import"]["source_receipt_path"] == str(receipt_path)
+    assert manifest["magicfit_import"]["coverage_proof"]["coverage_segments"][0]["segment"] == "entry"
     assert manifest["magicfit_import"]["size_bytes"] == playable_video.stat().st_size
     assert len(manifest["magicfit_import"]["sha256"]) == 64
     assert (bundle_dir / "walkthrough" / "final.mp4").read_bytes() == playable_video.read_bytes()

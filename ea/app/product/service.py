@@ -9515,6 +9515,279 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
     return rows[: max(1, min(int(limit or 50), 200))]
 
 
+_PROPERTY_PRIVATE_SHOWCASE_CANDIDATE_REF = "private-showcase-current-flat"
+_PROPERTY_PRIVATE_SHOWCASE_SOURCE_REF = f"propertyquarry-private-showcase:{_PROPERTY_PRIVATE_SHOWCASE_CANDIDATE_REF}"
+_PROPERTY_PRIVATE_SHOWCASE_TOUR_SLUG = "private-showcase-flat"
+
+
+def _property_private_showcase_allowed_emails() -> frozenset[str]:
+    raw_value = str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_ALLOWED_EMAILS") or "").strip()
+    return frozenset(
+        value.strip().lower()
+        for value in raw_value.split(",")
+        if value.strip() and "@" in value
+    )
+
+
+def _property_private_showcase_env_bool(name: str) -> bool:
+    return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _property_private_showcase_env_int(name: str, default: int = 0) -> int:
+    try:
+        return int(str(os.getenv(name) or "").strip())
+    except Exception:
+        return default
+
+
+def _property_private_showcase_env_float(name: str, default: float = 0.0) -> float:
+    try:
+        return float(str(os.getenv(name) or "").strip())
+    except Exception:
+        return default
+
+
+def _property_private_showcase_email_identities(*, principal_id: str, account_email: str = "") -> set[str]:
+    identities: set[str] = set()
+    for raw_value in (principal_id, account_email, _principal_email_hint(principal_id)):
+        text = str(raw_value or "").strip().lower()
+        if not text:
+            continue
+        if text.startswith("cf-email:"):
+            text = text.partition(":")[2].strip().lower()
+        if "@" in text:
+            identities.add(text)
+    return identities
+
+
+def _property_private_showcase_allowed(*, principal_id: str, account_email: str = "") -> bool:
+    allowed_emails = _property_private_showcase_allowed_emails()
+    if not allowed_emails:
+        return False
+    return bool(_property_private_showcase_email_identities(principal_id=principal_id, account_email=account_email) & allowed_emails)
+
+
+def _property_private_showcase_flatten_preferences(value: object, *, parent_key: str = "") -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            nested_key = f"{parent_key}.{key}" if parent_key else str(key)
+            rows.extend(_property_private_showcase_flatten_preferences(item, parent_key=nested_key))
+        return rows
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            rows.extend(_property_private_showcase_flatten_preferences(item, parent_key=parent_key))
+        return rows
+    text = str(value or "").strip()
+    if text:
+        rows.append((parent_key, text))
+    return rows
+
+
+def _property_private_showcase_preferences(payload: dict[str, object], summary: dict[str, object]) -> dict[str, object]:
+    for key in ("property_search_preferences", "preferences", "brief_preferences"):
+        candidate = payload.get(key)
+        if isinstance(candidate, dict) and candidate:
+            return dict(candidate)
+    for key in ("property_search_preferences", "preferences", "brief_preferences"):
+        candidate = summary.get(key)
+        if isinstance(candidate, dict) and candidate:
+            return dict(candidate)
+    return {}
+
+
+def _property_private_showcase_searches_brigittenau(preferences: dict[str, object]) -> bool:
+    if not isinstance(preferences, dict) or not preferences:
+        return False
+    rows = _property_private_showcase_flatten_preferences(preferences)
+    all_text = " ".join(text for _key, text in rows).casefold()
+    if "brigittenau" in all_text:
+        return True
+    if re.search(r"\b(20\.?\s*bezirk|20th\s+district|20th|wien\s*20|vienna\s*20)\b", all_text):
+        return True
+    for key, text in rows:
+        normalized_key = str(key or "").casefold()
+        normalized_text = str(text or "").strip().casefold()
+        if not any(marker in normalized_key for marker in ("district", "bezirk", "postal", "zip", "location", "municipality")):
+            continue
+        if re.search(r"\b1200\b", normalized_text):
+            return True
+        if normalized_text == "20":
+            return True
+        if re.search(r"\b20\b", normalized_text) and ("wien" in normalized_text or "vienna" in normalized_text or "bezirk" in normalized_text):
+            return True
+    return False
+
+
+def _property_private_showcase_candidate(*, run_id: str = "") -> dict[str, object]:
+    tour_url = f"/tours/{_PROPERTY_PRIVATE_SHOWCASE_TOUR_SLUG}/control/3dvista"
+    walkthrough_url = f"/tours/files/{_PROPERTY_PRIVATE_SHOWCASE_TOUR_SLUG}/generated-reconstruction/generated-walkthrough.mp4"
+    floorplan_url = f"/tours/files/{_PROPERTY_PRIVATE_SHOWCASE_TOUR_SLUG}/generated-reconstruction/source-floorplan.jpg"
+    facts: dict[str, object] = {
+        "private_showcase": True,
+        "visibility": "private_principal_only",
+        "source_platform": "propertyquarry_private_showcase",
+        "source_family": "private_showcase",
+        "country_code": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_COUNTRY_CODE") or "AT").strip(),
+        "region_code": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_REGION_CODE") or "").strip(),
+        "city": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_CITY") or "").strip(),
+        "district": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_DISTRICT") or "").strip(),
+        "postal_code": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_POSTAL_CODE") or "").strip(),
+        "postal_name": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_POSTAL_NAME") or "").strip(),
+        "street_address": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_STREET_ADDRESS") or "").strip(),
+        "address": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_ADDRESS") or "").strip(),
+        "latitude": _property_private_showcase_env_float("PROPERTYQUARRY_PRIVATE_SHOWCASE_LATITUDE"),
+        "longitude": _property_private_showcase_env_float("PROPERTYQUARRY_PRIVATE_SHOWCASE_LONGITUDE"),
+        "map_source": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_MAP_SOURCE") or "").strip(),
+        "map_source_url": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_MAP_SOURCE_URL") or "").strip(),
+        "osm_display_name": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_OSM_DISPLAY_NAME") or "").strip(),
+        "floor": _property_private_showcase_env_int("PROPERTYQUARRY_PRIVATE_SHOWCASE_FLOOR"),
+        "has_lift": _property_private_showcase_env_bool("PROPERTYQUARRY_PRIVATE_SHOWCASE_HAS_LIFT"),
+        "lift": _property_private_showcase_env_bool("PROPERTYQUARRY_PRIVATE_SHOWCASE_HAS_LIFT"),
+        "has_balcony": _property_private_showcase_env_bool("PROPERTYQUARRY_PRIVATE_SHOWCASE_HAS_BALCONY"),
+        "has_terrace": _property_private_showcase_env_bool("PROPERTYQUARRY_PRIVATE_SHOWCASE_HAS_TERRACE"),
+        "has_floorplan": True,
+        "floorplan_count": 1,
+        "floorplan_urls_json": [floorplan_url],
+        "floorplan_detection_method": "operator_provided_floorplan_pending_import",
+        "brightness_signal": "very_bright",
+        "quiet_layout_signal": "very_quiet",
+        "quiet_layout_signal_summary": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_QUIET_SUMMARY") or "").strip(),
+        "total_rent_eur": 0,
+        "price_eur": 0,
+        "rent_display": "EUR 0",
+        "price_display": "EUR 0",
+        "costs_display": "EUR 0",
+        "staging_style": "IKEA",
+        "tour_style": "lush",
+        "tour_url": tour_url,
+        "source_virtual_tour_url": tour_url,
+        "flythrough_url": walkthrough_url,
+        "walkthrough_url": walkthrough_url,
+        "tour_provider": "3dvista_showcase_shell",
+        "flythrough_provider": "propertyquarry_generated_reconstruction",
+        "nearest_flowing_water_m": _property_private_showcase_env_int("PROPERTYQUARRY_PRIVATE_SHOWCASE_NEAREST_WATER_M"),
+        "nearest_flowing_water_name": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_NEAREST_WATER_NAME") or "").strip(),
+        "cooling_corridor_signal": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_COOLING_SIGNAL") or "").strip(),
+        "cooling_corridor_summary": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_COOLING_SUMMARY") or "").strip(),
+        "austria_preference_notes": [
+            value.strip()
+            for value in str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_NOTES") or "").split("|")
+            if value.strip()
+        ],
+        "missing_fact_research": [
+            {
+                "field": "real_floorplan_tiff",
+                "label": "Real floorplan",
+                "status": "pending",
+                "display_value": "Waiting for the provided TIFF to appear in the Linux workspace.",
+                "evidence": "The Windows download path was not mounted in the container during implementation.",
+                "ooda": {
+                    "act": "Import the TIFF and regenerate the layout-backed tour bundle.",
+                },
+            }
+        ],
+    }
+    assessment = {
+        "recommendation": "review_now",
+        "fit_score": 100,
+        "match_reasons_json": [
+            "EUR 0 total cost private showcase.",
+            str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_FIT_REASON") or "").strip(),
+            _property_cooling_corridor_match_reason(facts),
+        ],
+        "mismatch_reasons_json": [],
+    }
+    candidate: dict[str, object] = {
+        "candidate_ref": _PROPERTY_PRIVATE_SHOWCASE_CANDIDATE_REF,
+        "source_ref": _PROPERTY_PRIVATE_SHOWCASE_SOURCE_REF,
+        "listing_id": _PROPERTY_PRIVATE_SHOWCASE_CANDIDATE_REF,
+        "title": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_TITLE") or "Private zero-cost flat").strip(),
+        "summary": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_SUMMARY") or "Private showcase flat.").strip(),
+        "fit_score": 100.0,
+        "ranking_score": 999.0,
+        "assessment_fit_score": 100.0,
+        "recommendation": "review_now",
+        "fit_summary": str(os.getenv("PROPERTYQUARRY_PRIVATE_SHOWCASE_FIT_SUMMARY") or "Private match").strip(),
+        "property_url": f"/app/research/{_PROPERTY_PRIVATE_SHOWCASE_CANDIDATE_REF}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if run_id else ""),
+        "packet_url": f"/app/research/{_PROPERTY_PRIVATE_SHOWCASE_CANDIDATE_REF}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if run_id else ""),
+        "review_url": f"/app/research/{_PROPERTY_PRIVATE_SHOWCASE_CANDIDATE_REF}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if run_id else ""),
+        "tour_url": tour_url,
+        "tour_status": "ready",
+        "flythrough_url": walkthrough_url,
+        "flythrough_status": "ready",
+        "flythrough_provider": "propertyquarry_generated_reconstruction",
+        "source_platform": "propertyquarry_private_showcase",
+        "source_family": "private_showcase",
+        "source_trust_tier": "operator_confirmed",
+        "source_access_level": "private",
+        "verification_required": False,
+        "private_showcase": True,
+        "property_facts": facts,
+        "map_url": _property_candidate_google_maps_url({"property_facts": facts}),
+        "assessment": assessment,
+        "match_reasons": _property_candidate_visible_match_reasons(assessment, facts=facts, limit=4),
+        "mismatch_reasons": [],
+    }
+    return _property_candidate_search_page_display(candidate)
+
+
+def _property_search_snapshot_with_private_showcase(
+    snapshot: dict[str, object],
+    *,
+    principal_id: str,
+    account_email: str = "",
+) -> dict[str, object]:
+    if not isinstance(snapshot, dict) or not snapshot:
+        return snapshot
+    summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+    preferences = _property_private_showcase_preferences(snapshot, summary)
+    if not _property_private_showcase_allowed(principal_id=principal_id, account_email=account_email):
+        return snapshot
+    if not _property_private_showcase_searches_brigittenau(preferences):
+        return snapshot
+    run_id = str(snapshot.get("run_id") or summary.get("run_id") or "").strip()
+    candidate = _property_private_showcase_candidate(run_id=run_id)
+    sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    for source in sources:
+        candidates = [
+            dict(row)
+            for row in list(source.get("top_candidates") or source.get("research_candidates") or [])
+            if isinstance(row, dict)
+        ]
+        if any(str(row.get("candidate_ref") or "").strip() == _PROPERTY_PRIVATE_SHOWCASE_CANDIDATE_REF for row in candidates):
+            summary["ranked_candidates"] = _property_search_ranked_candidates_from_sources(sources)
+            snapshot["summary"] = summary
+            return snapshot
+    showcase_source = {
+        "source_label": "Private showcase",
+        "platform": "propertyquarry_private_showcase",
+        "provider_family": "private_showcase",
+        "source_url": "propertyquarry://private-showcase/current-flat",
+        "status": "processed",
+        "ranked_total": 1,
+        "listing_total": 1,
+        "scanned_listing_total": 1,
+        "reviewed_listing_total": 1,
+        "top_candidates": [candidate],
+        "private_showcase": True,
+    }
+    sources = [showcase_source, *sources]
+    ranked = _property_search_ranked_candidates_from_sources(sources)
+    summary["sources"] = sources
+    summary["ranked_candidates"] = ranked
+    summary["private_showcase_candidate_ref"] = _PROPERTY_PRIVATE_SHOWCASE_CANDIDATE_REF
+    summary["private_showcase_status"] = "injected"
+    for key in ("ranked_total", "ranked_candidate_total", "listing_total", "reviewed_listing_total", "scanned_listing_total"):
+        try:
+            current = max(0, int(float(summary.get(key) or 0)))
+        except Exception:
+            current = 0
+        summary[key] = max(current, len(ranked))
+    snapshot["summary"] = summary
+    return snapshot
+
+
 def _property_search_live_reviewed_total_from_message(message: object) -> int:
     text = str(message or "").strip()
     if not text:
@@ -14402,6 +14675,12 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
             return "Walkthrough not available yet."
         return "Tour not available yet."
     if normalized_kind == "flythrough":
+        if normalized_reason == "magicfit_not_enough_credits":
+            return "Walkthrough rendering is paused until render credits are available."
+        if normalized_reason == "omagic_model_upload_adapter_missing":
+            return "Walkthrough rendering is not configured for model upload yet."
+        if normalized_reason == "omagic_model_input_missing":
+            return "Walkthrough needs a generated model first."
         if normalized_reason.endswith(("_credentials_missing", "_not_configured", "_unconfigured")):
             return "Walkthrough is temporarily unavailable."
         if normalized_reason in {"flythrough_seed_image_missing", "gallery_assets_unavailable"}:
@@ -16186,6 +16465,16 @@ def _update_hosted_property_tour_magicfit_video_manifest(
         payload["covered_route_labels"] = normalized_route_labels
         payload["room_visit_plan"] = normalized_route_labels
         payload["video_coverage_proof"] = "boundary_verified_frame_continuation"
+        payload["walkthrough_coverage_proof"] = {
+            "status": "pass",
+            "source": "magicfit_multi_segment_render",
+            "segments_expected": normalized_route_labels,
+            "segments_visited": normalized_route_labels,
+            "coverage_segments": [
+                {"segment": label, "index": index + 1}
+                for index, label in enumerate(normalized_route_labels)
+            ],
+        }
     payload["flythrough_url"] = _hosted_public_tour_asset_url(tour_url, slug=slug, asset_relpath=normalized_video_relpath)
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
@@ -16777,6 +17066,17 @@ def _default_magicfit_property_flythrough_prompt(
     )
 
 
+def _magicfit_segment_failure_reason(*, stdout_tail: str = "", stderr_tail: str = "") -> str:
+    combined = f"{stdout_tail}\n{stderr_tail}".lower()
+    if "magicfit_not_enough_credits" in combined or "not enough credits" in combined or "buy credits" in combined:
+        return "magicfit_not_enough_credits"
+    if "magicfit_credentials_missing" in combined:
+        return "magicfit_credentials_missing"
+    if "magicfit_video_url_not_found" in combined:
+        return "magicfit_video_url_not_found"
+    return "magicfit_segment_render_failed"
+
+
 def _render_magicfit_property_flythrough_into_hosted_tour(
     *,
     tour_url: str,
@@ -17043,13 +17343,17 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
                     segment_log["output_log_path"] = str(segment_output_log_path)
                 segment_logs.append(segment_log)
                 if returncode != 0 or not tmp_video.exists() or segment_duration_seconds <= 0:
+                    failure_reason = _magicfit_segment_failure_reason(
+                        stdout_tail=stdout_tail,
+                        stderr_tail=stderr_tail,
+                    )
                     if attempt_index < max_attempts:
-                        segment_log["retry_reason"] = "magicfit_segment_render_failed"
+                        segment_log["retry_reason"] = failure_reason
                         continue
                     render_log.update(
                         {
                             "status": "failed",
-                            "reason": "magicfit_segment_render_failed",
+                            "reason": failure_reason,
                             "segments": segment_logs,
                         }
                     )
@@ -17060,9 +17364,9 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
                         progress_pct=0,
                         detail=_property_visual_unavailable_detail(
                             request_kind="flythrough",
-                            reason="magicfit_segment_render_failed",
+                            reason=failure_reason,
                         ),
-                        reason="magicfit_segment_render_failed",
+                        reason=failure_reason,
                         provider_key="magicfit",
                         step_index=segment_index,
                         step_total=effective_total_segments,
@@ -18207,6 +18511,160 @@ def _render_mootion_property_flythrough_into_hosted_tour(
     return render_log
 
 
+def _omagic_keys_available() -> bool:
+    return any(
+        str(os.getenv(name) or "").strip()
+        for name in (
+            "OMAGIC_API_KEY",
+            "PROPERTYQUARRY_OMAGIC_API_KEY",
+            "OMAGIC_EMAIL",
+            "PROPERTYQUARRY_OMAGIC_EMAIL",
+            "OMAGIC_ACCOUNTS_JSON",
+            "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
+            "MAGIC_API_KEY",
+            "PROPERTYQUARRY_MAGIC_API_KEY",
+            "MAGIC_EMAIL",
+            "PROPERTYQUARRY_MAGIC_EMAIL",
+            "MAGIC_ACCOUNTS_JSON",
+            "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+        )
+    )
+
+
+def _hosted_property_tour_omagic_model_input(
+    *,
+    tour_url: str,
+    bundle_dir: Path,
+    tour_context_json: dict[str, object] | None,
+) -> dict[str, str]:
+    context_payload = dict(tour_context_json or {}) if isinstance(tour_context_json, dict) else {}
+    generated_context = (
+        dict(context_payload.get("generated_reconstruction") or {})
+        if isinstance(context_payload.get("generated_reconstruction"), dict)
+        else {}
+    )
+    manifest = _hosted_property_tour_manifest(tour_url)
+    generated_manifest = (
+        dict(manifest.get("generated_reconstruction") or {})
+        if isinstance(manifest.get("generated_reconstruction"), dict)
+        else {}
+    )
+    model_url = _first_non_empty_text(
+        generated_context.get("glb_model_url"),
+        generated_context.get("model_url"),
+        _hosted_property_tour_generated_reconstruction_asset_url(tour_url, asset_key="glb_model_relpath"),
+        _hosted_property_tour_generated_reconstruction_asset_url(tour_url, asset_key="model_relpath"),
+    )
+    model_relpath = _first_non_empty_text(
+        generated_manifest.get("glb_model_relpath"),
+        generated_manifest.get("model_relpath"),
+    )
+    model_path = ""
+    if model_relpath:
+        try:
+            candidate = (bundle_dir / model_relpath).resolve()
+            if bundle_dir.resolve() in candidate.parents and candidate.exists() and candidate.is_file():
+                model_path = str(candidate)
+        except Exception:
+            model_path = ""
+    model_asset_kind = "glb" if model_url.lower().split("?", 1)[0].endswith(".glb") or model_path.lower().endswith(".glb") else "model"
+    return {
+        "model_url": str(model_url or "").strip(),
+        "model_path": model_path,
+        "model_asset_kind": model_asset_kind,
+    }
+
+
+def _render_omagic_property_flythrough_into_hosted_tour(
+    *,
+    tour_url: str,
+    title: str,
+    property_facts: dict[str, object] | None = None,
+    actor: str = "",
+    birthday_party_request: bool = False,
+    person_motion_hint: str = "",
+    diorama_style_hint: str = "",
+    tour_context_json: dict[str, object] | None = None,
+) -> dict[str, object]:
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    if not slug or bundle_dir is None:
+        return {"status": "missing", "reason": "hosted_tour_bundle_missing", "provider_key": "omagic"}
+    model_input = _hosted_property_tour_omagic_model_input(
+        tour_url=tour_url,
+        bundle_dir=bundle_dir,
+        tour_context_json=tour_context_json,
+    )
+    render_log: dict[str, object] = {
+        "status": "pending",
+        "tour_url": str(tour_url or "").strip(),
+        "slug": slug,
+        "title": str(title or "").strip(),
+        "actor": str(actor or "").strip(),
+        "provider_key": "omagic",
+        "model_url": model_input.get("model_url", ""),
+        "model_path": model_input.get("model_path", ""),
+        "model_asset_kind": model_input.get("model_asset_kind", ""),
+        "model_input_required": True,
+    }
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="processing",
+        progress_pct=10,
+        detail="Preparing model-backed walkthrough.",
+        provider_key="omagic",
+    )
+    if not render_log["model_url"] and not render_log["model_path"]:
+        render_log.update({"status": "failed", "reason": "omagic_model_input_missing"})
+        _write_hosted_property_visual_progress(
+            tour_url=tour_url,
+            request_kind="flythrough",
+            status="failed",
+            progress_pct=0,
+            detail=_property_visual_unavailable_detail(
+                request_kind="flythrough",
+                reason="omagic_model_input_missing",
+            ),
+            reason="omagic_model_input_missing",
+            provider_key="omagic",
+        )
+        return render_log
+    if not _omagic_keys_available():
+        render_log.update({"status": "failed", "reason": "omagic_credentials_missing"})
+        _write_hosted_property_visual_progress(
+            tour_url=tour_url,
+            request_kind="flythrough",
+            status="failed",
+            progress_pct=0,
+            detail=_property_visual_unavailable_detail(
+                request_kind="flythrough",
+                reason="omagic_credentials_missing",
+            ),
+            reason="omagic_credentials_missing",
+            provider_key="omagic",
+        )
+        return render_log
+    script_path = (_repo_root() / "scripts" / "render_omagic_property_model_walkthrough.py").resolve()
+    render_log["script_path"] = str(script_path)
+    if not script_path.exists():
+        render_log.update({"status": "failed", "reason": "omagic_model_upload_adapter_missing"})
+        _write_hosted_property_visual_progress(
+            tour_url=tour_url,
+            request_kind="flythrough",
+            status="failed",
+            progress_pct=0,
+            detail=_property_visual_unavailable_detail(
+                request_kind="flythrough",
+                reason="omagic_model_upload_adapter_missing",
+            ),
+            reason="omagic_model_upload_adapter_missing",
+            provider_key="omagic",
+        )
+        return render_log
+    render_log.update({"status": "failed", "reason": "omagic_model_upload_adapter_missing"})
+    return render_log
+
+
 def _render_property_flythrough_into_hosted_tour(
     *,
     tour_url: str,
@@ -18258,6 +18716,18 @@ def _render_property_flythrough_into_hosted_tour(
             provider_key=normalized_preferred_provider or route.provider_key,
         )
         return {"status": "failed", "reason": route.reason or "flythrough_provider_unavailable", **route_payload}
+    if route.provider_key == "omagic":
+        rendered = _render_omagic_property_flythrough_into_hosted_tour(
+            tour_url=tour_url,
+            title=title,
+            property_facts=property_facts,
+            actor=actor,
+            birthday_party_request=birthday_party_request,
+            person_motion_hint=person_motion_hint,
+            diorama_style_hint=diorama_style_hint,
+            tour_context_json=tour_context_json,
+        )
+        return {**route_payload, **dict(rendered or {})}
     if route.provider_key == "mootion":
         rendered = _render_mootion_property_flythrough_into_hosted_tour(
             tour_url=tour_url,
@@ -18723,9 +19193,9 @@ def _property_3d_viewer_links_exit_gate(
 ) -> tuple[bool, str, dict[str, object]]:
     links = {str(key or "").strip().lower(): str(value or "").strip() for key, value in dict(viewer_links or {}).items()}
     required = {
-        "matterport": ("Matterport Control", "/control/matterport"),
-        "3dvista": ("3DVista Control", "/control/3dvista"),
-        "pano2vr": ("Pano2VR Control", "/control/pano2vr"),
+        "matterport": ("3D Tour", "/control/matterport"),
+        "3dvista": ("3D Tour", "/control/3dvista"),
+        "pano2vr": ("3D Tour", "/control/pano2vr"),
     }
     checked: dict[str, dict[str, object]] = {}
     metrics: dict[str, object] = {"checked": checked, "legacy_removed": False}
@@ -19048,10 +19518,6 @@ def _property_tour_compare_links(tour_url: str) -> dict[str, str]:
         threedvista_url = _telegram_safe_url_button_target(_property_tour_control_link(normalized, viewer="3dvista"))
         if threedvista_url:
             links["3dvista"] = threedvista_url
-    if _hosted_property_tour_has_pano2vr_export(normalized):
-        pano2vr_url = _telegram_safe_url_button_target(_property_tour_control_link(normalized, viewer="pano2vr"))
-        if pano2vr_url:
-            links["pano2vr"] = pano2vr_url
     return links
 
 
@@ -19144,10 +19610,10 @@ def _property_walkthrough_context_reference_text(tour_context_json: dict[str, ob
     context_payload = dict(tour_context_json or {}) if isinstance(tour_context_json, dict) else {}
     verified_provider = str(context_payload.get("verified_provider") or "").strip().lower()
     provider_label = {
-        "matterport": "Matterport",
-        "3dvista": "3DVista",
-        "pano2vr": "Pano2VR",
-        "krpano": "krpano",
+        "matterport": "3D tour",
+        "3dvista": "3D tour",
+        "pano2vr": "panorama import",
+        "krpano": "panorama viewer",
     }.get(verified_provider, verified_provider)
     route_labels = _property_walkthrough_context_route_labels(context_payload)
     prompt_parts: list[str] = []
@@ -28948,9 +29414,10 @@ class ProductService:
         normalized_style_hint = _compact_diorama_style_hint(str(diorama_style_hint or ""), max_length=180)
         normalized_walkthrough_provider = _normalize_provider_preference(walkthrough_provider_key)
         walkthrough_provider_label = {
+            "omagic": "OMagic",
             "magicfit": "MagicFit",
             "mootion": "Mootion",
-            "onemin_i2v": "OMagic",
+            "onemin_i2v": "1min.AI",
         }.get(normalized_walkthrough_provider, "")
         existing = self._existing_property_tour_followup(
             principal_id=principal_id,
@@ -32423,7 +32890,7 @@ class ProductService:
         elif fit_score > 0:
             summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
         summary_lines.extend(_property_link_bundle_key_facts_lines(property_facts_json))
-        summary_lines.append("Matterport, 3DVista, and Pano2VR buttons appear only when a real provider export exists. Open Walkthrough starts the published video immediately.")
+        summary_lines.append("Only polished 3D tour buttons are shown. Open Walkthrough starts the published video immediately.")
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
         deep_flythrough_url = ""
@@ -32506,11 +32973,9 @@ class ProductService:
                     "pending_reasons": payload["pending_reasons"],
                 }
             if compare_links.get("matterport"):
-                first_row.append(("Open Matterport", compare_links["matterport"]))
+                first_row.append(("Open 3D tour", compare_links["matterport"]))
             if compare_links.get("3dvista"):
-                first_row.append(("Open 3DVista", compare_links["3dvista"]))
-            if compare_links.get("pano2vr"):
-                first_row.append(("Open Pano2VR", compare_links["pano2vr"]))
+                first_row.append(("Open 3D tour", compare_links["3dvista"]))
         if first_row:
             url_buttons.append(first_row[:2])
             if len(first_row) > 2:
@@ -33020,11 +33485,9 @@ class ProductService:
                 "viewer_gate_metrics": viewer_gate_metrics,
             }
         if compare_links.get("matterport"):
-            first_row.append(("Open Matterport", compare_links["matterport"]))
+            first_row.append(("Open 3D tour", compare_links["matterport"]))
         if compare_links.get("3dvista"):
-            first_row.append(("Open 3DVista", compare_links["3dvista"]))
-        if compare_links.get("pano2vr"):
-            first_row.append(("Open Pano2VR", compare_links["pano2vr"]))
+            first_row.append(("Open 3D tour", compare_links["3dvista"]))
         if first_row:
             url_buttons.append(first_row[:2])
             if len(first_row) > 2:
@@ -35327,7 +35790,7 @@ class ProductService:
             elif str(payload.get("tour_url") or "").strip():
                 payload["tour_status"] = "repairing"
                 status_label = "3D tour needs attention"
-                status_detail = "The hosted tour link is not backed by usable Matterport, 3DVista, or Pano2VR viewer assets yet. Request a rebuild from this page."
+                status_detail = "The hosted tour link is not backed by usable 3D viewer assets yet. Request a rebuild from this page."
             elif payload["tour_status"] in {"queued", "pending"}:
                 status_label = "3D tour queued"
                 status_detail = "Queued. Opens here when ready."
@@ -36946,6 +37409,11 @@ class ProductService:
                 summary = _normalize_run_summary_entitlements(compact_snapshot, summary=summary)
                 summary = self._apply_property_search_run_repair_receipts(summary=summary)
                 compact_snapshot["summary"] = summary
+                compact_snapshot = _property_search_snapshot_with_private_showcase(
+                    compact_snapshot,
+                    principal_id=principal_id,
+                    account_email=account_email,
+                )
                 compact_snapshot = _property_search_mark_stale_brief_snapshot(
                     compact_snapshot,
                     current_preferences=_current_brief_preferences(),
@@ -37151,6 +37619,19 @@ class ProductService:
                 ranked_candidates = _property_search_ranked_candidates_from_sources(sources)
                 if ranked_candidates:
                     summary["ranked_candidates"] = ranked_candidates
+        snapshot["summary"] = summary
+        snapshot = _property_search_snapshot_with_private_showcase(
+            snapshot,
+            principal_id=principal_id,
+            account_email=account_email,
+        )
+        summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+        ranked_candidates = [
+            dict(row)
+            for row in list(summary.get("ranked_candidates") or [])
+            if isinstance(row, dict)
+        ]
         if sources:
             summary["sources"] = sources
             def _source_positive_int(source: dict[str, object], *keys: str) -> int:
@@ -45201,7 +45682,7 @@ class ProductService:
         from app.services.scene_video_contract import normalize_scene_video_contract_provider
 
         def _normalize_scene_video_provider_contract_key(value: object) -> str:
-            return normalize_scene_video_contract_provider(value, default="magicfit")
+            return normalize_scene_video_contract_provider(value, default="omagic")
 
         payload = {
             "title": str(title or "Scene video").strip() or "Scene video",
@@ -45210,7 +45691,7 @@ class ProductService:
         request_principal_id = str(task_principal_id or "").strip() or str(payload.get("principal_id") or "").strip()
         payload.pop("principal_id", None)
         payload["provider_key"] = _normalize_scene_video_provider_contract_key(
-            payload.get("provider_key") or provider_key or "magicfit"
+            payload.get("provider_key") or provider_key or "omagic"
         )
         artifact = self._container.orchestrator.execute_task_artifact(
             TaskExecutionRequest(

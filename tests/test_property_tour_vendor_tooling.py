@@ -167,6 +167,39 @@ def test_vendor_tooling_reports_magicfit_renderer_credentials_from_shared_suffix
     assert "shared-secret" not in serialized
 
 
+def test_vendor_tooling_reports_magicfit_renderer_credentials_from_process_suffix_env(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    ea_root = tmp_path / "ea"
+    (repo_root / "scripts").mkdir(parents=True)
+    (repo_root / "scripts" / "render_magicfit_property_flythrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    ea_root.mkdir(parents=True)
+    monkeypatch.setattr("scripts.verify_property_tour_vendor_tooling._repo_root", lambda: repo_root)
+    monkeypatch.setenv("PROPERTYQUARRY_ROOT", str(repo_root))
+    monkeypatch.setenv("PROPERTYQUARRY_EA_ROOT", str(ea_root))
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "chummer@example.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "chummer-secret")
+    monkeypatch.setattr("scripts.verify_property_tour_vendor_tooling._python_module_status", lambda module: {"available": True, "path": "/usr/bin/python3", "version": "ok"})
+    monkeypatch.delenv("PROPERTYQUARRY_MAGICFIT_EMAIL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_MAGICFIT_PASSWORD", raising=False)
+    monkeypatch.delenv("MAGICFIT_EMAIL", raising=False)
+    monkeypatch.delenv("MAGICFIT_PASSWORD", raising=False)
+
+    receipt = build_vendor_tooling_receipt(
+        drop_dir=tmp_path / "incoming",
+        tour_root=tmp_path / "public_tours",
+        wine_prefix=tmp_path / "wine",
+        installer_roots=[],
+        runtime_container="",
+    )
+    serialized = json.dumps(receipt).lower()
+
+    assert receipt["magicfit_renderer"]["credentials_configured"] is True
+    assert receipt["magicfit_renderer"]["ready"] is True
+    assert receipt["magicfit_renderer"]["credential_sources"] == ["process_env"]
+    assert "chummer@example.com" not in serialized
+    assert "chummer-secret" not in serialized
+
+
 def test_vendor_tooling_detects_local_desktop_installers(tmp_path: Path) -> None:
     installer_root = tmp_path / "installers"
     installer_root.mkdir()

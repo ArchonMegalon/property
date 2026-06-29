@@ -36,11 +36,13 @@ Runs the focused PropertyQuarry release bundle:
   - workspace access token redaction, keyed hashes, revocation, and one-time launch-link contracts
   - ID Austria OIDC readiness receipt and Austrian-IP sign-in gating
   - live provider smoke receipt contracts
-  - hosted tour control readiness receipts for Matterport, 3DVista, Pano2VR, krpano, and MagicFit
+  - hosted tour control readiness receipts for polished 3D tours, panorama imports, and walkthroughs
+  - scene-video provider readiness receipt and verifier for Mootion BrowserAct, MagicFit, OMagic/Magic, Telegram, and 1min boundaries
   - consolidated PropertyQuarry gold-status receipt for mobile/performance, provider matrix, tour controls, repair, and export discovery
   - furniture-style variant contract for five request-time 3D-tour styles, UI handoff, and style-aware cached rendering
   - BTS score-PDF methodology contract for source provenance and selected-district no-reward policy
-  - public-safe tour delivery contract shape for Matterport, 3DVista, Pano2VR, krpano, and MagicFit
+  - public-safe tour delivery contract shape for polished 3D tours, panorama imports, and walkthroughs
+  - hard browser-rendered 3D and walkthrough quality gates that fail on blank viewers, loading-only states, CSP/frame/network errors, missing room coverage, or frame jumps
   - required live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack, including a current /app/research/{id} detail route
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
@@ -67,7 +69,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_ranking_benchmark.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_teable_portability.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_search_storage_schema.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contract.py
-mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/tours _completion/smoke _completion/property_gold_status _completion/repair _completion/provider_smoke _completion/furniture_styles _completion/bts_methodology _completion/tour_delivery
+mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/tours _completion/smoke _completion/property_gold_status _completion/repair _completion/provider_smoke _completion/furniture_styles _completion/bts_methodology _completion/tour_delivery _completion/scene_video_readiness
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_furniture_style_contract.py \
   --write _completion/furniture_styles/property-furniture-style-contract-release-gate.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_bts_methodology_contract.py \
@@ -107,6 +109,28 @@ if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container
     > /dev/null
   docker cp "${property_api_container}:/data/artifacts/property-tour-vendor-tooling-release-gate-live-container.json" \
     _completion/tours/property-tour-vendor-tooling-current.json
+  docker exec "${property_api_container}" python /app/scripts/property_scene_video_readiness_report.py \
+    --output /data/artifacts/property-scene-video-readiness-release-gate-live-container.json
+  docker exec "${property_api_container}" python /app/scripts/verify_property_scene_video_readiness.py \
+    --receipt /data/artifacts/property-scene-video-readiness-release-gate-live-container.json \
+    --output /data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json \
+    > /dev/null
+  docker exec "${property_api_container}" python /app/scripts/materialize_scene_video_provider_refresh_packet.py \
+    --receipt /data/artifacts/property-scene-video-readiness-release-gate-live-container.json \
+    --output /data/artifacts/property-scene-video-provider-refresh-packet-release-gate-live-container.json \
+    > /dev/null
+  docker exec "${property_api_container}" python /app/scripts/verify_scene_video_provider_refresh_packet.py \
+    --packet /data/artifacts/property-scene-video-provider-refresh-packet-release-gate-live-container.json \
+    --output /data/artifacts/property-scene-video-provider-refresh-packet-release-gate-verifier-live-container.json \
+    > /dev/null
+  docker cp "${property_api_container}:/data/artifacts/property-scene-video-readiness-release-gate-live-container.json" \
+    _completion/scene_video_readiness/release-gate.json
+  docker cp "${property_api_container}:/data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json" \
+    _completion/scene_video_readiness/release-gate-verifier.json
+  docker cp "${property_api_container}:/data/artifacts/property-scene-video-provider-refresh-packet-release-gate-live-container.json" \
+    _completion/scene_video_readiness/provider-refresh-packet.json
+  docker cp "${property_api_container}:/data/artifacts/property-scene-video-provider-refresh-packet-release-gate-verifier-live-container.json" \
+    _completion/scene_video_readiness/provider-refresh-packet-verifier.json
 else
   PYTHONPATH=ea "${PYTHON_BIN}" scripts/discover_property_tour_exports.py \
     --drop-dir "${tour_export_incoming_dir}" \
@@ -121,6 +145,20 @@ else
     --drop-dir "${tour_export_incoming_dir}" \
     --tour-root "${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}" \
     --write _completion/tours/property-tour-vendor-tooling-current.json \
+    > /dev/null
+  PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_scene_video_readiness_report.py \
+    --output _completion/scene_video_readiness/release-gate.json
+  PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_scene_video_readiness.py \
+    --receipt _completion/scene_video_readiness/release-gate.json \
+    --output _completion/scene_video_readiness/release-gate-verifier.json \
+    > /dev/null
+  PYTHONPATH=ea "${PYTHON_BIN}" scripts/materialize_scene_video_provider_refresh_packet.py \
+    --receipt _completion/scene_video_readiness/release-gate.json \
+    --output _completion/scene_video_readiness/provider-refresh-packet.json \
+    > /dev/null
+  PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_scene_video_provider_refresh_packet.py \
+    --packet _completion/scene_video_readiness/provider-refresh-packet.json \
+    --output _completion/scene_video_readiness/provider-refresh-packet-verifier.json \
     > /dev/null
 fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_tour_delivery_contract.py \
@@ -157,6 +195,12 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_mobile_surface_smoke.p
   "${live_mobile_seed_args[@]}" \
   --write _completion/smoke/property-live-mobile-release-gate.json \
   > /dev/null
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_map_preview_flagship_gate.py \
+  --base-url "${live_mobile_base_url}" \
+  --host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}" \
+  --api-token "${EA_API_TOKEN}" \
+  --write _completion/smoke/property-live-map-preview-flagship-release-gate.json \
+  > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_public_smoke.py \
   --base-url "${live_mobile_base_url}" \
   --write _completion/smoke/property-live-public-release-gate.json \
@@ -165,6 +209,16 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_authenticated_smoke.py
   --base-url "${live_mobile_base_url}" \
   --api-token "${EA_API_TOKEN}" \
   --write _completion/smoke/property-live-authenticated-release-gate.json \
+  > /dev/null
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_3d_browser_gate.py \
+  --base-url "${PROPERTYQUARRY_3D_BROWSER_GATE_BASE_URL:-${live_mobile_base_url}}" \
+  --host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}" \
+  --screenshots-dir _completion/smoke/property-live-3d-browser-gate-release-gate-screenshots \
+  --write _completion/smoke/property-live-3d-browser-gate-release-gate.json \
+  > /dev/null
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py \
+  --tour-root "${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}" \
+  --write _completion/smoke/property-live-walkthrough-quality-release-gate.json \
   > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_provider_ownership.py \
   --write _completion/property_tour_ownership/release-gate.json \
@@ -196,14 +250,21 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --live-mobile-receipt _completion/smoke/property-live-mobile-release-gate.json \
   --public-smoke-receipt _completion/smoke/property-live-public-release-gate.json \
   --authenticated-smoke-receipt _completion/smoke/property-live-authenticated-release-gate.json \
+  --map-preview-flagship-receipt _completion/smoke/property-live-map-preview-flagship-release-gate.json \
   --tour-provider-ownership-receipt _completion/property_tour_ownership/release-gate.json \
   --vendor-tooling-receipt _completion/tours/property-tour-vendor-tooling-current.json \
   --furniture-style-contract-receipt _completion/furniture_styles/property-furniture-style-contract-release-gate.json \
   --bts-methodology-contract-receipt _completion/bts_methodology/property-bts-methodology-contract-release-gate.json \
   --tour-delivery-contract-receipt _completion/tour_delivery/property-tour-delivery-contract-release-gate.json \
+  --browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-release-gate.json \
+  --walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-release-gate.json \
+  --scene-video-readiness-receipt _completion/scene_video_readiness/release-gate.json \
+  --scene-video-readiness-verifier-receipt _completion/scene_video_readiness/release-gate-verifier.json \
+  --scene-video-provider-refresh-packet _completion/scene_video_readiness/provider-refresh-packet.json \
+  --scene-video-provider-refresh-packet-verifier-receipt _completion/scene_video_readiness/provider-refresh-packet-verifier.json \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
-gold_notification_principal_id="${PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID:-${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}}"
+gold_notification_principal_id="${PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID:-${EA_PRINCIPAL_ID:-propertyquarry-operator}}"
 gold_notification_base_url="${PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL:-${live_mobile_base_url}}"
 gold_notification_state="${PROPERTYQUARRY_GOLD_NOTIFICATION_STATE:-_completion/propertyquarry-gold-notification-state.json}"
 gold_notification_report="_completion/property_gold_status/telegram-notify-report.json"

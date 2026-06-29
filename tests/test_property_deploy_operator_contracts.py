@@ -218,6 +218,25 @@ def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:
     assert "scripts/propertyquarry_live_mobile_surface_smoke.py" in release_gate
     assert "PROPERTYQUARRY_LIVE_MOBILE_BASE_URL" in release_gate
     assert "PROPERTYQUARRY_LIVE_SMOKE_BASE_URL" in release_gate
+
+
+def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_gold_status() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    for required in (
+        "scripts/verify_property_scene_video_readiness.py",
+        "--output /data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json",
+        "--output _completion/scene_video_readiness/release-gate-verifier.json",
+        "scripts/materialize_scene_video_provider_refresh_packet.py",
+        "scripts/verify_scene_video_provider_refresh_packet.py",
+        "_completion/scene_video_readiness/provider-refresh-packet.json",
+        "_completion/scene_video_readiness/provider-refresh-packet-verifier.json",
+        "--scene-video-provider-refresh-packet _completion/scene_video_readiness/provider-refresh-packet.json",
+        "--scene-video-provider-refresh-packet-verifier-receipt _completion/scene_video_readiness/provider-refresh-packet-verifier.json",
+    ):
+        assert required in release_gate
+
+    assert "> /data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json" not in release_gate
     assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE" in release_gate
     assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE" in release_gate
     assert "EA_API_TOKEN" in release_gate
@@ -302,6 +321,11 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
     assert "COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py" in dockerfile
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
+    assert "COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py" in dockerfile
+    assert "COPY scripts/verify_property_scene_video_readiness.py /app/scripts/verify_property_scene_video_readiness.py" in dockerfile
+    assert "COPY scripts/materialize_scene_video_provider_refresh_packet.py /app/scripts/materialize_scene_video_provider_refresh_packet.py" in dockerfile
+    assert "COPY scripts/verify_scene_video_provider_refresh_packet.py /app/scripts/verify_scene_video_provider_refresh_packet.py" in dockerfile
+    assert "COPY scripts/merge_scene_video_provider_accounts_env.py /app/scripts/merge_scene_video_provider_accounts_env.py" in dockerfile
     assert "COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py" in dockerfile
     assert "COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py" in dockerfile
     assert "COPY scripts/import_krpano_walkable_scene.py /app/scripts/import_krpano_walkable_scene.py" in dockerfile
@@ -329,8 +353,14 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
     assert copied_scripts == [
         "willhaben_property_packet.py",
         "property_magicfit_env.py",
+        "mootion_movie_worker.py",
         "render_magicfit_property_flythrough.py",
         "render_onemin_property_i2v_segment.py",
+        "property_scene_video_readiness_report.py",
+        "verify_property_scene_video_readiness.py",
+        "materialize_scene_video_provider_refresh_packet.py",
+        "verify_scene_video_provider_refresh_packet.py",
+        "merge_scene_video_provider_accounts_env.py",
         "import_3dvista_export.py",
         "import_pano2vr_export.py",
         "import_krpano_walkable_scene.py",

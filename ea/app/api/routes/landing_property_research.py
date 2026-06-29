@@ -612,30 +612,30 @@ def _property_hosted_tour_ready(tour_url: str) -> bool:
 
 
 def _hosted_tour_rebuild_detail() -> str:
-    return "The hosted tour link is not backed by usable Matterport, 3DVista, or Pano2VR viewer assets yet. Request a rebuild from this page."
+    return "The hosted tour link is not backed by usable 3D viewer assets yet. Request a rebuild from this page."
 
 
 def _property_visual_provider_label(value: object) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
     label_map = {
-        "matterport": "Matterport",
-        "3dvista": "3DVista",
-        "threedvista": "3DVista",
-        "three_d_vista": "3DVista",
-        "pano2vr": "Pano2VR",
-        "pano_2_vr": "Pano2VR",
-        "krpano": "Panorama tour",
-        "magicfit": "MagicFit",
-        "mootion": "Mootion",
-        "omagic": "OMagic",
-        "magic": "OMagic",
-        "ea_one_manager_onemin_i2v": "OMagic",
-        "onemin_i2v": "OMagic",
-        "poppy_ai": "Poppy AI",
+        "matterport": "3D tour",
+        "3dvista": "3D tour",
+        "threedvista": "3D tour",
+        "three_d_vista": "3D tour",
+        "pano2vr": "3D tour",
+        "pano_2_vr": "3D tour",
+        "krpano": "3D tour",
+        "magicfit": "Walkthrough",
+        "mootion": "Walkthrough",
+        "omagic": "Walkthrough",
+        "magic": "Walkthrough",
+        "ea_one_manager_onemin_i2v": "Walkthrough",
+        "onemin_i2v": "Walkthrough",
+        "poppy_ai": "Walkthrough",
     }
     if normalized in label_map:
         return label_map[normalized]
-    return str(value or "").strip().replace("_", " ").title()
+    return "3D tour" if normalized else ""
 
 
 def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
@@ -702,22 +702,14 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
     walkthrough_provider_label = _property_visual_provider_label(walkthrough_provider) if walkthrough_provider else ""
     if hosted_tour_ready:
-        status_label = f"{verified_tour_provider_label} ready" if verified_tour_provider_label else "Live 360 ready"
-        status_detail = (
-            f"{verified_tour_provider_label} is ready on this page."
-            if verified_tour_provider_label
-            else "3D tour is ready on this page and should be reviewed before the raw listing."
-        )
+        status_label = "3D tour ready"
+        status_detail = "3D tour is ready on this page and should be reviewed before the raw listing."
     elif tour_url:
         status_label = "360 needs rebuild"
         status_detail = _hosted_tour_rebuild_detail()
     elif vendor_tour_url:
-        status_label = f"{vendor_tour_provider_label} available" if vendor_tour_provider_label else "Original tour available"
-        status_detail = (
-            f"{vendor_tour_provider_label} is available. Open it directly while the in-page 3D tour is still missing."
-            if vendor_tour_provider_label
-            else "The original tour is available. Open it directly while the in-page 3D tour is still missing."
-        )
+        status_label = "Original tour available"
+        status_detail = "The original tour is available. Open it directly while the in-page 3D tour is still missing."
     elif status in {"queued", "pending"}:
         status_label = "360 queued"
         status_detail = (
@@ -747,33 +739,29 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "show_status_line": bool(hosted_tour_ready or tour_url or vendor_tour_url or status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}),
         "primary_href": verified_tour_href if hosted_tour_ready else (vendor_tour_url or review_url),
         "primary_label": (
-            (f"Open {verified_tour_provider_label}" if verified_tour_provider_label else "Open 3D tour")
+            "Open 3D tour"
             if hosted_tour_ready
-            else ((f"Open {vendor_tour_provider_label}" if vendor_tour_provider_label else "Open original tour") if vendor_tour_url else ("Open property page" if review_url else ""))
+            else ("Open original tour" if vendor_tour_url else ("Open property page" if review_url else ""))
         ),
         "secondary_href": review_url,
         "secondary_label": "Open property page" if review_url else "",
         "tertiary_href": vendor_tour_url if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
-        "tertiary_label": (f"Open {vendor_tour_provider_label}" if vendor_tour_provider_label else "Open original tour") if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
+        "tertiary_label": "Open original tour" if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
         "walkthrough_href": verified_walkthrough_href,
         "provider_label": verified_tour_provider_label or vendor_tour_provider_label,
         "provider_key": verified_tour_provider or vendor_tour_provider,
         "walkthrough_provider_label": walkthrough_provider_label,
         "walkthrough_provider_key": walkthrough_provider,
         "walkthrough_status_detail": (
-            f"{walkthrough_provider_label} rendered walkthrough is ready on this page."
-            if walkthrough_ready and walkthrough_provider_label
+            "Walkthrough is ready on this page."
+            if walkthrough_ready
             else (
-                "Walkthrough is ready on this page."
-                if walkthrough_ready
+                live_walkthrough_detail
+                if live_walkthrough_detail and walkthrough_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing", "blocked", "failed", "skipped", "not_applicable"}
                 else (
-                    live_walkthrough_detail
-                    if live_walkthrough_detail and walkthrough_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing", "blocked", "failed", "skipped", "not_applicable"}
-                    else (
-                    _property_visual_unavailable_detail(request_kind="flythrough", reason=walkthrough_reason)
-                    if walkthrough_status in {"blocked", "failed", "skipped", "not_applicable"}
-                    else ""
-                    )
+                _property_visual_unavailable_detail(request_kind="flythrough", reason=walkthrough_reason)
+                if walkthrough_status in {"blocked", "failed", "skipped", "not_applicable"}
+                else ""
                 )
             )
         ),

@@ -60,7 +60,8 @@ services:
       TZ: Europe/Vienna
     ports:
       - "${EA_HOST_PORT:-8090}:8090"
-    cpu_shares: ${PROPERTYQUARRY_API_CPU_SHARES:-64}
+    cpu_shares: ${PROPERTYQUARRY_API_CPU_SHARES:-256}
+    cpus: ${PROPERTYQUARRY_API_CPUS:-2.0}
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
@@ -123,6 +124,7 @@ services:
       HOME: /home/ea
       TZ: Europe/Vienna
     cpu_shares: ${PROPERTYQUARRY_SCHEDULER_CPU_SHARES:-32}
+    cpus: ${PROPERTYQUARRY_SCHEDULER_CPUS:-0.50}
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
@@ -146,6 +148,8 @@ services:
     image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
     container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db}"
     restart: unless-stopped
+    cpu_shares: ${PROPERTYQUARRY_DB_CPU_SHARES:-64}
+    cpus: ${PROPERTYQUARRY_DB_CPUS:-1.0}
     environment:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}"
     volumes:

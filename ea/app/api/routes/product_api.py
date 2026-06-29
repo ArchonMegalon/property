@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageEnhance
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
@@ -159,12 +159,11 @@ def _property_map_preview_root(container: AppContainer) -> Path:
 def _property_map_preview_missing_png() -> bytes:
     image = Image.new("RGB", (640, 368), color=(240, 235, 226))
     draw = ImageDraw.Draw(image, "RGBA")
-    road = (205, 196, 183, 210)
-    water = (196, 213, 217, 180)
-    park = (205, 218, 194, 180)
-    ink = (76, 67, 58, 230)
-    red = (176, 42, 50, 148)
-    red_stroke = (136, 28, 36, 220)
+    road = (204, 197, 187, 168)
+    water = (198, 213, 217, 138)
+    park = (207, 219, 199, 128)
+    red = (194, 42, 48, 72)
+    red_stroke = (132, 30, 36, 154)
     draw.rectangle((0, 0, 640, 368), fill=(240, 235, 226, 255))
     draw.polygon([(0, 34), (190, 0), (438, 0), (640, 60), (640, 124), (418, 86), (222, 114), (0, 88)], fill=park)
     draw.polygon([(0, 268), (148, 244), (318, 278), (640, 250), (640, 368), (0, 368)], fill=water)
@@ -175,10 +174,12 @@ def _property_map_preview_missing_png() -> bytes:
         draw.line([(0, y), (640, y - 34)], fill=road, width=14)
         draw.line([(0, y), (640, y - 34)], fill=(255, 253, 247, 105), width=4)
     overlay = [(188, 96), (438, 78), (510, 178), (456, 278), (228, 294), (126, 206)]
-    draw.polygon(overlay, fill=red, outline=red_stroke)
-    draw.line(overlay + [overlay[0]], fill=red_stroke, width=4, joint="curve")
-    draw.rounded_rectangle((32, 286, 234, 332), radius=20, fill=(255, 253, 248, 214), outline=(205, 189, 170, 190))
-    draw.text((54, 301), "Preparing map", fill=ink)
+    draw.polygon(overlay, fill=red)
+    draw.line(overlay + [overlay[0]], fill=(255, 250, 242, 150), width=4, joint="curve")
+    draw.line(overlay + [overlay[0]], fill=red_stroke, width=2, joint="curve")
+    image = ImageEnhance.Color(image).enhance(0.50)
+    image = ImageEnhance.Contrast(image).enhance(0.84)
+    image = ImageEnhance.Brightness(image).enhance(1.04)
     buffer = BytesIO()
     image.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue()

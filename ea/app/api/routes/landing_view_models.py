@@ -16,7 +16,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageEnhance
 from app.product.property_location_research import (
     _property_research_boundary_record,
     _property_research_geojson_outer_rings,
@@ -57,6 +57,12 @@ from app.api.routes.landing_property_surface_contracts import (
 
 _PROPERTY_MAP_PREVIEW_RENDER_LOCK = threading.Lock()
 _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT: set[str] = set()
+_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v1"
+_PROPERTY_MAP_PREVIEW_SELECTED_FILL = (194, 42, 48, 82)
+_PROPERTY_MAP_PREVIEW_SECONDARY_FILL = (194, 42, 48, 44)
+_PROPERTY_MAP_PREVIEW_SELECTED_STROKE = (132, 30, 36, 178)
+_PROPERTY_MAP_PREVIEW_BOUNDARY_STROKE = (68, 62, 55, 112)
+_PROPERTY_MAP_PREVIEW_HALO = (255, 250, 242, 155)
 
 
 PROPERTY_FURNITURE_STYLE_CATALOG: tuple[dict[str, str], ...] = (
@@ -737,9 +743,32 @@ def _map_preview_cache_root() -> Path:
 
 
 def _map_preview_cache_path_for_key(cache_key: dict[str, object]) -> Path:
-    normalized_key = json.dumps(cache_key, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    versioned_key = dict(cache_key)
+    versioned_key.setdefault("style_version", _PROPERTY_MAP_PREVIEW_STYLE_VERSION)
+    normalized_key = json.dumps(versioned_key, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     digest = hashlib.sha1(normalized_key.encode("utf-8")).hexdigest()
     return _map_preview_cache_root() / f"{digest}.png"
+
+
+def _flagship_map_backdrop(image: Image.Image) -> Image.Image:
+    """Make raw OSM tiles read as a calm backdrop rather than the product UI."""
+    softened = image.convert("RGB")
+    softened = ImageEnhance.Color(softened).enhance(0.42)
+    softened = ImageEnhance.Contrast(softened).enhance(0.78)
+    softened = ImageEnhance.Brightness(softened).enhance(1.06)
+    return softened
+
+
+def _draw_flagship_preview_polygon(
+    draw: ImageDraw.ImageDraw,
+    points: list[tuple[float, float]],
+    *,
+    fill: tuple[int, int, int, int],
+    stroke: tuple[int, int, int, int] = _PROPERTY_MAP_PREVIEW_SELECTED_STROKE,
+) -> None:
+    draw.polygon(points, fill=fill)
+    draw.line(points + [points[0]], fill=_PROPERTY_MAP_PREVIEW_HALO, width=4, joint="curve")
+    draw.line(points + [points[0]], fill=stroke, width=2, joint="curve")
 
 
 def _cached_local_map_overview_png_path(
@@ -795,7 +824,8 @@ def _cached_local_map_overview_png_path(
         numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
         points = list(zip(numbers[0::2], numbers[1::2]))
         if len(points) >= 3:
-            draw.line(points + [points[0]], fill=(76, 70, 63, 155), width=3, joint="curve")
+            draw.line(points + [points[0]], fill=_PROPERTY_MAP_PREVIEW_HALO, width=4, joint="curve")
+            draw.line(points + [points[0]], fill=_PROPERTY_MAP_PREVIEW_BOUNDARY_STROKE, width=2, joint="curve")
     for index, row in enumerate(overlay_rows or []):
         path = str(row.get("path") or "").strip()
         if not path:
@@ -804,10 +834,8 @@ def _cached_local_map_overview_png_path(
         points = list(zip(numbers[0::2], numbers[1::2]))
         if len(points) < 3:
             continue
-        fill = (194, 44 + (index % 3) * 8, 50 + (index % 4) * 8, 132)
-        stroke = (132, 23, 29, 240)
-        draw.polygon(points, fill=fill, outline=stroke)
-        draw.line(points + [points[0]], fill=stroke, width=3, joint="curve")
+        fill = _PROPERTY_MAP_PREVIEW_SELECTED_FILL if bool(row.get("selected")) else _PROPERTY_MAP_PREVIEW_SECONDARY_FILL
+        _draw_flagship_preview_polygon(draw, points, fill=fill)
     if pin:
         marker_x, marker_y = pin
         draw.ellipse((marker_x - 18, marker_y - 18, marker_x + 18, marker_y + 18), fill=(207, 53, 53, 58))
@@ -821,6 +849,7 @@ def _cached_local_map_overview_png_path(
             fill=(197, 40, 40, 255),
         )
         draw.ellipse((marker_x - 5, marker_y - 10, marker_x + 5, marker_y), fill=(255, 248, 241, 255))
+    image = _flagship_map_backdrop(image)
     tmp_path = cache_path.with_suffix(".tmp.png")
     image.save(tmp_path, format="PNG", optimize=True)
     tmp_path.replace(cache_path)
@@ -963,7 +992,7 @@ def _cached_preview_png_path(
     center_y = int(round((tile_y - tile_origin_y) * tile_size))
     left = max(0, min(canvas.width - width, center_x - (width // 2)))
     top = max(0, min(canvas.height - height, center_y - (height // 2)))
-    cropped = canvas.crop((left, top, left + width, top + height))
+    cropped = _flagship_map_backdrop(canvas.crop((left, top, left + width, top + height)))
     draw = ImageDraw.Draw(cropped, "RGBA")
 
     for path in boundary_paths or []:
@@ -971,7 +1000,8 @@ def _cached_preview_png_path(
         points = list(zip(numbers[0::2], numbers[1::2]))
         if len(points) < 3:
             continue
-        draw.line(points + [points[0]], fill=(70, 68, 65, 210), width=4, joint="curve")
+        draw.line(points + [points[0]], fill=_PROPERTY_MAP_PREVIEW_HALO, width=4, joint="curve")
+        draw.line(points + [points[0]], fill=_PROPERTY_MAP_PREVIEW_BOUNDARY_STROKE, width=2, joint="curve")
     if draw_overlay:
         for index, row in enumerate(overlay_rows or []):
             path = str(row.get("path") or "").strip()
@@ -982,10 +1012,9 @@ def _cached_preview_png_path(
             if len(points) < 3:
                 continue
             selected = bool(row.get("selected"))
-            shade = 94 + (index % 5) * 22
-            fill = (182 + min(shade, 40), 36 + (index % 3) * 10, 42 + (index % 4) * 8, 130 if selected else 72)
-            stroke = (132, 23, 29, 245 if selected else 190)
-            draw.polygon(points, fill=fill, outline=stroke)
+            fill = _PROPERTY_MAP_PREVIEW_SELECTED_FILL if selected else _PROPERTY_MAP_PREVIEW_SECONDARY_FILL
+            stroke = _PROPERTY_MAP_PREVIEW_SELECTED_STROKE if selected else (132, 30, 36, 118)
+            _draw_flagship_preview_polygon(draw, points, fill=fill, stroke=stroke)
     if pin:
         marker_x, marker_y = pin
         draw.ellipse((marker_x - 18, marker_y - 18, marker_x + 18, marker_y + 18), fill=(207, 53, 53, 58))

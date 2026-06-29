@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
+from types import ModuleType
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,6 +78,55 @@ def test_propertyquarry_magicfit_renderer_receipt_binds_to_property_slug() -> No
     assert "--property-url" in render_script
     assert '"target_slug": str(args.property_slug or "").strip()' in render_script
     assert '"property_slug": str(args.property_slug or "").strip()' in render_script
+
+
+def _load_magicfit_env_helper() -> ModuleType:
+    path = ROOT / "scripts" / "property_magicfit_env.py"
+    spec = importlib.util.spec_from_file_location("property_magicfit_env", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_propertyquarry_magicfit_env_selects_account_json_without_chummer_credentials(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_magicfit_env_helper()
+    for key in (
+        "PROPERTYQUARRY_MAGICFIT_EMAIL",
+        "PROPERTYQUARRY_MAGICFIT_PASSWORD",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX",
+        "MAGICFIT_EMAIL",
+        "MAGICFIT_PASSWORD",
+        "MAGICFIT_ACCOUNTS_JSON",
+        "MAGICFIT_ACCOUNT_INDEX",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "MAGICFIT_ACCOUNT_INDEX=2\n"
+        "MAGICFIT_ACCOUNTS_JSON="
+        + json.dumps(
+            [
+                {"email": "magicfit-one@example.test", "password": "secret-one"},
+                {"email": "magicfit-two@example.test", "password": "secret-two"},
+                {"email": "magicfit-three@example.test", "password": "secret-three"},
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    values, sources = module.discover_magicfit_env([env_file])
+
+    assert values["PROPERTYQUARRY_MAGICFIT_EMAIL"] == "magicfit-two@example.test"
+    assert values["PROPERTYQUARRY_MAGICFIT_PASSWORD"] == "secret-two"
+    assert values["MAGICFIT_EMAIL"] == "magicfit-two@example.test"
+    assert values["MAGICFIT_PASSWORD"] == "secret-two"
+    assert "MAGICFIT_ACCOUNTS_JSON[2]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
 
 
 def test_propertyquarry_magicfit_helpers_do_not_read_chummer_credentials() -> None:

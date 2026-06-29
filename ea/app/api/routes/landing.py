@@ -1039,18 +1039,17 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         verified_tour_href = ""
         tour_label = ""
         try:
-            if property_tour_hosting._hosted_property_tour_has_3dvista_export(bundle_tour_url):
+            if property_tour_hosting._hosted_property_tour_has_matterport_export(bundle_tour_url):
+                verified_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/matterport"
+                tour_label = "3D tour ready"
+            elif property_tour_hosting._hosted_property_tour_has_3dvista_export(bundle_tour_url):
                 verified_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/3dvista"
-                tour_label = "3DVista ready"
+                tour_label = "3D tour ready"
         except Exception:
             verified_tour_href = ""
         if not verified_tour_href:
             verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(bundle_tour_url)
-            if "/control/matterport" in verified_tour_href or "matterport.com" in verified_tour_href:
-                tour_label = "Matterport ready"
-            elif "/control/pano2vr" in verified_tour_href:
-                tour_label = "Pano2VR ready"
-            elif verified_tour_href:
+            if verified_tour_href:
                 tour_label = "3D tour ready"
         if not verified_tour_href:
             continue

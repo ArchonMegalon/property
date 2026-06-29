@@ -1168,11 +1168,6 @@ def _onemin_secret_env_name_for_key(api_key: str) -> str:
 
 
 def _onemin_secret_env_names() -> tuple[str, ...]:
-    explicit_key_env_present = any(
-        str(env_name or "").strip() == "ONEMIN_AI_API_KEY"
-        or _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip()) is not None
-        for env_name in os.environ
-    )
     fallback_numbers: set[int] = set()
     for env_name in os.environ:
         match = _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip())
@@ -1191,17 +1186,16 @@ def _onemin_secret_env_names() -> tuple[str, ...]:
             fallback_numbers.add(slot_number)
     manifest_by_slot: dict[int, str] = {}
     trailing_names: list[str] = []
-    if not explicit_key_env_present:
-        for entry in _onemin_manifest_entries():
-            account_name = str(entry.get("account_name") or "").strip()
-            if not account_name or account_name == "ONEMIN_AI_API_KEY":
-                continue
-            slot_number = _onemin_fallback_slot_number(entry.get("slot")) or _onemin_fallback_slot_number(account_name)
-            if slot_number is not None:
-                fallback_numbers.add(slot_number)
-                manifest_by_slot[slot_number] = account_name
-                continue
-            trailing_names.append(account_name)
+    for entry in _onemin_manifest_entries():
+        account_name = str(entry.get("account_name") or "").strip()
+        if not account_name or account_name == "ONEMIN_AI_API_KEY":
+            continue
+        slot_number = _onemin_fallback_slot_number(entry.get("slot")) or _onemin_fallback_slot_number(account_name)
+        if slot_number is not None:
+            fallback_numbers.add(slot_number)
+            manifest_by_slot.setdefault(slot_number, account_name)
+            continue
+        trailing_names.append(account_name)
     names = ["ONEMIN_AI_API_KEY"]
     for slot_number in sorted(fallback_numbers):
         names.append(manifest_by_slot.get(slot_number) or f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}")

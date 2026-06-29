@@ -22,8 +22,14 @@ RUN python -m pip install --no-cache-dir --upgrade pip==26.1.2 && \
 RUN mkdir -p /app/scripts /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea
 COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
 COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py
+COPY scripts/mootion_movie_worker.py /app/scripts/mootion_movie_worker.py
 COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py
 COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py
+COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py
+COPY scripts/verify_property_scene_video_readiness.py /app/scripts/verify_property_scene_video_readiness.py
+COPY scripts/materialize_scene_video_provider_refresh_packet.py /app/scripts/materialize_scene_video_provider_refresh_packet.py
+COPY scripts/verify_scene_video_provider_refresh_packet.py /app/scripts/verify_scene_video_provider_refresh_packet.py
+COPY scripts/merge_scene_video_provider_accounts_env.py /app/scripts/merge_scene_video_provider_accounts_env.py
 COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py
 COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py
 COPY scripts/import_krpano_walkable_scene.py /app/scripts/import_krpano_walkable_scene.py

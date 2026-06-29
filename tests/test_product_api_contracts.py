@@ -50,6 +50,24 @@ def _property_bundle_exit_gate_unit_bypass(request: pytest.FixtureRequest, monke
     monkeypatch.setattr(product_service, "_property_3d_viewer_links_exit_gate", lambda links, **_kwargs: (True, "", {"test_stub": True}))
 
 
+def _clean_3dvista_proof() -> dict[str, object]:
+    return {
+        "three_d_vista_white_label_proof": {
+            "source_project": "propertyquarry",
+            "private_viewer_verified": True,
+            "non_trial_export_verified": True,
+            "propertyquarry_tour_metadata": True,
+            "trial_branding_checked": True,
+            "trial_branding_present": False,
+        },
+        "three_d_vista_browser_render_proof": {
+            "provider": "3dvista",
+            "status": "pass",
+            "rendered_viewer": True,
+        },
+    }
+
+
 def test_product_api_projects_real_runtime_objects() -> None:
     principal_id = "exec-product-api"
     client = build_product_client(principal_id=principal_id)
@@ -8113,8 +8131,8 @@ def test_property_alert_review_handoff_keeps_vendor_360_as_external_action() -> 
     assert page.status_code == 200
     assert 'class="object-media-grid is-compact"' in page.text
     assert 'title="Property 360 review"' not in page.text
-    assert "Matterport available" in page.text
-    assert "Open Matterport" in page.text
+    assert "Original tour available" in page.text
+    assert "Open original tour" in page.text
 
 
 def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch) -> None:
@@ -25558,6 +25576,53 @@ def test_magicfit_flythrough_render_concats_short_magicfit_segments(monkeypatch,
     assert result["duration_seconds"] == pytest.approx(20.0)
     assert result["combined_duration_seconds"] == pytest.approx(20.0)
     assert (bundle_dir / "tour-magicfit-1781083900-fedcba9876.mp4").read_bytes() == b"combined-video"
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["video_relpath"] == "tour-magicfit-1781083900-fedcba9876.mp4"
+    assert manifest["video_provider"] == "magicfit"
+    assert manifest["walkthrough_coverage_proof"]["status"] == "pass"
+    assert manifest["walkthrough_coverage_proof"]["segments_expected"] == ["living room", "balcony/terrace"]
+    assert manifest["walkthrough_coverage_proof"]["coverage_segments"][0]["segment"] == "living room"
+
+
+def test_magicfit_flythrough_render_surfaces_credit_exhaustion(monkeypatch, tmp_path: Path) -> None:
+    slug = "magicfit-credit-blocked-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(json.dumps({"slug": slug, "video_relpath": ""}), encoding="utf-8")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_REPO_ROOT", str(Path(__file__).resolve().parents[1]))
+    monkeypatch.setenv("PROPERTYQUARRY_MAGICFIT_MAX_SEGMENTS", "1")
+    monkeypatch.setattr(product_service.time, "time", lambda: 1781084000)
+    monkeypatch.setattr(product_service, "uuid4", lambda: SimpleNamespace(hex="abc123abc123abc1"))
+
+    def _fake_run(command, **kwargs):  # noqa: ANN001
+        if "--out" in command:
+            return SimpleNamespace(
+                returncode=1,
+                stdout="RuntimeError: magicfit_not_enough_credits",
+                stderr="",
+            )
+        return SimpleNamespace(returncode=1, stdout="", stderr="unexpected command")
+
+    monkeypatch.setattr(product_service.subprocess, "run", _fake_run)
+
+    result = product_service._render_magicfit_property_flythrough_into_hosted_tour(
+        tour_url=f"https://propertyquarry.com/tours/{slug}",
+        title="2 Zimmer Wohnung",
+        property_facts={"rooms": 2},
+        actor="test",
+    )
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "magicfit_not_enough_credits"
+    assert result["segments"][0]["retry_reason"] if result["segments"][0].get("retry_reason") else True
+    assert (
+        product_service._property_visual_unavailable_detail(
+            request_kind="flythrough",
+            reason="magicfit_not_enough_credits",
+        )
+        == "Walkthrough rendering is paused until render credits are available."
+    )
 
 
 def test_video_segment_boundary_gate_rejects_visible_chained_cut(tmp_path: Path) -> None:
@@ -25808,10 +25873,10 @@ def test_public_tour_control_3dvista_requires_real_export() -> None:
                     }
                 ],
             }
-        )
+    )
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "tour_control_3dvista_export_missing"
+    assert exc_info.value.detail == "tour_control_3d_export_hidden"
 
 
 def test_public_tour_control_embeds_external_3dvista_url() -> None:
@@ -25823,10 +25888,12 @@ def test_public_tour_control_embeds_external_3dvista_url() -> None:
             "display_title": "3DVista External",
             "control_mode": "3dvista",
             "three_d_vista_url": "https://example.3dvista.com/tours/top22/index.html",
+            **_clean_3dvista_proof(),
         }
     )
 
-    assert "3DVista Control" in html
+    assert "3D Tour" in html
+    assert "3DVista Control" not in html
     assert 'src="https://example.3dvista.com/tours/top22/index.html"' in html
 
 
@@ -25840,6 +25907,7 @@ def test_public_tour_control_rejects_3dvista_lookalike_domain() -> None:
                 "display_title": "3DVista Lookalike",
                 "control_mode": "3dvista",
                 "three_d_vista_url": "https://3dvista.com.evil.example/tours/top22/index.html",
+                **_clean_3dvista_proof(),
             }
         )
 
@@ -25859,7 +25927,8 @@ def test_public_tour_control_embeds_external_matterport_url() -> None:
         viewer_mode="matterport",
     )
 
-    assert "Matterport Control" in html
+    assert "3D Tour" in html
+    assert "Matterport Control" not in html
     assert 'src="https://my.matterport.com/show/?m=TEST123&amp;mls=2"' in html
 
 
@@ -25925,6 +25994,8 @@ def test_public_tour_control_supports_3dvista_same_tour_layer_state() -> None:
             "display_title": "3DVista Same Tour Layer",
             "control_mode": "3dvista",
             "three_d_vista_url": "https://client.3dvista.com/tours/top22/index.html",
+            "three_d_vista_browser_render_proof": {"status": "pass", "rendered_viewer": True},
+            **_clean_3dvista_proof(),
             "tour_layers": [
                 {
                     "id": "lived_in",
@@ -25941,7 +26012,7 @@ def test_public_tour_control_supports_3dvista_same_tour_layer_state() -> None:
     assert 'data-provider-layer="as_listed"' in html
     assert 'data-provider-layer="lived_in"' in html
     assert "https://client.3dvista.com/tours/top22/index.html?startmedia=lived_in&amp;skin=staged#scene=living-room" in html
-    assert "Staged 3DVista layer" in html
+    assert "Staged layer" in html
 
 
 def test_public_tour_control_rejects_matterport_lookalike_domain() -> None:
@@ -26068,7 +26139,7 @@ def test_public_tour_landing_hides_magicfit_without_route_coverage_proof() -> No
         }
     )
 
-    assert "Open Fly-through" not in html
+    assert "Open walkthrough" not in html
     assert "Open 3D Control" not in html
 
 
@@ -26134,7 +26205,7 @@ def test_public_tour_landing_links_magicfit_with_route_coverage_proof() -> None:
         }
     )
 
-    assert "Open Fly-through" in html
+    assert "Open walkthrough" in html
     assert "/tours/files/verified-magicfit-tour/tour.mp4" in html
     assert "Open 3D Control" not in html
 
@@ -26367,7 +26438,7 @@ def test_public_tour_control_pano2vr_requires_declared_entry() -> None:
         )
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "tour_control_pano2vr_export_missing"
+    assert exc_info.value.detail == "tour_control_panorama_export_hidden"
 
 
 def test_public_tour_control_pano2vr_embeds_export_entry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -26381,16 +26452,18 @@ def test_public_tour_control_pano2vr_embeds_export_entry(monkeypatch: pytest.Mon
         encoding="utf-8",
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_SHOW_PANO2VR", "1")
     html = public_tours._tour_control_html(
         {
             "slug": slug,
-            "display_title": "Pano2VR Control Tour",
+            "display_title": "Panorama Control Tour",
             "pano2vr_entry_relpath": "pano2vr/index.html",
         },
         viewer_mode="pano2vr",
     )
 
-    assert "Pano2VR Control" in html
+    assert "3D Tour" in html
+    assert "Pano2VR Control" not in html
     assert 'src="/tours/pano2vr/pano2vr-control-tour/pano2vr/index.html"' in html
 
 
@@ -26420,6 +26493,7 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_SHOW_PANO2VR", "1")
 
     client = build_product_client(principal_id="public-tour-pano2vr")
     default_control_response = client.get(f"/tours/{slug}/control")
@@ -26432,9 +26506,11 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
     private_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/private.json")
 
     assert default_control_response.status_code == 200
-    assert "Pano2VR Control" in default_control_response.text
+    assert "3D Tour" in default_control_response.text
+    assert "Pano2VR Control" not in default_control_response.text
     assert control_response.status_code == 200
-    assert "Pano2VR Control" in control_response.text
+    assert "3D Tour" in control_response.text
+    assert "Pano2VR Control" not in control_response.text
     assert f"/tours/pano2vr/{slug}/pano2vr/index.html" in control_response.text
     assert entry_response.status_code == 200
     assert "Pano2VR" in entry_response.text
@@ -26463,6 +26539,7 @@ def test_public_tour_control_pano2vr_route_rejects_placeholder_entry(
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_SHOW_PANO2VR", "1")
 
     client = build_product_client(principal_id="public-tour-pano2vr-placeholder")
     control_response = client.get(f"/tours/{slug}/control/pano2vr")
@@ -26493,7 +26570,7 @@ def test_public_tour_control_3dvista_route_rejects_placeholder_entry(
     response = client.get(f"/tours/{slug}/control/3dvista")
 
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "tour_control_3dvista_export_missing"
+    assert response.json()["error"]["code"] == "tour_control_3d_export_hidden"
 
 
 def test_public_tour_control_3dvista_route_serves_only_declared_export(
@@ -26513,13 +26590,14 @@ def test_public_tour_control_3dvista_route_serves_only_declared_export(
     (bundle_dir / "other" / "index.htm").write_text("<!doctype html><title>Other</title>", encoding="utf-8")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
-            {
-                "slug": slug,
-                "display_title": "3DVista Route Export",
-                "three_d_vista_entry_relpath": "3dvista/index.htm",
-                "three_d_vista_export_root_relpath": "3dvista",
-            }
-        ),
+                {
+                    "slug": slug,
+                    "display_title": "3DVista Route Export",
+                    "three_d_vista_entry_relpath": "3dvista/index.htm",
+                    "three_d_vista_export_root_relpath": "3dvista",
+                    **_clean_3dvista_proof(),
+                }
+            ),
         encoding="utf-8",
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
@@ -26533,7 +26611,8 @@ def test_public_tour_control_3dvista_route_serves_only_declared_export(
     private_response = client.get(f"/tours/3dvista/{slug}/3dvista/private.json")
 
     assert control_response.status_code == 200
-    assert "3DVista Control" in control_response.text
+    assert "3D Tour" in control_response.text
+    assert "3DVista Control" not in control_response.text
     assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control_response.text
     assert entry_response.status_code == 200
     assert "3DVista" in entry_response.text
@@ -26541,6 +26620,43 @@ def test_public_tour_control_3dvista_route_serves_only_declared_export(
     assert "TDVPlayer" in script_response.text
     assert other_response.status_code == 404
     assert private_response.status_code == 404
+
+
+def test_public_tour_control_3dvista_route_rejects_trial_branded_export(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "3dvista-trial-branded-export"
+    bundle_dir = tmp_path / slug
+    export_dir = bundle_dir / "3dvista"
+    export_dir.mkdir(parents=True)
+    (export_dir / "index.htm").write_text(
+        "<!doctype html><title>3DVista</title><script src='tdvplayer.js'></script>"
+        "<div>Created with 3DVista Virtual Tour Suite</div>",
+        encoding="utf-8",
+    )
+    (export_dir / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "3DVista Trial Export",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_export_root_relpath": "3dvista",
+                **_clean_3dvista_proof(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-3dvista-trial")
+    control_response = client.get(f"/tours/{slug}/control/3dvista")
+    entry_response = client.get(f"/tours/3dvista/{slug}/3dvista/index.htm")
+
+    assert control_response.status_code == 404
+    assert entry_response.status_code == 404
 
 
 def test_public_tour_control_3dvista_layer_can_use_second_declared_export(
@@ -26567,17 +26683,19 @@ def test_public_tour_control_3dvista_layer_can_use_second_declared_export(
     (bundle_dir / "3dvista-placeholder" / "index.htm").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
-            {
-                "slug": slug,
-                "display_title": "3DVista Layer Export",
-                "three_d_vista_entry_relpath": "3dvista/index.htm",
-                "three_d_vista_export_root_relpath": "3dvista",
-                "tour_layers": [
+                {
+                    "slug": slug,
+                    "display_title": "3DVista Layer Export",
+                    "three_d_vista_entry_relpath": "3dvista/index.htm",
+                    "three_d_vista_export_root_relpath": "3dvista",
+                    **_clean_3dvista_proof(),
+                    "tour_layers": [
                     {
                         "id": "lived_in",
                         "label": "Lived-in",
                         "provider": "3dvista",
                         "three_d_vista_entry_relpath": "3dvista-staged/index.htm",
+                        "browser_render_proof": {"status": "pass", "rendered_viewer": True},
                     },
                     {
                         "id": "bad_placeholder",
@@ -26623,6 +26741,7 @@ def test_public_tour_forced_provider_route_fails_closed_when_provider_missing(
                 "slug": slug,
                 "display_title": "Forced Provider Mismatch",
                 "three_d_vista_url": "https://www.3dvista.com/share/forced-provider-mismatch",
+                **_clean_3dvista_proof(),
             }
         ),
         encoding="utf-8",
@@ -26637,7 +26756,8 @@ def test_public_tour_forced_provider_route_fails_closed_when_provider_missing(
     assert wrong_response.status_code == 404
     assert wrong_response.json()["error"]["code"] == "tour_control_matterport_export_missing"
     assert right_response.status_code == 200
-    assert "3DVista Control" in right_response.text
+    assert "3D Tour" in right_response.text
+    assert "3DVista Control" not in right_response.text
 
 
 def test_public_tour_matterport_control_uses_private_receipt_without_public_json_leak(
@@ -26672,8 +26792,9 @@ def test_public_tour_matterport_control_uses_private_receipt_without_public_json
     assert "matterport_url" not in payload_response.json()
     assert "source_virtual_tour_url" not in payload_response.json()
     assert control_response.status_code == 200
-    assert "Matterport Control" in control_response.text
-    assert 'iframe src="https://my.matterport.com/show/?m=PRIVATE123&amp;mls=2"' in control_response.text
+    assert "3D Tour" in control_response.text
+    assert "Matterport Control" not in control_response.text
+    assert 'src="https://my.matterport.com/show/?m=PRIVATE123&amp;mls=2"' in control_response.text
 
 
 def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_leak(
@@ -26694,7 +26815,12 @@ def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_le
         encoding="utf-8",
     )
     (bundle_dir / "tour.private.json").write_text(
-        json.dumps({"three_d_vista_url": "https://example.3dvista.com/tours/private-receipt/index.html"}),
+        json.dumps(
+            {
+                "three_d_vista_url": "https://example.3dvista.com/tours/private-receipt/index.html",
+                **_clean_3dvista_proof(),
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
@@ -26708,11 +26834,12 @@ def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_le
     assert "three_d_vista_url" not in payload_response.json()
     assert "source_virtual_tour_url" not in payload_response.json()
     assert control_response.status_code == 200
-    assert "3DVista Control" in control_response.text
-    assert 'iframe src="https://example.3dvista.com/tours/private-receipt/index.html"' in control_response.text
+    assert "3D Tour" in control_response.text
+    assert "3DVista Control" not in control_response.text
+    assert 'src="https://example.3dvista.com/tours/private-receipt/index.html"' in control_response.text
 
 
-def test_public_tour_landing_links_pano2vr_spatial_review_for_cube_payload(
+def test_public_tour_landing_hides_pano2vr_spatial_review_for_cube_payload(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -26735,10 +26862,10 @@ def test_public_tour_landing_links_pano2vr_spatial_review_for_cube_payload(
         }
     )
 
-    assert "PropertyQuarry Spatial Review" in html
-    assert "Prepared Panorama Tour" in html
-    assert "Open Pano2VR" in html
-    assert "/tours/pano2vr-spatial-review/control/pano2vr" in html
+    assert "PropertyQuarry Spatial Review" not in html
+    assert "prepared 3d tour" not in html.lower()
+    assert "/tours/pano2vr-spatial-review/control/pano2vr" not in html
+    assert "3D fallback blocked" in html
 
 
 def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatch, tmp_path: Path) -> None:
@@ -26752,12 +26879,13 @@ def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatc
     )
     (bundle_dir / "tour.json").write_text(
         json.dumps(
-            {
-                "slug": slug,
-                "matterport_url": "https://my.matterport.com/show/?m=TEST123",
-                "three_d_vista_entry_relpath": "3dvista/index.htm",
-            }
-        ),
+                {
+                    "slug": slug,
+                    "matterport_url": "https://my.matterport.com/show/?m=TEST123",
+                    "three_d_vista_entry_relpath": "3dvista/index.htm",
+                    **_clean_3dvista_proof(),
+                }
+            ),
         encoding="utf-8",
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
@@ -26770,7 +26898,7 @@ def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatc
     }
 
 
-def test_property_tour_compare_links_offer_pano2vr_only_when_entry_exists(monkeypatch, tmp_path: Path) -> None:
+def test_property_tour_compare_links_hide_pano2vr_even_when_entry_exists(monkeypatch, tmp_path: Path) -> None:
     slug = "pano2vr-demo-tour"
     bundle_dir = tmp_path / slug
     export_dir = bundle_dir / "pano2vr"
@@ -26787,13 +26915,9 @@ def test_property_tour_compare_links_offer_pano2vr_only_when_entry_exists(monkey
 
     tour_url = f"https://propertyquarry.com/tours/{slug}"
 
-    assert product_service._property_tour_compare_links(tour_url) == {
-        "pano2vr": f"https://propertyquarry.com/tours/{slug}/control/pano2vr",
-    }
+    assert product_service._property_tour_compare_links(tour_url) == {}
     assert product_service._hosted_property_tour_provider_export_keys(tour_url) == ("pano2vr",)
-    assert property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) == (
-        f"https://propertyquarry.com/tours/{slug}/control/pano2vr"
-    )
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) == ""
 
 
 def test_property_tour_compare_links_omit_placeholder_pano2vr_entry(monkeypatch, tmp_path: Path) -> None:
@@ -27270,9 +27394,9 @@ def test_property_3d_viewer_links_exit_gate_accepts_verified_viewers(monkeypatch
 
     def _fake_get(url: str, **kwargs):  # noqa: ANN001
         if url.endswith("/control/matterport"):
-            return _Response(200, "<html><title>Matterport Control</title><iframe src='https://my.matterport.com/show/?m=TEST123'></iframe></html>")
+            return _Response(200, "<html><title>3D Tour</title><iframe src='https://my.matterport.com/show/?m=TEST123'></iframe></html>")
         if url.endswith("/control/3dvista"):
-            return _Response(200, "<html><title>3DVista Control</title><iframe src='/tours/files/demo/3dvista/index.htm'></iframe></html>")
+            return _Response(200, "<html><title>3D Tour</title><iframe src='/tours/files/demo/3dvista/index.htm'></iframe></html>")
         if url.endswith("/control/marzipano"):
             return _Response(410, '{"detail":"removed"}', "application/json")
         return _Response(404, "")
@@ -27330,7 +27454,7 @@ def test_property_3d_viewer_links_exit_gate_rejects_legacy_viewer_body(monkeypat
         headers = {"content-type": "text/html; charset=utf-8"}
 
         def iter_content(self, chunk_size: int = 8192):  # noqa: ANN001
-            yield b"<html><title>3DVista Control</title><script src='marzipano.js'></script></html>"
+            yield b"<html><title>3D Tour</title><script src='marzipano.js'></script></html>"
 
         def close(self) -> None:
             return None

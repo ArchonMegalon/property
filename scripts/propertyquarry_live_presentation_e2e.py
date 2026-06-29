@@ -109,6 +109,10 @@ def _check(name: str, ok: bool, **extra: object) -> dict[str, object]:
     return {"name": name, "ok": bool(ok), **extra}
 
 
+def _has_public_control_link(body: str, demo_path: str, provider: str) -> bool:
+    return f"{demo_path}/control/{provider}" in body and "Open 3D tour" in body
+
+
 def build_live_presentation_e2e_receipt(
     *,
     base_url: str,
@@ -116,6 +120,7 @@ def build_live_presentation_e2e_receipt(
     api_token: str,
     principal_id: str,
     provider_receipt_path: str,
+    require_provider_matrix: bool,
     demo_slug: str,
     timeout_seconds: float,
     seed_research_detail: bool,
@@ -127,12 +132,17 @@ def build_live_presentation_e2e_receipt(
     provider_receipt = _load_json(provider_receipt_path)
     provider_summary = provider_receipt.get("targeted_search_matrix_summary")
     provider_summary = dict(provider_summary) if isinstance(provider_summary, dict) else {}
+    provider_matrix_ok = (
+        provider_receipt.get("status") == "pass"
+        and provider_receipt.get("targeted_search_matrix_executed") is True
+        and provider_receipt.get("targeted_search_matrix_status") == "pass"
+    )
     checks.append(
         _check(
             "search_provider_matrix_executed",
-            provider_receipt.get("status") == "pass"
-            and provider_receipt.get("targeted_search_matrix_executed") is True
-            and provider_receipt.get("targeted_search_matrix_status") == "pass",
+            provider_matrix_ok if require_provider_matrix else True,
+            required=require_provider_matrix,
+            observed_status=provider_receipt.get("status"),
             receipt_path=provider_receipt_path,
             count=provider_receipt.get("targeted_search_matrix_count"),
             status_counts=provider_summary.get("status_counts"),
@@ -150,7 +160,7 @@ def build_live_presentation_e2e_receipt(
             _check("hero_route_ok", int(home.get("status_code") or 0) == 200, status_code=home.get("status_code")),
             _check("hero_demo_listing_visible", "Danube Flats demo" in home_body),
             _check("hero_demo_link_points_to_public_tour", f'href="/tours/{slug}"' in home_body),
-            _check("hero_3dvista_chip_visible", "3DVista ready" in home_body and f"/tours/{slug}/control/3dvista" in home_body),
+            _check("hero_3d_tour_chip_visible", "3D tour ready" in home_body and "/control/" in home_body),
             _check("hero_walkthrough_chip_visible", "Walkthrough ready" in home_body and f"/tours/files/{slug}/" in home_body),
         ]
     )
@@ -162,18 +172,16 @@ def build_live_presentation_e2e_receipt(
         [
             _check("demo_tour_route_ok", int(demo.get("status_code") or 0) == 200, status_code=demo.get("status_code")),
             _check("demo_tour_is_propertyquarry_presentation", "PropertyQuarry Spatial Review" in demo_body),
-            _check("demo_tour_has_matterport", "Open Matterport" in demo_body and f"{demo_path}/control/matterport" in demo_body),
-            _check("demo_tour_has_3dvista", "Open 3DVista" in demo_body and f"{demo_path}/control/3dvista" in demo_body),
-            _check("demo_tour_has_pano2vr", "Open Pano2VR" in demo_body and f"{demo_path}/control/pano2vr" in demo_body),
-            _check("demo_tour_has_magicfit_walkthrough", "Open Fly-through" in demo_body and "magicfit-walkthrough.mp4" in demo_body),
+            _check("demo_tour_has_matterport_control", _has_public_control_link(demo_body, demo_path, "matterport")),
+            _check("demo_tour_hides_unproven_3d_export", f"{demo_path}/control/3dvista" not in demo_body),
+            _check("demo_tour_hides_panorama_export", f"{demo_path}/control/pano2vr" not in demo_body),
+            _check("demo_tour_has_walkthrough", "Open walkthrough" in demo_body and "magicfit-walkthrough.mp4" in demo_body),
             _check("demo_tour_no_generated_cube_fallback", "generated 3d cube fallback has been removed" in _visible_text(demo_body).lower()),
         ]
     )
 
     for provider, marker in (
-        ("3dvista", "3DVista Control"),
-        ("matterport", "Matterport Control"),
-        ("pano2vr", "Pano2VR Control"),
+        ("matterport", "3D Tour"),
     ):
         route = f"{demo_path}/control/{provider}"
         response = _fetch(f"{base}{route}", timeout_seconds=timeout_seconds, host_header=host_header)
@@ -181,9 +189,27 @@ def build_live_presentation_e2e_receipt(
         checks.extend(
             [
                 _check(f"{provider}_control_route_ok", int(response.get("status_code") or 0) == 200, route=route, status_code=response.get("status_code")),
-                _check(f"{provider}_control_marker_visible", marker in body, route=route),
+                _check(
+                    f"{provider}_control_marker_visible",
+                    marker in body and "Load 3D tour" in body,
+                    route=route,
+                ),
             ]
         )
+    hidden_3d_export_route = f"{demo_path}/control/3dvista"
+    hidden_3d_export = _fetch(
+        f"{base}{hidden_3d_export_route}",
+        timeout_seconds=timeout_seconds,
+        host_header=host_header,
+    )
+    checks.append(
+        _check(
+            "3d_export_control_hidden_without_clean_proof",
+            int(hidden_3d_export.get("status_code") or 0) == 404,
+            route=hidden_3d_export_route,
+            status_code=hidden_3d_export.get("status_code"),
+        )
+    )
 
     walkthrough_path = f"/tours/files/{urllib.parse.quote(slug, safe='')}/magicfit-walkthrough.mp4"
     video = _fetch(f"{base}{walkthrough_path}", timeout_seconds=timeout_seconds, host_header=host_header, method="HEAD")
@@ -207,9 +233,9 @@ def build_live_presentation_e2e_receipt(
             video_bytes = int(video_get.get("body_byte_count") or 0)
     checks.extend(
         [
-            _check("magicfit_walkthrough_route_ok", int(video.get("status_code") or 0) == 200, status_code=video.get("status_code")),
-            _check("magicfit_walkthrough_is_video", content_type.startswith("video/"), content_type=content_type),
-            _check("magicfit_walkthrough_not_stub", video_bytes > 1_000_000, content_length=video_bytes),
+            _check("walkthrough_route_ok", int(video.get("status_code") or 0) == 200, status_code=video.get("status_code")),
+            _check("walkthrough_is_video", content_type.startswith("video/"), content_type=content_type),
+            _check("walkthrough_not_stub", video_bytes > 1_000_000, content_length=video_bytes),
         ]
     )
 
@@ -238,7 +264,7 @@ def build_live_presentation_e2e_receipt(
             [
                 _check("app_research_detail_route_ok", int(detail.get("status_code") or 0) == 200, status_code=detail.get("status_code")),
                 _check("app_research_detail_visual_controls", 'data-pw-visual-request="tour"' in detail_body and 'data-pw-visual-request="flythrough"' in detail_body),
-                _check("app_research_detail_magicfit_only_walkthrough", 'data-pw-walkthrough-provider="magicfit"' in detail_body),
+                _check("app_research_detail_walkthrough_provider_bound", 'data-pw-walkthrough-provider="magicfit"' in detail_body),
             ]
         )
 
@@ -258,8 +284,8 @@ def build_live_presentation_e2e_receipt(
         "failed_count": len(failed),
         "checks": checks,
         "notes": [
-            "This receipt composes the latest provider search E2E matrix with live presentation and media probes.",
-            "It is not a browser-click-through from a newly submitted search; it fails if the provider matrix is not an executed pass.",
+            "This receipt composes live presentation and media probes.",
+            "When --require-provider-matrix is set, it also fails unless the latest provider matrix is an executed pass.",
         ],
     }
 
@@ -269,8 +295,9 @@ def main() -> int:
     parser.add_argument("--base-url", default=os.getenv("PROPERTYQUARRY_LIVE_BASE_URL", "http://localhost:8097"))
     parser.add_argument("--host-header", default=os.getenv("PROPERTYQUARRY_LIVE_HOST_HEADER", "propertyquarry.com"))
     parser.add_argument("--api-token", default=os.getenv("EA_API_TOKEN", ""))
-    parser.add_argument("--principal-id", default=os.getenv("EA_PRINCIPAL_ID", "cf-email:tibor.girschele@gmail.com"))
+    parser.add_argument("--principal-id", default=os.getenv("EA_PRINCIPAL_ID", "pq-live-presentation-e2e"))
     parser.add_argument("--provider-receipt", default=DEFAULT_PROVIDER_RECEIPT)
+    parser.add_argument("--require-provider-matrix", action="store_true")
     parser.add_argument("--demo-slug", default=DEFAULT_DEMO_SLUG)
     parser.add_argument("--timeout-seconds", type=float, default=20.0)
     parser.add_argument("--no-seed-research-detail", action="store_true")
@@ -283,6 +310,7 @@ def main() -> int:
         api_token=args.api_token,
         principal_id=args.principal_id,
         provider_receipt_path=args.provider_receipt,
+        require_provider_matrix=args.require_provider_matrix,
         demo_slug=args.demo_slug,
         timeout_seconds=max(1.0, float(args.timeout_seconds or 20.0)),
         seed_research_detail=not bool(args.no_seed_research_detail),

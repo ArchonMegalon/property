@@ -38,7 +38,8 @@ Environment:
                                   lighter provider-catalog smoke.
   PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E
                                   1 requires the composed live presentation E2E, 0 skips it, auto runs it
-                                  only when PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1. Default auto.
+                                  only when PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1. Default auto. When this
+                                  runs, browser-rendered 3D controls and walkthrough quality are also hard gates.
   PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES
                                   Optional comma-separated country list for focused provider verification,
                                   for example AT,DE,CR. When set with PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1,
@@ -46,7 +47,7 @@ Environment:
                                   instead of every search-ready country.
   PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID
                                   Telegram notification principal for a green gold receipt.
-                                  Defaults to EA_PRINCIPAL_ID or cf-email:tibor.girschele@gmail.com.
+                                  Defaults to EA_PRINCIPAL_ID or propertyquarry-operator.
   PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL
                                   Public URL included in the gold notification. Defaults to https://propertyquarry.com.
   PROPERTYQUARRY_GOLD_NOTIFICATION_STATE
@@ -564,7 +565,7 @@ authenticated_smoke_receipt="/tmp/propertyquarry_deploy_authenticated_smoke.json
 authenticated_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_AUTHENTICATED_SMOKE_TIMEOUT_SECONDS:-20}"
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_authenticated_smoke.py \
   --base-url "${base_url}" \
-  --principal-id "${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+  --principal-id "${EA_PRINCIPAL_ID:-pq-live-smoke}" \
   --expected-plan-label "${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Agent}" \
   --country-code "${PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE:-AT}" \
   --timeout-seconds "${authenticated_smoke_timeout_seconds}" >"${authenticated_smoke_receipt}"; then
@@ -591,11 +592,26 @@ if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_li
 fi
 cp "${mobile_smoke_receipt}" _completion/smoke/property-live-mobile-surface-latest.json
 
+map_preview_gate_receipt="/tmp/propertyquarry_deploy_map_preview_flagship.json"
+map_preview_gate_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MAP_PREVIEW_GATE_TIMEOUT_SECONDS:-12}"
+if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_map_preview_flagship_gate.py \
+  --base-url "${base_url}" \
+  --host-header "propertyquarry.com" \
+  --principal-id "${mobile_smoke_principal_id}" \
+  --timeout-seconds "${map_preview_gate_timeout_seconds}" \
+  --write "${map_preview_gate_receipt}" >/dev/null; then
+  echo "PropertyQuarry map preview flagship gate failed." >&2
+  cat "${map_preview_gate_receipt}" >&2 2>/dev/null || true
+  cp "${map_preview_gate_receipt}" _completion/smoke/property-live-map-preview-flagship-latest.json 2>/dev/null || true
+  exit 1
+fi
+cp "${map_preview_gate_receipt}" _completion/smoke/property-live-map-preview-flagship-latest.json
+
 market_scope_smoke_receipt="/tmp/propertyquarry_deploy_market_scope_smoke.json"
 market_scope_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MARKET_SCOPE_SMOKE_TIMEOUT_SECONDS:-8}"
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_market_scope_smoke.py \
   --base-url "${base_url}" \
-  --principal-id "${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+  --principal-id "${EA_PRINCIPAL_ID:-pq-live-market-scope}" \
   --timeout-seconds "${market_scope_smoke_timeout_seconds}" \
   --write "${market_scope_smoke_receipt}" >/dev/null; then
   echo "PropertyQuarry market-scope smoke failed." >&2
@@ -646,7 +662,7 @@ if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"; then
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
-    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-pq-live-provider-smoke}" \
     PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
     --base-url "${base_url}" \
     "${provider_smoke_scope_args[@]}" \
@@ -664,7 +680,7 @@ else
   if ! EA_API_TOKEN="${api_token}" \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
-    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-pq-live-provider-smoke}" \
     PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
     --base-url "${base_url}" \
     "${provider_country_args[@]}" \
@@ -692,18 +708,47 @@ fi
 
 if (( run_presentation_e2e == 1 )); then
   presentation_e2e_receipt="/tmp/propertyquarry_deploy_presentation_e2e.json"
+  presentation_provider_matrix_args=()
+  if [[ "${provider_smoke_mode}" == "e2e" ]]; then
+    presentation_provider_matrix_args+=(--require-provider-matrix)
+  fi
   if ! EA_API_TOKEN="${api_token}" \
     PYTHONPATH=ea python3 scripts/propertyquarry_live_presentation_e2e.py \
     --base-url "${base_url}" \
     --host-header "propertyquarry.com" \
-    --principal-id "${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+    --principal-id "${EA_PRINCIPAL_ID:-pq-live-presentation-e2e}" \
     --provider-receipt _completion/smoke/property-live-provider-latest.json \
+    "${presentation_provider_matrix_args[@]}" \
     --write "${presentation_e2e_receipt}" >/dev/null; then
     echo "PropertyQuarry live presentation E2E failed." >&2
     cat "${presentation_e2e_receipt}" >&2 2>/dev/null || true
     exit 1
   fi
   cp "${presentation_e2e_receipt}" _completion/smoke/property-live-presentation-e2e-latest.json
+
+  browser_3d_gate_receipt="/tmp/propertyquarry_deploy_3d_browser_gate.json"
+  if ! PYTHONPATH=ea python3 scripts/propertyquarry_3d_browser_gate.py \
+    --base-url "${base_url}" \
+    --host-header "propertyquarry.com" \
+    --screenshots-dir _completion/smoke/property-live-3d-browser-gate-screenshots \
+    --write "${browser_3d_gate_receipt}" >/dev/null; then
+    echo "PropertyQuarry browser-rendered 3D gate failed." >&2
+    cat "${browser_3d_gate_receipt}" >&2 2>/dev/null || true
+    cp "${browser_3d_gate_receipt}" _completion/smoke/property-live-3d-browser-gate-latest.json 2>/dev/null || true
+    exit 1
+  fi
+  cp "${browser_3d_gate_receipt}" _completion/smoke/property-live-3d-browser-gate-latest.json
+
+  walkthrough_quality_receipt="/tmp/propertyquarry_deploy_walkthrough_quality.json"
+  if ! PYTHONPATH=ea python3 scripts/propertyquarry_walkthrough_quality_gate.py \
+    --tour-root state/public_property_tours \
+    --write "${walkthrough_quality_receipt}" >/dev/null; then
+    echo "PropertyQuarry walkthrough quality gate failed." >&2
+    cat "${walkthrough_quality_receipt}" >&2 2>/dev/null || true
+    cp "${walkthrough_quality_receipt}" _completion/smoke/property-live-walkthrough-quality-latest.json 2>/dev/null || true
+    exit 1
+  fi
+  cp "${walkthrough_quality_receipt}" _completion/smoke/property-live-walkthrough-quality-latest.json
 fi
 
 gold_status_receipt="_completion/property_gold_status/release-gate.json"
@@ -713,11 +758,14 @@ PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py \
   --public-smoke-receipt _completion/smoke/property-live-public-latest.json \
   --authenticated-smoke-receipt _completion/smoke/property-live-authenticated-latest.json \
   --billing-receipt _completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json \
+  --map-preview-flagship-receipt _completion/smoke/property-live-map-preview-flagship-latest.json \
+  --browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-latest.json \
+  --walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-latest.json \
   --write "${gold_status_receipt}" >/dev/null || true
 cp "${gold_status_receipt}" "${legacy_gold_status_receipt}"
 
 gold_notification_principal_id="$(effective_env_value PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID)"
-gold_notification_principal_id="${gold_notification_principal_id:-${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}}"
+gold_notification_principal_id="${gold_notification_principal_id:-${EA_PRINCIPAL_ID:-propertyquarry-operator}}"
 gold_notification_base_url="$(effective_env_value PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL)"
 gold_notification_base_url="${gold_notification_base_url:-https://propertyquarry.com}"
 gold_notification_state="$(effective_env_value PROPERTYQUARRY_GOLD_NOTIFICATION_STATE)"

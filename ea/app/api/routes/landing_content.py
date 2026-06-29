@@ -483,8 +483,8 @@ PUBLIC_TRUST_PAGES = {
         ),
         "faqs": (
             {
-                "question": "Is an embedded Matterport or 3DVista tour generated?",
-                "answer": "No. It is a provider-hosted source when available, but the listing details and usage rights still come from the provider.",
+                "question": "Is an embedded source tour generated?",
+                "answer": "No. It is a source-hosted 3D tour when available, but the listing details and usage rights still come from the source.",
             },
             {
                 "question": "Is a generated 3D tour measured?",

@@ -86,6 +86,22 @@ def _bool_flag(value: object, *, default: bool = False) -> bool:
     return default
 
 
+_ONEMIN_VIDEO_PROVIDER_TIMEOUT_STATUSES = {504, 520, 522, 524}
+
+
+def _onemin_video_gateway_timeout_retry_allowed() -> bool:
+    return _bool_flag(_env_value("PROPERTYQUARRY_ONEMIN_VIDEO_RETRY_GATEWAY_TIMEOUTS"), default=False)
+
+
+def _onemin_video_provider_timeout_status(status: int) -> bool:
+    return int(status or 0) in _ONEMIN_VIDEO_PROVIDER_TIMEOUT_STATUSES
+
+
+def _onemin_video_provider_timeout_error(value: object) -> bool:
+    text = str(value or "").lower()
+    return any(f"http_{status}" in text for status in _ONEMIN_VIDEO_PROVIDER_TIMEOUT_STATUSES)
+
+
 def _parse_onemin_image_size(value: object) -> tuple[int, int] | None:
     text = str(value or "").strip().lower().replace("×", "x")
     if not text:
@@ -1070,6 +1086,8 @@ class OneminToolAdapter:
                     self._mark_onemin_feature_failure(upstream, api_key=api_key, detail=detail)
                     manager.release_lease(lease_id=lease_id, status="failed", error=detail)
                     errors.append(f"{key_slot}:http_{status}:{detail}")
+                    if _onemin_video_provider_timeout_status(status) and not _onemin_video_gateway_timeout_retry_allowed():
+                        break
                     continue
                 if not isinstance(raw_response, dict):
                     upstream._mark_onemin_failure(api_key, "invalid_payload", temporary_quarantine=False)
@@ -1102,6 +1120,10 @@ class OneminToolAdapter:
             raise ToolExecutionError("prompt_required:provider.onemin.property_walkthrough_video")
         image_url = _first_nonempty(payload.get("image_url"), payload.get("imageUrl"), payload.get("asset_url"), payload.get("assetUrl"))
         first_frame_path = _first_nonempty(payload.get("first_frame_path"), payload.get("firstFramePath"))
+        model_url = _first_nonempty(payload.get("model_url"), payload.get("modelUrl"), payload.get("model_asset_url"), payload.get("modelAssetUrl"))
+        model_path = _first_nonempty(payload.get("model_path"), payload.get("modelPath"))
+        model_asset_kind = _first_nonempty(payload.get("model_asset_kind"), payload.get("modelAssetKind"))
+        model_input_required = bool(payload.get("model_input_required") or payload.get("modelInputRequired"))
         if not image_url and not first_frame_path:
             raise ToolExecutionError("image_url_required:provider.onemin.property_walkthrough_video")
         model_order = [
@@ -1164,6 +1186,12 @@ class OneminToolAdapter:
                             "asset_urls": video_urls,
                             "raw_response": raw_response,
                             "attempts": attempts,
+                            "model_url": model_url,
+                            "model_path": model_path,
+                            "model_asset_kind": model_asset_kind,
+                            "model_input_required": model_input_required,
+                            "model_input_consumed": False,
+                            "model_input_reason": "onemin_i2v_adapter_accepts_model_metadata_but_current_feature_payload_is_image_to_video",
                         },
                         "preview_text": _preview_text(video_url),
                         "mime_type": "application/json",
@@ -1187,6 +1215,12 @@ class OneminToolAdapter:
                         "model": resolved_model,
                         "feature_type": "IMAGE_TO_VIDEO",
                         "attempts": attempts,
+                        "model_url": model_url,
+                        "model_path": model_path,
+                        "model_asset_kind": model_asset_kind,
+                        "model_input_required": model_input_required,
+                        "model_input_consumed": False,
+                        "model_input_reason": "onemin_i2v_adapter_accepts_model_metadata_but_current_feature_payload_is_image_to_video",
                         "tool_version": definition.version,
                     },
                     model_name=resolved_model,
@@ -1197,5 +1231,7 @@ class OneminToolAdapter:
             except Exception as exc:  # noqa: BLE001
                 last_error = str(exc)
                 attempts.append({"model": model_name, "status": "failed", "error": last_error[:500]})
+                if _onemin_video_provider_timeout_error(last_error) and not _onemin_video_gateway_timeout_retry_allowed():
+                    break
                 continue
         raise ToolExecutionError(f"onemin_property_walkthrough_video_failed:{last_error[:400] or 'unavailable'}")

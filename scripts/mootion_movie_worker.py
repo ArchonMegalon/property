@@ -19,8 +19,29 @@ from browseract_ui_media import compose_slideshow_video, transcode_video_webm
 
 
 PLAYWRIGHT_IMAGE = os.environ.get("EA_UI_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
-OUTPUT_ROOT = Path(os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT", "/docker/fleet/state/browseract_ui_worker_outputs")).expanduser()
-SHARED_TEMP_ROOT = Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT", "/docker/fleet/state/browseract_ui_worker_shared")).expanduser()
+
+
+def _default_worker_state_root() -> Path:
+    if Path("/data/artifacts").exists():
+        return Path("/data/artifacts")
+    configured = str(os.environ.get("PROPERTYQUARRY_STATE_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    property_root = Path(os.environ.get("PROPERTYQUARRY_ROOT") or "/docker/property").expanduser()
+    return property_root / "state"
+
+
+_WORKER_STATE_ROOT = _default_worker_state_root()
+OUTPUT_ROOT = Path(
+    os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT")
+    or os.environ.get("PROPERTYQUARRY_BROWSERACT_OUTPUT_ROOT")
+    or _WORKER_STATE_ROOT / "browseract_ui_worker_outputs"
+).expanduser()
+SHARED_TEMP_ROOT = Path(
+    os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT")
+    or os.environ.get("PROPERTYQUARRY_BROWSERACT_SHARED_TEMP_ROOT")
+    or _WORKER_STATE_ROOT / "browseract_ui_worker_shared"
+).expanduser()
 DEFAULT_EMAIL = os.environ.get("EA_UI_SERVICE_LOGIN_EMAIL", "").strip()
 DEFAULT_PASSWORD = os.environ.get("EA_UI_SERVICE_LOGIN_PASSWORD", "").strip()
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -81,6 +83,231 @@ def _scene_video_onemin_i2v_min_required_credits() -> int:
         if parsed > 0:
             return parsed
     return 450000
+
+
+def _scene_video_provider_ledger_dir() -> Path:
+    raw_path = str(
+        os.getenv("EA_RESPONSES_PROVIDER_LEDGER_DIR")
+        or os.getenv("PROPERTYQUARRY_PROVIDER_LEDGER_DIR")
+        or "/data/provider-ledger"
+    ).strip()
+    return Path(raw_path or "/data/provider-ledger").expanduser()
+
+
+def _scene_video_magicfit_credit_marker_path() -> Path:
+    return _scene_video_provider_ledger_dir() / "scene_video_magicfit_readiness.json"
+
+
+def _scene_video_magicfit_runtime_account_pairs() -> tuple[dict[str, str], ...]:
+    pairs: list[dict[str, str]] = []
+    seen_emails: set[str] = set()
+
+    def _add_pair(*, email_value: object, email_env_name: str, password_env_name: str, password_value: object = None) -> None:
+        email_text = str(email_value or "").strip()
+        if not email_text:
+            return
+        if password_value is None:
+            password_text = str(os.getenv(password_env_name) or "").strip()
+        else:
+            password_text = str(password_value or "").strip()
+        if not password_env_name or not password_text:
+            return
+        email_key = email_text.lower()
+        if email_key in seen_emails:
+            return
+        seen_emails.add(email_key)
+        pairs.append(
+            {
+                "email_env_name": email_env_name,
+                "password_env_name": password_env_name,
+            }
+        )
+
+    for accounts_env_name in ("MAGICFIT_ACCOUNTS_JSON", "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"):
+        raw_accounts = str(os.getenv(accounts_env_name) or "").strip()
+        if not raw_accounts:
+            continue
+        try:
+            loaded_accounts = json.loads(raw_accounts)
+        except Exception:
+            continue
+        if not isinstance(loaded_accounts, list):
+            continue
+        for index, row in enumerate(loaded_accounts, start=1):
+            if not isinstance(row, dict):
+                continue
+            email_env_name = str(row.get("email_env_name") or f"{accounts_env_name}[{index}].email").strip()
+            password_env_name = str(row.get("password_env_name") or f"{accounts_env_name}[{index}].password").strip()
+            _add_pair(
+                email_value=row.get("email") or row.get("username"),
+                email_env_name=email_env_name,
+                password_env_name=password_env_name,
+                password_value=row.get("password"),
+            )
+
+    for email_env_name, raw_email in sorted(os.environ.items()):
+        if (
+            email_env_name not in {"MAGICFIT_EMAIL", "PROPERTYQUARRY_MAGICFIT_EMAIL"}
+            and not email_env_name.endswith("_MAGICFIT_EMAIL")
+            and "_MAGICFIT_" not in email_env_name
+            and not email_env_name.startswith("MAGICFIT_")
+        ):
+            continue
+        if not (email_env_name.endswith("_EMAIL") or "_EMAIL_" in email_env_name):
+            continue
+        password_env_name = f"{email_env_name[:-len('_EMAIL')]}_PASSWORD" if email_env_name.endswith("_EMAIL") else email_env_name.replace("_EMAIL_", "_PASSWORD_", 1)
+        _add_pair(email_value=raw_email, email_env_name=email_env_name, password_env_name=password_env_name)
+    return tuple(pairs)
+
+
+def _scene_video_omagic_runtime_account_pairs() -> tuple[dict[str, str], ...]:
+    pairs: list[dict[str, str]] = []
+    seen_emails: set[str] = set()
+
+    def _add_pair(*, email_value: object, email_env_name: str, password_env_name: str, password_value: object = None) -> None:
+        email_text = str(email_value or "").strip()
+        if not email_text:
+            return
+        if password_value is None:
+            password_text = str(os.getenv(password_env_name) or "").strip()
+        else:
+            password_text = str(password_value or "").strip()
+        if not password_env_name or not password_text:
+            return
+        email_key = email_text.lower()
+        if email_key in seen_emails:
+            return
+        seen_emails.add(email_key)
+        pairs.append(
+            {
+                "email_env_name": email_env_name,
+                "password_env_name": password_env_name,
+            }
+        )
+
+    for accounts_env_name in (
+        "OMAGIC_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
+        "MAGIC_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+    ):
+        raw_accounts = str(os.getenv(accounts_env_name) or "").strip()
+        if not raw_accounts:
+            continue
+        try:
+            loaded_accounts = json.loads(raw_accounts)
+        except Exception:
+            continue
+        if not isinstance(loaded_accounts, list):
+            continue
+        for index, row in enumerate(loaded_accounts, start=1):
+            if not isinstance(row, dict):
+                continue
+            email_env_name = str(row.get("email_env_name") or f"{accounts_env_name}[{index}].email").strip()
+            password_env_name = str(row.get("password_env_name") or f"{accounts_env_name}[{index}].password").strip()
+            _add_pair(
+                email_value=row.get("email") or row.get("username") or row.get("login"),
+                email_env_name=email_env_name,
+                password_env_name=password_env_name,
+                password_value=row.get("password") or row.get("pass"),
+            )
+
+    explicit_email_env_names = {
+        "OMAGIC_EMAIL",
+        "PROPERTYQUARRY_OMAGIC_EMAIL",
+        "MAGIC_EMAIL",
+        "PROPERTYQUARRY_MAGIC_EMAIL",
+    }
+    for email_env_name, raw_email in sorted(os.environ.items()):
+        if (
+            email_env_name not in explicit_email_env_names
+            and not email_env_name.endswith("_OMAGIC_EMAIL")
+            and not email_env_name.endswith("_MAGIC_EMAIL")
+            and "_OMAGIC_" not in email_env_name
+            and "_MAGIC_" not in email_env_name
+            and not email_env_name.startswith("OMAGIC_")
+            and not email_env_name.startswith("MAGIC_")
+        ):
+            continue
+        if not (email_env_name.endswith("_EMAIL") or "_EMAIL_" in email_env_name):
+            continue
+        password_env_name = f"{email_env_name[:-len('_EMAIL')]}_PASSWORD" if email_env_name.endswith("_EMAIL") else email_env_name.replace("_EMAIL_", "_PASSWORD_", 1)
+        _add_pair(email_value=raw_email, email_env_name=email_env_name, password_env_name=password_env_name)
+    return tuple(pairs)
+
+
+def _scene_video_truthy_env(name: str) -> bool:
+    return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def record_scene_video_magicfit_failure(reason: object, detail: object = "") -> dict[str, object] | None:
+    combined = f"{reason or ''} {detail or ''}".lower()
+    if "magicfit_not_enough_credits" not in combined and "not enough credit" not in combined:
+        return None
+    observed_at = datetime.now(timezone.utc).isoformat()
+    marker = {
+        "provider_key": "magicfit",
+        "status": "blocked",
+        "blocker": "magicfit_insufficient_credits",
+        "reason": "magicfit_not_enough_credits",
+        "source": "render_failure",
+        "observed_at": observed_at,
+    }
+    marker_path = _scene_video_magicfit_credit_marker_path()
+    try:
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = marker_path.with_name(f"{marker_path.name}.tmp")
+        tmp_path.write_text(json.dumps(marker, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(marker_path)
+    except Exception:
+        return None
+    return {**marker, "marker_path": str(marker_path)}
+
+
+def _scene_video_magicfit_credit_readiness(*, runtime_account_count: int = 0) -> dict[str, object]:
+    marker_path = _scene_video_magicfit_credit_marker_path()
+    base = {
+        "credit_probe_source": "render_failure_marker",
+        "credit_marker_path": str(marker_path),
+    }
+    if _scene_video_truthy_env("PROPERTYQUARRY_MAGICFIT_IGNORE_CREDIT_MARKER"):
+        return {**base, "credit_state": "ignored"}
+    if not marker_path.exists():
+        return {**base, "credit_state": "unprobed"}
+    try:
+        loaded = json.loads(marker_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return {
+            **base,
+            "credit_state": "unverified",
+            "credit_probe_error": str(exc or exc.__class__.__name__)[:240],
+        }
+    if not isinstance(loaded, dict):
+        return {**base, "credit_state": "unverified", "credit_probe_error": "invalid_marker"}
+    blocker = str(loaded.get("blocker") or "").strip()
+    reason = str(loaded.get("reason") or "").strip()
+    if blocker == "magicfit_insufficient_credits" or "magicfit_not_enough_credits" in reason.lower():
+        if runtime_account_count > 1:
+            return {
+                **base,
+                "credit_state": "constrained",
+                "blocked_account_count": 1,
+                "unverified_account_count": max(0, runtime_account_count - 1),
+                "last_failure_at": loaded.get("observed_at"),
+                "last_failure_reason": reason[:160] or "magicfit_not_enough_credits",
+            }
+        return {
+            **base,
+            "credit_state": "insufficient",
+            "last_failure_at": loaded.get("observed_at"),
+            "last_failure_reason": reason[:160] or "magicfit_not_enough_credits",
+        }
+    return {
+        **base,
+        "credit_state": "unverified",
+        "last_failure_at": loaded.get("observed_at"),
+        "last_failure_reason": reason[:160],
+    }
 
 
 def _scene_video_onemin_slot_remaining(slot: dict[str, object]) -> tuple[float | None, str]:
@@ -173,6 +400,35 @@ def _scene_video_onemin_credit_readiness() -> dict[str, object]:
     }
 
 
+def _scene_video_docker_daemon_readiness(docker_cli_path: str) -> tuple[bool, str]:
+    normalized_path = str(docker_cli_path or "").strip()
+    if not normalized_path:
+        return False, "docker_cli_missing"
+    try:
+        completed = subprocess.run(
+            [normalized_path, "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc or exc.__class__.__name__)[:240]
+    detail = str(completed.stdout or completed.stderr or "").strip()
+    return int(completed.returncode or 0) == 0, detail[:240]
+
+
+def _scene_video_docker_socket_readiness() -> tuple[bool, str, str]:
+    docker_host = str(os.getenv("DOCKER_HOST") or "").strip()
+    if docker_host and not docker_host.startswith("unix://"):
+        return True, docker_host, "docker_host_configured"
+    socket_path = docker_host.removeprefix("unix://") if docker_host.startswith("unix://") else "/var/run/docker.sock"
+    if not socket_path:
+        socket_path = "/var/run/docker.sock"
+    ready = Path(socket_path).exists()
+    return ready, socket_path, "docker_socket_ready" if ready else "docker_socket_missing"
+
+
 def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, object]:
     contract_provider_key = normalize_scene_video_contract_provider(provider_key, default="mootion")
     backend_provider_key = normalize_scene_video_backend_provider(provider_key, default="mootion")
@@ -180,20 +436,69 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
     blockers: list[str] = []
     if contract_provider_key == "magicfit":
         script_path = resolve_scene_video_script_path("render_magicfit_property_flythrough.py")
-        credentials_ready = _scene_video_env_has_any("PROPERTYQUARRY_MAGICFIT_EMAIL", "MAGICFIT_EMAIL") and _scene_video_env_has_any(
-            "PROPERTYQUARRY_MAGICFIT_PASSWORD",
-            "MAGICFIT_PASSWORD",
-        )
+        runtime_account_pairs = _scene_video_magicfit_runtime_account_pairs()
+        credentials_ready = bool(runtime_account_pairs)
+        credit_readiness = _scene_video_magicfit_credit_readiness(runtime_account_count=len(runtime_account_pairs))
         checks = {
             "script_path": str(script_path),
             "script_exists": script_path.exists(),
             "credentials_configured": credentials_ready,
+            "runtime_account_count": len(runtime_account_pairs),
+            "runtime_account_email_env_names": [row["email_env_name"] for row in runtime_account_pairs],
+            **credit_readiness,
         }
         if not checks["script_exists"]:
             blockers.append("magicfit_script_missing")
         if not credentials_ready:
             blockers.append("magicfit_credentials_missing")
+        if credit_readiness.get("credit_state") == "insufficient":
+            blockers.append("magicfit_insufficient_credits")
     elif contract_provider_key == "omagic":
+        script_path = resolve_scene_video_script_path("render_omagic_property_model_walkthrough.py")
+        runtime_account_pairs = _scene_video_omagic_runtime_account_pairs()
+        adapter_enabled = _scene_video_truthy_env("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED")
+        api_key_env_names = [
+            name
+            for name in (
+                "OMAGIC_API_KEY",
+                "PROPERTYQUARRY_OMAGIC_API_KEY",
+                "MAGIC_API_KEY",
+                "PROPERTYQUARRY_MAGIC_API_KEY",
+            )
+            if str(os.getenv(name) or "").strip()
+        ]
+        credentials_ready = bool(runtime_account_pairs or api_key_env_names)
+        account_config_env_names = (
+            "OMAGIC_ACCOUNTS_JSON",
+            "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
+            "MAGIC_ACCOUNTS_JSON",
+            "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+        )
+        checks = {
+            "public_provider_key": "omagic",
+            "backend_adapter_key": "omagic",
+            "account_config_scope": "omagic_only_config",
+            "script_path": str(script_path),
+            "script_exists": script_path.exists(),
+            "credentials_configured": credentials_ready,
+            "runtime_account_count": len(runtime_account_pairs),
+            "runtime_account_email_env_names": [row["email_env_name"] for row in runtime_account_pairs],
+            "runtime_api_key_env_names": api_key_env_names,
+            "account_config_env_names": [
+                name
+                for name in account_config_env_names
+                if str(os.getenv(name) or "").strip()
+            ],
+            "model_upload_adapter_enabled": adapter_enabled,
+            "model_upload_supported": script_path.exists() and adapter_enabled,
+        }
+        if not checks["script_exists"]:
+            blockers.append("omagic_model_upload_adapter_missing")
+        elif not adapter_enabled:
+            blockers.append("omagic_model_upload_adapter_disabled")
+        if not credentials_ready:
+            blockers.append("omagic_credentials_missing")
+    elif contract_provider_key == "onemin_i2v":
         key_ready = _scene_video_env_has_any("ONEMIN_AI_API_KEY", "ONEMIN_DIRECT_API_KEYS_JSON", "ONEMIN_DIRECT_API_KEYS_JSON_FILE") or any(
             key.startswith("ONEMIN_AI_API_KEY_FALLBACK_") and str(value or "").strip()
             for key, value in os.environ.items()
@@ -203,6 +508,9 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
             "minimum_required_credits": _scene_video_onemin_i2v_min_required_credits(),
         }
         checks = {
+            "public_provider_key": "onemin_i2v",
+            "backend_adapter_key": "onemin_i2v",
+            "account_config_scope": "read_only_existing_onemin_config",
             "api_key_configured": key_ready,
             **credit_readiness,
         }
@@ -213,18 +521,29 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
     elif contract_provider_key == "mootion":
         script_path = resolve_scene_video_script_path("mootion_movie_worker.py")
         docker_cli_path = shutil.which("docker") or ""
+        docker_daemon_ready, docker_daemon_detail = _scene_video_docker_daemon_readiness(docker_cli_path)
+        docker_socket_ready, docker_socket_path, docker_socket_detail = _scene_video_docker_socket_readiness()
         checks = {
             "script_path": str(script_path),
             "script_exists": script_path.exists(),
             "docker_cli_configured": bool(docker_cli_path),
             "docker_cli_path": docker_cli_path,
+            "docker_socket_configured": docker_socket_ready,
+            "docker_socket_path": docker_socket_path,
+            "docker_socket_detail": docker_socket_detail,
+            "docker_daemon_ready": docker_daemon_ready,
+            "docker_daemon_detail": docker_daemon_detail,
         }
         if not checks["script_exists"]:
             blockers.append("mootion_worker_script_missing")
+        if not docker_socket_ready:
+            blockers.append("mootion_docker_socket_missing")
         if not docker_cli_path:
             blockers.append("mootion_docker_cli_missing")
+        elif not docker_daemon_ready:
+            blockers.append("mootion_docker_daemon_unavailable")
     ready = not blockers
-    return {
+    readiness = {
         "provider_key": contract_provider_key,
         "provider_backend_key": backend_provider_key,
         "ready": ready,
@@ -232,19 +551,34 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
         "blockers": blockers,
         "checks": checks,
     }
+    for receipt_key in (
+        "public_provider_key",
+        "backend_adapter_key",
+        "account_config_scope",
+        "credit_state",
+        "minimum_required_credits",
+        "runtime_account_count",
+    ):
+        if receipt_key in checks:
+            readiness[receipt_key] = checks[receipt_key]
+    return readiness
 
 
 def normalize_scene_video_contract_provider(value: object, *, default: str = "mootion") -> str:
     normalized = _normalized_provider_token(value)
-    if normalized in {"magic", "omagic", "one_min", "onemin", "onemin_i2v", "1min", "1min_ai"}:
+    if normalized in {"magic", "omagic"}:
         return "omagic"
+    if normalized in {"1min", "one_min", "onemin", "onemin_i2v"}:
+        return "onemin_i2v"
     if normalized in {"magicfit", "magic_fit"}:
         return "magicfit"
     if normalized == "mootion":
         return "mootion"
     fallback = _normalized_provider_token(default)
-    if fallback in {"magic", "omagic", "one_min", "onemin", "onemin_i2v", "1min", "1min_ai"}:
+    if fallback in {"magic", "omagic"}:
         return "omagic"
+    if fallback in {"1min", "one_min", "onemin", "onemin_i2v"}:
+        return "onemin_i2v"
     if fallback in {"magicfit", "magic_fit"}:
         return "magicfit"
     return fallback or "mootion"
@@ -252,14 +586,18 @@ def normalize_scene_video_contract_provider(value: object, *, default: str = "mo
 
 def normalize_scene_video_backend_provider(value: object, *, default: str = "mootion") -> str:
     normalized = _normalized_provider_token(value)
-    if normalized in {"magic", "omagic", "one_min", "onemin", "onemin_i2v", "1min", "1min_ai"}:
+    if normalized in {"magic", "omagic"}:
+        return "omagic"
+    if normalized in {"1min", "one_min", "onemin", "onemin_i2v"}:
         return "onemin_i2v"
     if normalized in {"magicfit", "magic_fit"}:
         return "magicfit"
     if normalized == "mootion":
         return "mootion"
     fallback = _normalized_provider_token(default)
-    if fallback in {"magic", "omagic", "one_min", "onemin", "onemin_i2v", "1min", "1min_ai"}:
+    if fallback in {"magic", "omagic"}:
+        return "omagic"
+    if fallback in {"1min", "one_min", "onemin", "onemin_i2v"}:
         return "onemin_i2v"
     if fallback in {"magicfit", "magic_fit"}:
         return "magicfit"

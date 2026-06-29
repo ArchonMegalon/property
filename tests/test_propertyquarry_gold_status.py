@@ -27,6 +27,8 @@ def test_gold_status_cli_keeps_live_container_tour_receipt_as_fallback() -> None
     assert "_completion/smoke/property-live-mobile-surface-latest.json" in source
     assert "_completion/smoke/property-live-public-latest.json" in source
     assert "_completion/smoke/property-live-authenticated-latest.json" in source
+    assert "_completion/smoke/property-live-3d-browser-gate-latest.json" in source
+    assert "_completion/smoke/property-live-walkthrough-quality-latest.json" in source
     assert "_completion/smoke/property-live-mobile-surface-with-research-detail-pass.json" not in source
     assert "_completion/tours/property-tour-controls-after-monotonic-counters.json" not in source
 
@@ -557,6 +559,121 @@ def _tour_delivery_contract_payload(*, status: str = "pass") -> dict[str, object
     }
 
 
+def _browser_3d_gate_payload(*, status: str = "pass") -> dict[str, object]:
+    failing = status != "pass"
+    checks: list[dict[str, object]] = [
+        {"name": "matterport_rendered_viewer", "ok": True},
+        {
+            "name": "3dvista_rendered_viewer",
+            "ok": not failing,
+            "state": {
+                "provider_frame_url": "https://propertyquarry.com/tours/demo/3dvista/index.html",
+                "visible_canvas_count": 1,
+                "frame_text": "Loading virtual tour. Please wait..." if failing else "",
+            },
+        },
+        {"name": "pano2vr_rendered_viewer", "ok": True},
+    ]
+    return {
+        "contract_name": "propertyquarry.3d_browser_gate.v1",
+        "generated_at": "2026-06-29T10:00:00Z",
+        "status": status,
+        "providers": ["3dvista", "pano2vr", "matterport"],
+        "failed_count": 1 if failing else 0,
+        "checks": checks,
+        "provider_results": [
+            {"provider": "3dvista", "status": "fail" if failing else "pass"},
+            {"provider": "pano2vr", "status": "pass"},
+            {"provider": "matterport", "status": "pass"},
+        ],
+    }
+
+
+def _walkthrough_quality_gate_payload(*, status: str = "pass") -> dict[str, object]:
+    failing = status != "pass"
+    checks: list[dict[str, object]] = [
+        {"name": "walkthrough_video_file_present", "ok": True},
+        {
+            "name": "walkthrough_duration_floor",
+            "ok": not failing,
+            "duration_seconds": 15.104 if failing else 45.0,
+            "min_duration_seconds": 30.0,
+        },
+        {
+            "name": "walkthrough_room_coverage_complete",
+            "ok": not failing,
+            "coverage": {
+                "status": "fail" if failing else "pass",
+                "rooms_expected": ["bedroom", "kitchen", "living"],
+                "rooms_visited": ["kitchen"] if failing else ["bedroom", "kitchen", "living"],
+                "missing_rooms": ["bedroom", "living"] if failing else [],
+                "room_segment_count": 1 if failing else 3,
+            },
+        },
+        {
+            "name": "walkthrough_frame_jump_limit",
+            "ok": not failing,
+            "frame_delta_stats": {
+                "ok": True,
+                "max_delta": 60.064 if failing else 18.2,
+                "sampled_frame_count": 30,
+            },
+        },
+    ]
+    return {
+        "contract_name": "propertyquarry.walkthrough_quality_gate.v1",
+        "generated_at": "2026-06-29T10:01:00Z",
+        "status": status,
+        "video_relpath": "magicfit-walkthrough.mp4",
+        "failed_count": 3 if failing else 0,
+        "checks": checks,
+    }
+
+
+def _scene_video_readiness_payload() -> dict[str, object]:
+    return {
+        "contract_name": "propertyquarry.scene_video_readiness.v1",
+        "generated_at": "2026-06-29T10:05:00Z",
+        "summary": {"provider_count": 5, "ready_count": 2, "blocked_count": 3},
+        "telegram_delivery_readiness": {"status": "ready", "blockers": []},
+        "next_actions": [
+            {"provider": "magicfit", "reason": "provider_account_visibility_gap", "do_not_touch": ["ONEMIN_*"]},
+            {"provider": "omagic", "reason": "omagic_credentials_missing", "do_not_touch": ["ONEMIN_*"]},
+        ],
+    }
+
+
+def _scene_video_readiness_verifier_payload(*, status: str = "pass") -> dict[str, object]:
+    return {
+        "generated_at": "2026-06-29T10:06:00Z",
+        "status": status,
+        "blockers": [] if status == "pass" else ["magic_backend_mismatch"],
+        "checked_providers": ["mootion", "magicfit", "magic", "omagic", "onemin_i2v"],
+        "provider_count": 5,
+    }
+
+
+def _scene_video_provider_refresh_packet_payload() -> dict[str, object]:
+    return {
+        "contract_name": "propertyquarry.scene_video_provider_refresh_packet.v1",
+        "generated_at": "2026-06-29T10:07:00Z",
+        "providers": [
+            {"provider": "magicfit", "expected_account_count": 3, "runtime_account_count": 1, "visible_account_gap": 2},
+            {"provider": "omagic", "aliases": ["magic"], "expected_account_count": 8, "runtime_account_count": 0, "visible_account_gap": 8},
+        ],
+    }
+
+
+def _scene_video_provider_refresh_packet_verifier_payload(*, status: str = "pass") -> dict[str, object]:
+    return {
+        "generated_at": "2026-06-29T10:08:00Z",
+        "status": status,
+        "blockers": [] if status == "pass" else ["omagic_onemin_boundary_missing"],
+        "checked_providers": ["magicfit", "omagic"],
+        "provider_count": 2,
+    }
+
+
 def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass", failed_count: int = 0) -> dict[str, object]:
     route_list = routes or [
         "/app/properties",
@@ -1038,6 +1155,106 @@ def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: P
     assert blocker["ready_count"] == 1
 
 
+def test_gold_status_blocks_when_browser_3d_gate_fails_even_if_tour_controls_pass(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload(status="fail"))
+    walkthrough_quality = _write_json(
+        tmp_path / "walkthrough-quality.json",
+        _walkthrough_quality_gate_payload(),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "browser_rendered_3d")
+    assert receipt["status"] == "blocked"
+    assert receipt["browser_rendered_3d"]["ready"] is False
+    assert receipt["tour_controls"]["status"] == "pass"
+    assert blocker["failed_checks"][0]["name"] == "3dvista_rendered_viewer"
+    assert blocker["failed_checks"][0]["state"]["frame_text"].startswith("Loading virtual tour")
+    assert any(row["provider"] == "3dvista" and row["status"] == "fail" for row in blocker["provider_results"])
+    assert "renders in a real browser" in blocker["action"]
+
+
+def test_gold_status_blocks_when_walkthrough_quality_gate_fails_even_if_video_exists(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    walkthrough_quality = _write_json(
+        tmp_path / "walkthrough-quality.json",
+        _walkthrough_quality_gate_payload(status="fail"),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "walkthrough_quality")
+    failed_names = {row["name"] for row in blocker["failed_checks"]}
+    assert receipt["status"] == "blocked"
+    assert receipt["walkthrough_quality"]["ready"] is False
+    assert receipt["walkthrough_quality"]["video_relpath"] == "magicfit-walkthrough.mp4"
+    assert "walkthrough_duration_floor" in failed_names
+    assert "walkthrough_room_coverage_complete" in failed_names
+    assert "walkthrough_frame_jump_limit" in failed_names
+    coverage_failure = next(row for row in blocker["failed_checks"] if row["name"] == "walkthrough_room_coverage_complete")
+    assert coverage_failure["coverage"]["missing_rooms"] == ["bedroom", "living"]
+    jump_failure = next(row for row in blocker["failed_checks"] if row["name"] == "walkthrough_frame_jump_limit")
+    assert jump_failure["frame_delta_stats"]["max_delta"] == 60.064
+
+
 def test_gold_status_surfaces_magicfit_renderer_configuration_when_magicfit_mode_is_missing(tmp_path: Path) -> None:
     performance = _write_json(tmp_path / "performance.json", _performance_payload())
     tour_controls = _write_json(
@@ -1192,6 +1409,18 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     furniture_style_contract = _write_json(tmp_path / "furniture-style-contract.json", _furniture_style_contract_payload())
     bts_methodology_contract = _write_json(tmp_path / "bts-methodology-contract.json", _bts_methodology_contract_payload())
     tour_delivery_contract = _write_json(tmp_path / "tour-delivery-contract.json", _tour_delivery_contract_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    walkthrough_quality = _write_json(tmp_path / "walkthrough-quality.json", _walkthrough_quality_gate_payload())
+    scene_video = _write_json(tmp_path / "scene-video-readiness.json", _scene_video_readiness_payload())
+    scene_video_verifier = _write_json(tmp_path / "scene-video-readiness-verifier.json", _scene_video_readiness_verifier_payload())
+    scene_video_provider_refresh_packet = _write_json(
+        tmp_path / "scene-video-provider-refresh-packet.json",
+        _scene_video_provider_refresh_packet_payload(),
+    )
+    scene_video_provider_refresh_packet_verifier = _write_json(
+        tmp_path / "scene-video-provider-refresh-packet-verifier.json",
+        _scene_video_provider_refresh_packet_verifier_payload(),
+    )
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=performance,
@@ -1206,6 +1435,12 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         furniture_style_contract_receipt_path=furniture_style_contract,
         bts_methodology_contract_receipt_path=bts_methodology_contract,
         tour_delivery_contract_receipt_path=tour_delivery_contract,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+        scene_video_readiness_receipt_path=scene_video,
+        scene_video_readiness_verifier_receipt_path=scene_video_verifier,
+        scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
+        scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
     )
 
     assert receipt["status"] == "pass"
@@ -1242,10 +1477,52 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         "furniture_style_variants",
         "bts_methodology",
         "tour_delivery_contract_shape",
+        "browser_rendered_3d",
+        "walkthrough_quality",
+        "scene_video_readiness",
+        "scene_video_provider_refresh_packet",
         "receipt_freshness",
     }.issubset(pass_areas)
     assert receipt["bts_methodology"]["source_section_count"] == 5
     assert receipt["tour_delivery_contract_shape"]["matterport_ready_count"] == 29
+    assert receipt["browser_rendered_3d"]["ready"] is True
+    assert receipt["walkthrough_quality"]["ready"] is True
+    assert receipt["scene_video_readiness"]["ready"] is True
+    assert receipt["scene_video_readiness"]["provider_summary"]["provider_count"] == 5
+    assert receipt["scene_video_readiness"]["checked_providers"] == ["mootion", "magicfit", "magic", "omagic", "onemin_i2v"]
+    assert receipt["scene_video_readiness"]["provider_refresh_packet"]["ready"] is True
+    assert receipt["scene_video_readiness"]["provider_refresh_packet"]["checked_providers"] == ["magicfit", "omagic"]
+    assert receipt["scene_video_readiness"]["provider_refresh_packet"]["packet_provider_count"] == 2
+
+    failing_scene_video_provider_refresh_packet_verifier = _write_json(
+        tmp_path / "scene-video-provider-refresh-packet-verifier-fail.json",
+        _scene_video_provider_refresh_packet_verifier_payload(status="fail"),
+    )
+    blocked_receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        tour_provider_ownership_receipt_path=ownership,
+        vendor_tooling_receipt_path=vendor_tooling,
+        security_posture_receipt_path=security_posture,
+        release_hygiene_receipt_path=release_hygiene,
+        furniture_style_contract_receipt_path=furniture_style_contract,
+        bts_methodology_contract_receipt_path=bts_methodology_contract,
+        tour_delivery_contract_receipt_path=tour_delivery_contract,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+        scene_video_readiness_receipt_path=scene_video,
+        scene_video_readiness_verifier_receipt_path=scene_video_verifier,
+        scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
+        scene_video_provider_refresh_packet_verifier_receipt_path=failing_scene_video_provider_refresh_packet_verifier,
+    )
+    refresh_blocker = next(row for row in blocked_receipt["blockers"] if row["area"] == "scene_video_provider_refresh_packet")
+    assert blocked_receipt["status"] == "blocked"
+    assert blocked_receipt["scene_video_readiness"]["ready"] is False
+    assert blocked_receipt["scene_video_readiness"]["provider_refresh_packet"]["ready"] is False
+    assert refresh_blocker["verifier_blockers"] == ["omagic_onemin_boundary_missing"]
 
 
 def test_gold_status_blocks_when_security_posture_receipt_fails(tmp_path: Path) -> None:
