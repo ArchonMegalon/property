@@ -65,6 +65,7 @@ def _fetch(
                 "status_code": int(response.status),
                 "final_url": str(response.geturl()),
                 "headers": dict(response.headers.items()),
+                "body_byte_count": len(body),
                 "body": body.decode("utf-8", errors="replace"),
             }
     except urllib.error.HTTPError as exc:
@@ -73,6 +74,7 @@ def _fetch(
             "status_code": int(exc.code),
             "final_url": str(exc.geturl()),
             "headers": dict(exc.headers.items()),
+            "body_byte_count": len(body),
             "body": body.decode("utf-8", errors="replace"),
             "error": str(exc),
         }
@@ -81,6 +83,7 @@ def _fetch(
             "status_code": 0,
             "final_url": url,
             "headers": {},
+            "body_byte_count": 0,
             "body": "",
             "error": f"{type(exc).__name__}: {exc}",
         }
@@ -190,6 +193,18 @@ def build_live_presentation_e2e_receipt(
         video_bytes = int(content_length or "0")
     except Exception:
         video_bytes = 0
+    if int(video.get("status_code") or 0) == 200 and video_bytes <= 0:
+        video_get = _fetch(f"{base}{walkthrough_path}", timeout_seconds=timeout_seconds, host_header=host_header)
+        get_content_type = _header(dict(video_get.get("headers") or {}), "Content-Type").lower()
+        if get_content_type:
+            content_type = get_content_type
+        get_content_length = _header(dict(video_get.get("headers") or {}), "Content-Length")
+        try:
+            video_bytes = int(get_content_length or "0")
+        except Exception:
+            video_bytes = 0
+        if video_bytes <= 0:
+            video_bytes = int(video_get.get("body_byte_count") or 0)
     checks.extend(
         [
             _check("magicfit_walkthrough_route_ok", int(video.get("status_code") or 0) == 200, status_code=video.get("status_code")),
