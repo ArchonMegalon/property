@@ -93,14 +93,14 @@ def _poll_property_search_run_status(client, run_id: str) -> dict[str, object]:
     return latest_status
 
 
-def test_free_property_plan_stays_narrower_than_paid_lanes() -> None:
+def test_free_property_plan_keeps_visible_results_uncapped() -> None:
     snapshot = property_commercial_snapshot({})
 
     assert snapshot["current_plan_key"] == "free"
     assert snapshot["research_depth"] == "standard"
     assert snapshot["investment_research_level"] == "none"
     assert snapshot["max_platforms"] == 3
-    assert snapshot["max_results_per_source"] == 2
+    assert snapshot["max_results_per_source"] == 0
     assert snapshot["max_match_score"] == 35
 
 
@@ -598,7 +598,7 @@ def test_property_search_preferences_normalizer_drops_stale_agent_result_cap() -
     assert "max_results_per_source" not in normalized
 
 
-def test_property_search_preferences_normalizer_clamps_paid_result_cap_to_plan() -> None:
+def test_property_search_preferences_normalizer_removes_paid_result_cap() -> None:
     normalized = property_market_catalog.normalize_property_search_preferences(
         {
             "max_results_per_source": 50,
@@ -610,7 +610,7 @@ def test_property_search_preferences_normalizer_clamps_paid_result_cap_to_plan()
         }
     )
 
-    assert normalized["max_results_per_source"] == 5
+    assert "max_results_per_source" not in normalized
 
 
 def test_property_candidate_google_maps_url_prefers_listing_snapshot_locality_over_source_scope_placeholder() -> None:
@@ -674,7 +674,7 @@ def test_ranked_candidates_prefer_explicit_ranking_score_when_present() -> None:
     assert [row["source_ref"] for row in ranked[:2]] == ["b", "a"]
 
 
-def test_ranked_candidates_can_return_all_agent_tier_rows_without_global_slice() -> None:
+def test_ranked_candidates_return_all_rows_without_global_slice_by_default() -> None:
     candidates = [
         {
             "source_ref": f"home-{index:02d}",
@@ -693,8 +693,9 @@ def test_ranked_candidates_can_return_all_agent_tier_rows_without_global_slice()
         limit=None,
     )
 
-    assert len(default_ranked) == 50
+    assert len(default_ranked) == 75
     assert len(unlimited_ranked) == 75
+    assert default_ranked[-1]["rank"] == 75
     assert unlimited_ranked[-1]["rank"] == 75
 
 
@@ -6474,16 +6475,16 @@ def test_property_search_keeps_review_candidate_when_only_score_threshold_fails(
     assert result["listing_total"] == 1
     assert result["high_fit_total"] == 0
     assert result["filtered_low_fit_total"] == 0
-    assert result["score_demoted_total"] == 1
-    assert result["sources"][0]["score_demoted_total"] == 1
+    assert result["score_demoted_total"] == 0
+    assert result["sources"][0]["score_demoted_total"] == 0
     candidate = dict(result["sources"][0]["top_candidates"][0])
     assert candidate["property_url"] == listing_url
     assert 0 < float(candidate["fit_score"]) < 95
     assert candidate["recommendation"] == "review"
-    assert candidate["score_demoted"] is True
-    assert candidate["below_match_threshold"] is True
-    assert candidate["score_demotion_reason"] == "Lower-ranked for this source; kept visible in the full ranking."
-    assert dict(candidate["property_facts"])["score_demoted_by_match_threshold"] is True
+    assert candidate.get("score_demoted") in (None, False)
+    assert candidate.get("below_match_threshold") in (None, False)
+    assert not str(candidate.get("score_demotion_reason") or "").strip()
+    assert dict(candidate["property_facts"]).get("score_demoted_by_match_threshold") in (None, False)
 
 
 def test_property_search_finds_expected_listing_when_hard_filters_match(monkeypatch) -> None:
@@ -6673,7 +6674,7 @@ def test_property_search_alert_scoring_respects_stored_feedback_toggle(monkeypat
     assert dict(candidate["assessment"])["stored_feedback_preferences_used"] is False
 
 
-def test_property_search_keeps_demoted_soft_mismatch_candidates_in_remaining_shortlist_slots(monkeypatch) -> None:
+def test_property_search_keeps_soft_mismatch_candidates_visible_without_score_gate(monkeypatch) -> None:
     principal_id = "exec-property-soft-mismatch-shortlist-slots"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Soft Mismatch Shortlist Office")
@@ -6780,8 +6781,9 @@ def test_property_search_keeps_demoted_soft_mismatch_candidates_in_remaining_sho
     titles = [row["title"] for row in result["sources"][0]["top_candidates"]]
     assert result["listing_total"] == 2
     assert result["sources"][0]["filtered_low_fit_total"] == 0
+    assert result["sources"][0]["score_demoted_total"] == 0
     assert titles == ["Familienwohnung nahe Park", "Helle Wohnung mit Lift und Balkon"]
-    assert result["sources"][0]["top_candidates"][1]["below_match_threshold"] is True
+    assert result["sources"][0]["top_candidates"][1].get("below_match_threshold") in (None, False)
 
 
 def test_property_search_ranking_rules_do_not_reorder_provider_results(monkeypatch) -> None:
@@ -7003,7 +7005,7 @@ def test_property_search_defaults_to_all_ranked_results_when_no_cap_requested(mo
     assert len(list(result.get("ranked_candidates") or [])) == 3
 
 
-def test_property_search_provider_cap_applies_after_final_ranking(monkeypatch) -> None:
+def test_property_search_keeps_all_provider_results_after_final_ranking(monkeypatch) -> None:
     principal_id = "exec-property-provider-cap-after-ranking"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Provider Cap After Ranking Office")
@@ -7110,11 +7112,11 @@ def test_property_search_provider_cap_applies_after_final_ranking(monkeypatch) -
     )
 
     source = dict(result["sources"][0])
-    assert result["listing_total"] == 1
+    assert result["listing_total"] == 2
     assert result["reviewed_listing_total"] == 2
-    assert source["listing_total"] == 1
+    assert source["listing_total"] == 2
     assert source["reviewed_listing_total"] == 2
-    assert [row["title"] for row in source["top_candidates"]] == ["Late final winner"]
+    assert [row["title"] for row in source["top_candidates"]] == ["Late final winner", "Early preview leader"]
 
 
 def test_agent_property_search_keeps_all_ranked_results_per_provider(monkeypatch) -> None:
@@ -10184,7 +10186,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
     assert status["principal_id"] == principal_id
     assert observed["selected_platforms"] == ("willhaben",)
     assert observed["force_refresh"] is True
-    assert observed["max_results_per_source"] == 2
+    assert observed["max_results_per_source"] is None
     assert observed["property_search_preferences"]["preference_person_id"] == "elisabeth"
     assert observed["property_search_preferences"]["min_match_score"] == 0.0
     assert observed["property_search_preferences"]["require_floorplan"] is True
@@ -13140,6 +13142,85 @@ def test_property_search_effective_min_match_score_always_disables_the_removed_b
     assert product_service._property_search_effective_min_match_score({}) == 0.0
     assert product_service._property_search_effective_min_match_score({"min_match_score": 0}) == 0.0
     assert product_service._property_search_effective_min_match_score({"search_mode": "discovery", "min_match_score": 20}) == 0.0
+
+
+def test_property_search_run_status_marks_old_snapshot_after_budget_change(monkeypatch) -> None:
+    principal_id = "exec-property-stale-budget-run"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Stale Budget Office")
+    service = ProductService(client.app.state.container)
+    client.app.state.container.onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+            "max_price_eur": 26000,
+        },
+    )
+
+    run_id = "run-stale-budget-regression"
+    now = datetime.now(timezone.utc).isoformat()
+    run_record = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "created_at": now,
+        "updated_at": now,
+        "status": "processed",
+        "status_url": f"/app/api/signals/property/search/run/{run_id}",
+        "selected_platforms": ["willhaben"],
+        "progress": 100,
+        "current_step": "completed",
+        "message": "Property scouting run completed.",
+        "stages_total": 1,
+        "steps_completed": 1,
+        "summary": {
+            "status": "processed",
+            "sources_total": 1,
+            "provider_total": 1,
+            "listing_total": 0,
+            "ranked_total": 0,
+            "filtered_total": 22,
+            "held_back_total": 22,
+            "sources": [],
+        },
+        "events": [],
+        "property_search_preferences": {
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+            "max_price_eur": 1200,
+        },
+        "generated_at": now,
+    }
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", lambda **kwargs: None)
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", lambda **kwargs: None)
+    previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
+    try:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(run_record)
+
+        snapshot = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
+
+    assert snapshot is not None
+    summary = dict(snapshot["summary"])
+    assert snapshot["brief_preferences_stale"] is True
+    assert snapshot["stale_run_snapshot"] is True
+    assert summary["brief_snapshot_status"] == "old_run"
+    assert summary["brief_stale_reason"] == "saved_brief_changed"
+    assert "max_price_eur" in summary["brief_stale_changed_keys"]
+    assert summary["previous_filtered_total"] == 22
+    assert summary["can_refresh_with_current_brief"] is True
+    assert snapshot["message"].startswith("This run used an earlier brief.")
 
 
 def test_property_search_run_rejects_saved_out_of_scope_country_preferences(monkeypatch) -> None:

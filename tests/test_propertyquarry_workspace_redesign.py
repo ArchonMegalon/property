@@ -4248,6 +4248,57 @@ def test_property_workspace_payload_prefers_run_plan_for_live_run_brief() -> Non
     assert worker_state["visible_workers"] == 4
 
 
+def test_property_workspace_payload_keeps_saved_brief_when_run_snapshot_is_old() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Old Run Brief Office"}, "channels": {}},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+                "property_type": "apartment",
+                "selected_platforms": ["willhaben"],
+                "max_price_eur": 26000,
+            },
+            "run": {
+                "run_id": "run-old-budget",
+                "status": "processed",
+                "brief_preferences_stale": True,
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1020 Vienna",
+                    "property_type": "apartment",
+                    "selected_platforms": ["willhaben"],
+                    "max_price_eur": 1200,
+                },
+                "summary": {
+                    "status": "processed",
+                    "brief_preferences_stale": True,
+                    "brief_snapshot_status": "old_run",
+                    "filtered_total": 22,
+                    "held_back_total": 22,
+                    "sources": [],
+                },
+            },
+            "run_health": {"status": "processed", "status_label": "Finished"},
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    brief_preferences = dict(payload["decision_workbench"]["brief_preferences"])
+    run_summary = dict(payload["decision_workbench"]["run"]["summary"])
+
+    assert brief_preferences["max_price_eur"] == 26000
+    assert brief_preferences["max_price_eur"] != 1200
+    assert run_summary["brief_snapshot_status"] == "old_run"
+    assert run_summary["filtered_total"] == 22
+
+
 def test_property_workspace_payload_marks_full_region_run_with_stale_district_source_scope() -> None:
     payload = landing_property_workspace_payload.property_workspace_payload(
         "properties",

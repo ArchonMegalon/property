@@ -3059,7 +3059,18 @@ def _property_console_context(
             if isinstance(run_payload.get("property_search_preferences") or run_payload.get("preferences"), dict)
             else {}
         )
-        if run_preferences_payload:
+        run_summary_for_preferences = (
+            dict(run_payload.get("summary") or {})
+            if isinstance(run_payload.get("summary"), dict)
+            else {}
+        )
+        run_brief_is_old_snapshot = bool(
+            run_payload.get("brief_preferences_stale")
+            or run_payload.get("stale_run_snapshot")
+            or run_summary_for_preferences.get("brief_preferences_stale")
+            or str(run_summary_for_preferences.get("brief_snapshot_status") or "").strip().lower() == "old_run"
+        )
+        if run_preferences_payload and not run_brief_is_old_snapshot:
             preferences = _property_customer_scoped_preferences(
                 normalize_property_search_preferences(
                     {**preferences, **_property_compact_preference_overlay(run_preferences_payload)}

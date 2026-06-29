@@ -712,9 +712,20 @@ def property_workspace_payload(
         property_meta = trimmed_meta
     run_payload = dict(property_state.get("run") or {})
     run_property_preferences = dict(run_payload.get("property_search_preferences") or {}) if isinstance(run_payload.get("property_search_preferences"), dict) else {}
+    run_summary_for_preferences = (
+        dict(run_payload.get("summary") or {})
+        if isinstance(run_payload.get("summary"), dict)
+        else {}
+    )
+    run_brief_is_old_snapshot = bool(
+        run_payload.get("brief_preferences_stale")
+        or run_payload.get("stale_run_snapshot")
+        or run_summary_for_preferences.get("brief_preferences_stale")
+        or str(run_summary_for_preferences.get("brief_snapshot_status") or "").strip().lower() == "old_run"
+    )
     property_preferences = (
         dict(saved_property_preferences)
-        if normalized_section in {"search", "agents", "alerts", "account", "billing", "settings"}
+        if normalized_section in {"search", "agents", "alerts", "account", "billing", "settings"} or run_brief_is_old_snapshot
         else {**saved_property_preferences, **run_property_preferences}
     )
     preference_person_id = str(property_state.get("preference_person_id") or property_preferences.get("preference_person_id") or "self").strip() or "self"

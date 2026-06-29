@@ -997,6 +997,257 @@ def _property_search_effective_min_match_score(preferences: dict[str, object] | 
     return 0.0
 
 
+_PROPERTY_SEARCH_BRIEF_FINGERPRINT_DROP_KEYS = {
+    "active_search_agent_id",
+    "force_refresh",
+    "min_match_score",
+    "preferences_json",
+    "property_commercial",
+    "provider_country_filter_applied",
+    "provider_country_filter_removed",
+    "provider_country_filter_removed_details",
+    "provider_selection_filter_applied",
+    "provider_selection_filter_removed",
+    "provider_selection_filter_removed_details",
+    "raw_preferences",
+    "saved_shortlist_candidates",
+    "saved_shortlist_share_slug",
+    "search_agents",
+}
+
+_PROPERTY_SEARCH_BRIEF_ALWAYS_KEYS = {
+    "additional_reachability_targets",
+    "adjacent_area_radius_m",
+    "available_within_years",
+    "commute_destination",
+    "country_code",
+    "custom_keywords",
+    "custom_location_query",
+    "desired_project_stages",
+    "floorplan_requirement_mode",
+    "full_region_scope",
+    "investment_research_mode",
+    "investment_strategy",
+    "keywords",
+    "language_code",
+    "listing_mode",
+    "location_query",
+    "max_results_per_source",
+    "preference_person_id",
+    "preferred_reachability_modes",
+    "property_search_enabled",
+    "property_type",
+    "region_code",
+    "school_stage_preferences",
+    "search_goal",
+    "search_mode",
+    "selected_location_values",
+    "selected_platforms",
+    "university_name",
+}
+
+_PROPERTY_SEARCH_BRIEF_PREFIX_KEYS = (
+    "avoid_",
+    "enable_",
+    "include_",
+    "investment_",
+    "max_",
+    "min_",
+    "prefer_",
+    "require_",
+    "selected_",
+    "school_",
+    "use_",
+)
+
+_PROPERTY_SEARCH_BRIEF_SUFFIX_KEYS = (
+    "_importance",
+    "_mode",
+)
+
+
+def _property_search_brief_fingerprint_source(preferences: dict[str, object] | None) -> dict[str, object]:
+    raw_payload = dict(preferences or {})
+    nested_raw = dict(raw_payload.get("raw_preferences") or {}) if isinstance(raw_payload.get("raw_preferences"), dict) else {}
+    merged = {
+        **nested_raw,
+        **{key: value for key, value in raw_payload.items() if key != "raw_preferences"},
+    }
+    try:
+        normalized = normalize_property_search_preferences(merged)
+    except Exception:
+        normalized = dict(merged)
+    normalized = {
+        **dict(merged),
+        **dict(normalized),
+    }
+    normalized["country_code"] = normalize_country_code(
+        resolve_country_code(normalized.get("country_code")) or normalized.get("country_code")
+    )
+    normalized["listing_mode"] = normalize_listing_mode(normalized.get("listing_mode"))
+    normalized["property_type"] = list(normalize_property_type_values(normalized.get("property_type")))
+
+    def _is_search_brief_key(key: str) -> bool:
+        if key in _PROPERTY_SEARCH_BRIEF_FINGERPRINT_DROP_KEYS:
+            return False
+        if key in _PROPERTY_SEARCH_BRIEF_ALWAYS_KEYS:
+            return True
+        if key.startswith("max_distance_to_"):
+            return True
+        if key.startswith(_PROPERTY_SEARCH_BRIEF_PREFIX_KEYS):
+            return True
+        return key.endswith(_PROPERTY_SEARCH_BRIEF_SUFFIX_KEYS)
+
+    def _clean(value: object) -> object:
+        if value in (None, "", [], {}):
+            return None
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value) if value.is_integer() else round(value, 6)
+        if isinstance(value, str):
+            text = " ".join(value.split()).strip()
+            lowered = text.lower()
+            if lowered in {"true", "yes", "on"}:
+                return True
+            if lowered in {"false", "no", "off"}:
+                return False
+            try:
+                numeric = float(text)
+                return int(numeric) if numeric.is_integer() else round(numeric, 6)
+            except Exception:
+                return text
+        if isinstance(value, (list, tuple, set)):
+            cleaned_items = [_clean(item) for item in value]
+            cleaned_items = [item for item in cleaned_items if item not in (None, "", [], {})]
+            return sorted(cleaned_items, key=lambda item: json.dumps(item, ensure_ascii=True, sort_keys=True, default=str))
+        if isinstance(value, dict):
+            cleaned_dict = {
+                str(key): cleaned
+                for key, child in value.items()
+                for cleaned in [_clean(child)]
+                if str(key).strip() and cleaned not in (None, "", [], {})
+            }
+            return {key: cleaned_dict[key] for key in sorted(cleaned_dict)}
+        return str(value)
+
+    cleaned_payload: dict[str, object] = {}
+    for key, value in normalized.items():
+        normalized_key = str(key or "").strip()
+        if not normalized_key or not _is_search_brief_key(normalized_key):
+            continue
+        cleaned_value = _clean(value)
+        if cleaned_value not in (None, "", [], {}):
+            cleaned_payload[normalized_key] = cleaned_value
+    return {key: cleaned_payload[key] for key in sorted(cleaned_payload)}
+
+
+def _property_search_brief_fingerprint(preferences: dict[str, object] | None) -> str:
+    payload = _property_search_brief_fingerprint_source(preferences)
+    if not payload:
+        return ""
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:24]
+
+
+def _property_search_brief_changed_keys(
+    *,
+    run_preferences: dict[str, object] | None,
+    current_preferences: dict[str, object] | None,
+) -> list[str]:
+    run_payload = _property_search_brief_fingerprint_source(run_preferences)
+    current_payload = _property_search_brief_fingerprint_source(current_preferences)
+    return [
+        key
+        for key in sorted(set(run_payload) | set(current_payload))
+        if run_payload.get(key) != current_payload.get(key)
+    ]
+
+
+def _property_search_run_preferences_payload(snapshot: dict[str, object]) -> dict[str, object]:
+    for key in ("property_search_preferences", "preferences"):
+        candidate = snapshot.get(key)
+        if isinstance(candidate, dict) and candidate:
+            return dict(candidate)
+    summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+    for key in ("property_search_preferences", "preferences"):
+        candidate = summary.get(key)
+        if isinstance(candidate, dict) and candidate:
+            return dict(candidate)
+    return {}
+
+
+def _property_search_mark_stale_brief_snapshot(
+    snapshot: dict[str, object],
+    *,
+    current_preferences: dict[str, object] | None,
+) -> dict[str, object]:
+    if not isinstance(snapshot, dict) or not snapshot:
+        return snapshot
+    summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+    status = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
+    if status not in _PROPERTY_SEARCH_TERMINAL_STATUSES:
+        return snapshot
+    run_preferences = _property_search_run_preferences_payload(snapshot)
+    if not run_preferences:
+        return snapshot
+    run_fingerprint = _property_search_brief_fingerprint(run_preferences)
+    current_fingerprint = _property_search_brief_fingerprint(current_preferences)
+    if not run_fingerprint or not current_fingerprint or run_fingerprint == current_fingerprint:
+        return snapshot
+
+    changed_keys = _property_search_brief_changed_keys(
+        run_preferences=run_preferences,
+        current_preferences=current_preferences,
+    )
+    def _safe_int(*values: object) -> int:
+        for value in values:
+            try:
+                return max(0, int(float(str(value or "").strip())))
+            except Exception:
+                continue
+        return 0
+
+    previous_ranked_total = _safe_int(summary.get("ranked_total"), summary.get("ranked_candidate_total"))
+    previous_filtered_total = _safe_int(summary.get("filtered_total"), summary.get("held_back_total"))
+    message = (
+        "This run used an earlier brief. Start an updated search to refresh counts "
+        "with your current budget, area, providers, and filters."
+    )
+    summary.update(
+        {
+            "brief_preferences_stale": True,
+            "brief_snapshot_status": "old_run",
+            "brief_stale_reason": "saved_brief_changed",
+            "brief_stale_message": message,
+            "brief_stale_action_label": "Start updated search",
+            "brief_stale_changed_keys": changed_keys[:40],
+            "run_brief_fingerprint": run_fingerprint,
+            "current_brief_fingerprint": current_fingerprint,
+            "counts_snapshot_status": "old_run",
+            "counts_snapshot_detail": (
+                "These ranked and filtered counts belong to the earlier run. "
+                "They are kept as history until a new search checks the current brief."
+            ),
+            "previous_ranked_total": previous_ranked_total,
+            "previous_filtered_total": previous_filtered_total,
+            "can_refresh_with_current_brief": True,
+        }
+    )
+    snapshot = {
+        **dict(snapshot),
+        "summary": summary,
+        "brief_preferences_stale": True,
+        "stale_run_snapshot": True,
+    }
+    if status in _PROPERTY_SEARCH_TERMINAL_STATUSES:
+        snapshot["message"] = message
+    return snapshot
+
+
 def _property_search_resolve_max_results_per_source(
     preferences: dict[str, object] | None,
     requested_value: object,
@@ -35560,6 +35811,19 @@ class ProductService:
         ) or str(principal_id or "").strip()
         if not str(principal_id or "").strip():
             return None
+        current_brief_preferences_cache: dict[str, object] | None = None
+
+        def _current_brief_preferences() -> dict[str, object]:
+            nonlocal current_brief_preferences_cache
+            if current_brief_preferences_cache is None:
+                try:
+                    current_brief_preferences_cache = self._merged_raw_property_search_preferences(
+                        principal_id=principal_id,
+                        property_preferences={},
+                    )
+                except Exception:
+                    current_brief_preferences_cache = {}
+            return dict(current_brief_preferences_cache or {})
 
         if lightweight:
             compact_snapshot = _load_property_search_run_compact_record(run_id=run_id, principal_id=principal_id)
@@ -35673,8 +35937,12 @@ class ProductService:
                 summary = _normalize_run_summary_entitlements(compact_snapshot, summary=summary)
                 summary = self._apply_property_search_run_repair_receipts(summary=summary)
                 compact_snapshot["summary"] = summary
+                compact_snapshot = _property_search_mark_stale_brief_snapshot(
+                    compact_snapshot,
+                    current_preferences=_current_brief_preferences(),
+                )
                 if (
-                    _has_pending_worker_exception_repair(summary)
+                    _has_pending_worker_exception_repair(dict(compact_snapshot.get("summary") or {}))
                     or _has_stale_replacement_execution(compact_snapshot)
                     or _has_stale_active_execution(compact_snapshot)
                     or _compact_sources_resolved_needs_full_recovery_check(compact_snapshot)
@@ -36006,6 +36274,11 @@ class ProductService:
             summary.setdefault("filtered_total", held_back_total)
         if summary:
             snapshot["summary"] = summary
+        snapshot = _property_search_mark_stale_brief_snapshot(
+            snapshot,
+            current_preferences=_current_brief_preferences(),
+        )
+        summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
         snapshot = _property_search_run_backfill_response_timestamps(snapshot)
         if status_value in {"processed", "completed", "completed_partial"}:
             if ranked_candidates:
@@ -39778,7 +40051,7 @@ class ProductService:
                     if search_goal == "investment"
                     else "Sparse listing data: verify location, availability, layout, and operating costs before treating this as a fit."
                 )
-                fallback_rows = preliminary_rows if unlimited_provider_results else preliminary_rows[: max(1, int(max_results or 1))]
+                fallback_rows = preliminary_rows
                 for fallback_row in fallback_rows:
                     property_url = str(fallback_row.get("property_url") or "").strip()
                     if not property_url:
@@ -39882,8 +40155,6 @@ class ProductService:
                     seen_listing_fingerprints.add(listing_fingerprint)
                 unique_ranked_rows.append(row)
             ranked_rows = unique_ranked_rows
-            if not unlimited_provider_results:
-                ranked_rows = ranked_rows[: max(1, int(max_results or 1))]
             _report(
                 step="source_shortlist",
                 message=f"Built shortlist of {len(ranked_rows)} listing(s) for {source_label}.",
@@ -40415,7 +40686,7 @@ class ProductService:
                     "filter_near_miss_notified_total": filter_near_miss_notified_for_source,
                     "filter_near_misses": filter_near_misses_for_source[:5],
                     "top_fit_score": visible_top_fit_score_for_source,
-                    "top_candidates": sorted_top_candidates_for_source if unlimited_provider_results else sorted_top_candidates_for_source[:5],
+                    "top_candidates": sorted_top_candidates_for_source,
                     "research_candidates": sorted_top_candidates_for_source,
                     "status": "completed",
                     "timing_ms": {
@@ -40821,7 +41092,7 @@ class ProductService:
         )
         payload["ranked_candidates"] = _property_search_ranked_candidates_from_sources(
             source_summaries,
-            limit=None if unlimited_provider_results else 50,
+            limit=None,
         )
         research_tasks = _property_research_tasks_from_result(payload)
         payload.update(_property_research_task_counts(research_tasks))
