@@ -201,6 +201,8 @@ def merge_accounts_env(
         magicfit_account_index=magicfit_account_index,
         write_magic_alias=write_magic_alias,
     )
+    if write and not updates:
+        raise ValueError("no provider account updates supplied for --write")
     existing = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
     merged, updated_keys = merge_env_text(existing, updates)
     backup_path = ""

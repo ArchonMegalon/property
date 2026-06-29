@@ -353,6 +353,32 @@ def test_scene_video_provider_accounts_env_merge_cli_rejects_missing_file_when_e
     assert env_file.read_text(encoding="utf-8") == "ONEMIN_AI_API_KEY='keep-this'\n"
 
 
+def test_scene_video_provider_accounts_env_merge_cli_rejects_noop_write(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("ONEMIN_AI_API_KEY='keep-this'\n", encoding="utf-8")
+    script = ROOT / "scripts" / "merge_scene_video_provider_accounts_env.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--env-file",
+            str(env_file),
+            "--write",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    stdout = json.loads(result.stdout)
+
+    assert result.returncode == 1
+    assert stdout["status"] == "fail"
+    assert stdout["blockers"] == ["no provider account updates supplied for --write"]
+    assert env_file.read_text(encoding="utf-8") == "ONEMIN_AI_API_KEY='keep-this'\n"
+
+
 def test_scene_video_provider_accounts_env_merge_cli_rejects_negative_magicfit_account_index(tmp_path: Path) -> None:
     env_file = tmp_path / ".env"
     accounts_file = tmp_path / "magicfit.json"
