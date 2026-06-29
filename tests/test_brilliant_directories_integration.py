@@ -45,6 +45,7 @@ from app.services.brilliant_directories import (
     load_brilliant_directories_config,
     sign_brilliant_directories_billing_sso_bridge_token,
     verify_brilliant_directories_billing_sso_bridge_token,
+    brilliant_directories_member_login_subscription_id,
 )
 from app.services import brilliant_directories as brilliant_directories_service
 from app.services.property_billing import (
@@ -1189,6 +1190,17 @@ def test_brilliant_directories_member_login_token_handoff_updates_existing_membe
     assert "active=2" in update_body
     assert "subscription_id=9" in update_body
     assert "token=" in update_body
+
+
+def test_brilliant_directories_paid_member_subscription_id_does_not_fall_back_to_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID", "5")
+
+    assert brilliant_directories_member_login_subscription_id("agent") == ""
+    assert brilliant_directories_member_login_subscription_id("free") == "5"
+    assert brilliant_directories_member_login_subscription_id("") == "5"
 
 
 def test_brilliant_directories_member_login_token_handoff_creates_member_with_env_subscription(

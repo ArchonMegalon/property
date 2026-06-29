@@ -621,6 +621,8 @@ def brilliant_directories_member_login_subscription_id(plan_key: object = "") ->
             os.getenv(f"PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID_{plan_suffix}")
             or ""
         ).strip()
+        if not raw and plan_suffix not in {"FREE", "DEFAULT"}:
+            return ""
     if not raw:
         raw = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_MEMBER_LOGIN_SUBSCRIPTION_ID") or "").strip()
     return raw if re.fullmatch(r"[0-9]{1,12}", raw) else ""
