@@ -11597,6 +11597,71 @@ def test_property_workspace_payload_compacts_top_level_run_payload_for_shortlist
     assert heavy_blob not in serialized_top_level_run
 
 
+def test_property_workspace_payload_bounds_properties_first_paint_results() -> None:
+    heavy_blob = "x" * 5000
+    ranked_candidates = [
+        {
+            "candidate_ref": f"candidate-{index}",
+            "title": f"Candidate {index}",
+            "fit_score": 100 - index,
+            "property_url": f"https://example.test/listing/{index}",
+            "source_label": "Willhaben",
+            "detail": heavy_blob,
+            "property_facts": {
+                "price_display": "EUR 1,200",
+                "area_m2": 72,
+                "rooms": 3,
+                "postal_name": "1020 Vienna",
+            },
+        }
+        for index in range(60)
+    ]
+
+    payload = landing_routes._property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Bounded Properties"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "rent", "location_query": "1020 Vienna"},
+            "commercial": {"current_plan_label": "Agent", "current_plan_key": "agent"},
+            "preference_bundle": {},
+            "run": {
+                "run_id": "run-bounded",
+                "status": "completed",
+                "progress": 100,
+                "summary": {
+                    "status": "completed",
+                    "listing_total": 60,
+                    "ranked_total": 60,
+                    "sources": [
+                        {
+                            "source_label": "Willhaben",
+                            "top_candidates": ranked_candidates,
+                            "source_html": heavy_blob,
+                        }
+                    ],
+                    "ranked_candidates": ranked_candidates,
+                },
+            },
+        },
+    )
+
+    workbench = dict(payload.get("decision_workbench") or {})
+    run = dict(workbench.get("run") or {})
+    summary = dict(run.get("summary") or {})
+    rendered_results = [dict(row) for row in list(workbench.get("results") or []) if isinstance(row, dict)]
+    serialized_payload = json.dumps(payload, sort_keys=True)
+
+    assert summary["listing_total"] == 60
+    assert summary["ranked_total"] == 60
+    assert "ranked_candidates" not in summary
+    assert "top_candidates" not in json.dumps(summary, sort_keys=True)
+    assert "source_html" not in json.dumps(summary, sort_keys=True)
+    assert len(rendered_results) == 24
+    assert "Candidate 0" in serialized_payload
+    assert "Candidate 59" not in serialized_payload
+    assert heavy_blob not in serialized_payload
+
+
 def test_property_billing_payload_does_not_emit_search_form_meta() -> None:
     payload = landing_routes._property_workspace_payload(
         "billing",

@@ -67,6 +67,9 @@ from app.product.service import (
 from app.services.property_billing import normalize_property_plan_key
 
 
+_PROPERTY_PROPERTIES_FIRST_PAINT_RESULT_LIMIT = 24
+
+
 def _candidate_external_listing_url(
     candidate: dict[str, object],
     *,
@@ -888,8 +891,9 @@ def property_workspace_payload(
         return safe_summary
 
     management_surface = normalized_section in {"agents", "account", "settings", "billing"}
-    run_summary_for_surface = _management_safe_run_summary(run_summary) if management_surface else run_summary
-    run_payload_for_surface = {**run_payload, "summary": run_summary_for_surface} if management_surface else run_payload
+    compact_summary_surface = management_surface or normalized_section == "properties"
+    run_summary_for_surface = _management_safe_run_summary(run_summary) if compact_summary_surface else run_summary
+    run_payload_for_surface = {**run_payload, "summary": run_summary_for_surface} if compact_summary_surface else run_payload
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
     raw_run_sources = [dict(row) for row in list(raw_run_summary.get("sources") or []) if isinstance(row, dict)]
     old_brief_snapshot_notice = _property_old_brief_snapshot_notice(run_summary=run_summary)
@@ -930,7 +934,7 @@ def property_workspace_payload(
             "status_note": stale_scope_message or str(run_health.get("status_note") or "").strip(),
             "status_label": "Old run" if old_brief_snapshot_notice else str(run_health.get("status_label") or "").strip(),
         }
-        run_summary_for_surface = _management_safe_run_summary(run_summary) if management_surface else run_summary
+        run_summary_for_surface = _management_safe_run_summary(run_summary) if compact_summary_surface else run_summary
         run_payload_for_surface = {**run_payload_for_surface, "summary": run_summary_for_surface}
         if stale_scope_message:
             run_payload_for_surface["message"] = stale_scope_message
@@ -960,7 +964,7 @@ def property_workspace_payload(
             shortlist_candidates = _dedupe_shortlist_candidates([*active_run_candidates, *shortlist_candidates])
     elif not shortlist_candidates:
         shortlist_candidates = list(active_run_candidates)
-    if not management_surface and active_run_candidates and not list(run_summary_for_surface.get("ranked_candidates") or []):
+    if not compact_summary_surface and active_run_candidates and not list(run_summary_for_surface.get("ranked_candidates") or []):
         run_summary_for_surface = {
             **dict(run_summary_for_surface),
             "ranked_candidates": [dict(candidate) for candidate in active_run_candidates],
@@ -2777,7 +2781,10 @@ def property_workspace_payload(
             return ("Repair flagged", "Renderer reported failed even though a hosted walkthrough exists.")
         return ("", "")
 
-    for candidate in ([] if management_surface else shortlist_candidates):
+    first_paint_candidates = [] if management_surface else list(shortlist_candidates)
+    if normalized_section == "properties":
+        first_paint_candidates = first_paint_candidates[:_PROPERTY_PROPERTIES_FIRST_PAINT_RESULT_LIMIT]
+    for candidate in first_paint_candidates:
         facts = _property_candidate_display_facts(candidate)
         if (
             not bool(candidate.get("_active_run_ranked"))
@@ -3005,7 +3012,7 @@ def property_workspace_payload(
         for candidate in admitted_shortlist_candidates
         if str(_tour_payload(candidate).get("status") or "").strip() == "ready"
     )
-    if not management_surface:
+    if not compact_summary_surface:
         run_summary_for_surface = dict(run_summary_for_surface)
         admitted_identities = {
             identity
