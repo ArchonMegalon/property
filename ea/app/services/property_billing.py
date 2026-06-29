@@ -69,8 +69,8 @@ def property_worker_cap(plan_key: object) -> int:
 
 
 def property_furniture_style_cap(plan_key: object) -> int:
-    normalized = normalize_property_plan_key(plan_key)
-    return {"free": 1, "plus": 3, "agent": 5}.get(normalized, 1)
+    normalize_property_plan_key(plan_key)
+    return 5
 
 
 @dataclass(frozen=True)
@@ -107,7 +107,7 @@ _FREE_PLAN = PropertyPlanSpec(
     max_match_score=35,
     research_depth="standard",
     investment_research_level="none",
-    furniture_style_limit=1,
+    furniture_style_limit=5,
     magic_fit_scene_limit=1,
     magic_fit_video_limit=1,
     magic_fit_scene_period="week",
@@ -134,7 +134,7 @@ _PAID_PLANS = {
         max_match_score=45,
         research_depth="deep",
         investment_research_level="preview",
-        furniture_style_limit=3,
+        furniture_style_limit=5,
         magic_fit_scene_limit=5,
         magic_fit_video_limit=3,
         magic_fit_scene_period="day",

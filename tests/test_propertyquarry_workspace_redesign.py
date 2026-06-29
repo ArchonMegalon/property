@@ -1300,6 +1300,31 @@ def test_propertyquarry_signed_in_pricing_prefers_verified_external_billing_hand
     assert 'href="/app/account?billing=1#delivery"' not in pricing.text
 
 
+def test_propertyquarry_signed_in_pricing_uses_bridge_language_when_direct_account_is_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = build_property_client(principal_id="pq-pricing-bridge-language")
+    start_workspace(client, mode="personal", workspace_name="Pricing Bridge Language")
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_brilliant_directories_billing_handoff",
+        lambda allow_verified_direct_handoff=False: {
+            "available": True,
+            "status": "bridge_ready",
+            "open_href": "/app/api/property/billing/bridge-launch",
+            "hosted_href": "https://billing.propertyquarry.com/account",
+        },
+    )
+
+    pricing = client.get("/pricing", headers={"host": "propertyquarry.com"})
+
+    assert pricing.status_code == 200
+    assert "Continue billing sign-in" in pricing.text
+    assert "Use the same email in the billing lane." in pricing.text
+    assert 'href="/app/api/property/billing/bridge-launch"' in pricing.text
+
+
 def test_propertyquarry_pricing_stays_public_without_auth_headers_when_api_token_is_configured(monkeypatch) -> None:
     from fastapi.testclient import TestClient
 
@@ -6775,6 +6800,20 @@ def test_property_workspace_payload_keeps_visual_requests_active_across_reload_s
                                 "rooms": 3,
                             },
                         },
+                        {
+                            "candidate_ref": "candidate-flythrough-terminal-drift",
+                            "title": "Terminal walkthrough state",
+                            "property_url": "https://example.test/terminal-walkthrough",
+                            "fit_score": 72,
+                            "flythrough_status": "queued",
+                            "flythrough_reason": "magicfit_segment_render_failed",
+                            "property_facts": {
+                                "postal_name": "1020 Wien",
+                                "price_display": "EUR 1,480",
+                                "area_m2": 68,
+                                "rooms": 2,
+                            },
+                        },
                     ],
                     "sources": [],
                 },
@@ -6789,6 +6828,10 @@ def test_property_workspace_payload_keeps_visual_requests_active_across_reload_s
     assert results[1]["flythrough"]["status"] == "processing"
     assert results[1]["flythrough"]["label"] == "Walkthrough in progress"
     assert results[1]["flythrough"]["recovery_label"] == "Automatic repair"
+    terminal = next(row for row in results if row["candidate_ref"] == "candidate-flythrough-terminal-drift")
+    assert terminal["flythrough"]["status"] == "blocked"
+    assert terminal["flythrough"]["label"] == "Walkthrough not ready"
+    assert terminal["flythrough"]["status_detail"] == "Walkthrough could not be rendered from this listing yet."
 
 
 def test_property_workspace_payload_exposes_visual_provider_labels_for_ready_delivery() -> None:
@@ -7036,6 +7079,74 @@ def test_property_workspace_payload_uses_elapsed_visual_progress_for_pending_med
     assert result["flythrough"]["status"] == "processing"
     assert result["flythrough"]["progress_pct"] == 72
     assert result["flythrough"]["eta_label"] == "delayed · 18 min so far"
+
+
+def test_property_workspace_payload_prefers_live_walkthrough_progress_snapshot(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_property_workspace_payload,
+        "_hosted_property_visual_progress_snapshot",
+        lambda tour_url, *, request_kind="flythrough": {
+            "status": "processing",
+            "progress_pct": 44,
+            "detail": "Rendering walkthrough segment 2 of 4.",
+            "step_index": 2,
+            "step_total": 4,
+            "updated_at": "2026-06-29T10:06:00+00:00",
+        },
+    )
+
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-live-walkthrough-progress",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "candidate-live-walkthrough-progress",
+                            "title": "Live walkthrough progress candidate",
+                            "property_url": "https://example.test/live-walkthrough-progress",
+                            "source_ref": "provider:live-walkthrough-progress",
+                            "fit_score": 84,
+                            "tour_url": "https://propertyquarry.com/tours/live-walkthrough-progress",
+                            "flythrough_status": "processing",
+                            "flythrough_requested_at": "2026-06-29T10:00:00+00:00",
+                            "flythrough_status_updated_at": "2026-06-29T10:01:00+00:00",
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "price_display": "EUR 2,100",
+                                "area_m2": 74,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    result = payload["decision_workbench"]["results"][0]
+
+    assert result["flythrough"]["status"] == "processing"
+    assert result["flythrough"]["progress_pct"] == 44
+    assert result["flythrough"]["eta_label"] == "segment 2 of 4"
+    assert result["flythrough"]["status_detail"] == "Rendering walkthrough segment 2 of 4."
 
 
 def test_property_workspace_payload_fills_result_price_display_from_numeric_price_fields() -> None:
@@ -7347,8 +7458,8 @@ def test_property_research_detail_uses_explicit_tour_evidence_copy() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
 
-    assert "Available in {{ verified_provider_label }}." in body
-    assert "3D tour available." in body
+    assert "Tour: {{ verified_provider_label }}." in body
+    assert "Tour: available." in body
     assert "No 3D tour yet." in body
     assert "Walkthrough available." in body
     assert "No walkthrough yet." in body
@@ -9798,16 +9909,32 @@ def test_property_research_decision_rows_remove_clarification_noise() -> None:
     rows = landing_property_research._property_packet_decision_rows(
         candidate={"recommendation": "ask for clarification"},
         match_reasons=["Layout fits."],
-        mismatch_reasons=["Operating costs missing."],
-        missing_rows=[{"tag": "important"}],
+        mismatch_reasons=[],
+        missing_rows=[{"title": "Heating type", "tag": "critical"}],
+        facts={
+            "nearest_supermarket_m": 400,
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "austria_preference_notes": ["Nearby flowing water helps with summer heat."],
+            "nearest_flowing_water_name": "Donaukanal",
+            "nearest_flowing_water_m": 260,
+        },
+        preferences={
+            "max_distance_to_supermarket_m": 500,
+            "prefer_heat_resilient_home": True,
+        },
     )
 
     text = " ".join(str(row.get("detail") or row.get("title") or row.get("tag") or "") for row in rows)
     assert "ask for clarification" not in text.lower()
     assert "request clarification" not in text.lower()
-    assert "Best next move" not in text
+    assert "Why now" not in text
+    assert "Why not now" not in text
+    assert "Missing-data severity" not in text
     assert any(row.get("title") == "Next" for row in rows)
     assert "Verify the missing evidence before spending more time on it" in text
+    assert "BILLA Praterstern is about 400 m away for daily errands." in text
+    assert "Donaukanal is about 260 m away and helps the local cooling corridor." in text
+    assert "Heating type is still missing." in text
 
 
 def test_property_counterfactual_budget_action_uses_market_currency() -> None:
@@ -10699,6 +10826,102 @@ def test_property_search_surface_loads_recent_runs_without_saved_brief(monkeypat
     assert "No previous searches yet" not in response.text
     assert calls
     assert all(call == ("pq-fast-search", 24, False) for call in calls)
+
+
+def test_property_search_history_and_reopen_follow_workspace_access_email_aliases() -> None:
+    account_email = "alias.history@example.com"
+    alias_principal_id = product_service._registration_principal_id_for_email(account_email)
+    run_owner_principal_id = f"cf-email:{account_email}"
+    client = build_property_client(principal_id=alias_principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Alias History Office")
+
+    product = build_product_service(client.app.state.container)
+    container = client.app.state.container
+    container.onboarding.start_workspace(
+        principal_id=run_owner_principal_id,
+        workspace_name="Alias History Office",
+        workspace_mode="personal",
+        region="",
+        language="de",
+        timezone="Europe/Vienna",
+        selected_channels=("google",),
+    )
+    run_record = {
+        "run_id": "run-alias-history-1",
+        "principal_id": run_owner_principal_id,
+        "status": "processed",
+        "progress": 100,
+        "created_at": "2026-06-29T07:30:00+00:00",
+        "updated_at": "2026-06-29T07:42:00+00:00",
+        "generated_at": "2026-06-29T07:42:00+00:00",
+        "selected_platforms": ["willhaben"],
+        "property_search_preferences": {
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "1020 Vienna",
+        },
+        "summary": {
+            "status": "processed",
+            "listing_total": 18,
+            "sources_total": 3,
+            "ranked_candidates": [
+                {
+                    "title": "Alias history flat",
+                    "fit_score": 64,
+                    "packet_url": "/app/research/alias-history-flat?run_id=run-alias-history-1",
+                }
+            ],
+        },
+    }
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY["run-alias-history-1"] = dict(run_record)
+
+    try:
+        runs = product.list_property_search_runs(
+            principal_id=alias_principal_id,
+            limit=10,
+            hydrate=False,
+            account_email=account_email,
+        )
+        assert any(str(row.get("run_id") or "") == "run-alias-history-1" for row in runs)
+
+        status = product.get_property_search_run_status(
+            principal_id=alias_principal_id,
+            run_id="run-alias-history-1",
+            account_email=account_email,
+        )
+        assert status is not None
+        assert status["run_id"] == "run-alias-history-1"
+        assert status["principal_id"] == run_owner_principal_id
+
+        access_session = client.post(
+            "/app/api/access-sessions",
+            json={
+                "email": account_email,
+                "role": "principal",
+                "display_name": "Alias History",
+                "expires_in_hours": 24,
+            },
+            headers=headers,
+        )
+        assert access_session.status_code == 200, access_session.text
+        access_url = access_session.json()["access_url"]
+
+        client.headers.pop("X-EA-Principal-ID", None)
+        opened = client.get(access_url, headers=headers, follow_redirects=False)
+        assert opened.status_code == 303
+        assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
+
+        search = client.get("/app/search", headers=headers)
+        assert search.status_code == 200
+        assert "Search history" in search.text
+        assert "1020 Vienna" in search.text
+        assert "No previous searches yet" not in search.text
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.pop("run-alias-history-1", None)
 
 
 def test_propertyquarry_search_surface_exposes_full_history_fold_when_recent_runs_exceed_inline_limit(monkeypatch) -> None:
@@ -13749,6 +13972,26 @@ def test_propertyquarry_counterfactual_rows_ignore_removed_ranking_bar_when_pref
     assert not any(row.get("title") == "Show every home in one ranking" for row in rows)
 
 
+def test_propertyquarry_workbench_bundle_drops_removed_ranking_bar_helper_and_keeps_dark_empty_state_contrast() -> None:
+    body = _read_workbench_bundle()
+
+    assert "counterfactualOnlyAdjustsRankingBar" not in body
+    assert 'html[data-pq-theme="dark"] .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item {' in body
+    assert 'html[data-pq-theme="dark"] .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-item .pqx-note {' in body
+    assert 'html[data-pq-theme="dark"] .pqx-empty-results [data-pqx-counterfactuals] .pqx-suppression-action {' in body
+
+
+def test_propertyquarry_empty_results_compact_state_uses_single_more_trigger_for_extra_relax_options() -> None:
+    body = _read_workbench_bundle()
+
+    assert "More ways to widen" in body
+    assert "Show more ways to widen this search" in body
+    assert "pqx-empty-next-more-trigger" in body
+    assert "surface_mode != 'shortlist' and not (run_terminal_no_results and not ranked_candidates)" in body
+    assert ".pqx-empty-results.pqx-empty-results-compact .pqx-empty-next-status .pqx-small {\n        display: none;" in body
+    assert ".pqx-empty-results.pqx-empty-results-compact .pqx-fact-grid {\n        grid-template-columns: repeat(3, minmax(0, 1fr));" in body
+
+
 def test_propertyquarry_empty_state_hides_removed_ranking_bar_control(monkeypatch) -> None:
     principal_id = "pq-empty-ranking-bar"
     client = build_property_client(principal_id=principal_id)
@@ -15430,6 +15673,42 @@ def test_property_shortlist_panel_omits_open_listing_when_external_listing_url_m
     assert rows[0]["secondary_action_label"] == "Open 360"
     assert rows[0]["secondary_action_href"] == "https://example.test/360-only"
     assert "Open listing" not in rows[0].values()
+
+
+def test_property_shortlist_panel_omits_open_listing_for_search_result_placeholder_packets() -> None:
+    def _priority_reason(match_reasons: list[str], mismatch_reasons: list[str], fit_summary: str) -> str:
+        if match_reasons:
+            return match_reasons[0]
+        if mismatch_reasons:
+            return mismatch_reasons[0]
+        return fit_summary
+
+    rows, cards = landing_property_shortlist_panel.build_property_shortlist_panel(
+        property_summary={
+            "ranked_candidates": [
+                {
+                    "candidate_ref": "d4de1c94f2e1d7d9",
+                    "title": "raiffeisen_wohnbau_at · search candidate",
+                    "summary": "raiffeisen_wohnbau_at returned a search-results page. PropertyQuarry is still extracting a concrete listing before this becomes a confirmed property.",
+                    "fit_summary": "Still extracting a concrete listing.",
+                    "recommendation": "ask_for_clarification",
+                    "review_url": "https://propertyquarry.com/app/research/d4de1c94f2e1d7d9",
+                    "property_url": "https://www.raiffeisen-wohnbau.at/projects/id/1190-vienna/heiligenstaedter-strasse-103/69/",
+                    "property_facts": {},
+                }
+            ]
+        },
+        property_preferences={},
+        active_run_id="run-placeholder-link",
+        wants_run_views=True,
+        clean_candidate_copy=landing_view_models._clean_property_candidate_copy,
+        candidate_priority_reason=_priority_reason,
+        property_candidate_ref=landing_view_models._property_candidate_ref,
+    )
+
+    assert len(rows) == 1
+    assert "Open listing" not in rows[0].values()
+    assert cards[0].get("property_url") == ""
 
 
 def test_property_search_analysis_cap_defaults_to_top_k_slice(monkeypatch) -> None:
@@ -18176,6 +18455,31 @@ def test_propertyquarry_billing_surface_fails_fast_when_billing_handoff_verifica
 
     assert elapsed < 0.5
     _assert_billing_fail_closed(billing)
+
+
+def test_propertyquarry_account_surface_uses_bridge_language_when_direct_account_is_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = build_property_client(principal_id="pq-account-bridge-language")
+    start_workspace(client, mode="personal", workspace_name="Account Bridge Language")
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_brilliant_directories_billing_handoff",
+        lambda allow_verified_direct_handoff=False: {
+            "available": True,
+            "status": "bridge_ready",
+            "open_href": "/app/api/property/billing/bridge-launch",
+            "hosted_href": "https://billing.propertyquarry.com/account",
+        },
+    )
+
+    account = client.get("/app/account", headers={"host": "propertyquarry.com"})
+
+    assert account.status_code == 200
+    assert "Continue billing sign-in" in account.text
+    assert 'href="/app/api/property/billing/bridge-launch"' in account.text
+    assert "Open billing account" not in account.text
 
 
 def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) -> None:

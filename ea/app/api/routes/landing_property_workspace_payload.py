@@ -57,24 +57,69 @@ from app.product.property_surface_state import (
 from app.product.property_score_methodology import build_property_score_methodology
 from app.product.property_delivery_governance import property_delivery_governance_rows
 from app.product.service import (
+    _hosted_property_visual_progress_snapshot,
+    _hosted_property_visual_progress_stage_label,
     _property_visual_eta_label,
     _property_visual_progress_pct,
     _property_visual_terminal_status_for_reason,
+    _property_visual_unavailable_detail,
 )
 from app.services.property_billing import normalize_property_plan_key
 
 
-def _candidate_external_listing_url(candidate: dict[str, object]) -> str:
+def _candidate_external_listing_url(
+    candidate: dict[str, object],
+    *,
+    facts: dict[str, object] | None = None,
+) -> str:
+    resolved_facts = facts or (
+        dict(candidate.get("property_facts") or {})
+        if isinstance(candidate.get("property_facts"), dict)
+        else {}
+    )
+    summary_text = " ".join(
+        part
+        for part in (
+            str(candidate.get("title") or "").strip(),
+            str(candidate.get("summary") or "").strip(),
+            str(candidate.get("fit_summary") or "").strip(),
+        )
+        if part
+    ).lower()
+    concrete_signals = any(
+        (
+            resolved_facts.get("rooms"),
+            resolved_facts.get("living_area_sqm"),
+            resolved_facts.get("area_sqm"),
+            resolved_facts.get("usable_area_sqm"),
+            resolved_facts.get("price_eur"),
+            resolved_facts.get("purchase_price_eur"),
+            resolved_facts.get("buy_price_eur"),
+            resolved_facts.get("rent_eur"),
+            resolved_facts.get("monthly_rent_eur"),
+            resolved_facts.get("warm_rent_eur"),
+            resolved_facts.get("cold_rent_eur"),
+            resolved_facts.get("exact_address"),
+            resolved_facts.get("street_address"),
+        )
+    )
     for key in ("property_url", "source_url"):
         url = str(candidate.get(key) or "").strip()
         if not url:
             continue
         parsed = urllib.parse.urlparse(url)
         host = parsed.netloc.strip().lower()
-        path = parsed.path.strip()
+        path = parsed.path.strip().lower()
         if path.startswith("/app/"):
             continue
         if host.endswith("propertyquarry.com") and path.startswith("/app/"):
+            continue
+        if not concrete_signals and (
+            "search candidate" in summary_text
+            or "search-results page" in summary_text
+            or "search results page" in summary_text
+            or "/projects/" in path
+        ):
             continue
         return url
     return ""
@@ -478,6 +523,14 @@ def property_workspace_payload(
     commercial = dict(property_state.get("commercial") or {})
     billing_truth = dict(property_state.get("billing_truth") or {})
     billing_handoff = dict(property_state.get("billing_handoff") or {})
+    billing_handoff_available = bool(billing_handoff.get("available"))
+    billing_handoff_status = str(billing_handoff.get("status") or "").strip().lower()
+    billing_handoff_bridge_only = billing_handoff_status in {"bridge_ready", "member_token_ready"}
+    billing_primary_action_label = (
+        "Continue billing sign-in"
+        if billing_handoff_available and billing_handoff_bridge_only
+        else ("Open billing account" if billing_handoff_available else "Billing account")
+    )
     saved_property_preferences = dict(property_state.get("preferences") or {})
     preference_bundle = dict(property_state.get("preference_bundle") or {})
     if wants_agent_views and not property_search_agents:
@@ -1324,7 +1377,24 @@ def property_workspace_payload(
         normalized_status = str(status or "").strip().lower()
         ready_href = str(ready_url or "").strip()
         normalized_reason = str(reason or "").strip()
+        live_progress = (
+            _hosted_property_visual_progress_snapshot(candidate.get("tour_url"), request_kind=normalized_kind)
+            if str(candidate.get("tour_url") or "").strip()
+            else {}
+        )
+        live_progress_status = str(live_progress.get("status") or "").strip().lower()
+        live_progress_reason = str(live_progress.get("reason") or "").strip()
+        live_progress_detail = str(live_progress.get("detail") or "").strip()
         if normalized_reason:
+            terminal_status = _property_visual_terminal_status_for_reason(
+                request_kind=normalized_kind,
+                reason=normalized_reason,
+            )
+            if terminal_status and not ready_href and normalized_status in _pending_visual_states:
+                normalized_status = terminal_status
+                eta_minutes = ""
+        elif live_progress_reason:
+            normalized_reason = live_progress_reason
             terminal_status = _property_visual_terminal_status_for_reason(
                 request_kind=normalized_kind,
                 reason=normalized_reason,
@@ -1337,6 +1407,10 @@ def property_workspace_payload(
         progress_key = "flythrough_progress_pct" if normalized_kind == "flythrough" else "tour_progress_pct"
         requested_at = str(candidate.get(requested_at_key) or "").strip()
         status_updated_at = str(candidate.get(updated_at_key) or "").strip()
+        if live_progress_status and not ready_href and normalized_status in _pending_visual_states:
+            normalized_status = live_progress_status
+        if str(live_progress.get("updated_at") or "").strip():
+            status_updated_at = str(live_progress.get("updated_at") or "").strip()
         try:
             progress_pct = (
                 int(float(str(candidate.get(progress_key) or "").strip()))
@@ -1345,6 +1419,14 @@ def property_workspace_payload(
             )
         except Exception:
             progress_pct = 0
+        try:
+            live_progress_pct = (
+                int(float(str(live_progress.get("progress_pct") or "").strip()))
+                if str(live_progress.get("progress_pct") or "").strip()
+                else 0
+            )
+        except Exception:
+            live_progress_pct = 0
         eta_label = _property_visual_eta_label(
             request_kind=normalized_kind,
             status=normalized_status,
@@ -1352,6 +1434,8 @@ def property_workspace_payload(
             requested_at=requested_at,
             status_updated_at=status_updated_at,
         )
+        if live_progress_status in _pending_visual_states and not ready_href:
+            eta_label = _hosted_property_visual_progress_stage_label(live_progress) or ""
         if progress_pct <= 0:
             progress_pct = _property_visual_progress_pct(
                 request_kind=normalized_kind,
@@ -1361,15 +1445,19 @@ def property_workspace_payload(
                 requested_at=requested_at,
                 status_updated_at=status_updated_at,
             )
+        if live_progress_pct > 0 and not ready_href and normalized_status not in {"blocked", "failed", "skipped", "not_applicable"}:
+            progress_pct = live_progress_pct
         if normalized_status == "repairing" and not ready_href:
             progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
             eta_label = "refreshing"
+        payload_status = "processing" if normalized_status in {"rendering", "repairing"} else normalized_status
         return {
-            "status": normalized_status,
+            "status": payload_status,
             "progress_pct": progress_pct,
             "eta_label": eta_label,
             "requested_at": requested_at,
             "status_updated_at": status_updated_at,
+            "status_detail": live_progress_detail,
         }
 
     def _distance_line(candidate: dict[str, object]) -> str:
@@ -1753,6 +1841,11 @@ def property_workspace_payload(
             provider_tour_url = ""
         status = str(candidate.get("tour_status") or "").strip().lower()
         eta_minutes = str(candidate.get("tour_eta_minutes") or "").strip()
+        reason = str(candidate.get("blocked_reason") or "").strip()
+        terminal_status = _property_visual_terminal_status_for_reason(request_kind="tour", reason=reason)
+        if terminal_status and status in _pending_visual_states:
+            status = terminal_status
+            eta_minutes = ""
         provider_key = ""
         provider_label = ""
         if tour_url:
@@ -1837,6 +1930,7 @@ def property_workspace_payload(
                 request_kind="tour",
                 status=status,
                 eta_minutes=eta_minutes,
+                reason=reason,
             )
             return {
                 "status": visual_runtime["status"],
@@ -1847,7 +1941,7 @@ def property_workspace_payload(
                 "progress_pct": visual_runtime["progress_pct"],
                 "provider_label": "",
                 "provider_key": "",
-                "status_detail": "Tour request is still queued. Taking longer than usual." if str(visual_runtime["eta_label"]).startswith("delayed") else "Tour request queued.",
+                "status_detail": str(visual_runtime.get("status_detail") or "").strip() or ("Tour request is still queued. Taking longer than usual." if str(visual_runtime["eta_label"]).startswith("delayed") else "Tour request queued."),
                 "recovery_label": "",
                 "control_label": "",
             }
@@ -1857,6 +1951,7 @@ def property_workspace_payload(
                 request_kind="tour",
                 status=status,
                 eta_minutes=eta_minutes,
+                reason=reason,
             )
             return {
                 "status": visual_runtime["status"],
@@ -1867,7 +1962,7 @@ def property_workspace_payload(
                 "progress_pct": visual_runtime["progress_pct"],
                 "provider_label": "",
                 "provider_key": "",
-                "status_detail": "Tour is still rendering. Taking longer than usual." if str(visual_runtime["eta_label"]).startswith("delayed") else "Tour is rendering now.",
+                "status_detail": str(visual_runtime.get("status_detail") or "").strip() or ("Tour is still rendering. Taking longer than usual." if str(visual_runtime["eta_label"]).startswith("delayed") else "Tour is rendering now."),
                 "recovery_label": "",
                 "control_label": "",
             }
@@ -1887,11 +1982,18 @@ def property_workspace_payload(
                 "progress_pct": visual_runtime["progress_pct"],
                 "provider_label": "",
                 "provider_key": "",
-                "status_detail": "Tour is being refreshed.",
+                "status_detail": str(visual_runtime.get("status_detail") or "").strip() or "Tour is being refreshed.",
                 "recovery_label": "Automatic repair",
                 "control_label": "",
             }
         if status in {"blocked", "failed", "skipped", "not_applicable"}:
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="tour",
+                status=status,
+                eta_minutes=eta_minutes,
+                reason=_tour_source_gap_detail(candidate),
+            )
             return {
                 "status": "blocked",
                 "label": "360 unavailable",
@@ -1901,7 +2003,7 @@ def property_workspace_payload(
                 "progress_pct": 0,
                 "provider_label": "",
                 "provider_key": "",
-                "status_detail": _tour_source_gap_detail(candidate),
+                "status_detail": str(visual_runtime.get("status_detail") or "").strip() or _tour_source_gap_detail(candidate),
                 "recovery_label": "Waiting for stronger source media",
                 "control_label": "",
             }
@@ -1924,6 +2026,9 @@ def property_workspace_payload(
         flythrough_url = str(candidate.get("flythrough_url") or "").strip()
         status = str(candidate.get("flythrough_status") or "").strip().lower()
         reason = str(candidate.get("flythrough_reason") or "").strip()
+        terminal_status = _property_visual_terminal_status_for_reason(request_kind="flythrough", reason=reason)
+        if terminal_status and status in _pending_visual_states:
+            status = terminal_status
         provider = str(candidate.get("flythrough_provider") or "").strip()
         provider_label = _visual_provider_label(provider) if provider else ""
         try:
@@ -1942,16 +2047,17 @@ def property_workspace_payload(
                 status="ready",
                 ready_url=open_url,
             )
+            ready_detail = f"{provider_label} rendered walkthrough ready" if provider_label else "Walkthrough ready"
             return {
                 "status": "ready",
                 "label": "Open walkthrough",
                 "url": open_url,
-                "detail": "Walkthrough ready",
+                "detail": ready_detail,
                 "progress_pct": visual_runtime["progress_pct"],
                 "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
-                "status_detail": "Walkthrough ready on this page.",
+                "status_detail": f"{ready_detail} on this page.",
                 "recovery_label": "",
             }
         if status in {"queued", "pending"}:
@@ -1971,7 +2077,7 @@ def property_workspace_payload(
                 "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
-                "status_detail": (
+                "status_detail": str(visual_runtime.get("status_detail") or "").strip() or (
                     f"{provider_label} render is still queued. Taking longer than usual."
                     if provider_label and str(visual_runtime["eta_label"]).startswith("delayed")
                     else f"{provider_label} render is queued behind the current visual batch."
@@ -1999,7 +2105,7 @@ def property_workspace_payload(
                 "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
-                "status_detail": "Walkthrough is still rendering. Taking longer than usual." if str(visual_runtime["eta_label"]).startswith("delayed") else "Walkthrough is rendering now.",
+                "status_detail": str(visual_runtime.get("status_detail") or "").strip() or ("Walkthrough is still rendering. Taking longer than usual." if str(visual_runtime["eta_label"]).startswith("delayed") else "Walkthrough is rendering now."),
                 "recovery_label": "",
             }
         if status == "repairing":
@@ -2019,20 +2125,31 @@ def property_workspace_payload(
                 "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
-                "status_detail": "Walkthrough is being refreshed.",
+                "status_detail": str(visual_runtime.get("status_detail") or "").strip() or "Walkthrough is being refreshed.",
                 "recovery_label": "Automatic repair",
             }
         if status in {"blocked", "failed", "skipped", "not_applicable"}:
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="flythrough",
+                status=status,
+                eta_minutes=str(candidate.get("flythrough_eta_minutes") or "").strip(),
+                reason=reason,
+            )
+            unavailable_detail = (
+                str(visual_runtime.get("status_detail") or "").strip()
+                or _property_visual_unavailable_detail(request_kind="flythrough", reason=reason)
+            )
             return {
                 "status": "blocked",
                 "label": "Walkthrough not ready",
                 "url": "",
-                "detail": reason or "Walkthrough not available yet.",
+                "detail": unavailable_detail,
                 "progress_pct": 0,
                 "eta_label": "",
                 "provider_label": provider_label,
                 "provider_key": provider,
-                "status_detail": reason or "Walkthrough not available yet.",
+                "status_detail": unavailable_detail,
                 "recovery_label": "Waiting for stronger source media",
             }
         return {
@@ -2589,6 +2706,7 @@ def property_workspace_payload(
             listing_mode=effective_listing_mode,
             selected_locations=review_scope_locations,
         )
+        external_listing_url = _candidate_external_listing_url(candidate, facts=facts)
         workbench_results.append(
             build_property_workbench_candidate_snapshot(
                 candidate_ref=candidate_ref,
@@ -2627,9 +2745,9 @@ def property_workspace_payload(
                 review_page_neuronwriter=dict(candidate.get("review_page_neuronwriter") or {}) if isinstance(candidate.get("review_page_neuronwriter"), dict) else {},
                 packet_url=packet_url,
                 review_url=str(candidate.get("review_url") or "").strip(),
-                property_url=str(candidate.get("property_url") or "").strip(),
+                property_url=external_listing_url,
                 map_url=map_url,
-                source_url=str(candidate.get("property_url") or "").strip(),
+                source_url=external_listing_url,
                 floorplan_url=_floorplan_url(facts),
                 property_facts=facts,
                 listing_fact_confirmation=dict(facts.get("listing_fact_confirmation") or {}) if isinstance(facts.get("listing_fact_confirmation"), dict) else {},
@@ -2698,7 +2816,7 @@ def property_workspace_payload(
                 "packet_url": packet_url,
                 "tour_url": str(tour_payload.get("url") or "").strip(),
                 "map_url": map_url,
-                "source_url": str(candidate.get("property_url") or "").strip(),
+                "source_url": external_listing_url,
             }
         )
 
@@ -2799,7 +2917,7 @@ def property_workspace_payload(
         "billing": [
             {
                 "href": signed_in_billing_href,
-                "label": "Open billing account" if billing_handoff.get("available") else "Billing account",
+                "label": billing_primary_action_label if billing_handoff.get("available") else "Billing account",
                 "tone": "primary",
             },
             {"href": f"/app/properties{run_suffix}", "label": "Open run"},
@@ -2808,7 +2926,7 @@ def property_workspace_payload(
         "settings": [
             {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
             {"href": "/how-it-works", "label": "How it works"},
-            {"href": signed_in_billing_href, "label": "Billing account"},
+            {"href": signed_in_billing_href, "label": billing_primary_action_label or "Billing account"},
         ],
     }
     hero_highlights = {
@@ -3074,16 +3192,17 @@ def property_workspace_payload(
         if bool(property_state.get("billing_checkout_enabled"))
         else ("Active" if has_active_paid_plan else "Inactive")
     )
-    billing_handoff_available = bool(billing_handoff.get("available"))
-    billing_handoff_status = str(billing_handoff.get("status") or "").strip().lower()
     billing_account_title = (
         "Billing account"
         if billing_handoff_available
         else ("Access status" if has_active_paid_plan else "Billing account")
     )
     billing_account_detail = (
-        "Open the billing portal."
-        if billing_handoff_available
+        "Continue in the billing lane with the same email."
+        if billing_handoff_available and billing_handoff_bridge_only
+        else (
+            "Open the billing portal."
+            if billing_handoff_available
         else (
             "Billing is paused until PropertyQuarry can open the account without another sign-in."
             if billing_handoff_status == "bridge_ready"
@@ -3105,9 +3224,10 @@ def property_workspace_payload(
             )
             )
         )
+        )
     )
     billing_account_action_label = (
-        "Open billing account"
+        billing_primary_action_label
         if billing_handoff_available
         else ""
     )
@@ -3826,7 +3946,7 @@ def property_workspace_payload(
             "hero_actions": [
                 {"href": f"/app/properties{run_suffix}", "label": "Edit search", "tone": "primary"},
                 {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
-                {"href": signed_in_billing_href, "label": "Billing account"},
+                {"href": signed_in_billing_href, "label": billing_primary_action_label or "Billing account"},
             ],
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account?settings_view=google#connected-services"},
@@ -3873,11 +3993,11 @@ def property_workspace_payload(
                 "items": [
                     {
                         "title": "Billing account",
-                        "detail": "Open the billing portal when it is connected.",
+                        "detail": billing_account_detail or "Open the billing portal when it is connected.",
                         "tag": "Public",
                         "action_href": signed_in_billing_href,
                         "action_method": "get",
-                        "action_label": "Billing account",
+                        "action_label": billing_account_action_label or "Billing account",
                     },
                     {
                         "title": "How it works",

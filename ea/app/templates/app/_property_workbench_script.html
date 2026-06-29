@@ -541,7 +541,6 @@
     };
     const counterfactualApplyLabel = (_adjustments) => 'Applying broader search...';
     const counterfactualSaveErrorLabel = (_adjustments) => 'Could not apply the broader search.';
-    const counterfactualRefreshLabel = (_adjustments) => 'Restarting search...';
     const counterfactualRestartLabel = (_adjustments) => 'Restarting search...';
     const counterfactualRestartErrorLabel = (_adjustments) => 'Could not restart property search.';
     const saveCounterfactualBrief = async (adjustments) => {
@@ -630,11 +629,6 @@
       if (runBody.status_url) {
         await pollRun(String(runBody.status_url || ''));
       }
-    };
-    const refreshCurrentSurface = (statusNode) => {
-      if (statusNode) statusNode.textContent = counterfactualRefreshLabel({});
-      const currentUrl = new URL(window.location.href);
-      window.location.href = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
     };
     const recordDecisionState = async (candidate, decisionState, statusNode) => {
       if (!candidate) return;
@@ -896,6 +890,145 @@
       return button;
     };
     const visualPendingStates = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];
+    const visualTerminalStates = ['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'];
+    const isWalkthroughRequestKind = (requestKind) => String(requestKind || '').trim().toLowerCase() === 'flythrough';
+    const visualStateFromPayload = (requestKind, payload, fallbackLabel = '') => {
+      const kind = String(requestKind || 'tour').trim().toLowerCase();
+      if (isWalkthroughRequestKind(kind)) {
+        const resolvedUrl = String(payload?.flythrough_url || '').trim();
+        const state = String(resolvedUrl ? 'ready' : payload?.status || payload?.flythrough_status || 'pending').trim().toLowerCase();
+        const retryableTerminal = visualTerminalStates.includes(state) && !resolvedUrl;
+        return {
+          state: retryableTerminal ? 'idle' : state,
+          label: String(
+            resolvedUrl
+              ? 'Open walkthrough'
+              : (
+                  retryableTerminal
+                    ? (['blocked', 'failed'].includes(state) ? 'Retry walkthrough' : 'Request walkthrough')
+                    : (payload?.status_label || fallbackLabel || 'Walkthrough queued')
+                )
+          ).trim(),
+          url: resolvedUrl,
+          detail: String(payload?.status_detail || '').trim(),
+          eta: String(payload?.eta_label || '').trim(),
+          progress: Number(payload?.progress_pct || 0) || 0,
+          pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+        };
+      }
+      const resolvedTourUrl = directHostedTourUrl(
+        payload?.tour_url,
+        payload?.vendor_tour_url,
+      );
+      const state = String(resolvedTourUrl ? 'ready' : payload?.status || payload?.tour_status || 'pending').trim().toLowerCase();
+      const retryableTerminal = visualTerminalStates.includes(state) && !resolvedTourUrl;
+      return {
+        state: retryableTerminal ? 'idle' : state,
+        label: String(
+          resolvedTourUrl
+            ? 'Open 3D tour'
+            : (
+                retryableTerminal
+                  ? (['blocked', 'failed'].includes(state) ? 'Retry 3D tour' : 'Request 3D tour')
+                  : (payload?.status_label || fallbackLabel || '3D tour queued')
+              )
+        ).trim(),
+        url: resolvedTourUrl,
+        detail: String(payload?.status_detail || '').trim(),
+        eta: String(payload?.eta_label || '').trim(),
+        progress: Number(payload?.progress_pct || 0) || 0,
+        pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+      };
+    };
+    const syncVisualButtonState = (button, state) => {
+      const nextState = String(state?.state || '').trim().toLowerCase();
+      const nextLabel = String(state?.label || button.textContent || '').trim();
+      const nextUrl = String(state?.url || '').trim();
+      const nextDetail = String(state?.detail || '').trim();
+      const nextEta = String(state?.eta || '').trim();
+      const nextProgress = Math.max(0, Math.min(100, Number(state?.progress || 0) || 0));
+      const nextPollSeconds = Math.max(0, Number(state?.pollSeconds || 0) || 0);
+      button.textContent = nextLabel || button.textContent;
+      button.setAttribute('data-pw-visual-state', nextUrl ? 'ready' : nextState);
+      button.setAttribute('data-pw-visual-progress', String(nextProgress));
+      button.setAttribute('data-pw-visual-eta', nextEta);
+      button.setAttribute('data-pw-visual-detail', nextDetail);
+      button.style.setProperty('--pqx-fill', `${nextProgress}%`);
+      button.setAttribute('data-pw-visual-poll-seconds', String(nextPollSeconds || 10));
+      button.classList.toggle('is-processing', visualPendingStates.includes(nextState));
+      if (nextUrl) {
+        button.disabled = false;
+        button.classList.remove('is-processing');
+        button.classList.remove('is-ready');
+        button.classList.add('is-ready');
+        button.removeAttribute('aria-disabled');
+        button.setAttribute('data-pw-visual-ready-url', nextUrl);
+      } else {
+        button.removeAttribute('data-pw-visual-ready-url');
+        button.classList.remove('is-ready');
+        button.disabled = visualPendingStates.includes(nextState);
+        if (visualPendingStates.includes(nextState)) {
+          button.setAttribute('aria-disabled', 'true');
+          button.classList.add('is-processing');
+        } else {
+          button.removeAttribute('aria-disabled');
+          button.classList.remove('is-processing');
+        }
+      }
+      if (nextDetail || nextEta) {
+        button.setAttribute('title', [nextDetail, nextEta ? `ETA ${nextEta}` : ''].filter(Boolean).join(' · '));
+      } else {
+        button.removeAttribute('title');
+      }
+      if (nextDetail) setVisualRequestStatus(nextDetail);
+    };
+    const updateVisualButtonFromStatus = async (button) => {
+      if (!button) return;
+      const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
+      const runId = String(button.getAttribute('data-run-id') || '').trim();
+      const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
+      const sourceRef = String(button.getAttribute('data-source-ref') || '').trim();
+      const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
+      if (!runId || !requestKind) return;
+      const pollSeconds = Math.max(
+        0,
+        Number(button.getAttribute('data-pw-visual-poll-seconds') || '10') || 10,
+      );
+      if (button._pqxVisualPollTimer) {
+        window.clearTimeout(button._pqxVisualPollTimer);
+      }
+      const runRequest = async () => {
+        try {
+          const response = await fetch(
+            `/app/api/signals/property/visual-status?${new URLSearchParams({
+              run_id: runId,
+              request_kind: requestKind,
+              candidate_ref: candidateRef,
+              source_ref: sourceRef,
+              property_url: propertyUrl,
+            }).toString()}`,
+            {
+              method: 'GET',
+              credentials: 'same-origin',
+            },
+          );
+          if (!response.ok) throw new Error('visual_status_unavailable');
+          const payload = await response.json().catch(() => ({}));
+          const next = visualStateFromPayload(requestKind, payload, button.textContent);
+          syncVisualButtonState(button, next);
+          const shouldContinue = visualPendingStates.includes(String(next.state || ''));
+          if (shouldContinue) {
+            button._pqxVisualPollTimer = window.setTimeout(runRequest, Math.max((Number(next.pollSeconds || pollSeconds) || 10), 2) * 1000);
+          }
+        } catch (_error) {
+          if (!button.isConnected) return;
+          if (visualPendingStates.includes(String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase())) {
+            button._pqxVisualPollTimer = window.setTimeout(runRequest, pollSeconds ? pollSeconds * 1000 : 10000);
+          }
+        }
+      };
+      button._pqxVisualPollTimer = window.setTimeout(runRequest, pollSeconds * 1000);
+    };
     const applyPendingVisualButtonState = (button) => {
       if (!button) return;
       const state = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
@@ -903,63 +1036,16 @@
       const progress = Math.max(0, Math.min(100, Number(button.getAttribute('data-pw-visual-progress') || '0') || 0));
       const eta = String(button.getAttribute('data-pw-visual-eta') || '').trim();
       const detail = String(button.getAttribute('data-pw-visual-detail') || '').trim();
-      const pollSeconds = Math.max(0, Number(button.getAttribute('data-pw-visual-poll-seconds') || '10') || 10);
       button.disabled = true;
       button.classList.add('is-processing');
       button.setAttribute('aria-disabled', 'true');
       button.style.setProperty('--pqx-fill', `${progress}%`);
       if (detail || eta) {
         button.setAttribute('title', [detail, eta ? `ETA ${eta}` : ''].filter(Boolean).join(' · '));
+      } else {
+        button.removeAttribute('title');
       }
-      const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
-      const runId = String(button.getAttribute('data-run-id') || '').trim();
-      const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
-      const sourceRef = String(button.getAttribute('data-source-ref') || '').trim();
-      const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
-      if (runId && requestKind) {
-        window.setTimeout(() => {
-          fetch(`/app/api/signals/property/visual-status?${new URLSearchParams({
-            run_id: runId,
-            request_kind: requestKind,
-            candidate_ref: candidateRef,
-            source_ref: sourceRef,
-            property_url: propertyUrl,
-          }).toString()}`, {
-            method: 'GET',
-            credentials: 'same-origin',
-          })
-            .then((response) => response.ok ? response.json() : null)
-            .then((payload) => {
-              if (!payload || typeof payload !== 'object') return;
-              const nextReadyUrl = requestKind === 'flythrough'
-                ? String(payload.flythrough_url || '').trim()
-                : directHostedTourUrl(payload.tour_url, payload.vendor_tour_url);
-              const nextStatus = String((requestKind === 'flythrough' ? payload.flythrough_status : payload.tour_status) || payload.status || '').trim().toLowerCase();
-              const nextLabel = String(payload.status_label || button.textContent || '').trim();
-              const nextDetail = String(payload.status_detail || '').trim();
-              const nextEta = String(payload.eta_label || '').trim();
-              const nextProgress = Math.max(0, Math.min(100, Number(payload.progress_pct || 0) || 0));
-              button.textContent = nextLabel || button.textContent;
-              button.setAttribute('data-pw-visual-state', nextReadyUrl ? 'ready' : nextStatus);
-              button.setAttribute('data-pw-visual-progress', String(nextProgress));
-              button.setAttribute('data-pw-visual-eta', nextEta);
-              button.setAttribute('data-pw-visual-detail', nextDetail);
-              button.style.setProperty('--pqx-fill', `${nextProgress}%`);
-              if (nextDetail || nextEta) {
-                button.setAttribute('title', [nextDetail, nextEta ? `ETA ${nextEta}` : ''].filter(Boolean).join(' · '));
-              }
-              if (nextReadyUrl) {
-                button.disabled = false;
-                button.classList.remove('is-processing');
-                button.classList.add('is-ready');
-                button.removeAttribute('aria-disabled');
-                button.setAttribute('data-pw-visual-ready-url', nextReadyUrl);
-              }
-              if (nextDetail) setVisualRequestStatus(nextDetail);
-            })
-            .catch(() => null);
-        }, pollSeconds * 1000);
-      }
+      updateVisualButtonFromStatus(button);
     };
     const requestVisualAsset = async (candidate, kind, button) => {
       if (!candidate) return;
@@ -1116,6 +1202,7 @@
             keepButtonDisabled = true;
             button.classList.add('is-processing');
             button.setAttribute('aria-disabled', 'true');
+            updateVisualButtonFromStatus(button);
           }
         }
         if (selectedFeedbackCandidateRef === String(candidate.candidate_ref || '').trim()) {
@@ -5699,10 +5786,6 @@
         if (localStatusNode) localStatusNode.textContent = counterfactualApplyLabel(adjustments);
         try {
           const nextPreferences = await saveCounterfactualBrief(adjustments);
-          if (counterfactualOnlyAdjustsRankingBar(adjustments)) {
-            refreshCurrentSurface(localStatusNode);
-            return;
-          }
           await startSearchWithPreferences(nextPreferences, localStatusNode, adjustments);
         } catch (error) {
           if (localStatusNode) localStatusNode.textContent = error instanceof Error ? error.message : counterfactualSaveErrorLabel(adjustments);

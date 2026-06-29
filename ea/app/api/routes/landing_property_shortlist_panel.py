@@ -7,17 +7,59 @@ from app.api.routes.landing_property_workspace_helpers import _property_candidat
 from app.product.property_location_research import property_school_context_summary
 
 
-def _candidate_external_listing_url(candidate: dict[str, object]) -> str:
+def _candidate_external_listing_url(
+    candidate: dict[str, object],
+    *,
+    facts: dict[str, object] | None = None,
+) -> str:
+    resolved_facts = facts or (
+        dict(candidate.get("property_facts") or {})
+        if isinstance(candidate.get("property_facts"), dict)
+        else {}
+    )
+    summary_text = " ".join(
+        part
+        for part in (
+            str(candidate.get("title") or "").strip(),
+            str(candidate.get("summary") or "").strip(),
+            str(candidate.get("fit_summary") or "").strip(),
+        )
+        if part
+    ).lower()
+    concrete_signals = any(
+        (
+            resolved_facts.get("rooms"),
+            resolved_facts.get("living_area_sqm"),
+            resolved_facts.get("area_sqm"),
+            resolved_facts.get("usable_area_sqm"),
+            resolved_facts.get("price_eur"),
+            resolved_facts.get("purchase_price_eur"),
+            resolved_facts.get("buy_price_eur"),
+            resolved_facts.get("rent_eur"),
+            resolved_facts.get("monthly_rent_eur"),
+            resolved_facts.get("warm_rent_eur"),
+            resolved_facts.get("cold_rent_eur"),
+            resolved_facts.get("exact_address"),
+            resolved_facts.get("street_address"),
+        )
+    )
     for key in ("property_url", "source_url"):
         url = str(candidate.get(key) or "").strip()
         if not url:
             continue
         parsed = urllib.parse.urlparse(url)
         host = parsed.netloc.strip().lower()
-        path = parsed.path.strip()
+        path = parsed.path.strip().lower()
         if path.startswith("/app/"):
             continue
         if host.endswith("propertyquarry.com") and path.startswith("/app/"):
+            continue
+        if not concrete_signals and (
+            "search candidate" in summary_text
+            or "search-results page" in summary_text
+            or "search results page" in summary_text
+            or "/projects/" in path
+        ):
             continue
         return url
     return ""
@@ -189,7 +231,7 @@ def build_property_shortlist_panel(
         review_url = str(candidate.get("review_url") or "").strip()
         tour_url = str(candidate.get("tour_url") or "").strip()
         property_url = str(candidate.get("property_url") or "").strip()
-        external_listing_url = _candidate_external_listing_url(candidate)
+        external_listing_url = _candidate_external_listing_url(candidate, facts=candidate_facts)
         packet_ref = property_candidate_ref(
             {
                 "title": title,

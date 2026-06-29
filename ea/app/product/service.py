@@ -2626,6 +2626,129 @@ def _property_visual_eta_label(
     return ""
 
 
+def _hosted_property_visual_progress_path(tour_url: object, *, request_kind: str = "flythrough") -> Path | None:
+    normalized_kind = _normalize_property_visual_request_kind(request_kind)
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(str(tour_url or "").strip())
+    if not slug or bundle_dir is None:
+        return None
+    filename = "tour.walkthrough.progress.json" if normalized_kind == "flythrough" else "tour.progress.json"
+    progress_path = (bundle_dir / filename).resolve()
+    if bundle_dir.resolve() not in progress_path.parents:
+        return None
+    return progress_path
+
+
+def _write_hosted_property_visual_progress(
+    *,
+    tour_url: object,
+    request_kind: str = "flythrough",
+    status: object,
+    progress_pct: object = 0,
+    detail: object = "",
+    reason: object = "",
+    provider_key: object = "",
+    step_index: object = "",
+    step_total: object = "",
+    updated_at: object = "",
+) -> dict[str, object]:
+    progress_path = _hosted_property_visual_progress_path(tour_url, request_kind=request_kind)
+    if progress_path is None:
+        return {}
+    normalized_kind = _normalize_property_visual_request_kind(request_kind)
+    normalized_status = str(status or "").strip().lower() or "pending"
+    normalized_detail = compact_text(str(detail or "").strip(), fallback="", limit=240)
+    normalized_reason = compact_text(str(reason or "").strip(), fallback="", limit=200)
+    normalized_provider = str(provider_key or "").strip().lower()
+    try:
+        normalized_progress = int(float(str(progress_pct or "").strip()))
+    except Exception:
+        normalized_progress = 0
+    if normalized_status == "ready":
+        normalized_progress = 100
+    elif normalized_status in {"blocked", "failed", "skipped", "not_applicable"}:
+        normalized_progress = 0
+    else:
+        normalized_progress = max(0, min(normalized_progress, 99))
+    try:
+        normalized_step_index = int(float(str(step_index or "").strip())) if str(step_index or "").strip() else 0
+    except Exception:
+        normalized_step_index = 0
+    try:
+        normalized_step_total = int(float(str(step_total or "").strip())) if str(step_total or "").strip() else 0
+    except Exception:
+        normalized_step_total = 0
+    payload = {
+        "request_kind": normalized_kind,
+        "status": normalized_status,
+        "progress_pct": normalized_progress,
+        "detail": normalized_detail,
+        "reason": normalized_reason,
+        "provider_key": normalized_provider,
+        "step_index": normalized_step_index,
+        "step_total": normalized_step_total,
+        "updated_at": str(updated_at or "").strip() or _now_iso(),
+    }
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = progress_path.with_suffix(progress_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path.replace(progress_path)
+    return payload
+
+
+def _hosted_property_visual_progress_snapshot(tour_url: object, *, request_kind: str = "flythrough") -> dict[str, object]:
+    progress_path = _hosted_property_visual_progress_path(tour_url, request_kind=request_kind)
+    if progress_path is None or not progress_path.is_file():
+        return {}
+    try:
+        payload = json.loads(progress_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    normalized_kind = _normalize_property_visual_request_kind(payload.get("request_kind") or request_kind)
+    normalized_status = str(payload.get("status") or "").strip().lower()
+    normalized_detail = compact_text(str(payload.get("detail") or "").strip(), fallback="", limit=240)
+    normalized_reason = compact_text(str(payload.get("reason") or "").strip(), fallback="", limit=200)
+    normalized_provider = str(payload.get("provider_key") or "").strip().lower()
+    try:
+        normalized_progress = int(float(str(payload.get("progress_pct") or "").strip()))
+    except Exception:
+        normalized_progress = 0
+    if normalized_status == "ready":
+        normalized_progress = 100
+    elif normalized_status in {"blocked", "failed", "skipped", "not_applicable"}:
+        normalized_progress = 0
+    else:
+        normalized_progress = max(0, min(normalized_progress, 99))
+    return {
+        "request_kind": normalized_kind,
+        "status": normalized_status,
+        "progress_pct": normalized_progress,
+        "detail": normalized_detail,
+        "reason": normalized_reason,
+        "provider_key": normalized_provider,
+        "updated_at": str(payload.get("updated_at") or "").strip(),
+        "step_index": int(payload.get("step_index") or 0) if str(payload.get("step_index") or "").strip() else 0,
+        "step_total": int(payload.get("step_total") or 0) if str(payload.get("step_total") or "").strip() else 0,
+    }
+
+
+def _hosted_property_visual_progress_stage_label(progress_snapshot: dict[str, object] | None) -> str:
+    snapshot = dict(progress_snapshot or {})
+    try:
+        step_index = int(snapshot.get("step_index") or 0)
+    except Exception:
+        step_index = 0
+    try:
+        step_total = int(snapshot.get("step_total") or 0)
+    except Exception:
+        step_total = 0
+    if step_total <= 0:
+        return ""
+    step_index = max(1, min(step_index or 1, step_total))
+    return f"segment {step_index} of {step_total}"
+
+
 def _normalize_property_flythrough_result(result: dict[str, object] | None) -> dict[str, object]:
     payload = dict(result or {})
     published_video_url = _published_walkthrough_asset_url(payload.get("video_url") or payload.get("flythrough_url"))
@@ -8718,6 +8841,27 @@ def _property_append_distance_avoidance(
     facts["distance_avoidances_json"] = rows
 
 
+def _property_soft_distance_score_curve(
+    *,
+    actual_m: float,
+    requested_limit_m: int,
+    positive_cap: float,
+    negative_cap: float,
+) -> tuple[float, str]:
+    if requested_limit_m <= 0 or actual_m <= 0.0:
+        return 0.0, "unknown"
+    requested = float(requested_limit_m)
+    if actual_m <= requested:
+        return max(0.0, float(positive_cap) * max(0.0, 1.0 - (actual_m / requested))), (
+            "boost" if actual_m <= requested * 0.5 else "within_target"
+        )
+    outer_limit = requested * 2.0
+    if actual_m >= outer_limit:
+        return -max(0.0, float(negative_cap)), "full_malus"
+    ratio = max(0.0, min(1.0, (actual_m - requested) / requested))
+    return -max(0.0, float(negative_cap)) * ratio, "soft_malus"
+
+
 def _property_apply_distance_gate(
     facts: dict[str, object],
     *,
@@ -8856,29 +9000,39 @@ def _property_distance_preference_score_adjustment(
                 _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
             continue
         if _property_distance_is_strong_mode(importance_mode):
-            if distance_mode == "strict":
-                adjustment += 6.0
-                notes.append(f"{label} close by")
-            elif distance_mode == "relaxed":
-                adjustment += 2.0
-                notes.append(f"{label} within wider radius")
-            elif distance_mode == "unknown":
+            observed_m = _float_or_none(fact_value)
+            if not isinstance(observed_m, float) or observed_m <= 0.0:
                 _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
-            elif not distance_ok:
-                adjustment -= 6.0
+                continue
+            score_delta, score_mode = _property_soft_distance_score_curve(
+                actual_m=observed_m,
+                requested_limit_m=limit_m,
+                positive_cap=6.0,
+                negative_cap=6.0,
+            )
+            adjustment += score_delta
+            if score_mode == "boost":
+                notes.append(f"{label} close by")
+            elif score_mode == "within_target":
+                notes.append(f"{label} within requested radius")
+            elif score_mode in {"soft_malus", "full_malus"}:
                 notes.append(_distance_preference_note() or f"{label} farther away than wished")
             continue
         if _property_distance_is_nice_mode(importance_mode):
-            if distance_mode == "strict":
-                adjustment += 3.0
-                notes.append(f"{label} nearby")
-            elif distance_mode == "relaxed":
-                adjustment += 1.0
-                notes.append(f"{label} reasonably nearby")
-            elif distance_mode == "unknown":
+            observed_m = _float_or_none(fact_value)
+            if not isinstance(observed_m, float) or observed_m <= 0.0:
                 _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
-            elif not distance_ok:
-                adjustment -= 3.0
+                continue
+            score_delta, score_mode = _property_soft_distance_score_curve(
+                actual_m=observed_m,
+                requested_limit_m=limit_m,
+                positive_cap=3.0,
+                negative_cap=3.0,
+            )
+            adjustment += score_delta
+            if score_mode in {"boost", "within_target"}:
+                notes.append(f"{label} nearby")
+            elif score_mode in {"soft_malus", "full_malus"}:
                 notes.append(_distance_preference_note() or f"{label} less convenient")
     return adjustment, tuple(notes[:8])
 
@@ -12987,12 +13141,44 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
         if normalized_kind == "flythrough":
             return "Walkthrough not available yet."
         return "Tour not available yet."
+    if normalized_kind == "flythrough":
+        if normalized_reason.endswith(("_credentials_missing", "_not_configured", "_unconfigured")):
+            return "Walkthrough is temporarily unavailable."
+        if normalized_reason in {"flythrough_seed_image_missing", "gallery_assets_unavailable"}:
+            return "Walkthrough needs more usable room photos first."
+        if normalized_reason.endswith("_not_implemented"):
+            return "Walkthrough is not available with the current render lane."
+        if normalized_reason.endswith("_missing") or normalized_reason.endswith("_unavailable"):
+            return "Walkthrough needs more usable listing material first."
+        if normalized_reason.endswith(("_failed", "_timeout", "_too_short", "_invalid", "_not_accepted")) or "continuation_" in normalized_reason:
+            return "Walkthrough could not be rendered from this listing yet."
+    else:
+        if normalized_reason.endswith(("_not_configured", "_unconfigured")):
+            return "Tour is temporarily unavailable."
+        if normalized_reason.endswith("_missing") or normalized_reason.endswith("_unavailable"):
+            return "Tour needs more usable source material first."
+        if normalized_reason.endswith(("_failed", "_timeout", "_too_short", "_invalid", "_not_accepted")) or "continuation_" in normalized_reason:
+            return "Tour could not be built from this listing yet."
     return str(reason or "").strip()
 
 
 def _property_visual_terminal_status_for_reason(*, request_kind: str, reason: str = "") -> str:
     normalized_reason = str(reason or "").strip().lower()
-    if normalized_reason not in {
+    if not normalized_reason or normalized_reason in {
+        "none",
+        "null",
+        "queued",
+        "pending",
+        "processing",
+        "running",
+        "in_progress",
+        "started",
+        "rendering",
+        "repairing",
+    }:
+        return ""
+    if (
+        normalized_reason not in {
         "fit_below_threshold",
         "provider_export_missing",
         "listing_360_media_missing",
@@ -13001,7 +13187,23 @@ def _property_visual_terminal_status_for_reason(*, request_kind: str, reason: st
         "gallery_assets_unavailable",
         "property_tour_execution_failed",
         "crezlo_property_tour_not_configured",
-    }:
+        }
+        and not normalized_reason.endswith(
+            (
+                "_failed",
+                "_missing",
+                "_unavailable",
+                "_invalid",
+                "_timeout",
+                "_too_short",
+                "_not_accepted",
+                "_not_configured",
+                "_unconfigured",
+                "_not_implemented",
+            )
+        )
+        and "continuation_" not in normalized_reason
+    ):
         return ""
     normalized_kind = _normalize_property_visual_request_kind(request_kind)
     return "skipped" if normalized_kind == "flythrough" else "blocked"
@@ -15401,6 +15603,14 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         "video_relpath": video_relpath,
         "sidecar_relpath": sidecar_relpath,
     }
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="processing",
+        progress_pct=8,
+        detail="Preparing walkthrough route.",
+        provider_key="magicfit",
+    )
     with tempfile.TemporaryDirectory(prefix="magicfit-property-tour-") as tmp_dir:
         required_duration_seconds = _magicfit_flythrough_minimum_duration_seconds(
             title=title,
@@ -15418,6 +15628,21 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         planned_segments = max(1, int(math.ceil(required_duration_seconds / float(max(flythrough_duration_seconds, 1)))))
         max_segments = max(planned_segments + 2, int(os.getenv("PROPERTYQUARRY_MAGICFIT_MAX_SEGMENTS") or "20"))
         for segment_index in range(1, max_segments + 1):
+            effective_total_segments = max(planned_segments, segment_index)
+            segment_start_progress = min(
+                88,
+                max(12, int(round(12 + ((max(segment_index - 1, 0) / float(max(effective_total_segments, 1))) * 72)))),
+            )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="processing",
+                progress_pct=segment_start_progress,
+                detail=f"Rendering walkthrough segment {min(segment_index, effective_total_segments)} of {effective_total_segments}.",
+                provider_key="magicfit",
+                step_index=segment_index,
+                step_total=effective_total_segments,
+            )
             focus = route_labels[(segment_index - 1) % len(route_labels)]
             is_planned_final_segment = segment_index >= planned_segments
             continuation_frame = Path(tmp_dir) / f"segment-{segment_index - 1:03d}-last-frame.jpg"
@@ -15568,6 +15793,20 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
                             "segments": segment_logs,
                         }
                     )
+                    _write_hosted_property_visual_progress(
+                        tour_url=tour_url,
+                        request_kind="flythrough",
+                        status="failed",
+                        progress_pct=0,
+                        detail=_property_visual_unavailable_detail(
+                            request_kind="flythrough",
+                            reason="magicfit_segment_render_failed",
+                        ),
+                        reason="magicfit_segment_render_failed",
+                        provider_key="magicfit",
+                        step_index=segment_index,
+                        step_total=effective_total_segments,
+                    )
                     return render_log
                 segment_continuity_ok, segment_continuity_reason, segment_continuity_metrics = _video_continuous_shot_gate(tmp_video)
                 segment_log["continuous_shot_gate"] = segment_continuity_metrics
@@ -15581,6 +15820,21 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
                             "reason": segment_continuity_reason or "magicfit_segment_continuity_failed",
                             "segments": segment_logs,
                         }
+                    )
+                    failure_reason = segment_continuity_reason or "magicfit_segment_continuity_failed"
+                    _write_hosted_property_visual_progress(
+                        tour_url=tour_url,
+                        request_kind="flythrough",
+                        status="failed",
+                        progress_pct=0,
+                        detail=_property_visual_unavailable_detail(
+                            request_kind="flythrough",
+                            reason=failure_reason,
+                        ),
+                        reason=failure_reason,
+                        provider_key="magicfit",
+                        step_index=segment_index,
+                        step_total=effective_total_segments,
                     )
                     return render_log
                 if segment_paths:
@@ -15618,6 +15872,21 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
                                     "segments": segment_logs,
                                 }
                             )
+                            failure_reason = boundary_reason or "magicfit_continuation_boundary_failed"
+                            _write_hosted_property_visual_progress(
+                                tour_url=tour_url,
+                                request_kind="flythrough",
+                                status="failed",
+                                progress_pct=0,
+                                detail=_property_visual_unavailable_detail(
+                                    request_kind="flythrough",
+                                    reason=failure_reason,
+                                ),
+                                reason=failure_reason,
+                                provider_key="magicfit",
+                                step_index=segment_index,
+                                step_total=effective_total_segments,
+                            )
                             return render_log
                 accepted_segment = True
                 break
@@ -15629,9 +15898,37 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
                         "segments": segment_logs,
                     }
                 )
+                _write_hosted_property_visual_progress(
+                    tour_url=tour_url,
+                    request_kind="flythrough",
+                    status="failed",
+                    progress_pct=0,
+                    detail=_property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason="magicfit_segment_not_accepted",
+                    ),
+                    reason="magicfit_segment_not_accepted",
+                    provider_key="magicfit",
+                    step_index=segment_index,
+                    step_total=effective_total_segments,
+                )
                 return render_log
             segment_paths.append(tmp_video)
             accumulated_duration_seconds += segment_duration_seconds
+            accepted_progress = min(
+                92,
+                max(18, int(round(18 + ((min(segment_index, effective_total_segments) / float(max(effective_total_segments, 1))) * 70)))),
+            )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="processing",
+                progress_pct=accepted_progress,
+                detail=f"Rendered walkthrough segment {min(segment_index, effective_total_segments)} of {effective_total_segments}.",
+                provider_key="magicfit",
+                step_index=segment_index,
+                step_total=effective_total_segments,
+            )
             if tmp_sidecar.exists():
                 with contextlib.suppress(Exception):
                     sidecar_payload = json.loads(tmp_sidecar.read_text(encoding="utf-8"))
@@ -15645,8 +15942,30 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         if accumulated_duration_seconds + 0.25 < required_duration_seconds:
             render_log["status"] = "failed"
             render_log["reason"] = "magicfit_render_too_short_after_segments"
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="magicfit_render_too_short_after_segments",
+                ),
+                reason="magicfit_render_too_short_after_segments",
+                provider_key="magicfit",
+            )
             return render_log
         delivery_video = Path(tmp_dir) / "tour.combined.mp4"
+        _write_hosted_property_visual_progress(
+            tour_url=tour_url,
+            request_kind="flythrough",
+            status="processing",
+            progress_pct=94,
+            detail=f"Joining {len(segment_paths)} rendered walkthrough segment{'s' if len(segment_paths) != 1 else ''}.",
+            provider_key="magicfit",
+            step_index=len(segment_paths),
+            step_total=max(planned_segments, len(segment_paths)),
+        )
         try:
             _concat_video_segments(
                 segment_paths,
@@ -15658,18 +15977,54 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
             render_log["status"] = "failed"
             render_log["reason"] = "magicfit_segment_concat_failed"
             render_log["error"] = compact_text(str(exc or ""), fallback="", limit=180)
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="magicfit_segment_concat_failed",
+                ),
+                reason="magicfit_segment_concat_failed",
+                provider_key="magicfit",
+            )
             return render_log
         combined_duration_seconds = _video_duration_seconds(str(delivery_video))
         render_log["combined_duration_seconds"] = combined_duration_seconds
         if combined_duration_seconds + 0.25 < required_duration_seconds:
             render_log["status"] = "failed"
             render_log["reason"] = "magicfit_combined_render_too_short"
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="magicfit_combined_render_too_short",
+                ),
+                reason="magicfit_combined_render_too_short",
+                provider_key="magicfit",
+            )
             return render_log
         continuity_ok, continuity_reason, continuity_metrics = _video_continuous_shot_gate(delivery_video)
         render_log["continuous_shot_gate"] = continuity_metrics
         if not continuity_ok:
             render_log["status"] = "failed"
             render_log["reason"] = continuity_reason or "continuous_shot_gate_failed"
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason=continuity_reason or "continuous_shot_gate_failed",
+                ),
+                reason=continuity_reason or "continuous_shot_gate_failed",
+                provider_key="magicfit",
+            )
             return render_log
         render_log["slowdown_status"] = "disabled_provider_clean_render"
         bundle_dir.mkdir(parents=True, exist_ok=True)
@@ -15704,11 +16059,33 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
             render_log["status"] = "failed"
             render_log["reason"] = "magicfit_manifest_update_failed"
             render_log["error"] = str(exc)
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="magicfit_manifest_update_failed",
+                ),
+                reason="magicfit_manifest_update_failed",
+                provider_key="magicfit",
+            )
             return render_log
     render_log["status"] = "rendered"
     render_log["video_file_path"] = str(bundle_video_path)
     render_log["sidecar_path"] = str(bundle_sidecar_path) if bundle_sidecar_path.exists() else ""
     render_log["provider_key"] = "magicfit"
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="ready",
+        progress_pct=100,
+        detail="Walkthrough is ready on this page.",
+        provider_key="magicfit",
+        step_index=max(planned_segments, len(segment_paths)),
+        step_total=max(planned_segments, len(segment_paths)),
+    )
     return render_log
 
 
@@ -15781,6 +16158,14 @@ def _render_onemin_property_flythrough_into_hosted_tour(
         "sidecar_relpath": sidecar_relpath,
         "required_duration_seconds": required_duration_seconds,
     }
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="processing",
+        progress_pct=8,
+        detail="Preparing walkthrough route.",
+        provider_key="onemin_i2v",
+    )
     with tempfile.TemporaryDirectory(prefix="onemin-property-tour-") as tmp_dir:
         tmp_path = Path(tmp_dir)
         route_labels = [str(item or "").strip() for item in room_visit_plan if str(item or "").strip()] or [
@@ -15824,6 +16209,21 @@ def _render_onemin_property_flythrough_into_hosted_tour(
         accumulated_duration_seconds = 0.0
         current_first_frame = seed_image
         for segment_index in range(1, max_segments + 1):
+            effective_total_segments = max(planned_segments, segment_index)
+            segment_start_progress = min(
+                88,
+                max(12, int(round(12 + ((max(segment_index - 1, 0) / float(max(effective_total_segments, 1))) * 72)))),
+            )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="processing",
+                progress_pct=segment_start_progress,
+                detail=f"Rendering walkthrough segment {min(segment_index, effective_total_segments)} of {effective_total_segments}.",
+                provider_key="onemin_i2v",
+                step_index=segment_index,
+                step_total=effective_total_segments,
+            )
             focus = route_labels[(segment_index - 1) % len(route_labels)]
             segment_prompt = (
                 f"{prompt} Segment {segment_index} of one continuous first-person walkthrough. "
@@ -15887,6 +16287,20 @@ def _render_onemin_property_flythrough_into_hosted_tour(
                         ],
                     }
                 )
+                _write_hosted_property_visual_progress(
+                    tour_url=tour_url,
+                    request_kind="flythrough",
+                    status="failed",
+                    progress_pct=0,
+                    detail=_property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason="onemin_segment_subprocess_timeout",
+                    ),
+                    reason="onemin_segment_subprocess_timeout",
+                    provider_key="onemin_i2v",
+                    step_index=segment_index,
+                    step_total=effective_total_segments,
+                )
                 return render_log
             segment_duration_seconds = _video_duration_seconds(str(tmp_video)) if tmp_video.exists() else 0.0
             segment_log = {
@@ -15900,20 +16314,78 @@ def _render_onemin_property_flythrough_into_hosted_tour(
             segment_logs.append(segment_log)
             if completed.returncode != 0 or not tmp_video.exists() or segment_duration_seconds <= 0:
                 render_log.update({"status": "failed", "reason": "onemin_segment_render_failed", "segments": segment_logs})
+                _write_hosted_property_visual_progress(
+                    tour_url=tour_url,
+                    request_kind="flythrough",
+                    status="failed",
+                    progress_pct=0,
+                    detail=_property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason="onemin_segment_render_failed",
+                    ),
+                    reason="onemin_segment_render_failed",
+                    provider_key="onemin_i2v",
+                    step_index=segment_index,
+                    step_total=effective_total_segments,
+                )
                 return render_log
             segment_continuity_ok, segment_continuity_reason, segment_continuity_metrics = _video_continuous_shot_gate(tmp_video)
             segment_log["continuous_shot_gate"] = segment_continuity_metrics
             if not segment_continuity_ok:
                 render_log.update({"status": "failed", "reason": segment_continuity_reason or "onemin_segment_continuity_failed", "segments": segment_logs})
+                failure_reason = segment_continuity_reason or "onemin_segment_continuity_failed"
+                _write_hosted_property_visual_progress(
+                    tour_url=tour_url,
+                    request_kind="flythrough",
+                    status="failed",
+                    progress_pct=0,
+                    detail=_property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason=failure_reason,
+                    ),
+                    reason=failure_reason,
+                    provider_key="onemin_i2v",
+                    step_index=segment_index,
+                    step_total=effective_total_segments,
+                )
                 return render_log
             if segment_paths:
                 boundary_ok, boundary_reason, boundary_metrics = _video_segment_boundary_gate([segment_paths[-1], tmp_video])
                 segment_log["boundary_gate"] = boundary_metrics
                 if not boundary_ok:
                     render_log.update({"status": "failed", "reason": boundary_reason or "onemin_continuation_boundary_failed", "segments": segment_logs})
+                    failure_reason = boundary_reason or "onemin_continuation_boundary_failed"
+                    _write_hosted_property_visual_progress(
+                        tour_url=tour_url,
+                        request_kind="flythrough",
+                        status="failed",
+                        progress_pct=0,
+                        detail=_property_visual_unavailable_detail(
+                            request_kind="flythrough",
+                            reason=failure_reason,
+                        ),
+                        reason=failure_reason,
+                        provider_key="onemin_i2v",
+                        step_index=segment_index,
+                        step_total=effective_total_segments,
+                    )
                     return render_log
             segment_paths.append(tmp_video)
             accumulated_duration_seconds += segment_duration_seconds
+            accepted_progress = min(
+                92,
+                max(18, int(round(18 + ((min(segment_index, effective_total_segments) / float(max(effective_total_segments, 1))) * 70)))),
+            )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="processing",
+                progress_pct=accepted_progress,
+                detail=f"Rendered walkthrough segment {min(segment_index, effective_total_segments)} of {effective_total_segments}.",
+                provider_key="onemin_i2v",
+                step_index=segment_index,
+                step_total=effective_total_segments,
+            )
             if tmp_sidecar.exists():
                 with contextlib.suppress(Exception):
                     segment_sidecars.append(json.loads(tmp_sidecar.read_text(encoding="utf-8")))
@@ -15931,6 +16403,20 @@ def _render_onemin_property_flythrough_into_hosted_tour(
                         "segments": segment_logs,
                     }
                 )
+                _write_hosted_property_visual_progress(
+                    tour_url=tour_url,
+                    request_kind="flythrough",
+                    status="failed",
+                    progress_pct=0,
+                    detail=_property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason="onemin_continuation_frame_extract_failed",
+                    ),
+                    reason="onemin_continuation_frame_extract_failed",
+                    provider_key="onemin_i2v",
+                    step_index=segment_index,
+                    step_total=effective_total_segments,
+                )
                 return render_log
             current_first_frame = next_first_frame
         render_log["duration_seconds"] = accumulated_duration_seconds
@@ -15938,14 +16424,48 @@ def _render_onemin_property_flythrough_into_hosted_tour(
         if accumulated_duration_seconds + 0.25 < required_duration_seconds:
             render_log["status"] = "failed"
             render_log["reason"] = "onemin_render_too_short_after_segments"
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="onemin_render_too_short_after_segments",
+                ),
+                reason="onemin_render_too_short_after_segments",
+                provider_key="onemin_i2v",
+            )
             return render_log
         delivery_video = tmp_path / "tour.combined.mp4"
+        _write_hosted_property_visual_progress(
+            tour_url=tour_url,
+            request_kind="flythrough",
+            status="processing",
+            progress_pct=94,
+            detail=f"Joining {len(segment_paths)} rendered walkthrough segment{'s' if len(segment_paths) != 1 else ''}.",
+            provider_key="onemin_i2v",
+            step_index=len(segment_paths),
+            step_total=max(planned_segments, len(segment_paths)),
+        )
         try:
             boundary_metrics = _concat_video_segments(segment_paths, delivery_video)
         except Exception as exc:
             render_log["status"] = "failed"
             render_log["reason"] = "onemin_segment_concat_failed"
             render_log["error"] = compact_text(str(exc or ""), fallback="", limit=180)
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="onemin_segment_concat_failed",
+                ),
+                reason="onemin_segment_concat_failed",
+                provider_key="onemin_i2v",
+            )
             return render_log
         combined_duration_seconds = _video_duration_seconds(str(delivery_video))
         render_log["combined_duration_seconds"] = combined_duration_seconds
@@ -15955,6 +16475,18 @@ def _render_onemin_property_flythrough_into_hosted_tour(
         if not continuity_ok:
             render_log["status"] = "failed"
             render_log["reason"] = continuity_reason or "continuous_shot_gate_failed"
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason=continuity_reason or "continuous_shot_gate_failed",
+                ),
+                reason=continuity_reason or "continuous_shot_gate_failed",
+                provider_key="onemin_i2v",
+            )
             return render_log
         bundle_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(delivery_video, bundle_video_path)
@@ -15989,10 +16521,32 @@ def _render_onemin_property_flythrough_into_hosted_tour(
             render_log["status"] = "failed"
             render_log["reason"] = "onemin_manifest_update_failed"
             render_log["error"] = str(exc)
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="onemin_manifest_update_failed",
+                ),
+                reason="onemin_manifest_update_failed",
+                provider_key="onemin_i2v",
+            )
             return render_log
     render_log["status"] = "rendered"
     render_log["video_file_path"] = str(bundle_video_path)
     render_log["sidecar_path"] = str(bundle_sidecar_path) if bundle_sidecar_path.exists() else ""
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="ready",
+        progress_pct=100,
+        detail="Walkthrough is ready on this page.",
+        provider_key="onemin_i2v",
+        step_index=max(planned_segments, len(segment_paths)),
+        step_total=max(planned_segments, len(segment_paths)),
+    )
     return render_log
 
 
@@ -16073,6 +16627,14 @@ def _render_mootion_property_flythrough_into_hosted_tour(
         "required_duration_seconds": required_duration_seconds,
         "route_labels": route_labels,
     }
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="processing",
+        progress_pct=10,
+        detail="Sending walkthrough render to Mootion.",
+        provider_key="mootion",
+    )
     with tempfile.TemporaryDirectory(prefix="mootion-property-tour-") as tmp_dir:
         tmp_path = Path(tmp_dir)
         packet_path = tmp_path / "packet.json"
@@ -16128,6 +16690,18 @@ def _render_mootion_property_flythrough_into_hosted_tour(
                     "timeout_seconds": timeout_seconds,
                 }
             )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="mootion_subprocess_timeout",
+                ),
+                reason="mootion_subprocess_timeout",
+                provider_key="mootion",
+            )
             return render_log
         stdout_text = str(completed.stdout or "").strip()
         stderr_text = compact_text(str(completed.stderr or "").strip(), fallback="", limit=1200)
@@ -16140,6 +16714,18 @@ def _render_mootion_property_flythrough_into_hosted_tour(
                     "stderr_tail": stderr_text,
                     "returncode": int(completed.returncode),
                 }
+            )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="mootion_worker_failed",
+                ),
+                reason="mootion_worker_failed",
+                provider_key="mootion",
             )
             return render_log
         try:
@@ -16157,6 +16743,18 @@ def _render_mootion_property_flythrough_into_hosted_tour(
                         "stderr_tail": stderr_text,
                     }
                 )
+                _write_hosted_property_visual_progress(
+                    tour_url=tour_url,
+                    request_kind="flythrough",
+                    status="failed",
+                    progress_pct=0,
+                    detail=_property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason="mootion_worker_output_invalid",
+                    ),
+                    reason="mootion_worker_output_invalid",
+                    provider_key="mootion",
+                )
                 return render_log
         if not isinstance(worker_payload, dict):
             render_log.update(
@@ -16166,6 +16764,18 @@ def _render_mootion_property_flythrough_into_hosted_tour(
                     "stdout_tail": compact_text(stdout_text, fallback="", limit=1200),
                     "stderr_tail": stderr_text,
                 }
+            )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="mootion_worker_output_invalid",
+                ),
+                reason="mootion_worker_output_invalid",
+                provider_key="mootion",
             )
             return render_log
         render_status = str(worker_payload.get("render_status") or "").strip().lower()
@@ -16181,6 +16791,18 @@ def _render_mootion_property_flythrough_into_hosted_tour(
                     "stderr_tail": stderr_text,
                 }
             )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="mootion_video_missing",
+                ),
+                reason="mootion_video_missing",
+                provider_key="mootion",
+            )
             return render_log
         asset_path = Path(asset_path_text).resolve()
         if not asset_path.exists() or not asset_path.is_file():
@@ -16193,8 +16815,28 @@ def _render_mootion_property_flythrough_into_hosted_tour(
                     "editor_url": str(worker_payload.get("editor_url") or "").strip(),
                 }
             )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="mootion_video_missing",
+                ),
+                reason="mootion_video_missing",
+                provider_key="mootion",
+            )
             return render_log
         bundle_dir.mkdir(parents=True, exist_ok=True)
+        _write_hosted_property_visual_progress(
+            tour_url=tour_url,
+            request_kind="flythrough",
+            status="processing",
+            progress_pct=92,
+            detail="Finalizing walkthrough delivery.",
+            provider_key="mootion",
+        )
         video_relpath = f"tour-mootion-{render_token}{asset_path.suffix.lower() or '.webm'}"
         sidecar_relpath = "tour.mootion.json"
         bundle_video_path = (bundle_dir / video_relpath).resolve()
@@ -16208,6 +16850,18 @@ def _render_mootion_property_flythrough_into_hosted_tour(
             render_log["status"] = "failed"
             render_log["reason"] = "mootion_render_too_short"
             render_log["editor_url"] = str(worker_payload.get("editor_url") or "").strip()
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="mootion_render_too_short",
+                ),
+                reason="mootion_render_too_short",
+                provider_key="mootion",
+            )
             return render_log
         continuity_ok, continuity_reason, continuity_metrics = _video_continuous_shot_gate(bundle_video_path)
         render_log["continuous_shot_gate"] = continuity_metrics
@@ -16215,6 +16869,18 @@ def _render_mootion_property_flythrough_into_hosted_tour(
             render_log["status"] = "failed"
             render_log["reason"] = continuity_reason or "continuous_shot_gate_failed"
             render_log["editor_url"] = str(worker_payload.get("editor_url") or "").strip()
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason=continuity_reason or "continuous_shot_gate_failed",
+                ),
+                reason=continuity_reason or "continuous_shot_gate_failed",
+                provider_key="mootion",
+            )
             return render_log
         bundle_sidecar_path.write_text(
             json.dumps(
@@ -16253,11 +16919,31 @@ def _render_mootion_property_flythrough_into_hosted_tour(
             render_log["status"] = "failed"
             render_log["reason"] = "mootion_manifest_update_failed"
             render_log["error"] = str(exc)
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="mootion_manifest_update_failed",
+                ),
+                reason="mootion_manifest_update_failed",
+                provider_key="mootion",
+            )
             return render_log
     render_log["status"] = "rendered"
     render_log["video_file_path"] = str(bundle_video_path)
     render_log["sidecar_path"] = str(bundle_sidecar_path) if bundle_sidecar_path.exists() else ""
     render_log["editor_url"] = str(worker_payload.get("editor_url") or "").strip()
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="ready",
+        progress_pct=100,
+        detail="Walkthrough is ready on this page.",
+        provider_key="mootion",
+    )
     return render_log
 
 
@@ -16274,6 +16960,14 @@ def _render_property_flythrough_into_hosted_tour(
     tour_context_json: dict[str, object] | None = None,
 ) -> dict[str, object]:
     normalized_preferred_provider = _normalize_provider_preference(preferred_provider_key)
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="processing",
+        progress_pct=4,
+        detail="Preparing walkthrough render.",
+        provider_key=normalized_preferred_provider,
+    )
 
     route = route_property_media_task(
         MediaRequirement(
@@ -16291,6 +16985,18 @@ def _render_property_flythrough_into_hosted_tour(
         "media_route_candidates": list(route.candidates),
     }
     if not route.ok:
+        _write_hosted_property_visual_progress(
+            tour_url=tour_url,
+            request_kind="flythrough",
+            status="failed",
+            progress_pct=0,
+            detail=_property_visual_unavailable_detail(
+                request_kind="flythrough",
+                reason=route.reason or "flythrough_provider_unavailable",
+            ),
+            reason=route.reason or "flythrough_provider_unavailable",
+            provider_key=normalized_preferred_provider or route.provider_key,
+        )
         return {"status": "failed", "reason": route.reason or "flythrough_provider_unavailable", **route_payload}
     if route.provider_key == "mootion":
         rendered = _render_mootion_property_flythrough_into_hosted_tour(
@@ -16328,6 +17034,18 @@ def _render_property_flythrough_into_hosted_tour(
             tour_context_json=tour_context_json,
         )
         return {**route_payload, **dict(rendered or {})}
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="failed",
+        progress_pct=0,
+        detail=_property_visual_unavailable_detail(
+            request_kind="flythrough",
+            reason="selected_flythrough_provider_not_implemented",
+        ),
+        reason="selected_flythrough_provider_not_implemented",
+        provider_key=route.provider_key or normalized_preferred_provider,
+    )
     return {"status": "failed", "reason": "selected_flythrough_provider_not_implemented", **route_payload}
 
 
@@ -26793,31 +27511,52 @@ class ProductService:
         principal_id: str,
         property_url: str,
         request_kind: str = "tour",
+        run_id: str = "",
     ) -> HumanTask | None:
         normalized_principal = str(principal_id or "").strip()
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         normalized_request_kind = _normalize_property_visual_request_kind(request_kind)
+        normalized_run_id = str(run_id or "").strip()
         if not normalized_principal or not normalized_url:
             return None
         database_url = _property_search_run_database_url()
         if not database_url:
+            normalized_target_run_id = normalized_run_id
             latest: HumanTask | None = None
-            for row in self._container.orchestrator.list_human_tasks(
-                principal_id=normalized_principal,
-                status=None,
-                limit=300,
-            ):
+            def _is_matching_followup(row: HumanTask) -> bool:
                 if str(getattr(row, "task_type", "") or "").strip() != "property_tour_followup":
-                    continue
+                    return False
                 input_json = dict(getattr(row, "input_json", {}) or {})
                 task_url = urllib.parse.urldefrag(str(input_json.get("property_url") or "").strip())[0]
                 if task_url != normalized_url:
-                    continue
+                    return False
                 task_kind = _normalize_property_visual_request_kind(input_json.get("request_kind"))
                 if task_kind != normalized_request_kind:
-                    continue
-                if latest is None or str(getattr(row, "updated_at", "") or "") > str(getattr(latest, "updated_at", "") or ""):
-                    latest = row
+                    return False
+                if normalized_target_run_id:
+                    task_run_id = str(input_json.get("run_id") or "").strip()
+                    if task_run_id and task_run_id != normalized_target_run_id:
+                        return False
+                return True
+
+            for row in self._container.orchestrator.list_human_tasks(
+                principal_id=normalized_principal,
+                status=None,
+                limit=500,
+            ):
+                if _is_matching_followup(row):
+                    if latest is None or str(getattr(row, "updated_at", "") or "") > str(getattr(latest, "updated_at", "") or ""):
+                        latest = row
+            if latest is None and normalized_target_run_id:
+                normalized_target_run_id = ""
+                for row in self._container.orchestrator.list_human_tasks(
+                    principal_id=normalized_principal,
+                    status=None,
+                    limit=500,
+                ):
+                    if _is_matching_followup(row):
+                        if latest is None or str(getattr(row, "updated_at", "") or "") > str(getattr(latest, "updated_at", "") or ""):
+                            latest = row
             return latest
         try:
             import psycopg
@@ -26829,29 +27568,44 @@ class ProductService:
                 return value.isoformat()
             return str(value or "")
 
-        with psycopg.connect(database_url, autocommit=True) as conn:
-            with conn.cursor() as cur:
-                request_kinds = {normalized_request_kind}
-                if normalized_request_kind == "flythrough":
-                    request_kinds.update({"generated_reconstruction_walkthrough", "walkthrough"})
-                cur.execute(
-                    """
-                    SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
-                           authority_required, why_human, quality_rubric_json, input_json, desired_output_json, priority,
-                           sla_due_at, status, assignment_state, assigned_operator_id, assignment_source, assigned_at,
-                           assigned_by_actor_id, resolution, resume_session_on_return, returned_payload_json,
-                           provenance_json, created_at, updated_at
-                    FROM human_tasks
-                    WHERE principal_id = %s
-                      AND task_type = 'property_tour_followup'
-                      AND input_json ->> 'property_url' = %s
-                      AND COALESCE(input_json ->> 'request_kind', 'tour') = ANY(%s)
-                    ORDER BY updated_at DESC, created_at DESC, human_task_id DESC
-                    LIMIT 1
-                    """,
-                    (normalized_principal, normalized_url, list(request_kinds)),
-                )
-                row = cur.fetchone()
+        request_kinds = {normalized_request_kind}
+        if normalized_request_kind == "flythrough":
+            request_kinds.update({"generated_reconstruction_walkthrough", "walkthrough"})
+        request_kind_list = list(request_kinds)
+
+        def _query_followup_db(target_run_id: str) -> list[tuple] | None:
+            normalized_target_run_id = str(target_run_id or "").strip()
+            where_run_clause = (
+                "                      AND COALESCE(input_json ->> 'run_id', '') = %s\n"
+                if normalized_target_run_id
+                else ""
+            )
+            query = f"""
+                SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
+                       authority_required, why_human, quality_rubric_json, input_json, desired_output_json, priority,
+                       sla_due_at, status, assignment_state, assigned_operator_id, assignment_source, assigned_at,
+                       assigned_by_actor_id, resolution, resume_session_on_return, returned_payload_json,
+                       provenance_json, created_at, updated_at
+                FROM human_tasks
+                WHERE principal_id = %s
+                  AND task_type = 'property_tour_followup'
+                  AND input_json ->> 'property_url' = %s
+                  AND COALESCE(input_json ->> 'request_kind', 'tour') = ANY(%s)
+{where_run_clause}
+                ORDER BY updated_at DESC, created_at DESC, human_task_id DESC
+                LIMIT 1
+                """
+            params: list[object] = [normalized_principal, normalized_url, request_kind_list]
+            if normalized_target_run_id:
+                params.append(normalized_target_run_id)
+            with psycopg.connect(database_url, autocommit=True) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, tuple(params))
+                    return cur.fetchone()
+
+        row = _query_followup_db(normalized_run_id)
+        if row is None and normalized_run_id:
+            row = _query_followup_db("")
         if not row:
             return None
         (
@@ -31260,7 +32014,13 @@ class ProductService:
                 reversible=True,
             )
 
-    def _snapshot_property_search_run(self, *, run_id: str, principal_id: str) -> dict[str, object] | None:
+    def _snapshot_property_search_run(
+        self,
+        *,
+        run_id: str,
+        principal_id: str,
+        allow_finalization_notifications: bool = True,
+    ) -> dict[str, object] | None:
         normalized_run_id = str(run_id or "").strip()
         normalized_principal = str(principal_id or "").strip()
         if not normalized_run_id or not normalized_principal:
@@ -31373,6 +32133,7 @@ class ProductService:
             principal_id=normalized_principal,
             run_id=normalized_run_id,
             state=dict(state),
+            allow_notifications=allow_finalization_notifications,
         )
         summary = dict(state.get("summary") or {})
         summary = _state_property_search_run_sync_summary(
@@ -32195,6 +32956,7 @@ class ProductService:
         snapshot = self._snapshot_property_search_run(
             run_id=normalized_run_id,
             principal_id=normalized_principal,
+            allow_finalization_notifications=False,
         )
         if not isinstance(snapshot, dict):
             return
@@ -32324,6 +33086,7 @@ class ProductService:
         snapshot = self._snapshot_property_search_run(
             run_id=normalized_run_id,
             principal_id=normalized_principal,
+            allow_finalization_notifications=False,
         )
         if not isinstance(snapshot, dict):
             return {}
@@ -32648,6 +33411,7 @@ class ProductService:
             variant_key = str(task_input.get("variant_key") or "layout_first").strip() or "layout_first"
             recipient_email = str(task_input.get("recipient_email") or "").strip().lower()
             blocked_reason = str(task_input.get("blocked_reason") or "").strip()
+            is_user_requested_visual = blocked_reason == "user_requested_visual_generation"
             allow_floorplan_only = bool(task_input.get("allow_floorplan_only"))
             diorama_style_hint = _compact_diorama_style_hint(str(task_input.get("diorama_style_hint") or ""), max_length=180)
             walkthrough_provider_key = str(task_input.get("walkthrough_provider_key") or "").strip()
@@ -32745,6 +33509,7 @@ class ProductService:
                     requested_at=existing_requested_at,
                     status_updated_at=existing_status_updated_at,
                 )
+                and not (is_user_requested_visual and existing_status in {"queued", "pending"})
             ):
                 continue
             processing_state = {
@@ -32886,12 +33651,32 @@ class ProductService:
                 )
                 continue
             resolution = str(result.get("status") or "").strip().lower() or "completed"
+            requested_status = str(
+                result.get("flythrough_status") if request_kind == "flythrough" else result.get("tour_status") or ""
+            ).strip().lower()
+            requested_url = str(
+                result.get("flythrough_url") if request_kind == "flythrough" else result.get("tour_url") or ""
+            ).strip()
+            requested_reason = str(
+                result.get("flythrough_reason") if request_kind == "flythrough" else result.get("blocked_reason") or ""
+            ).strip()
+            terminal_requested_status = _property_visual_terminal_status_for_reason(
+                request_kind=request_kind,
+                reason=requested_reason,
+            )
             if resolution == "created":
-                requested_status = str(result.get("flythrough_status") if request_kind == "flythrough" else result.get("tour_status") or "").strip().lower()
                 if requested_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
                     resolution = requested_status
-                elif (str(result.get("flythrough_url") or "").strip() if request_kind == "flythrough" else str(result.get("tour_url") or "").strip()):
+                elif requested_status in {"ready", "blocked", "failed", "skipped", "not_applicable"}:
+                    resolution = requested_status
+                elif requested_url:
                     resolution = "ready"
+                elif terminal_requested_status:
+                    resolution = terminal_requested_status
+            elif resolution in {"failed", "missing", "suppressed"} and terminal_requested_status:
+                resolution = terminal_requested_status
+            elif _property_tour_status_is_pending(resolution) and terminal_requested_status and not requested_url:
+                resolution = terminal_requested_status
             if resolution in {"blocked", "failed", "skipped", "not_applicable"}:
                 blocked_total += 1
             if _property_tour_status_is_pending(resolution):
@@ -32967,6 +33752,13 @@ class ProductService:
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         normalized_source_ref = str(source_ref or normalized_property_url).strip()
         resolved_style_hint = _compact_diorama_style_hint(str(diorama_style_hint or ""), max_length=180)
+        property_preferences = dict(
+            self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {}
+        )
+        commercial_snapshot = property_commercial_snapshot(property_preferences)
+        plan_key = normalize_property_plan_key(commercial_snapshot.get("current_plan_key") or "free")
+        priority_queue_active = plan_key in {"plus", "agent"}
+        visual_worker_limit = max(1, min(4, int(property_worker_cap(plan_key) or 1)))
         if not normalized_property_url:
             raise ValueError("property_tour_url_missing")
         has_workbench_context = any(
@@ -33017,8 +33809,8 @@ class ProductService:
                 human_task_id = ""
             status_label = "Walkthrough queued" if normalized_kind == "flythrough" else "3D tour queued"
             status_detail = (
-                "Queued. This page updates automatically."
-                if normalized_kind == "flythrough"
+                "Priority queue active. This page updates automatically."
+                if priority_queue_active
                 else "Queued. This page updates automatically."
             )
             eta_label = _property_visual_eta_label(request_kind=normalized_kind, status="queued")
@@ -33097,7 +33889,7 @@ class ProductService:
             self._start_property_tour_followup_worker(
                 principal_id=principal_id,
                 actor=str(actor or "property_visual_request").strip() or "property_visual_request",
-                limit=2,
+                limit=visual_worker_limit,
             )
             return payload
         base_result = self.create_willhaben_property_tour(
@@ -33170,6 +33962,10 @@ class ProductService:
                 payload["flythrough_status"] = flythrough_status
                 payload["flythrough_reason"] = str(flythrough_result.get("reason") or "").strip()
                 payload["flythrough_raw_status"] = str(raw_flythrough_result.get("status") or "").strip().lower()
+                terminal_flythrough_status = _property_visual_terminal_status_for_reason(
+                    request_kind="flythrough",
+                    reason=str(payload.get("flythrough_reason") or "").strip(),
+                )
                 if flythrough_url:
                     status_label = "Walkthrough ready"
                     status_detail = "Walkthrough is ready on this page."
@@ -33184,6 +33980,16 @@ class ProductService:
                 elif flythrough_status in {"processing", "running", "in_progress", "started"}:
                     status_label = "Walkthrough rendering"
                     status_detail = "Rendering now. Opens here when ready."
+                elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable", "suppressed", "missing"} or terminal_flythrough_status:
+                    payload["flythrough_status"] = terminal_flythrough_status or (
+                        "skipped" if flythrough_status in {"skipped", "not_applicable", "suppressed"} else "blocked"
+                    )
+                    flythrough_status = str(payload.get("flythrough_status") or "").strip().lower()
+                    status_label = "Walkthrough not ready"
+                    status_detail = _property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason=str(payload.get("flythrough_reason") or "").strip(),
+                    )
                 else:
                     payload["flythrough_status"] = "pending"
                     status_label = "Walkthrough queued"
@@ -33337,11 +34143,18 @@ class ProductService:
         normalized_candidate_ref = str(candidate_ref or "").strip()
         normalized_source_ref = str(source_ref or "").strip()
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        property_preferences = dict(
+            self._container.onboarding.status(principal_id=normalized_principal).get("property_search_preferences") or {}
+        ) if normalized_principal else {}
+        commercial_snapshot = property_commercial_snapshot(property_preferences)
+        plan_key = normalize_property_plan_key(commercial_snapshot.get("current_plan_key") or "free")
+        priority_queue_active = plan_key in {"plus", "agent"}
         if not normalized_principal or not normalized_run_id:
             raise ValueError("property_visual_status_run_missing")
         snapshot = self._snapshot_property_search_run(
             run_id=normalized_run_id,
             principal_id=normalized_principal,
+            allow_finalization_notifications=False,
         )
         if not isinstance(snapshot, dict):
             raise ValueError("property_visual_status_run_missing")
@@ -33415,9 +34228,70 @@ class ProductService:
                     candidate_row = dict(candidate)
                     candidate_row.setdefault("source_label", source_label)
                     _append_if_match(candidate_row, source_label)
-        if not matched_candidates:
-            raise ValueError("property_visual_status_candidate_missing")
-        matched_candidate = dict(sorted(matched_candidates, key=_candidate_priority, reverse=True)[0])
+        if matched_candidates:
+            matched_candidate = dict(sorted(matched_candidates, key=_candidate_priority, reverse=True)[0])
+        else:
+            latest_followup = (
+                self._latest_property_tour_followup(
+                    principal_id=normalized_principal,
+                    property_url=normalized_property_url,
+                    request_kind=normalized_kind,
+                    run_id=normalized_run_id,
+                )
+                if normalized_property_url
+                else None
+            )
+            if latest_followup is None:
+                raise ValueError("property_visual_status_candidate_missing")
+            followup_payload = (
+                dict(getattr(latest_followup, "returned_payload_json", {}) or {})
+                if isinstance(getattr(latest_followup, "returned_payload_json", None), dict)
+                else {}
+            )
+            followup_status = str(getattr(latest_followup, "status", "") or "").strip().lower()
+            followup_resolution = str(getattr(latest_followup, "resolution", "") or "").strip().lower()
+            created_at = str(getattr(latest_followup, "created_at", "") or "").strip()
+            updated_at = str(getattr(latest_followup, "updated_at", "") or "").strip()
+            matched_candidate = {
+                "title": str(followup_payload.get("title") or "Selected property").strip() or "Selected property",
+                "property_url": normalized_property_url,
+                "source_ref": normalized_source_ref,
+                "tour_url": str(followup_payload.get("tour_url") or "").strip(),
+                "vendor_tour_url": str(followup_payload.get("vendor_tour_url") or "").strip(),
+                "tour_status": str(
+                    followup_payload.get("tour_status")
+                    or (followup_payload.get("status") if normalized_kind == "tour" else "")
+                    or ("pending" if normalized_kind == "tour" and followup_status == "pending" else "")
+                    or followup_resolution
+                ).strip().lower(),
+                "tour_eta_minutes": str(followup_payload.get("tour_eta_minutes") or "").strip(),
+                "tour_requested_at": str(followup_payload.get("tour_requested_at") or created_at or "").strip(),
+                "tour_status_updated_at": str(followup_payload.get("tour_status_updated_at") or updated_at or "").strip(),
+                "tour_progress_pct": str(followup_payload.get("progress_pct") or "").strip() if normalized_kind == "tour" else "",
+                "flythrough_url": str(followup_payload.get("flythrough_url") or "").strip(),
+                "flythrough_status": str(
+                    followup_payload.get("flythrough_status")
+                    or (followup_payload.get("status") if normalized_kind == "flythrough" else "")
+                    or ("queued" if normalized_kind == "flythrough" and followup_status == "pending" else "")
+                    or followup_resolution
+                ).strip().lower(),
+                "flythrough_eta_minutes": str(followup_payload.get("flythrough_eta_minutes") or "").strip(),
+                "flythrough_requested_at": str(followup_payload.get("flythrough_requested_at") or created_at or "").strip(),
+                "flythrough_status_updated_at": str(followup_payload.get("flythrough_status_updated_at") or updated_at or "").strip(),
+                "flythrough_progress_pct": str(followup_payload.get("progress_pct") or "").strip() if normalized_kind == "flythrough" else "",
+                "blocked_reason": str(
+                    followup_payload.get("blocked_reason")
+                    or followup_payload.get("reason")
+                    or followup_payload.get("detail")
+                    or ""
+                ).strip(),
+                "flythrough_reason": str(
+                    followup_payload.get("flythrough_reason")
+                    or followup_payload.get("reason")
+                    or followup_payload.get("detail")
+                    or ""
+                ).strip(),
+            }
 
         tour_url = str(matched_candidate.get("tour_url") or "").strip()
         flythrough_url = str(matched_candidate.get("flythrough_url") or "").strip()
@@ -33432,6 +34306,10 @@ class ProductService:
             ready_url = _hosted_property_tour_verified_open_url(tour_url)
         elif normalized_kind == "flythrough":
             ready_url = _hosted_property_tour_walkthrough_asset_url(tour_url) or _published_walkthrough_asset_url(flythrough_url)
+        live_progress = _hosted_property_visual_progress_snapshot(
+            tour_url,
+            request_kind=normalized_kind,
+        ) if tour_url else {}
         eta_minutes = (
             str(matched_candidate.get("flythrough_eta_minutes") or "").strip()
             if normalized_kind == "flythrough"
@@ -33466,10 +34344,21 @@ class ProductService:
             reason = ""
         if blocked_reason.lower() in {"none", "null"}:
             blocked_reason = ""
+        live_progress_status = str(live_progress.get("status") or "").strip().lower()
+        live_progress_detail = str(live_progress.get("detail") or "").strip()
+        live_progress_reason = str(live_progress.get("reason") or "").strip()
+        live_progress_updated_at = str(live_progress.get("updated_at") or "").strip()
+        if live_progress_reason and not reason:
+            reason = live_progress_reason
+            if normalized_kind == "tour" and not blocked_reason:
+                blocked_reason = live_progress_reason
+        if live_progress_updated_at:
+            request_status_updated_at = live_progress_updated_at
         latest_followup = self._latest_property_tour_followup(
             principal_id=normalized_principal,
             property_url=str(matched_candidate.get("property_url") or normalized_property_url).strip(),
             request_kind=normalized_kind,
+            run_id=normalized_run_id,
         )
         if latest_followup is not None:
             followup_status = str(getattr(latest_followup, "status", "") or "").strip().lower()
@@ -33493,9 +34382,6 @@ class ProductService:
                     if followup_reason:
                         reason = followup_reason
                         blocked_reason = followup_reason
-                    else:
-                        reason = ""
-                        blocked_reason = ""
                     eta_minutes = ""
                 elif followup_resolution in {"ready", "sent"}:
                     followup_tour_url = str(followup_payload.get("tour_url") or "").strip()
@@ -33510,6 +34396,15 @@ class ProductService:
                     status_value = followup_resolution
             elif followup_status == "pending":
                 status_value = "processing" if normalized_kind == "tour" else "queued"
+        if (
+            live_progress_status
+            and not ready_url
+            and (
+                status_value in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
+                or live_progress_status in {"blocked", "failed", "skipped", "not_applicable"}
+            )
+        ):
+            status_value = live_progress_status
         terminal_status_from_reason = _property_visual_terminal_status_for_reason(
             request_kind=normalized_kind,
             reason=reason or blocked_reason,
@@ -33594,11 +34489,26 @@ class ProductService:
             requested_at=request_requested_at,
             status_updated_at=request_status_updated_at,
         )
-        if eta_label.startswith("delayed"):
+        try:
+            live_progress_pct = int(float(str(live_progress.get("progress_pct") or "").strip())) if str(live_progress.get("progress_pct") or "").strip() else 0
+        except Exception:
+            live_progress_pct = 0
+        if live_progress_pct > 0 and not ready_url and status_value not in {"idle", "blocked", "failed", "skipped", "not_applicable"}:
+            progress_pct = live_progress_pct
+        live_stage_label = _hosted_property_visual_progress_stage_label(live_progress)
+        if live_progress_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"} and not ready_url:
+            eta_label = live_stage_label or ""
+        if priority_queue_active and not ready_url and status_value in {"queued", "pending"}:
+            status_detail = "Priority queue active. This render stays ahead of the free queue and appears here when it is ready."
+        elif priority_queue_active and not ready_url and status_value in {"processing", "running", "in_progress", "started", "rendering"}:
+            status_detail = "Priority queue active. Rendering is under way and this request stays ahead of the free queue."
+        if eta_label.startswith("delayed") and not priority_queue_active:
             if status_value in {"queued", "pending"}:
                 status_detail = "Still queued. Taking longer than usual."
             elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
                 status_detail = "Still rendering. Taking longer than usual."
+        elif eta_label.startswith("delayed") and priority_queue_active:
+            eta_label = "priority queue"
         if repair_active and not ready_url and status_value not in {"blocked", "failed", "skipped", "not_applicable"}:
             status_value = "repairing"
             status_label = "Walkthrough in progress" if normalized_kind == "flythrough" else "3D tour in progress"
@@ -33622,6 +34532,10 @@ class ProductService:
                 status_detail = "Walkthrough is being refreshed." if normalized_kind == "flythrough" else "Tour is being refreshed."
             eta_label = "refreshing"
             progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
+        if live_progress_detail and not ready_url and status_value in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:
+            status_detail = live_progress_detail
+        elif live_progress_detail and not ready_url and status_value in {"blocked", "failed", "skipped", "not_applicable"}:
+            status_detail = live_progress_detail
 
         if status_value in {"blocked", "failed", "skipped", "not_applicable"} and not ready_url:
             state_prefix = "flythrough" if normalized_kind == "flythrough" else "tour"
@@ -33680,6 +34594,7 @@ class ProductService:
         principal_id: str,
         run_id: str,
         state: dict[str, object],
+        allow_notifications: bool = True,
     ) -> dict[str, object]:
         normalized_status = str(state.get("status") or "").strip().lower()
         if normalized_status not in {"processed", "completed"}:
@@ -33713,7 +34628,7 @@ class ProductService:
             state = {**dict(state), "summary": refreshed_summary}
         if self._property_search_results_delivery_pending(result=refreshed_summary):
             return state
-        if not self._recent_product_event_exists(
+        if allow_notifications and not self._recent_product_event_exists(
             principal_id=principal_id,
             event_type="property_search_results_ready_email_sent",
             source_id=str(run_id or "").strip(),
@@ -34394,6 +35309,7 @@ class ProductService:
         principal_id: str,
         run_id: str,
         lightweight: bool = False,
+        account_email: str = "",
     ) -> dict[str, object] | None:
         def _coerce_non_negative_int(value: object, *, default: int = 0) -> int:
             try:
@@ -34578,6 +35494,14 @@ class ProductService:
             if not _replacement_parent_refs_from_payload(payload):
                 return False
             return _property_search_replacement_run_is_stale(dict(payload))
+
+        principal_id = self._resolve_property_search_run_owner_principal_id(
+            run_id=run_id,
+            principal_id=principal_id,
+            account_email=account_email,
+        ) or str(principal_id or "").strip()
+        if not str(principal_id or "").strip():
+            return None
 
         if lightweight:
             compact_snapshot = _load_property_search_run_compact_record(run_id=run_id, principal_id=principal_id)
@@ -35023,33 +35947,115 @@ class ProductService:
                     )
         return snapshot
 
+    def _property_search_run_principal_ids(
+        self,
+        *,
+        principal_id: str,
+        account_email: str = "",
+    ) -> tuple[str, ...]:
+        ordered: list[str] = []
+
+        def _add(value: object) -> None:
+            normalized = str(value or "").strip()
+            if normalized and normalized not in ordered:
+                ordered.append(normalized)
+
+        normalized_principal = str(principal_id or "").strip()
+        _add(normalized_principal)
+        email_candidates: list[str] = []
+        for raw_email in (account_email, _principal_email_hint(normalized_principal)):
+            normalized_email = str(raw_email or "").strip().lower()
+            if normalized_email and normalized_email not in email_candidates:
+                email_candidates.append(normalized_email)
+        for email in email_candidates:
+            _add(f"cf-email:{email}")
+            _add(_registration_principal_id_for_email(email))
+            with contextlib.suppress(Exception):
+                for candidate in self._workspace_sign_in_candidates(
+                    email=email,
+                    observation_limit=500,
+                    per_principal_limit=100,
+                ):
+                    _add(candidate.get("principal_id"))
+        return tuple(ordered)
+
+    def _resolve_property_search_run_owner_principal_id(
+        self,
+        *,
+        run_id: str,
+        principal_id: str,
+        account_email: str = "",
+    ) -> str:
+        normalized_run_id = str(run_id or "").strip()
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_run_id:
+            return normalized_principal
+        principal_candidates = self._property_search_run_principal_ids(
+            principal_id=normalized_principal,
+            account_email=account_email,
+        )
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            live_state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id) or {})
+        live_principal_id = str(live_state.get("principal_id") or "").strip()
+        if live_principal_id and live_principal_id in principal_candidates:
+            return live_principal_id
+        for candidate_principal_id in principal_candidates or ((normalized_principal,) if normalized_principal else ()):
+            with contextlib.suppress(Exception):
+                compact = _load_property_search_run_compact_record(
+                    run_id=normalized_run_id,
+                    principal_id=candidate_principal_id,
+                )
+                if isinstance(compact, dict) and str(compact.get("principal_id") or "").strip() == candidate_principal_id:
+                    return candidate_principal_id
+            with contextlib.suppress(Exception):
+                persisted = _load_property_search_run_record(
+                    run_id=normalized_run_id,
+                    principal_id=candidate_principal_id,
+                )
+                if isinstance(persisted, dict) and str(persisted.get("principal_id") or "").strip() == candidate_principal_id:
+                    return candidate_principal_id
+        return normalized_principal
+
     def list_property_search_runs(
         self,
         *,
         principal_id: str,
         limit: int = 8,
         hydrate: bool = True,
+        account_email: str = "",
     ) -> list[dict[str, object]]:
-        normalized_principal = str(principal_id or "").strip()
-        if not normalized_principal:
-            return []
-        records = _list_property_search_run_records(
-            limit=max(int(limit or 0) * 3, int(limit or 0), 1),
-            principal_id=normalized_principal,
-            lightweight=not hydrate,
+        principal_candidates = self._property_search_run_principal_ids(
+            principal_id=principal_id,
+            account_email=account_email,
         )
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal and not principal_candidates:
+            return []
+        records: list[dict[str, object]] = []
+        per_principal_limit = max(int(limit or 0) * 3, int(limit or 0), 1)
+        for candidate_principal_id in principal_candidates or ((normalized_principal,) if normalized_principal else ()):
+            records.extend(
+                _list_property_search_run_records(
+                    limit=per_principal_limit,
+                    principal_id=candidate_principal_id,
+                    lightweight=not hydrate,
+                )
+            )
+        records.sort(key=_property_search_run_activity_sort_key, reverse=True)
         runs: list[dict[str, object]] = []
         seen: set[str] = set()
         for record in records:
-            if str(record.get("principal_id") or "").strip() != normalized_principal:
-                continue
             run_id = str(record.get("run_id") or "").strip()
             if not run_id or run_id in seen:
                 continue
             seen.add(run_id)
             if hydrate:
                 try:
-                    snapshot = self.get_property_search_run_status(principal_id=normalized_principal, run_id=run_id)
+                    snapshot = self.get_property_search_run_status(
+                        principal_id=str(record.get("principal_id") or normalized_principal).strip() or normalized_principal,
+                        run_id=run_id,
+                        account_email=account_email,
+                    )
                 except Exception:
                     snapshot = None
                 runs.append(dict(snapshot or record))
@@ -35064,21 +36070,30 @@ class ProductService:
         *,
         principal_id: str,
         limit: int = 8,
+        account_email: str = "",
     ) -> dict[str, object] | None:
-        normalized_principal = str(principal_id or "").strip()
-        if not normalized_principal:
-            return None
-        records = _list_property_search_run_records(
-            limit=max(int(limit or 0) * 2, int(limit or 0), 1),
-            principal_id=normalized_principal,
-            lightweight=True,
+        principal_candidates = self._property_search_run_principal_ids(
+            principal_id=principal_id,
+            account_email=account_email,
         )
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal and not principal_candidates:
+            return None
+        records: list[dict[str, object]] = []
+        per_principal_limit = max(int(limit or 0) * 2, int(limit or 0), 1)
+        for candidate_principal_id in principal_candidates or ((normalized_principal,) if normalized_principal else ()):
+            records.extend(
+                _list_property_search_run_records(
+                    limit=per_principal_limit,
+                    principal_id=candidate_principal_id,
+                    lightweight=True,
+                )
+            )
+        records.sort(key=_property_search_run_activity_sort_key, reverse=True)
         terminal_statuses = set(_PROPERTY_SEARCH_TERMINAL_STATUSES) | {"not started"}
         best_run: dict[str, object] | None = None
         best_key: tuple[int, int, float, int, int, int, int, float] | None = None
         for record in records:
-            if str(record.get("principal_id") or "").strip() != normalized_principal:
-                continue
             run_id = str(record.get("run_id") or "").strip()
             if not run_id:
                 continue
@@ -35089,8 +36104,9 @@ class ProductService:
             candidate = dict(record)
             with contextlib.suppress(Exception):
                 snapshot = self.get_property_search_run_status(
-                    principal_id=normalized_principal,
+                    principal_id=str(record.get("principal_id") or normalized_principal).strip() or normalized_principal,
                     run_id=run_id,
+                    account_email=account_email,
                 )
                 if isinstance(snapshot, dict) and snapshot:
                     candidate = dict(snapshot)
@@ -35114,19 +36130,25 @@ class ProductService:
         *,
         principal_id: str,
         run_id: str,
+        account_email: str = "",
     ) -> bool:
         normalized_principal = str(principal_id or "").strip()
         normalized_run_id = str(run_id or "").strip()
         if not normalized_principal or not normalized_run_id:
             return False
-        snapshot = self._snapshot_property_search_run(run_id=normalized_run_id, principal_id=normalized_principal)
+        owner_principal_id = self._resolve_property_search_run_owner_principal_id(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+            account_email=account_email,
+        )
+        snapshot = self._snapshot_property_search_run(run_id=normalized_run_id, principal_id=owner_principal_id)
         if not isinstance(snapshot, dict):
             return False
-        if str(snapshot.get("principal_id") or "").strip() != normalized_principal:
+        if str(snapshot.get("principal_id") or "").strip() != owner_principal_id:
             return False
         deleted = _delete_property_search_run_record(
             run_id=normalized_run_id,
-            principal_id=normalized_principal,
+            principal_id=owner_principal_id,
         )
         with _PROPERTY_SEARCH_RUN_LOCK:
             _PROPERTY_SEARCH_RUN_REGISTRY.pop(normalized_run_id, None)
@@ -35137,22 +36159,27 @@ class ProductService:
         *,
         principal_id: str,
         limit: int = 1000,
+        account_email: str = "",
     ) -> dict[str, object]:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
             return {"deleted_count": 0, "run_ids": []}
-        records = _list_property_search_run_records(
-            limit=max(int(limit or 0), 1),
+        records = self.list_property_search_runs(
             principal_id=normalized_principal,
+            limit=max(int(limit or 0), 1),
+            hydrate=False,
+            account_email=account_email,
         )
         deleted_run_ids: list[str] = []
         for record in records:
-            if str(record.get("principal_id") or "").strip() != normalized_principal:
-                continue
             run_id = str(record.get("run_id") or "").strip()
             if not run_id:
                 continue
-            if self.delete_property_search_run(principal_id=normalized_principal, run_id=run_id):
+            if self.delete_property_search_run(
+                principal_id=normalized_principal,
+                run_id=run_id,
+                account_email=account_email,
+            ):
                 deleted_run_ids.append(run_id)
         return {
             "deleted_count": len(deleted_run_ids),

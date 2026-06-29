@@ -822,7 +822,7 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_requires
     )
 
 
-def test_property_billing_route_uses_signed_bridge_when_only_sso_bridge_is_available_but_direct_handoff_requires_second_login(
+def test_property_billing_route_fails_closed_when_only_sso_bridge_is_available_but_direct_handoff_requires_second_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_env(monkeypatch)
@@ -857,8 +857,10 @@ def test_property_billing_route_uses_signed_bridge_when_only_sso_bridge_is_avail
 
     response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 303
-    assert response.headers["location"] == "/app/api/property/billing/bridge-launch"
+    _assert_billing_fail_closed(
+        response,
+        marker="This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now.",
+    )
 
 
 def test_property_billing_route_uses_member_token_handoff_when_direct_handoff_requires_second_login(
@@ -899,7 +901,7 @@ def test_property_billing_route_uses_member_token_handoff_when_direct_handoff_re
     assert response.headers["location"] == "/app/api/property/billing/bridge-launch"
 
 
-def test_property_billing_bridge_launch_redirects_with_signed_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_property_billing_bridge_launch_falls_back_when_only_advisory_bridge_is_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_ENABLED", "1")
@@ -927,19 +929,10 @@ def test_property_billing_bridge_launch_redirects_with_signed_token(monkeypatch:
     )
 
     assert response.status_code == 303
-    parsed = urllib.parse.urlparse(response.headers["location"])
-    query = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
-    payload = verify_brilliant_directories_billing_sso_bridge_token(query["pq_bridge"])
-
-    assert parsed.scheme == "https"
-    assert parsed.netloc == "billing.propertyquarry.com"
-    assert parsed.path == "/sso/propertyquarry"
-    assert query["source"] == "propertyquarry"
-    assert payload["principal_id"] == "exec-bd-billing-sso-launch"
-    assert payload["return_to"] == "/app/billing"
+    assert response.headers["location"] == "/app/account?billing=1#delivery"
 
 
-def test_property_billing_bridge_launch_redirects_with_signed_token_when_only_bridge_ready_still_requires_separate_login(
+def test_property_billing_bridge_launch_falls_back_when_only_bridge_ready_still_requires_separate_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_env(monkeypatch)
@@ -982,16 +975,7 @@ def test_property_billing_bridge_launch_redirects_with_signed_token_when_only_br
     )
 
     assert response.status_code == 303
-    parsed = urllib.parse.urlparse(response.headers["location"])
-    query = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
-    payload = verify_brilliant_directories_billing_sso_bridge_token(query["pq_bridge"])
-
-    assert parsed.scheme == "https"
-    assert parsed.netloc == "billing.propertyquarry.com"
-    assert parsed.path == "/sso/propertyquarry"
-    assert query["source"] == "propertyquarry"
-    assert payload["principal_id"] == "exec-bd-billing-sso-launch-blocked"
-    assert payload["return_to"] == "/app/billing"
+    assert response.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_property_billing_bridge_launch_redirects_with_member_login_token_handoff(
@@ -1450,6 +1434,20 @@ def test_billing_handoff_worker_only_injects_bridge_banner_on_login_surface() ->
 
     assert "if (bridgeContext && incoming.pathname === '/login')" in source
     assert "incoming.pathname === '/account'" not in source.split("if (bridgeContext && incoming.pathname === '/login')", 1)[1].split("html = /<\\/body>/i.test(html)", 1)[0]
+
+
+def test_billing_handoff_worker_hides_register_and_join_chrome_on_login_surface() -> None:
+    source = _worker_source(
+        target_base_url="https://propertyquarry.directoryup.com",
+        pricing_url="https://propertyquarry.com/pricing",
+        property_origin="https://propertyquarry.com",
+        bridge_path="/sso/propertyquarry",
+    )
+
+    assert "PropertyQuarry billing sign-in" in source
+    assert ".login-register-tabs" in source
+    assert ".homepage-join-module" in source
+    assert "headings[h].textContent='Billing sign-in'" in source
 
 
 def test_billing_handoff_worker_scrubs_score_filter_noise_from_proxied_html() -> None:

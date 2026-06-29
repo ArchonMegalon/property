@@ -2910,9 +2910,57 @@ def test_property_distance_preference_score_adjustment_rewards_and_penalizes_sof
         },
     )
 
-    assert avoid_adjustment == 0
+    assert avoid_adjustment < 0
     assert "Nearest shopping center is 220 m away; you asked to keep it farther than 500 m." in avoid_notes
-    assert "theatre close by" in avoid_notes
+    assert "theatre within requested radius" in avoid_notes
+
+
+def test_property_distance_preference_score_adjustment_tapers_to_zero_then_ramps_malus() -> None:
+    boost_adjustment, boost_notes = product_service._property_distance_preference_score_adjustment(
+        preferences={
+            "max_distance_to_playground_m": 500,
+            "max_distance_to_playground_importance": "nice_to_have",
+        },
+        property_facts={
+            "nearest_playground_m": 180,
+        },
+    )
+    neutral_edge_adjustment, neutral_edge_notes = product_service._property_distance_preference_score_adjustment(
+        preferences={
+            "max_distance_to_playground_m": 500,
+            "max_distance_to_playground_importance": "nice_to_have",
+        },
+        property_facts={
+            "nearest_playground_m": 500,
+        },
+    )
+    soft_malus_adjustment, soft_malus_notes = product_service._property_distance_preference_score_adjustment(
+        preferences={
+            "max_distance_to_playground_m": 500,
+            "max_distance_to_playground_importance": "nice_to_have",
+        },
+        property_facts={
+            "nearest_playground_m": 720,
+        },
+    )
+    full_malus_adjustment, full_malus_notes = product_service._property_distance_preference_score_adjustment(
+        preferences={
+            "max_distance_to_playground_m": 500,
+            "max_distance_to_playground_importance": "nice_to_have",
+        },
+        property_facts={
+            "nearest_playground_m": 1200,
+        },
+    )
+
+    assert boost_adjustment > 0
+    assert boost_notes == ("playground nearby",)
+    assert neutral_edge_adjustment == 0
+    assert neutral_edge_notes == ("playground nearby",)
+    assert soft_malus_adjustment < 0
+    assert "Nearest playground is 720 m away; your limit was 500 m." in soft_malus_notes
+    assert full_malus_adjustment == -3.0
+    assert "Nearest playground is 1200 m away; your limit was 500 m." in full_malus_notes
 
 
 def test_property_candidate_effective_fit_score_prefers_adjusted_rank_score() -> None:

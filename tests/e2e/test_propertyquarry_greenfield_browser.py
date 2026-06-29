@@ -3004,6 +3004,35 @@ def test_propertyquarry_running_progress_panel_fits_the_first_mobile_viewport(
         context.close()
 
 
+def test_propertyquarry_mobile_empty_results_keep_extra_relax_options_behind_more_trigger(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
+        visible_actions = page.locator('[data-pqx-counterfactuals] > .pqx-suppression-grid > .pqx-suppression-item:visible')
+        expect(visible_actions).to_have_count(1)
+        inline_slider_count = page.locator('[data-pqx-counterfactuals] [data-pqx-filter-slider]:visible').count()
+        assert inline_slider_count in {0, 1}
+        more_trigger = page.get_by_role("button", name=re.compile(r"More ways to widen", re.I))
+        if more_trigger.count():
+            expect(more_trigger).to_be_visible()
+            more_trigger.click()
+            dialog = page.locator("[data-pqx-filtered-dialog]")
+            expect(dialog).to_be_visible()
+            expect(dialog).to_contain_text(re.compile(r"Stretch the size rule|Provider overview page|Include nearby districts", re.I))
+        else:
+            assert visible_actions.first.inner_text().strip()
+            expect(page.locator("[data-pqx-filtered-dialog]")).to_be_hidden()
+    finally:
+        context.close()
+
+
 def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

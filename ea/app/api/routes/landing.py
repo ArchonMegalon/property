@@ -52,6 +52,7 @@ from app.api.routes.landing_content import (
 from app.api.routes.landing_property_surface_contracts import PropertySurfaceScope
 from app.api.routes.landing_property_workspace_helpers import _compact_provider_label
 from app.api.routes.landing_view_models import (
+    PROPERTY_FURNITURE_STYLE_CATALOG,
     app_section_payload as _app_section_payload,
     channel_cards as _channel_cards,
     humanize as _humanize,
@@ -112,6 +113,8 @@ from app.product.property_score_methodology import (
 )
 from app.product.projections.common import compact_text
 from app.product.service import (
+    _hosted_property_visual_progress_snapshot,
+    _hosted_property_visual_progress_stage_label,
     _property_candidate_has_floorplan,
     _property_fact_value_is_weak,
     _property_scout_candidate_payload_from_preview,
@@ -249,7 +252,7 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
         and verified_billing_handoff.get("account_handoff_usable") is not False
     )
     bridge_href = "/app/api/property/billing/bridge-launch" if bridge_ready else ""
-    launch_href = "/app/api/property/billing/bridge-launch" if (bridge_ready or member_token_ready) else ""
+    launch_href = "/app/api/property/billing/bridge-launch" if member_token_ready else ""
     hosted_urls = brilliant_directories_service.brilliant_directories_billing_handoff_urls()
     if not hosted_urls:
         if verified_direct_handoff_ready:
@@ -262,19 +265,21 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
                 "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
                 "member_token_status": "ready" if member_token_ready else str(member_token_receipt.get("error") or "").strip(),
             }
-        if bridge_ready:
+        if member_token_ready:
             return {
                 "available": True,
-                "status": "bridge_ready",
+                "status": "member_token_ready",
                 "open_href": launch_href,
                 "bridge_href": bridge_href,
-                "bridge_status": "ready",
+                "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+                "member_token_status": "ready",
             }
         return {
             "available": False,
             "status": "disabled",
             "bridge_href": bridge_href,
             "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+            "member_token_status": str(member_token_receipt.get("error") or "").strip(),
         }
     primary_hosted_url = hosted_urls[0]
     if verified_direct_handoff_ready:
@@ -337,10 +342,10 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
                     }
                 elif bridge_ready:
                     first_blocked_state = {
-                        "available": True,
-                        "status": "bridge_ready",
+                        "available": False,
+                        "status": "login_required",
                         "hosted_href": hosted_url,
-                        "open_href": launch_href,
+                        "open_href": "",
                         "bridge_href": bridge_href,
                         "bridge_status": "ready",
                         "member_token_status": str(member_token_receipt.get("error") or "").strip(),
@@ -365,10 +370,10 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
                     }
         if primary_verification_pending:
             return {
-                "available": member_token_ready or bridge_ready,
-                "status": "member_token_ready" if member_token_ready else ("bridge_ready" if bridge_ready else "verifying"),
+                "available": member_token_ready,
+                "status": "member_token_ready" if member_token_ready else "verifying",
                 "hosted_href": primary_hosted_url,
-                "open_href": launch_href if (member_token_ready or bridge_ready) else "",
+                "open_href": launch_href if member_token_ready else "",
                 "bridge_href": bridge_href,
                 "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
                 "member_token_status": "ready" if member_token_ready else str(member_token_receipt.get("error") or "").strip(),
@@ -389,6 +394,19 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
 
 def _property_billing_fallback_href() -> str:
     return "/app/account?billing=1#delivery"
+
+
+def _property_pricing_billing_link_copy(handoff: dict[str, object] | None = None) -> tuple[str, str]:
+    status = str((handoff or {}).get("status") or "").strip().lower()
+    if status in {"bridge_ready", "member_token_ready"}:
+        return (
+            "Continue billing sign-in",
+            "Use the same email in the billing lane.",
+        )
+    return (
+        "Open billing account",
+        "Use your active account lane.",
+    )
 
 
 def _google_sign_in_enabled() -> bool:
@@ -1261,6 +1279,7 @@ def prewarm_property_search_shell_cache(*, container: AppContainer, principal_id
     property_context = _property_console_context(
         container=container,
         principal_id=normalized_principal,
+        access_email="",
         status=status,
         surface_mode="search",
     )
@@ -1540,6 +1559,7 @@ def _property_lookup_candidate_across_runs(
     product: Any,
     *,
     principal_id: str,
+    access_email: str = "",
     candidate_ref: str,
     run_id: str = "",
     max_runs: int = 12,
@@ -1552,12 +1572,30 @@ def _property_lookup_candidate_across_runs(
     if normalized_run_id:
         run_ids.append(normalized_run_id)
     try:
-        for row in list(product.list_property_search_runs(principal_id=principal_id, limit=max_runs, hydrate=False) or []):
+        for row in list(
+            product.list_property_search_runs(
+                principal_id=principal_id,
+                limit=max_runs,
+                hydrate=False,
+                account_email=access_email,
+            )
+            or []
+        ):
             if not isinstance(row, dict):
                 continue
             recent_run_id = str(row.get("run_id") or "").strip()
             if recent_run_id and recent_run_id not in run_ids:
                 run_ids.append(recent_run_id)
+    except TypeError:
+        try:
+            for row in list(product.list_property_search_runs(principal_id=principal_id, limit=max_runs, hydrate=False) or []):
+                if not isinstance(row, dict):
+                    continue
+                recent_run_id = str(row.get("run_id") or "").strip()
+                if recent_run_id and recent_run_id not in run_ids:
+                    run_ids.append(recent_run_id)
+        except Exception:
+            pass
     except Exception:
         pass
     for row_run_id in run_ids[: max(int(max_runs or 0), 1)]:
@@ -1566,9 +1604,21 @@ def _property_lookup_candidate_across_runs(
                 product.get_property_search_run_status(
                     principal_id=principal_id,
                     run_id=row_run_id,
+                    account_email=access_email,
                 )
                 or {}
             )
+        except TypeError:
+            try:
+                run_payload = dict(
+                    product.get_property_search_run_status(
+                        principal_id=principal_id,
+                        run_id=row_run_id,
+                    )
+                    or {}
+                )
+            except Exception:
+                continue
         except Exception:
             continue
         if not isinstance(run_payload, dict):
@@ -2190,6 +2240,7 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
 
     if request_brand(request)["key"] == "propertyquarry":
         billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
+        billing_label, _billing_detail = _property_pricing_billing_link_copy(billing_handoff)
         billing_open_href = str(
             billing_handoff.get("open_href")
             or billing_handoff.get("hosted_href")
@@ -2203,6 +2254,7 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
             billing_target = _property_billing_fallback_href()
     else:
         billing_target = "/app/billing"
+        billing_label = "Billing account"
         if request.url.path == "/app/search":
             billing_target = _property_billing_fallback_href()
 
@@ -2216,6 +2268,7 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
         "profile_href": _with_run_suffix("/app/account#search-defaults"),
         "profile_label": "Search defaults",
         "billing_href": billing_href,
+        "billing_label": billing_label,
         "settings_href": _with_run_suffix("/app/account#connected-services"),
         "sign_out_action": "/app/actions/sign-out",
         "sign_out_return_to": sign_out_return_to,
@@ -2750,6 +2803,7 @@ def _property_console_context(
     *,
     container: AppContainer,
     principal_id: str,
+    access_email: str = "",
     status: dict[str, object],
     run_id: str = "",
     selected_candidate_ref: str = "",
@@ -2828,6 +2882,17 @@ def _property_console_context(
                     principal_id=principal_id,
                     limit=24,
                     hydrate=surface_scope.section not in {"properties", "shortlist", "research", "search"},
+                    account_email=access_email,
+                )
+                if isinstance(row, dict)
+            ]
+        except TypeError:
+            raw_recent_search_runs = [
+                normalize_property_search_run_snapshot(dict(row))
+                for row in product.list_property_search_runs(
+                    principal_id=principal_id,
+                    limit=24,
+                    hydrate=surface_scope.section not in {"properties", "shortlist", "research", "search"},
                 )
                 if isinstance(row, dict)
             ]
@@ -2843,7 +2908,17 @@ def _property_console_context(
         terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started"}
         if surface_scope.section == "properties":
             with contextlib.suppress(Exception):
-                active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
+                active_run = dict(
+                    product.find_active_property_search_run(
+                        principal_id=principal_id,
+                        limit=8,
+                        account_email=access_email,
+                    )
+                    or {}
+                )
+            if not active_run:
+                with contextlib.suppress(TypeError):
+                    active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
             if isinstance(active_run, dict) and active_run and not _current_scope_compatible_run(active_run):
                 active_run = None
         if (not isinstance(active_run, dict) or not active_run) and surface_scope.section == "properties":
@@ -2922,6 +2997,7 @@ def _property_console_context(
                         principal_id=principal_id,
                         run_id=normalized_run_id,
                         lightweight=surface_scope.section == "research",
+                        account_email=access_email,
                     )
                     or {}
                 )
@@ -2931,9 +3007,21 @@ def _property_console_context(
                         product.get_property_search_run_status(
                             principal_id=principal_id,
                             run_id=normalized_run_id,
+                            lightweight=surface_scope.section == "research",
                         )
                         or {}
                     )
+                except TypeError:
+                    try:
+                        run_payload = dict(
+                            product.get_property_search_run_status(
+                                principal_id=principal_id,
+                                run_id=normalized_run_id,
+                            )
+                            or {}
+                        )
+                    except Exception:
+                        run_payload = active_run if isinstance(active_run, dict) else {}
                 except Exception:
                     run_payload = active_run if isinstance(active_run, dict) else {}
             except Exception:
@@ -3501,12 +3589,12 @@ def _render_property_billing_unavailable_page(
 ) -> HTMLResponse:
     status_value = str(handoff.get("status") or "").strip().lower()
     error_value = str(handoff.get("error") or "").strip().lower()
-    if status_value == "login_required" or "separate_login" in error_value:
-        blocker_summary = "This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now."
-        blocker_label = "Separate login"
-    elif status_value == "unresolved" or "host_unresolved" in error_value:
+    if status_value == "unresolved" or "host_unresolved" in error_value or "cloudflare" in error_value:
         blocker_summary = "The billing account host is not ready yet."
         blocker_label = "Host not ready"
+    elif status_value == "login_required" or "separate_login" in error_value:
+        blocker_summary = "This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now."
+        blocker_label = "Separate login"
     else:
         blocker_summary = "The billing portal is still being connected."
         blocker_label = "Connecting"
@@ -3787,12 +3875,18 @@ def pricing_page(
     )
     account_nav = _account_nav_context(request=request, context=context)
     pricing_signed_in_billing_href = str(account_nav.get("billing_href") or _property_billing_fallback_href()).strip() or _property_billing_fallback_href()
+    pricing_signed_in_billing_label = "Open billing account"
+    pricing_signed_in_billing_detail = "Use your active account lane."
     if checkout_session_ready and request_brand(request)["key"] == "propertyquarry":
         billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
         pricing_signed_in_billing_href = (
             str(billing_handoff.get("open_href") or "").strip()
             or pricing_signed_in_billing_href
         )
+        (
+            pricing_signed_in_billing_label,
+            pricing_signed_in_billing_detail,
+        ) = _property_pricing_billing_link_copy(billing_handoff)
     return _render_public_template(
         request,
         "pricing_page.html",
@@ -3810,6 +3904,8 @@ def pricing_page(
                 "pricing_order_endpoints_by_plan": checkout_order_endpoints_by_plan,
                 "pricing_checkout_session_ready": checkout_session_ready,
                 "pricing_signed_in_billing_href": pricing_signed_in_billing_href,
+                "pricing_signed_in_billing_label": pricing_signed_in_billing_label,
+                "pricing_signed_in_billing_detail": pricing_signed_in_billing_detail,
                 "meta_description": "Choose a PropertyQuarry plan by provider coverage, research depth, 3D options, and the quality of the property review page.",
                 "structured_data_json": [
                     {
@@ -4653,6 +4749,7 @@ def property_research_packet(
     property_context = _property_console_context(
         container=container,
         principal_id=context.principal_id,
+        access_email=context.access_email,
         status=status,
         run_id=run_id,
         selected_candidate_ref=candidate_ref,
@@ -4674,37 +4771,68 @@ def property_research_packet(
         saved_shortlist_run_id = str(candidate.get("saved_from_run_id") or "").strip() if isinstance(candidate, dict) else ""
         if candidate is not None and saved_shortlist_run_id and saved_shortlist_run_id != resolved_run_id:
             resolved_run_id = saved_shortlist_run_id
-            with contextlib.suppress(Exception):
+            try:
                 property_context["run"] = _propertyquarry_prepare_run_payload(
                     product=product,
                     run_payload=dict(
                         product.get_property_search_run_status(
                             principal_id=context.principal_id,
                             run_id=resolved_run_id,
+                            account_email=context.access_email,
                         )
                         or {}
                     ),
                 )
+            except TypeError:
+                with contextlib.suppress(Exception):
+                    property_context["run"] = _propertyquarry_prepare_run_payload(
+                        product=product,
+                        run_payload=dict(
+                            product.get_property_search_run_status(
+                                principal_id=context.principal_id,
+                                run_id=resolved_run_id,
+                            )
+                            or {}
+                        ),
+                    )
+            except Exception:
+                pass
     if candidate is None:
         candidate, matched_run_id = _property_lookup_candidate_across_runs(
             product,
             principal_id=context.principal_id,
+            access_email=context.access_email,
             candidate_ref=normalized_candidate_ref,
             run_id=resolved_run_id,
         )
         if candidate is not None and matched_run_id and matched_run_id != resolved_run_id:
             resolved_run_id = matched_run_id
-            with contextlib.suppress(Exception):
+            try:
                 property_context["run"] = _propertyquarry_prepare_run_payload(
                     product=product,
                     run_payload=dict(
                         product.get_property_search_run_status(
                             principal_id=context.principal_id,
                             run_id=resolved_run_id,
+                            account_email=context.access_email,
                         )
                         or {}
                     ),
                 )
+            except TypeError:
+                with contextlib.suppress(Exception):
+                    property_context["run"] = _propertyquarry_prepare_run_payload(
+                        product=product,
+                        run_payload=dict(
+                            product.get_property_search_run_status(
+                                principal_id=context.principal_id,
+                                run_id=resolved_run_id,
+                            )
+                            or {}
+                        ),
+                    )
+            except Exception:
+                pass
     if candidate is not None:
         candidate = _propertyquarry_refresh_candidate_preview_if_needed(
             product=product,
@@ -4786,6 +4914,8 @@ def property_research_packet(
         match_reasons=match_reasons,
         mismatch_reasons=mismatch_reasons,
         missing_rows=missing_rows,
+        facts=facts,
+        preferences=preferences,
     )
     provenance_rows = _property_packet_provenance_rows(facts)
     official_evidence_rows = _property_packet_official_evidence_rows(facts)
@@ -5020,6 +5150,11 @@ def property_research_packet(
     if terminal_tour_status and not tour_url and tour_status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:
         tour_status = terminal_tour_status
     flythrough_reason = str(candidate.get("flythrough_reason") or "").strip()
+    live_flythrough_progress = _hosted_property_visual_progress_snapshot(
+        tour_url,
+        request_kind="flythrough",
+    ) if tour_url else {}
+    live_flythrough_detail = str(live_flythrough_progress.get("detail") or "").strip()
     terminal_flythrough_status = _property_visual_terminal_status_for_reason(
         request_kind="flythrough",
         reason=flythrough_reason,
@@ -5072,6 +5207,13 @@ def property_research_packet(
             requested_at=flythrough_requested_at,
             status_updated_at=flythrough_status_updated_at,
         )
+    try:
+        live_flythrough_progress_pct = int(float(str(live_flythrough_progress.get("progress_pct") or "").strip())) if str(live_flythrough_progress.get("progress_pct") or "").strip() else 0
+    except Exception:
+        live_flythrough_progress_pct = 0
+    if live_flythrough_progress_pct > 0 and not flythrough_url and flythrough_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:
+        flythrough_progress_pct = live_flythrough_progress_pct
+        flythrough_eta_label = _hosted_property_visual_progress_stage_label(live_flythrough_progress) or ""
     hero_actions: list[dict[str, object]] = []
     if property_url:
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
@@ -5103,9 +5245,9 @@ def property_research_packet(
     if flythrough_url:
         hero_actions.append({"href": flythrough_url, "label": "Open walkthrough", "external": False})
     elif flythrough_status in {"queued", "pending"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": "Still queued. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Queued. This page updates automatically."})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": live_flythrough_detail or ("Still queued. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Queued. This page updates automatically.")})
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": flythrough_eta_label, "status_detail": "Still rendering. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Rendering now. Opens here when ready."})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": flythrough_eta_label, "status_detail": live_flythrough_detail or ("Still rendering. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Rendering now. Opens here when ready.")})
     elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable"} and property_url:
         hero_actions.append(
             {
@@ -5115,7 +5257,7 @@ def property_research_packet(
                 "state": "idle",
                 "progress_pct": 0,
                 "eta_label": "",
-                "status_detail": _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason),
+                "status_detail": live_flythrough_detail or _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason),
             }
         )
     elif property_url:
@@ -5126,11 +5268,11 @@ def property_research_packet(
     if flythrough_url:
         visual_status_line = str(research_media.get("walkthrough_status_detail") or "Walkthrough is ready on this page.").strip()
     elif flythrough_status in {"queued", "pending"}:
-        visual_status_line = "Walkthrough queued."
+        visual_status_line = live_flythrough_detail or "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
-        visual_status_line = "Walkthrough rendering."
+        visual_status_line = live_flythrough_detail or "Walkthrough rendering."
     elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable"}:
-        visual_status_line = _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason)
+        visual_status_line = live_flythrough_detail or _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason)
     elif hosted_tour_ready and tour_url:
         visual_status_line = str(research_media.get("status_detail") or "3D tour ready.").strip()
     elif tour_url and not hosted_tour_ready:
@@ -5289,6 +5431,10 @@ def property_research_packet(
         "followup_status_endpoint_template": "/app/api/property-feedback/__FEEDBACK_ID__/followup-status",
     }
     review_page_neuronwriter = dict(candidate.get("review_page_neuronwriter") or {})
+    research_visual_default_style = str(
+        preferences.get("furniture_style") or PROPERTY_FURNITURE_STYLE_CATALOG[0]["value"]
+    ).strip() or PROPERTY_FURNITURE_STYLE_CATALOG[0]["value"]
+    research_visual_priority_queue_active = str(commercial.get("current_plan_key") or "").strip().lower() in {"plus", "agent"}
     research_snapshot = build_property_research_packet_snapshot(
         title=display_title,
         summary=object_summary,
@@ -5355,6 +5501,9 @@ def property_research_packet(
             **research_snapshot,
             "research_ranked_run_rows": ranked_run_rows,
             "research_route_recovery": research_route_recovery,
+            "research_visual_style_catalog": [dict(row) for row in PROPERTY_FURNITURE_STYLE_CATALOG],
+            "research_default_visual_style": research_visual_default_style,
+            "research_visual_priority_queue_active": research_visual_priority_queue_active,
         },
     )
 
@@ -5542,13 +5691,23 @@ def app_shell(
     requested_agent_id = str(load_agent or run_agent or agent_id or "").strip()
     if property_brand and resolved_section in {"properties", "shortlist", "research"} and normalized_run_id:
         product = build_product_service(container)
-        route_run = dict(
-            product.get_property_search_run_status(
-                principal_id=context.principal_id,
-                run_id=normalized_run_id,
+        try:
+            route_run = dict(
+                product.get_property_search_run_status(
+                    principal_id=context.principal_id,
+                    run_id=normalized_run_id,
+                    account_email=context.access_email,
+                )
+                or {}
             )
-            or {}
-        )
+        except TypeError:
+            route_run = dict(
+                product.get_property_search_run_status(
+                    principal_id=context.principal_id,
+                    run_id=normalized_run_id,
+                )
+                or {}
+            )
         if not route_run:
             if resolved_section == "properties" and str(context.auth_source or "").strip() == "workspace_access_session":
                 route_run = {}
@@ -5687,6 +5846,7 @@ def app_shell(
             _property_console_context(
                 container=container,
                 principal_id=context.principal_id,
+                access_email=context.access_email,
                 status=status,
                 run_id=run_id,
                 selected_candidate_ref=candidate,

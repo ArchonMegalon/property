@@ -16,7 +16,9 @@ from app.product.property_location_research import property_school_context_summa
 from app.product.property_evidence_overlays import build_property_evidence_overlay_rows
 from app.product.projections.common import compact_text
 from app.product.service import (
+    _hosted_property_visual_progress_snapshot,
     _property_currency_code_from_facts,
+    _property_cooling_corridor_match_reason,
     _property_enrich_missing_fact_research,
     _property_investment_area_sqm,
     _property_investment_underwriting_payload,
@@ -674,6 +676,11 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     walkthrough_ready = bool(verified_walkthrough_href)
     walkthrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
     walkthrough_reason = str(candidate.get("flythrough_reason") or "").strip()
+    live_walkthrough_progress = _hosted_property_visual_progress_snapshot(
+        tour_url,
+        request_kind="flythrough",
+    ) if tour_url else {}
+    live_walkthrough_detail = str(live_walkthrough_progress.get("detail") or "").strip()
     terminal_walkthrough_status = _property_visual_terminal_status_for_reason(
         request_kind="flythrough",
         reason=walkthrough_reason,
@@ -684,6 +691,12 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         and walkthrough_status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
     ):
         walkthrough_status = terminal_walkthrough_status
+    elif (
+        str(live_walkthrough_progress.get("status") or "").strip().lower()
+        and not walkthrough_ready
+        and walkthrough_status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
+    ):
+        walkthrough_status = str(live_walkthrough_progress.get("status") or "").strip().lower()
     vendor_tour_provider = property_tour_hosting._property_tour_provider_host_kind(vendor_tour_url) if vendor_tour_url else ""
     vendor_tour_provider_label = _property_visual_provider_label(vendor_tour_provider) if vendor_tour_provider else ""
     walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
@@ -731,7 +744,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "embed_href": embed_href,
         "has_live_viewer": bool(embed_href),
         "hosted_ready": hosted_tour_ready,
-        "show_status_line": bool(hosted_tour_ready or tour_url or vendor_tour_url or status in {"queued", "pending", "processing", "running", "in_progress", "started"}),
+        "show_status_line": bool(hosted_tour_ready or tour_url or vendor_tour_url or status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}),
         "primary_href": verified_tour_href if hosted_tour_ready else (vendor_tour_url or review_url),
         "primary_label": (
             (f"Open {verified_tour_provider_label}" if verified_tour_provider_label else "Open 3D tour")
@@ -754,9 +767,13 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
                 "Walkthrough is ready on this page."
                 if walkthrough_ready
                 else (
+                    live_walkthrough_detail
+                    if live_walkthrough_detail and walkthrough_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing", "blocked", "failed", "skipped", "not_applicable"}
+                    else (
                     _property_visual_unavailable_detail(request_kind="flythrough", reason=walkthrough_reason)
                     if walkthrough_status in {"blocked", "failed", "skipped", "not_applicable"}
                     else ""
+                    )
                 )
             )
         ),
@@ -1572,6 +1589,174 @@ def _property_normalized_mismatch_reasons(
     return rows
 
 
+def _property_human_join(parts: list[str]) -> str:
+    cleaned = [str(part or "").strip() for part in parts if str(part or "").strip()]
+    if not cleaned:
+        return ""
+    if len(cleaned) == 1:
+        return cleaned[0]
+    if len(cleaned) == 2:
+        return f"{cleaned[0]} and {cleaned[1]}"
+    return f"{', '.join(cleaned[:-1])}, and {cleaned[-1]}"
+
+
+def _property_positive_distance_fact_row(
+    *,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+    title: str,
+    label: str,
+    distance_keys: tuple[str, ...],
+    name_keys: tuple[str, ...],
+    preference_keys: tuple[str, ...],
+    default_limit_m: int,
+    tag: str,
+    suffix: str = "",
+) -> dict[str, str] | None:
+    meters = _property_positive_distance_value(facts, distance_keys)
+    if meters is None:
+        return None
+    requested_limit = _property_positive_preference_distance(preferences, preference_keys)
+    effective_limit = requested_limit or int(default_limit_m or 0)
+    if effective_limit <= 0 or meters > effective_limit:
+        return None
+    place_name = _property_first_fact_text(facts, name_keys)
+    subject = place_name or f"The nearest {label.lower()}"
+    qualifier = "only" if meters <= max(250, int(round(float(effective_limit) * 0.5))) else "about"
+    detail = f"{subject} is {qualifier} {meters} m away"
+    if suffix:
+        detail = f"{detail} {suffix}"
+    return _object_detail_row(title, f"{detail}.", tag)
+
+
+def _property_packet_positive_fact_rows(
+    *,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+    match_reasons: list[str],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    family_context = _property_family_context_active(preferences)
+    cooling_reason = _property_cooling_corridor_match_reason(facts)
+    if cooling_reason:
+        rows.append(_object_detail_row("Summer heat", cooling_reason, "Climate"))
+
+    highlight_specs: tuple[dict[str, object], ...] = (
+        {
+            "title": "Supermarket",
+            "label": "supermarket",
+            "distance_keys": ("nearest_supermarket_m", "distance_supermarket_m"),
+            "name_keys": ("nearest_supermarket_name", "supermarket_name"),
+            "preference_keys": ("max_distance_to_supermarket_m",),
+            "default_limit_m": 700,
+            "tag": "Errands",
+            "suffix": "for daily errands",
+            "show_when": True,
+        },
+        {
+            "title": "Playground",
+            "label": "playground",
+            "distance_keys": ("nearest_playground_m", "distance_playground_m"),
+            "name_keys": ("nearest_playground_name", "playground_name"),
+            "preference_keys": ("max_distance_to_playground_m",),
+            "default_limit_m": 500,
+            "tag": "Family",
+            "suffix": "for an easy family stop",
+            "show_when": family_context or bool(preferences.get("max_distance_to_playground_m")),
+        },
+        {
+            "title": "Kindergarten",
+            "label": "kindergarten",
+            "distance_keys": ("nearest_kindergarten_m",),
+            "name_keys": ("nearest_kindergarten_name", "kindergarten_name"),
+            "preference_keys": ("max_distance_to_kindergarten_m",),
+            "default_limit_m": 650,
+            "tag": "Family",
+            "suffix": "for the daily drop-off",
+            "show_when": family_context or bool(preferences.get("max_distance_to_kindergarten_m")),
+        },
+        {
+            "title": "School",
+            "label": "school",
+            "distance_keys": ("nearest_school_m",),
+            "name_keys": ("nearest_school_name", "school_name"),
+            "preference_keys": (
+                "max_distance_to_school_m",
+                "max_distance_to_ganztags_volksschule_m",
+                "max_distance_to_halbtags_volksschule_m",
+            ),
+            "default_limit_m": 900,
+            "tag": "Family",
+            "suffix": "for the school route",
+            "show_when": family_context
+            or bool(preferences.get("max_distance_to_school_m"))
+            or bool(preferences.get("max_distance_to_ganztags_volksschule_m"))
+            or bool(preferences.get("max_distance_to_halbtags_volksschule_m")),
+        },
+        {
+            "title": "Underground",
+            "label": "underground",
+            "distance_keys": ("nearest_subway_m", "distance_underground_m"),
+            "name_keys": ("nearest_subway_name", "subway_station_name"),
+            "preference_keys": ("max_distance_to_subway_m",),
+            "default_limit_m": 900,
+            "tag": "Transit",
+            "suffix": "for the commute",
+            "show_when": bool(preferences.get("max_distance_to_subway_m")),
+        },
+    )
+    seen_details: set[str] = set()
+    for spec in highlight_specs:
+        if not bool(spec.get("show_when")):
+            continue
+        row = _property_positive_distance_fact_row(
+            facts=facts,
+            preferences=preferences,
+            title=str(spec.get("title") or "").strip(),
+            label=str(spec.get("label") or "").strip(),
+            distance_keys=tuple(str(key) for key in spec.get("distance_keys", ()) if str(key).strip()),
+            name_keys=tuple(str(key) for key in spec.get("name_keys", ()) if str(key).strip()),
+            preference_keys=tuple(str(key) for key in spec.get("preference_keys", ()) if str(key).strip()),
+            default_limit_m=int(spec.get("default_limit_m") or 0),
+            tag=str(spec.get("tag") or "Positive").strip(),
+            suffix=str(spec.get("suffix") or "").strip(),
+        )
+        if row is None:
+            continue
+        dedupe_key = str(row.get("detail") or "").strip().casefold()
+        if dedupe_key in seen_details:
+            continue
+        seen_details.add(dedupe_key)
+        rows.append(row)
+    if not rows and match_reasons:
+        rows.append(_object_detail_row("Strong signal", match_reasons[0], "Positive"))
+    return rows[:3]
+
+
+def _property_packet_missing_summary_row(
+    missing_rows: list[dict[str, str]],
+) -> dict[str, str] | None:
+    critical_titles = [
+        str(row.get("title") or "").strip()
+        for row in missing_rows
+        if str(row.get("tag") or "").strip().lower() == "critical" and str(row.get("title") or "").strip()
+    ]
+    if critical_titles:
+        summary = _property_human_join(critical_titles[:3])
+        verb = "is" if len(critical_titles[:3]) == 1 else "are"
+        return _object_detail_row("Still to confirm", f"Before trusting this fully, {summary} {verb} still missing.", "High")
+    important_titles = [
+        str(row.get("title") or "").strip()
+        for row in missing_rows
+        if str(row.get("tag") or "").strip().lower() == "important" and str(row.get("title") or "").strip()
+    ]
+    if important_titles:
+        summary = _property_human_join(important_titles[:3])
+        verb = "is" if len(important_titles[:3]) == 1 else "are"
+        return _object_detail_row("Still to confirm", f"Worth checking next: {summary} {verb} still open.", "Medium")
+    return None
+
+
 def _property_packet_everyday_fit_rows(
     *,
     facts: dict[str, object],
@@ -1720,23 +1905,11 @@ def _property_packet_decision_rows(
     match_reasons: list[str],
     mismatch_reasons: list[str],
     missing_rows: list[dict[str, str]],
+    facts: dict[str, object] | None = None,
+    preferences: dict[str, object] | None = None,
 ) -> list[dict[str, str]]:
-    why_now = "; ".join(match_reasons[:2]) if match_reasons else "Enough positive fit signals are present to justify review now."
-    why_not_now = "; ".join(mismatch_reasons[:2]) if mismatch_reasons else "No major blocking caution has been captured yet."
-    critical_missing = sum(1 for row in missing_rows if str(row.get("tag") or "").strip().lower() == "critical")
-    important_missing = sum(1 for row in missing_rows if str(row.get("tag") or "").strip().lower() == "important")
-    if critical_missing:
-        severity = "High"
-        severity_detail = f"{critical_missing} critical fact(s) still missing before this should be trusted fully."
-    elif important_missing >= 2:
-        severity = "Medium"
-        severity_detail = f"{important_missing} important fact(s) still missing. Keep this on the shortlist, but do not treat it as settled."
-    elif important_missing == 1:
-        severity = "Low"
-        severity_detail = "One important fact is still missing. The packet is usable, but not fully closed."
-    else:
-        severity = "Low"
-        severity_detail = "No major missing-data pressure remains in the current packet."
+    fact_payload = facts if isinstance(facts, dict) else {}
+    preference_payload = preferences if isinstance(preferences, dict) else {}
     recommendation_key = str(candidate.get("recommendation") or candidate.get("tag") or "candidate").replace("_", " ").strip().lower()
     recommendation = {
         "shortlist": "Keep it high on the shortlist",
@@ -1748,12 +1921,19 @@ def _property_packet_decision_rows(
         "reject": "Drop it unless new evidence changes the file",
         "drop": "Drop it unless new evidence changes the file",
     }.get(recommendation_key, recommendation_key.title() or "Keep it under review")
-    return [
-        _object_detail_row("Why now", why_now, "Now"),
-        _object_detail_row("Why not now", why_not_now, "Risk"),
-        _object_detail_row("Missing-data severity", severity_detail, severity),
-        _object_detail_row("Next", recommendation, "Action"),
-    ]
+    rows = _property_packet_positive_fact_rows(
+        facts=fact_payload,
+        preferences=preference_payload,
+        match_reasons=match_reasons,
+    )
+    if mismatch_reasons:
+        rows.append(_object_detail_row("Watch out", mismatch_reasons[0], "Risk"))
+    else:
+        missing_summary_row = _property_packet_missing_summary_row(missing_rows)
+        if missing_summary_row is not None:
+            rows.append(missing_summary_row)
+    rows.append(_object_detail_row("Next", recommendation, "Action"))
+    return rows
 
 
 def _property_investment_research_access_level(preferences: dict[str, object], commercial: dict[str, object], *, requested: bool) -> str:

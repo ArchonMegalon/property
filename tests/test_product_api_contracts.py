@@ -581,10 +581,16 @@ def test_account_billing_and_automation_surfaces_do_not_render_same_page_links()
     )
     assert stored.status_code == 200, stored.text
 
-    for path in ("/app/agents", "/app/account", "/app/billing"):
+    for path in ("/app/agents", "/app/account"):
         response = client.get(path, headers={"host": "propertyquarry.com"})
         assert response.status_code == 200
         assert f'href="{path}"' not in response.text
+    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert billing.status_code in {303, 503}
+    if billing.status_code == 303:
+        assert billing.headers["location"] != "/app/billing"
+    else:
+        assert "Billing portal unavailable" in billing.text
 
 
 def test_default_property_person_motion_hint_ignores_scanned_documents_io_error(
@@ -14017,6 +14023,71 @@ def test_property_visual_status_route_returns_current_visual_snapshot(monkeypatc
     assert body["poll_after_seconds"] == 10
 
 
+def test_property_visual_status_falls_back_to_followup_when_run_candidate_identity_drifts(monkeypatch) -> None:
+    principal_id = "property-visual-status-fallback-followup"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(
+        ProductService,
+        "_snapshot_property_search_run",
+        lambda self, **kwargs: {
+            "run_id": str(kwargs.get("run_id") or ""),
+            "updated_at": "2026-06-29T10:10:00+00:00",
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "top_candidates": [
+                            {
+                                "title": "Another home",
+                                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/another-home",
+                                "source_ref": "willhaben:another-home",
+                            }
+                        ],
+                    }
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_latest_property_tour_followup",
+        lambda self, *, principal_id, property_url, request_kind="tour", **_kwargs: SimpleNamespace(
+            status="pending",
+            resolution="",
+            created_at="2026-06-29T10:00:00+00:00",
+            updated_at="2026-06-29T10:01:00+00:00",
+            returned_payload_json={
+                "title": "Queued fallback tour",
+                "status": "queued",
+                "tour_status": "pending",
+                "property_url": property_url,
+                "source_ref": "willhaben:queued-fallback",
+                "status_label": "3D tour queued",
+                "status_detail": "Queued. This page updates automatically.",
+            },
+        ),
+    )
+    monkeypatch.setattr(ProductService, "_repair_stalled_property_visual_request", lambda self, **kwargs: False)
+
+    body = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-fallback-1",
+        request_kind="tour",
+        candidate_ref="candidate-drifted",
+        source_ref="willhaben:queued-fallback",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/queued-fallback",
+    )
+
+    assert body["status"] in {"pending", "queued", "processing"}
+    assert body["status_label"] in {"3D tour queued", "3D tour rendering"}
+    assert body["status_detail"] != "No media request is open for this home yet."
+    assert body["poll_after_seconds"] == 10
+    assert body["property_url"] == "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/queued-fallback"
+
+
 def test_property_visual_request_queue_preserves_original_requested_timestamp(monkeypatch) -> None:
     principal_id = "property-visual-request-preserve-start"
     client = build_product_client(principal_id=principal_id)
@@ -14163,6 +14234,68 @@ def test_request_property_visual_asset_keeps_explicit_workbench_floorplan(monkey
     assert result["diorama_style_hint"] == "playful Trump-style gold maximalist penthouse staging"
 
 
+def test_request_property_visual_asset_surfaces_terminal_walkthrough_render_failure(monkeypatch) -> None:
+    principal_id = "property-visual-request-terminal-flythrough"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    persisted: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        ProductService,
+        "create_willhaben_property_tour",
+        lambda self, **kwargs: {
+            "generated_at": "2026-06-29T09:00:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Terminal flythrough candidate",
+            "variant_key": "layout_first",
+            "tour_url": "https://propertyquarry.com/tours/terminal-flythrough-1",
+            "tour_status": "created",
+            "blocked_reason": "",
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "external_id": str(kwargs.get("external_id") or ""),
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_maybe_render_property_scout_flythrough",
+        lambda self, **kwargs: {
+            "status": "failed",
+            "reason": "magicfit_segment_render_failed",
+        },
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
+    monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda tour_url: "")
+    monkeypatch.setattr(product_service, "_published_walkthrough_asset_url", lambda tour_url: "")
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: persisted.update(dict(kwargs.get("visual_state") or {})),
+    )
+
+    result = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/terminal-flythrough-1",
+        request_kind="flythrough",
+        source_ref="willhaben:terminal-flythrough-1",
+        run_id="run-terminal-flythrough-1",
+        candidate_ref="candidate-terminal-flythrough-1",
+        auto_deliver=False,
+        queue_async_request=False,
+        allow_floorplan_only=True,
+    )
+
+    assert result["status"] == "created"
+    assert result["flythrough_status"] == "skipped"
+    assert result["status_label"] == "Walkthrough not ready"
+    assert result["status_detail"] == "Walkthrough could not be rendered from this listing yet."
+    assert result["flythrough_reason"] == "magicfit_segment_render_failed"
+    assert persisted["flythrough_status"] == "skipped"
+    assert persisted["flythrough_reason"] == "magicfit_segment_render_failed"
+
+
 def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> None:
     principal_id = "property-visual-status-stale-retry"
     client = build_product_client(principal_id=principal_id)
@@ -14178,7 +14311,9 @@ def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> No
         "tour_status_updated_at": "2026-06-22T10:00:00+00:00",
     }
 
-    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+    def _fake_snapshot(self, **kwargs):  # type: ignore[no-untyped-def]
+        run_id = str(kwargs.get("run_id") or "")
+        principal_id = str(kwargs.get("principal_id") or "")
         assert run_id == "run-42"
         assert principal_id == "property-visual-status-stale-retry"
         return {
@@ -14251,7 +14386,9 @@ def test_property_visual_status_queues_background_repair_when_stale_repair_is_sl
         "flythrough_eta_minutes": "10",
     }
 
-    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+    def _fake_snapshot(self, **kwargs):  # type: ignore[no-untyped-def]
+        run_id = str(kwargs.get("run_id") or "")
+        principal_id = str(kwargs.get("principal_id") or "")
         assert run_id == "run-42"
         assert principal_id == "property-visual-status-stale-background"
         return {
@@ -14392,7 +14529,9 @@ def test_current_property_search_visual_state_returns_ready_urls(monkeypatch) ->
         "flythrough_reason": "",
     }
 
-    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+    def _fake_snapshot(self, **kwargs):  # type: ignore[no-untyped-def]
+        run_id = str(kwargs.get("run_id") or "")
+        principal_id = str(kwargs.get("principal_id") or "")
         assert run_id == "run-42"
         assert principal_id == "property-visual-state-ready-urls"
         return {
@@ -14446,7 +14585,9 @@ def test_current_property_search_visual_state_recovers_hosted_tour_from_identity
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
     service = product_service.build_product_service(client.app.state.container)
 
-    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+    def _fake_snapshot(self, **kwargs):  # type: ignore[no-untyped-def]
+        run_id = str(kwargs.get("run_id") or "")
+        principal_id = str(kwargs.get("principal_id") or "")
         assert run_id == "run-identity-42"
         assert principal_id == "property-visual-state-identity-recovery"
         return {
@@ -14559,7 +14700,9 @@ def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source
         "blocked_reason": "",
     }
 
-    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+    def _fake_snapshot(self, **kwargs):  # type: ignore[no-untyped-def]
+        run_id = str(kwargs.get("run_id") or "")
+        principal_id = str(kwargs.get("principal_id") or "")
         assert run_id == "run-42"
         assert principal_id == "property-visual-status-prefers-ranked"
         return {
@@ -14610,7 +14753,9 @@ def test_property_visual_status_keeps_polling_while_rendering(monkeypatch) -> No
         "tour_status_updated_at": "2026-06-22T10:03:00+00:00",
     }
 
-    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+    def _fake_snapshot(self, **kwargs):  # type: ignore[no-untyped-def]
+        run_id = str(kwargs.get("run_id") or "")
+        principal_id = str(kwargs.get("principal_id") or "")
         assert run_id == "run-42"
         assert principal_id == "property-visual-status-rendering-poll"
         return {
@@ -14648,6 +14793,71 @@ def test_property_visual_status_keeps_polling_while_rendering(monkeypatch) -> No
     assert response["poll_after_seconds"] == 10
 
 
+def test_property_visual_status_prefers_live_walkthrough_progress_snapshot(monkeypatch) -> None:
+    principal_id = "property-visual-status-live-progress"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    rendering_candidate = {
+        "title": "Rendering walkthrough candidate",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/rendering-walkthrough-42",
+        "source_ref": "willhaben:rendering-walkthrough-42",
+        "tour_url": "https://propertyquarry.com/tours/rendering-walkthrough-42",
+        "flythrough_status": "processing",
+        "flythrough_url": "",
+        "flythrough_requested_at": "2026-06-29T10:00:00+00:00",
+        "flythrough_status_updated_at": "2026-06-29T10:01:00+00:00",
+        "flythrough_eta_minutes": "10",
+    }
+
+    monkeypatch.setattr(
+        ProductService,
+        "_snapshot_property_search_run",
+        lambda self, **kwargs: {
+            "run_id": str(kwargs.get("run_id") or ""),
+            "updated_at": "2026-06-29T10:03:00+00:00",
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "top_candidates": [dict(rendering_candidate)],
+                    }
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda tour_url: "")
+    monkeypatch.setattr(product_service, "_published_walkthrough_asset_url", lambda tour_url: "")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_visual_progress_snapshot",
+        lambda tour_url, *, request_kind="flythrough": {
+            "status": "processing",
+            "progress_pct": 44,
+            "detail": "Rendering walkthrough segment 2 of 4.",
+            "step_index": 2,
+            "step_total": 4,
+            "updated_at": "2026-06-29T10:06:00+00:00",
+        },
+    )
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="flythrough",
+        source_ref="willhaben:rendering-walkthrough-42",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/rendering-walkthrough-42",
+    )
+
+    assert response["status"] == "processing"
+    assert response["status_label"] == "Walkthrough rendering"
+    assert response["status_detail"] == "Rendering walkthrough segment 2 of 4."
+    assert response["eta_label"] == "segment 2 of 4"
+    assert response["progress_pct"] == 44
+    assert response["poll_after_seconds"] == 10
+
+
 def test_property_visual_status_prefers_latest_followup_resolution_over_stale_snapshot(monkeypatch) -> None:
     principal_id = "property-visual-status-followup-resolution"
     client = build_product_client(principal_id=principal_id)
@@ -14665,7 +14875,9 @@ def test_property_visual_status_prefers_latest_followup_resolution_over_stale_sn
         "tour_status_updated_at": "2026-06-23T19:33:14+00:00",
     }
 
-    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+    def _fake_snapshot(self, **kwargs):  # type: ignore[no-untyped-def]
+        run_id = str(kwargs.get("run_id") or "")
+        principal_id = str(kwargs.get("principal_id") or "")
         assert run_id == "run-42"
         assert principal_id == "property-visual-status-followup-resolution"
         return {
@@ -14747,7 +14959,9 @@ def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monke
         "flythrough_url": "",
     }
 
-    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+    def _fake_snapshot(self, **kwargs):  # type: ignore[no-untyped-def]
+        run_id = str(kwargs.get("run_id") or "")
+        principal_id = str(kwargs.get("principal_id") or "")
         assert run_id == "run-42"
         assert principal_id == "property-visual-status-hide-skip-reason"
         return {
@@ -14818,6 +15032,73 @@ def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monke
     assert persisted_visual_states[-1]["flythrough_progress_pct"] == "0"
 
 
+def test_property_visual_status_converts_stale_magicfit_failure_to_terminal_walkthrough_state(monkeypatch) -> None:
+    principal_id = "property-visual-status-magicfit-terminal"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    stale_candidate = {
+        "title": "Walkthrough candidate",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/magicfit-terminal-1",
+        "source_ref": "willhaben:magicfit-terminal-1",
+        "tour_status": "ready",
+        "tour_url": "https://propertyquarry.com/tours/magicfit-terminal-1",
+        "flythrough_status": "queued",
+        "flythrough_reason": "magicfit_segment_render_failed",
+        "flythrough_url": "",
+    }
+
+    monkeypatch.setattr(
+        ProductService,
+        "_snapshot_property_search_run",
+        lambda self, **kwargs: {
+            "run_id": str(kwargs.get("run_id") or ""),
+            "updated_at": "2026-06-29T09:35:00+00:00",
+            "summary": {
+                "ranked_candidates": [dict(stale_candidate)],
+                "sources": [],
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
+    monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda tour_url: "")
+    monkeypatch.setattr(product_service, "_published_walkthrough_asset_url", lambda tour_url: "")
+    persisted_visual_states: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: persisted_visual_states.append(dict(kwargs.get("visual_state") or {})),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_latest_property_tour_followup",
+        lambda self, **kwargs: SimpleNamespace(
+            status="returned",
+            resolution="skipped",
+            updated_at="2026-06-29T09:36:00+00:00",
+            returned_payload_json={},
+        ),
+    )
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-magicfit-terminal-1",
+        request_kind="flythrough",
+        source_ref="willhaben:magicfit-terminal-1",
+        candidate_ref="candidate-magicfit-terminal-1",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/magicfit-terminal-1",
+    )
+
+    assert response["status"] == "skipped"
+    assert response["status_label"] == "Walkthrough not ready"
+    assert response["status_detail"] == "Walkthrough could not be rendered from this listing yet."
+    assert response["poll_after_seconds"] == 0
+    assert persisted_visual_states
+    assert persisted_visual_states[-1]["flythrough_status"] == "skipped"
+    assert persisted_visual_states[-1]["flythrough_reason"] == "magicfit_segment_render_failed"
+
+
 def test_property_visual_status_terminal_resolution_clears_stale_repair_markers(monkeypatch) -> None:
     principal_id = "property-visual-status-clear-repair"
     client = build_product_client(principal_id=principal_id)
@@ -14834,7 +15115,9 @@ def test_property_visual_status_terminal_resolution_clears_stale_repair_markers(
         "tour_repair_started_at": "2026-06-23T19:31:00+00:00",
     }
 
-    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+    def _fake_snapshot(self, **kwargs):  # type: ignore[no-untyped-def]
+        run_id = str(kwargs.get("run_id") or "")
+        principal_id = str(kwargs.get("principal_id") or "")
         assert run_id == "run-42"
         assert principal_id == "property-visual-status-clear-repair"
         return {
@@ -15133,6 +15416,150 @@ def test_property_tour_followup_tasks_keep_pending_when_visual_is_still_processi
     assert updated_task is not None
     assert updated_task.status == "pending"
     assert updated_task.resolution == ""
+
+
+def test_property_tour_followup_tasks_process_fresh_user_queued_visual(monkeypatch) -> None:
+    principal_id = "property-tour-followup-fresh-queued"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+    observed: dict[str, object] = {}
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-fresh-queued-1",
+        title="Demo property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:demo-fresh-queued-1",
+        external_id="demo-fresh-queued-1",
+        connector_binding_id="binding-1",
+        request_kind="flythrough",
+        run_id="run-fresh-queued-1",
+        candidate_ref="candidate-fresh-queued-1",
+        allow_floorplan_only=True,
+    )
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {
+            "flythrough_status": "queued",
+            "flythrough_requested_at": "2026-06-22T10:00:00+00:00",
+            "flythrough_status_updated_at": "2026-06-22T10:00:05+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_utcnow",
+        lambda: datetime(2026, 6, 22, 10, 1, tzinfo=timezone.utc),
+    )
+
+    def _fake_request_property_visual_asset(self, **kwargs):  # type: ignore[no-untyped-def]
+        observed.update(kwargs)
+        return {
+            "generated_at": "2026-06-22T10:01:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Demo property",
+            "variant_key": "layout_first",
+            "request_kind": "flythrough",
+            "run_id": str(kwargs.get("run_id") or ""),
+            "candidate_ref": str(kwargs.get("candidate_ref") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "tour_url": "https://propertyquarry.com/tours/demo-fresh-queued-1",
+            "tour_status": "ready",
+            "flythrough_url": "https://propertyquarry.com/tours/files/demo-fresh-queued-1/walkthrough.mp4",
+            "flythrough_status": "ready",
+            "status_label": "Open walkthrough",
+        }
+
+    monkeypatch.setattr(ProductService, "request_property_visual_asset", _fake_request_property_visual_asset)
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 1
+    assert observed["request_kind"] == "flythrough"
+    assert observed["queue_async_request"] is False
+    assert observed["run_id"] == "run-fresh-queued-1"
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "returned"
+    assert updated_task.resolution == "ready"
+
+
+def test_property_tour_followup_tasks_resolve_terminal_walkthrough_failure_from_created_payload(monkeypatch) -> None:
+    principal_id = "property-tour-followup-terminal-flythrough"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: {
+            "generated_at": "2026-06-29T09:45:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Demo property",
+            "variant_key": str(kwargs.get("variant_key") or "layout_first"),
+            "request_kind": str(kwargs.get("request_kind") or "tour"),
+            "run_id": str(kwargs.get("run_id") or ""),
+            "candidate_ref": str(kwargs.get("candidate_ref") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "tour_url": "https://propertyquarry.com/tours/demo-terminal-flythrough",
+            "tour_status": "ready",
+            "flythrough_url": "",
+            "flythrough_status": "skipped",
+            "flythrough_reason": "magicfit_segment_render_failed",
+            "status_label": "Walkthrough not ready",
+        },
+    )
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-terminal-flythrough",
+        title="Demo property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:demo-terminal-flythrough",
+        external_id="demo-terminal-flythrough",
+        connector_binding_id="binding-1",
+        request_kind="flythrough",
+        run_id="run-terminal-flythrough",
+        candidate_ref="candidate-terminal-flythrough",
+        allow_floorplan_only=True,
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 1
+    assert result["blocked_total"] == 1
+    assert result["resolved"][0]["resolution"] == "skipped"
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "returned"
+    assert updated_task.resolution == "skipped"
 
 
 def test_property_tour_followup_tasks_block_terminally_when_visual_request_raises(monkeypatch) -> None:

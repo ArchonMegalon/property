@@ -2961,9 +2961,9 @@
               {% set verified_provider_label = research_media.get('provider_label') or '' %}
               {% if action.get('href') %}
               {% if verified_provider_label %}
-              Available in {{ verified_provider_label }}.
+              Tour: {{ verified_provider_label }}.
               {% else %}
-              3D tour available.
+              Tour: available.
               {% endif %}
               {% else %}
               No 3D tour yet.
@@ -3449,7 +3449,7 @@
           </div>
           {% if research_decision_rows or (research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings'))) %}
           <details class="prd-feedback-details prd-decision-context">
-            <summary>Why it fits</summary>
+            <summary>What stands out</summary>
             <div class="prd-feedback-body">
           <div class="prd-key-points">
             {% for row in research_decision_rows[:3] %}

@@ -71,3 +71,36 @@ def test_render_property_flythrough_does_not_silent_fallback_from_magicfit(monke
     assert result["reason"] == "magicfit_segment_render_failed"
     assert result["media_route_provider_key"] == "magicfit"
     assert "media_route_fallback_provider_key" not in result
+
+
+def test_hosted_property_visual_progress_snapshot_roundtrip(tmp_path, monkeypatch) -> None:
+    public_dir = tmp_path / "public_tours"
+    bundle_dir = public_dir / "sample-flat"
+    bundle_dir.mkdir(parents=True)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_dir))
+
+    product_service._write_hosted_property_visual_progress(
+        tour_url="/tours/sample-flat",
+        request_kind="flythrough",
+        status="processing",
+        progress_pct=44,
+        detail="Rendering walkthrough segment 2 of 4.",
+        reason="",
+        provider_key="magicfit",
+        step_index=2,
+        step_total=4,
+        updated_at="2026-06-29T10:15:00+00:00",
+    )
+
+    snapshot = product_service._hosted_property_visual_progress_snapshot(
+        "/tours/sample-flat",
+        request_kind="flythrough",
+    )
+
+    assert snapshot["status"] == "processing"
+    assert snapshot["progress_pct"] == 44
+    assert snapshot["detail"] == "Rendering walkthrough segment 2 of 4."
+    assert snapshot["provider_key"] == "magicfit"
+    assert snapshot["step_index"] == 2
+    assert snapshot["step_total"] == 4
+    assert product_service._hosted_property_visual_progress_stage_label(snapshot) == "segment 2 of 4"

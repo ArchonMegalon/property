@@ -356,12 +356,20 @@ def _property_search_run_status_payload(
             principal_id=context.principal_id,
             run_id=run_id,
             lightweight=lightweight,
+            account_email=str(context.access_email or "").strip(),
         )
     except TypeError:
-        payload = service.get_property_search_run_status(
-            principal_id=context.principal_id,
-            run_id=run_id,
-        )
+        try:
+            payload = service.get_property_search_run_status(
+                principal_id=context.principal_id,
+                run_id=run_id,
+                lightweight=lightweight,
+            )
+        except TypeError:
+            payload = service.get_property_search_run_status(
+                principal_id=context.principal_id,
+                run_id=run_id,
+            )
     if not payload:
         raise HTTPException(status_code=404, detail="property_search_run_not_found")
     normalized = dict(payload)
@@ -1732,7 +1740,13 @@ def clear_property_search_runs_v2(
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
     service = build_product_service(container)
-    result = service.clear_property_search_runs(principal_id=context.principal_id)
+    try:
+        result = service.clear_property_search_runs(
+            principal_id=context.principal_id,
+            account_email=str(context.access_email or "").strip(),
+        )
+    except TypeError:
+        result = service.clear_property_search_runs(principal_id=context.principal_id)
     return {
         "generated_at": now_iso(),
         "principal_id": context.principal_id,
@@ -1747,7 +1761,13 @@ def clear_property_search_runs_form(
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
     service = build_product_service(container)
-    result = service.clear_property_search_runs(principal_id=context.principal_id)
+    try:
+        result = service.clear_property_search_runs(
+            principal_id=context.principal_id,
+            account_email=str(context.access_email or "").strip(),
+        )
+    except TypeError:
+        result = service.clear_property_search_runs(principal_id=context.principal_id)
     deleted_count = int(result.get("deleted_count") or 0)
     return RedirectResponse(
         url=f"/app/account?history_cleared={deleted_count}#data-export",
@@ -1762,10 +1782,17 @@ def delete_property_search_run_v2(
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
     service = build_product_service(container)
-    deleted = service.delete_property_search_run(
-        principal_id=context.principal_id,
-        run_id=run_id,
-    )
+    try:
+        deleted = service.delete_property_search_run(
+            principal_id=context.principal_id,
+            run_id=run_id,
+            account_email=str(context.access_email or "").strip(),
+        )
+    except TypeError:
+        deleted = service.delete_property_search_run(
+            principal_id=context.principal_id,
+            run_id=run_id,
+        )
     if not deleted:
         raise HTTPException(status_code=404, detail="property_search_run_not_found")
     return {

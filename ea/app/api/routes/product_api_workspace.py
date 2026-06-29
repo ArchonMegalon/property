@@ -212,11 +212,15 @@ def export_property_account_data(
     )
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {}) if isinstance(status.get("workspace"), dict) else {}
-    raw_recent_runs = [
-        dict(row)
-        for row in service.list_property_search_runs(principal_id=context.principal_id, limit=100)
-        if isinstance(row, dict)
-    ]
+    try:
+        recent_run_rows = service.list_property_search_runs(
+            principal_id=context.principal_id,
+            limit=100,
+            account_email=str(context.access_email or "").strip(),
+        )
+    except TypeError:
+        recent_run_rows = service.list_property_search_runs(principal_id=context.principal_id, limit=100)
+    raw_recent_runs = [dict(row) for row in recent_run_rows if isinstance(row, dict)]
     recent_runs = [_property_account_export_run(row) for row in raw_recent_runs]
     property_passport = build_property_passport_snapshot(
         principal_id=context.principal_id,

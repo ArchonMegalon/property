@@ -448,13 +448,30 @@ def _propertyquarry_href(value: object) -> str:
     return href
 
 
-def _property_search_usage_state(product: object, *, principal_id: str, limit: int = 12) -> dict[str, object]:
+def _property_search_usage_state(product: object, *, principal_id: str, access_email: str = "", limit: int = 12) -> dict[str, object]:
     try:
         raw_runs = [
             normalize_property_search_run_snapshot(dict(row))
-            for row in list(product.list_property_search_runs(principal_id=principal_id, limit=limit, hydrate=False) or [])  # type: ignore[attr-defined]
+            for row in list(
+                product.list_property_search_runs(  # type: ignore[attr-defined]
+                    principal_id=principal_id,
+                    limit=limit,
+                    hydrate=False,
+                    account_email=access_email,
+                )
+                or []
+            )
             if isinstance(row, dict)
         ]
+    except TypeError:
+        try:
+            raw_runs = [
+                normalize_property_search_run_snapshot(dict(row))
+                for row in list(product.list_property_search_runs(principal_id=principal_id, limit=limit, hydrate=False) or [])  # type: ignore[attr-defined]
+                if isinstance(row, dict)
+            ]
+        except Exception:
+            raw_runs = []
     except Exception:
         raw_runs = []
     terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started", "not_started"}
@@ -799,7 +816,7 @@ def settings_usage_detail(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     if is_property_brand:
-        property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
+        property_usage = _property_search_usage_state(product, principal_id=context.principal_id, access_email=str(context.access_email or ""))
         property_billing, property_commercial = _property_settings_commercial(status)
         billing_handoff = _property_brilliant_directories_billing_handoff()
         billing_href = "/app/billing" if bool(billing_handoff.get("available")) else ""
@@ -1053,7 +1070,7 @@ def settings_support_detail(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     if is_property_brand:
-        property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
+        property_usage = _property_search_usage_state(product, principal_id=context.principal_id, access_email=str(context.access_email or ""))
         billing, commercial = _property_settings_commercial(status)
         return _render_console_object_detail(
             request=request,
@@ -1419,7 +1436,7 @@ def settings_outcomes_detail(
     route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
     proof_checks = [dict(value) for value in list(office_loop_proof.get("checks") or [])]
     if is_property_brand:
-        property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
+        property_usage = _property_search_usage_state(product, principal_id=context.principal_id, access_email=str(context.access_email or ""))
         return _render_console_object_detail(
             request=request,
             context=context,
@@ -2034,7 +2051,7 @@ def settings_trust_detail(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     if is_property_brand:
-        property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
+        property_usage = _property_search_usage_state(product, principal_id=context.principal_id, access_email=str(context.access_email or ""))
         billing, commercial = _property_settings_commercial(status)
         readiness_status_label = "Ready"
         readiness_detail_label = "Core account, search, support, and access surfaces are available."
