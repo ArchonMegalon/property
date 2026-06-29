@@ -118,7 +118,7 @@
         <a class="btn primary" href="/app/search" data-analytics-event="pricing_open_search" data-rybbit-event="pricing_open_search" data-rybbit-prop-plan="free">Open search</a>
         <span class="tier-provider">Your account is already active.</span>
         {% elif plan.plan_key == 'free' %}
-        <a class="btn primary" href="/register" data-analytics-event="pricing_start_free" data-rybbit-event="pricing_start_free" data-rybbit-prop-plan="free">Start free</a>
+        <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="pricing_start_free" data-rybbit-event="pricing_start_free" data-rybbit-prop-plan="free">Start free</a>
         <span class="tier-provider">No payment required.</span>
         {% elif plan.plan_key in (pricing_checkout_enabled_plans or []) and pricing_checkout_session_ready %}
         <button

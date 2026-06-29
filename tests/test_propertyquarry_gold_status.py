@@ -575,6 +575,8 @@ def _authenticated_smoke_payload(
     failed_count: int = 0,
     billing_external: bool = False,
     billing_fail_closed: bool = True,
+    billing_bridge_launch: bool = False,
+    billing_internal_account_fallback: bool = False,
     local_board_deleted: bool = True,
     include_notification_checks: bool = True,
 ) -> dict[str, object]:
@@ -585,6 +587,10 @@ def _authenticated_smoke_payload(
         billing_checks.append({"name": "billing_external_handoff", "ok": True})
     if billing_fail_closed:
         billing_checks.append({"name": "billing_fail_closed_recovery", "ok": True})
+    if billing_bridge_launch:
+        billing_checks.append({"name": "billing_bridge_launch", "ok": True})
+    if billing_internal_account_fallback:
+        billing_checks.append({"name": "billing_internal_account_fallback", "ok": True})
     notification_checks = [
         {"name": "account_notifications", "ok": True},
         {"name": "account_notification_form", "ok": True},
@@ -608,8 +614,13 @@ def _authenticated_smoke_payload(
             },
             {
                 "path": "/app/billing",
-                "status_code": 303 if billing_external else 503,
-                "ok": status == "pass" and failed_count == 0 and local_board_deleted and (billing_external or billing_fail_closed),
+                "status_code": 303 if (billing_external or billing_bridge_launch or billing_internal_account_fallback) else 503,
+                "ok": (
+                    status == "pass"
+                    and failed_count == 0
+                    and local_board_deleted
+                    and (billing_external or billing_fail_closed or (billing_bridge_launch and billing_internal_account_fallback))
+                ),
                 "checks": billing_checks,
             }
         ],
@@ -1607,6 +1618,140 @@ def test_gold_status_blocks_when_signed_billing_bridge_is_configured_but_live_su
     assert receipt["status"] == "blocked"
     assert receipt["billing_handoff"]["ready"] is False
     blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
+    assert "usable external account lane" in blocker["action"]
+
+
+def test_gold_status_accepts_signed_billing_bridge_with_internal_account_fallback_for_customer_surface_gate(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    authenticated_smoke = _write_json(
+        tmp_path / "authenticated-smoke.json",
+        _authenticated_smoke_payload(
+            billing_external=False,
+            billing_fail_closed=False,
+            billing_bridge_launch=True,
+            billing_internal_account_fallback=True,
+        ),
+    )
+    live_mobile = _write_json(tmp_path / "live-mobile.json", _live_mobile_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    billing = _write_json(tmp_path / "billing.json", _billing_bridge_payload())
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        authenticated_smoke_receipt_path=authenticated_smoke,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        billing_receipt_path=billing,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    customer_surfaces = receipt["authenticated_customer_surfaces"]
+    assert customer_surfaces["billing_checks_ok"] is True
+    assert customer_surfaces["missing_billing_checks"] == []
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
+    assert blocker["status"] == "dry_verified_configured"
+    assert "usable external account lane" in blocker["action"]
+
+
+def test_gold_status_keeps_bridge_guided_login_assist_as_billing_blocker_until_member_handoff_is_ready(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    authenticated_smoke = _write_json(
+        tmp_path / "authenticated-smoke.json",
+        {
+            "status": "pass",
+            "failed_count": 0,
+            "route_count": 3,
+            "checks": [
+                {
+                    "path": "/app/account",
+                    "status_code": 200,
+                    "ok": True,
+                    "checks": [
+                        {"name": "account_notifications", "ok": True},
+                        {"name": "account_notification_form", "ok": True},
+                        {"name": "account_notification_email_channel", "ok": True},
+                        {"name": "account_notification_telegram_channel", "ok": True},
+                        {"name": "account_notification_whatsapp_channel", "ok": True},
+                        {"name": "account_notification_primary_route", "ok": True},
+                        {"name": "account_notification_whatsapp_phone", "ok": True},
+                        {"name": "account_notification_save_action", "ok": True},
+                    ],
+                },
+                {
+                    "path": "/app/billing",
+                    "status_code": 303,
+                    "ok": True,
+                    "checks": [
+                        {"name": "billing_bridge_launch", "ok": True},
+                        {"name": "billing_external_handoff", "ok": True},
+                        {"name": "billing_external_handoff_resolves", "ok": True},
+                        {"name": "billing_external_handoff_usable", "ok": True},
+                        {"name": "billing_bridge_guided_login_assist", "ok": True},
+                        {"name": "billing_local_board_deleted", "ok": True},
+                    ],
+                },
+            ],
+        },
+    )
+    live_mobile = _write_json(tmp_path / "live-mobile.json", _live_mobile_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    billing = _write_json(tmp_path / "billing.json", _billing_bridge_payload())
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        authenticated_smoke_receipt_path=authenticated_smoke,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        billing_receipt_path=billing,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["authenticated_customer_surfaces"]["billing_checks_ok"] is True
+    assert receipt["billing_handoff"]["ready"] is False
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
+    assert blocker["status"] == "dry_verified_configured"
     assert "usable external account lane" in blocker["action"]
 
 

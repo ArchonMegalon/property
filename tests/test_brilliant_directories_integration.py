@@ -822,7 +822,7 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_requires
     )
 
 
-def test_property_billing_route_fails_closed_when_only_sso_bridge_is_available_but_direct_handoff_requires_second_login(
+def test_property_billing_route_uses_signed_bridge_when_only_sso_bridge_is_available_but_direct_handoff_requires_second_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_env(monkeypatch)
@@ -857,10 +857,8 @@ def test_property_billing_route_fails_closed_when_only_sso_bridge_is_available_b
 
     response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    _assert_billing_fail_closed(
-        response,
-        marker="This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now.",
-    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/api/property/billing/bridge-launch"
 
 
 def test_property_billing_route_uses_member_token_handoff_when_direct_handoff_requires_second_login(
@@ -941,7 +939,7 @@ def test_property_billing_bridge_launch_redirects_with_signed_token(monkeypatch:
     assert payload["return_to"] == "/app/billing"
 
 
-def test_property_billing_bridge_launch_falls_back_when_only_bridge_ready_still_requires_separate_login(
+def test_property_billing_bridge_launch_redirects_with_signed_token_when_only_bridge_ready_still_requires_separate_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_env(monkeypatch)
@@ -984,7 +982,16 @@ def test_property_billing_bridge_launch_falls_back_when_only_bridge_ready_still_
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/app/account?billing=1#delivery"
+    parsed = urllib.parse.urlparse(response.headers["location"])
+    query = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+    payload = verify_brilliant_directories_billing_sso_bridge_token(query["pq_bridge"])
+
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "billing.propertyquarry.com"
+    assert parsed.path == "/sso/propertyquarry"
+    assert query["source"] == "propertyquarry"
+    assert payload["principal_id"] == "exec-bd-billing-sso-launch-blocked"
+    assert payload["return_to"] == "/app/billing"
 
 
 def test_property_billing_bridge_launch_redirects_with_member_login_token_handoff(

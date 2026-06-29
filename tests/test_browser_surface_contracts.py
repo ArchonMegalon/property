@@ -124,10 +124,10 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         in landing.text
     )
     assert (
-        '<a class="btn" href="/register" data-analytics-event="home_create_account"'
+        '<a class="btn" href="/register" data-analytics-event="home_email_setup"'
         in landing.text
     )
-    assert landing.text.index(">Open search</a>") < landing.text.index(">Create account</a>")
+    assert landing.text.index(">Open search</a>") < landing.text.index(">Use email instead</a>")
     assert "Hard filters stay hard" in landing.text
     assert "Preferences score" in landing.text
     assert "sample-memo" not in landing.text
@@ -225,8 +225,8 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
 
     product = anonymous_client.get("/product", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert '<a class="btn primary" href="/sign-in?signing_in=1">Open search</a>' in product.text
-    assert f'<a class="btn ghost" href="/register">{"Create account"}</a>' in product.text
-    assert product.text.index(">Open search</a>") < product.text.index(">Create account</a>")
+    assert f'<a class="btn ghost" href="/register">{"Use email instead"}</a>' in product.text
+    assert product.text.index(">Open search</a>") < product.text.index(">Use email instead</a>")
 
 
 def test_propertyquarry_public_templates_do_not_keep_memo_anchors() -> None:

@@ -554,7 +554,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = mobile_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
         assert response is not None and response.ok
         expect(mobile_page.get_by_role("heading", name="Search once. Rank the right homes. Decide with evidence.")).to_be_visible()
-        expect(mobile_page.locator(".pq-hero-copy .btn.primary", has_text="Create account")).to_be_visible()
+        expect(mobile_page.locator(".pq-hero-copy .btn.primary", has_text="Open search")).to_be_visible()
         expect(mobile_page.locator(".topbar .nav")).to_be_hidden()
         expect(mobile_page.locator(".mobile-nav")).to_be_hidden()
         expect(mobile_page.locator(".topbar .actions .btn", has_text="Sign in")).to_be_visible()
@@ -747,7 +747,7 @@ def test_propertyquarry_sign_in_missing_current_session_hides_saved_session_cta(
         assert response is not None and response.ok
         expect(page.get_by_text("No active PropertyQuarry session was found.")).to_be_visible()
         assert page.get_by_role("link", name="Open current session").count() == 0
-        expect(page.get_by_role("link", name="Create account")).to_be_visible()
+        expect(page.get_by_role("link", name="Use email instead")).to_be_visible()
     finally:
         context.close()
 

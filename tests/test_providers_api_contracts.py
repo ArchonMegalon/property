@@ -4322,7 +4322,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     setup = owner.get("/register")
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
-    assert "Start an account that finds and ranks the right properties." in setup.text
+    assert "Set up an account that finds and ranks the right properties." in setup.text
     assert "Account shape" in setup.text
     assert "Google sign-in" in setup.text
 
@@ -4408,7 +4408,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert "Google account linked." in callback.text
     assert "browser@gmail.example" in callback.text
     assert "openid" in callback.text
-    assert 'href="/get-started"' in callback.text
+    assert 'href="/sign-in?signing_in=1"' in callback.text
     assert "No Gmail or Calendar sync was requested." in callback.text
 
 
@@ -4493,7 +4493,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert "Google account linked." in callback.text
     assert "browser@gmail.com" in callback.text
     assert "cf-email:browser@gmail.com" not in callback.text
-    assert 'href="/get-started"' in callback.text
+    assert 'href="/sign-in?signing_in=1"' in callback.text
     assert "No Gmail or Calendar sync was requested." in callback.text
 
 
@@ -4527,7 +4527,7 @@ def test_browser_google_callback_redirects_back_to_setup_when_state_expired(monk
         follow_redirects=False,
     )
     assert callback.status_code == 303
-    assert callback.headers["location"].startswith("/get-started?")
+    assert callback.headers["location"].startswith("/sign-in?signing_in=1&")
     assert "google_error=google_oauth_state_expired" in callback.headers["location"]
 
 

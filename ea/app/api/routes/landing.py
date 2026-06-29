@@ -335,14 +335,28 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
                             or "billing_handoff_requires_separate_login"
                         ),
                     }
+                elif bridge_ready:
+                    first_blocked_state = {
+                        "available": True,
+                        "status": "bridge_ready",
+                        "hosted_href": hosted_url,
+                        "open_href": launch_href,
+                        "bridge_href": bridge_href,
+                        "bridge_status": "ready",
+                        "member_token_status": str(member_token_receipt.get("error") or "").strip(),
+                        "error": str(
+                            handoff_receipt.get("account_handoff_error")
+                            or "billing_handoff_requires_separate_login"
+                        ),
+                    }
                 else:
                     first_blocked_state = {
                         "available": False,
-                        "status": "bridge_ready" if bridge_ready else "login_required",
+                        "status": "login_required",
                         "hosted_href": hosted_url,
                         "open_href": "",
                         "bridge_href": bridge_href,
-                        "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+                        "bridge_status": str(bridge_receipt.get("error") or "").strip(),
                         "member_token_status": str(member_token_receipt.get("error") or "").strip(),
                         "error": str(
                             handoff_receipt.get("account_handoff_error")
@@ -1538,7 +1552,7 @@ def _property_lookup_candidate_across_runs(
     if normalized_run_id:
         run_ids.append(normalized_run_id)
     try:
-        for row in list(product.list_property_search_runs(principal_id=principal_id, limit=max_runs) or []):
+        for row in list(product.list_property_search_runs(principal_id=principal_id, limit=max_runs, hydrate=False) or []):
             if not isinstance(row, dict):
                 continue
             recent_run_id = str(row.get("run_id") or "").strip()
@@ -2819,7 +2833,11 @@ def _property_console_context(
             ]
         except Exception:
             raw_recent_search_runs = []
-        recent_search_runs = _property_distinct_recent_search_runs(raw_recent_search_runs, limit=8)
+        recent_search_run_limit = 24 if surface_scope.section == "search" else 8
+        recent_search_runs = _property_distinct_recent_search_runs(
+            raw_recent_search_runs,
+            limit=recent_search_run_limit,
+        )
     history_run_candidates = raw_recent_search_runs or recent_search_runs
     if wants_run_state and not normalized_run_id:
         terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started"}
@@ -4350,7 +4368,7 @@ def register_page(
         **_public_context(
             request=request,
             current_nav="product",
-            page_title="Create your PropertyQuarry account" if request_brand(request)["key"] == "propertyquarry" else "Start your workspace",
+            page_title="Set up your PropertyQuarry account" if request_brand(request)["key"] == "propertyquarry" else "Start your workspace",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -4383,7 +4401,7 @@ def workspace_invite_preview(
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
             secondary_action_href="/register",
-            secondary_action_label="Create account",
+            secondary_action_label="Use email instead",
             status_code=404,
         )
     access_url = str(invite.get("access_url") or "").strip()
@@ -4443,7 +4461,7 @@ def workspace_access_session(
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
             secondary_action_href="/register",
-            secondary_action_label="Create account",
+            secondary_action_label="Use email instead",
             status_code=404,
         )
     target = _normalize_browser_return_to(
@@ -4541,7 +4559,7 @@ def workspace_invite_accept(
                 primary_action_href="/sign-in",
                 primary_action_label="Return to sign in",
                 secondary_action_href="/register",
-                secondary_action_label="Create account",
+                secondary_action_label="Use email instead",
                 status_code=409,
             )
         raise
@@ -4562,7 +4580,7 @@ def workspace_invite_accept(
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
             secondary_action_href="/register",
-            secondary_action_label="Create account",
+            secondary_action_label="Use email instead",
             status_code=404,
         )
     access_url = str(invite.get("access_url") or "").strip()
@@ -4592,7 +4610,7 @@ def workspace_invite_accept(
 
 @router.get("/get-started", response_class=HTMLResponse)
 def get_started() -> RedirectResponse:
-    return RedirectResponse("/register", status_code=307)
+    return RedirectResponse("/sign-in?signing_in=1", status_code=307)
 
 
 @router.get("/app", response_class=HTMLResponse)
@@ -4648,6 +4666,26 @@ def property_research_packet(
         candidate_ref=normalized_candidate_ref,
     )
     if candidate is None:
+        candidate = _property_lookup_candidate_in_saved_shortlist(
+            product,
+            principal_id=context.principal_id,
+            candidate_ref=normalized_candidate_ref,
+        )
+        saved_shortlist_run_id = str(candidate.get("saved_from_run_id") or "").strip() if isinstance(candidate, dict) else ""
+        if candidate is not None and saved_shortlist_run_id and saved_shortlist_run_id != resolved_run_id:
+            resolved_run_id = saved_shortlist_run_id
+            with contextlib.suppress(Exception):
+                property_context["run"] = _propertyquarry_prepare_run_payload(
+                    product=product,
+                    run_payload=dict(
+                        product.get_property_search_run_status(
+                            principal_id=context.principal_id,
+                            run_id=resolved_run_id,
+                        )
+                        or {}
+                    ),
+                )
+    if candidate is None:
         candidate, matched_run_id = _property_lookup_candidate_across_runs(
             product,
             principal_id=context.principal_id,
@@ -4667,12 +4705,6 @@ def property_research_packet(
                         or {}
                     ),
                 )
-    if candidate is None:
-        candidate = _property_lookup_candidate_in_saved_shortlist(
-            product,
-            principal_id=context.principal_id,
-            candidate_ref=normalized_candidate_ref,
-        )
     if candidate is not None:
         candidate = _propertyquarry_refresh_candidate_preview_if_needed(
             product=product,

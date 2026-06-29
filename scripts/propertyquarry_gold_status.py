@@ -685,6 +685,10 @@ def _authenticated_billing_surface_checks(authenticated_smoke: dict[str, Any]) -
     handoff_or_recovery_ok = (
         "billing_external_handoff" in passed_checks
         or "billing_fail_closed_recovery" in passed_checks
+        or (
+            "billing_bridge_launch" in passed_checks
+            and "billing_internal_account_fallback" in passed_checks
+        )
     )
     if not handoff_or_recovery_ok:
         missing.append("billing_external_handoff_or_fail_closed_recovery")
@@ -829,19 +833,24 @@ def _billing_handoff_ready(
     if direct_ready:
         return True
     bridge = billing_receipt.get("billing_sso_bridge")
+    member_token_handoff = billing_receipt.get("member_login_token_handoff")
     authenticated_route_row, authenticated_passed_checks, _ = _route_named_checks(
         authenticated_smoke or {},
         "/app/billing",
     )
-    authenticated_external_handoff_ok = bool(authenticated_route_row) and "billing_external_handoff" in authenticated_passed_checks
+    authenticated_external_handoff_usable = bool(authenticated_route_row) and (
+        "billing_external_handoff_usable" in authenticated_passed_checks
+    )
     return (
-        isinstance(bridge, dict)
+        isinstance(member_token_handoff, dict)
+        and member_token_handoff.get("ready") is True
+        and isinstance(bridge, dict)
         and bridge.get("ready") is True
         and bool(handoff.get("configured"))
         and bool(handoff.get("host_resolves"))
         and str(handoff.get("url") or "").strip().startswith("https://")
         and str(billing_receipt.get("status") or "").strip() != "blocked"
-        and authenticated_external_handoff_ok
+        and authenticated_external_handoff_usable
         and not (isinstance(pricing_probe, dict) and pricing_probe.get("placeholder") is True)
     )
 

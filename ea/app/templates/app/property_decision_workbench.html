@@ -10411,6 +10411,7 @@
           {% set active_dashboard_agents = dashboard_agents|selectattr('enabled')|list %}
           {% set selected_dashboard_agent = property_meta.get('search_agent') or (dashboard_agents[0] if dashboard_agents else {}) %}
           {% set previous_limit = 4 if surface_mode == 'search' else 6 %}
+          {% set previous_total = (previous_search_runs or [])|length %}
           {% set compact_research_setup = surface_mode == 'research' and not results %}
           {% if not compact_research_setup %}
           <div class="pqx-title">
@@ -10555,6 +10556,23 @@
             </div>
             {% endif %}
           </div>
+          <div class="pqx-dashboard-row">
+            <span class="pqx-small">Search history</span>
+            <strong>
+              {% if previous_total %}
+              {{ previous_total }} recent {{ 'run' if previous_total == 1 else 'runs' }}
+              {% else %}
+              No previous searches yet
+              {% endif %}
+            </strong>
+            <span class="pqx-note">
+              {% if previous_total %}
+              Open an earlier run without losing the current brief.
+              {% else %}
+              Recent searches will appear here after the first run.
+              {% endif %}
+            </span>
+          </div>
           <div class="pqx-previous-search-list" data-pqx-previous-searches>
             {% for previous in previous_search_runs[:previous_limit] %}
             <article class="pqx-previous-search" data-pqx-previous-search-card>
@@ -10652,6 +10670,38 @@
             </div>
             {% endfor %}
           </div>
+          {% if previous_total > previous_limit %}
+          <details class="pqx-card pqx-mobile-fold" data-pqx-previous-search-history-fold>
+            <summary>
+              <span class="pqx-mobile-fold-copy">
+                <span class="pqx-small">History</span>
+                <strong>All recent searches</strong>
+                <span class="pqx-note">Keep this brief open and jump back into any earlier result.</span>
+              </span>
+              <span class="pqx-mobile-fold-meta">
+                <span class="pqx-pill">{{ previous_total }} runs</span>
+              </span>
+            </summary>
+            <div class="pqx-mobile-fold-content">
+              <div class="pqx-pref-list">
+                {% for previous in previous_search_runs[previous_limit:] %}
+                <div class="pqx-pref-row" data-pqx-previous-search-history-row>
+                  <div>
+                    <strong>{{ previous.get('title') or previous.get('scope_label') or 'Search' }}</strong>
+                    <small>{{ previous.get('mode_label') }} · {{ previous.get('scope_summary') or previous.get('scope_label') }} · {{ previous.get('status_label') }}</small>
+                  </div>
+                  <div class="pqx-actions">
+                    {% if previous.get('ranked_total') %}
+                    <span class="pqx-pill">{{ previous.get('ranked_total') }} ranked</span>
+                    {% endif %}
+                    <a class="pqx-link-button subtle" href="{{ previous.get('href') or '/app/shortlist' }}">Open</a>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </details>
+          {% endif %}
           <dialog class="pqx-scope-lightbox" data-pqx-scope-lightbox aria-label="Search area preview">
             <div class="pqx-scope-lightbox-card">
               <div class="pqx-scope-lightbox-head">

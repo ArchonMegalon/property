@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import http.cookiejar
 import json
 import os
 import re
@@ -61,6 +62,12 @@ BILLING_LOCAL_BOARD_MARKERS = (
     "billing history",
     "current commercial state",
     "plan posture",
+)
+
+BILLING_BRIDGE_GUIDED_LOGIN_MARKERS = (
+    "continue billing",
+    "back to propertyquarry",
+    "billing lane",
 )
 
 
@@ -166,6 +173,55 @@ def _resolve_billing_external_handoff(
         "bridge_launch_status_code": int(bridge_result.get("status_code") or 0),
         "bridge_launch_error": str(bridge_result.get("error") or "").strip(),
         "bridge_launch_result": bridge_result,
+    }
+
+
+def _billing_bridge_guided_login_assist_probe(location: str, *, timeout_seconds: float) -> dict[str, object]:
+    normalized_location = str(location or "").strip()
+    parsed = urllib.parse.urlparse(normalized_location)
+    if parsed.scheme != "https" or not parsed.netloc or "/sso/propertyquarry" not in parsed.path:
+        return {
+            "ok": False,
+            "status_code": 0,
+            "final_url": normalized_location,
+            "error": "bridge_login_assist_not_applicable",
+        }
+    cookie_jar = http.cookiejar.CookieJar()
+    opener = _no_proxy_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
+    request = urllib.request.Request(
+        normalized_location,
+        headers={
+            "User-Agent": "PropertyQuarry-live-authenticated-smoke/1.0",
+            "Accept": "text/html,application/json,*/*",
+        },
+    )
+    try:
+        with opener.open(request, timeout=timeout_seconds) as response:
+            status_code = int(response.status)
+            final_url = str(response.geturl())
+            body = _decode_body(response.read(MAX_RESPONSE_BODY_BYTES))
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code)
+        final_url = str(exc.geturl())
+        body = _decode_body(exc.read(MAX_RESPONSE_BODY_BYTES))
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status_code": 0,
+            "final_url": normalized_location,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    visible_text = _visible_text(body).lower()
+    has_guided_markers = all(marker in visible_text for marker in BILLING_BRIDGE_GUIDED_LOGIN_MARKERS)
+    has_email_field = 'name="email"' in body.lower() or 'type="email"' in body.lower()
+    ok = status_code == 200 and has_guided_markers and has_email_field
+    return {
+        "ok": ok,
+        "status_code": status_code,
+        "final_url": final_url,
+        "has_guided_markers": has_guided_markers,
+        "has_email_field": has_email_field,
+        "error": "" if ok else "bridge_login_assist_missing",
     }
 
 
@@ -299,6 +355,7 @@ def build_live_authenticated_smoke_receipt(
     billing_handoff_resolver: Callable[[str, int], object] = socket.getaddrinfo,
     billing_handoff_dns_target: str = "",
     billing_handoff_checker: Callable[[str, float], dict[str, object]] | None = None,
+    billing_bridge_assist_checker: Callable[[str, float], dict[str, object]] | None = None,
 ) -> dict[str, object]:
     checks: list[dict[str, object]] = []
     failures = 0
@@ -319,6 +376,16 @@ def build_live_authenticated_smoke_receipt(
         effective_billing_handoff_checker = lambda location, timeout: _https_handoff_url_usable(location, timeout_seconds=timeout)
     else:
         effective_billing_handoff_checker = lambda _location, _timeout: {"ok": True, "status_code": 0, "error": "skipped_offline_fetcher"}
+    if billing_bridge_assist_checker is not None:
+        effective_billing_bridge_assist_checker = billing_bridge_assist_checker
+    elif fetcher is None:
+        effective_billing_bridge_assist_checker = (
+            lambda location, timeout: _billing_bridge_guided_login_assist_probe(location, timeout_seconds=timeout)
+        )
+    else:
+        effective_billing_bridge_assist_checker = (
+            lambda _location, _timeout: {"ok": False, "status_code": 0, "error": "skipped_offline_fetcher"}
+        )
     for path in routes:
         url = urllib.parse.urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
         attempts: list[dict[str, object]] = []
@@ -336,6 +403,7 @@ def build_live_authenticated_smoke_receipt(
         headers = dict(result.get("headers") or {})
         body = bytes(result.get("body") or b"")
         text = _decode_body(body)
+        bridge_login_assist_probe: dict[str, object] = {}
         if path == "/app/billing" and status_code in {303, 307}:
             location = _header_value(headers, "Location")
             if _is_internal_billing_account_fallback(location):
@@ -375,6 +443,17 @@ def build_live_authenticated_smoke_receipt(
                     ]
                 else:
                     billing_handoff_probe = effective_billing_handoff_checker(external_location, timeout_seconds)
+                    bridge_login_assist_probe = {}
+                    if (
+                        billing_handoff_probe.get("ok") is not True
+                        and str(billing_handoff_probe.get("error") or "").strip() == "handoff_url_requires_separate_login"
+                        and str(urllib.parse.urlparse(external_location).path or "").strip().startswith("/sso/propertyquarry")
+                    ):
+                        bridge_login_assist_probe = effective_billing_bridge_assist_checker(external_location, timeout_seconds)
+                    external_handoff_usable = bool(
+                        billing_handoff_probe.get("ok")
+                        or bridge_login_assist_probe.get("ok")
+                    )
                     route_checks = [
                         ("status_ok", True),
                         *_security_header_checks(headers=headers),
@@ -388,7 +467,11 @@ def build_live_authenticated_smoke_receipt(
                                 expected_cname_target=billing_handoff_dns_target,
                             ),
                         ),
-                        ("billing_external_handoff_usable", bool(billing_handoff_probe.get("ok"))),
+                        ("billing_external_handoff_usable", external_handoff_usable),
+                        (
+                            "billing_bridge_guided_login_assist",
+                            True if not bridge_login_assist_probe else bool(bridge_login_assist_probe.get("ok")),
+                        ),
                         ("billing_local_board_deleted", True),
                         ("billing_no_customer_noise", True),
                     ]
@@ -427,6 +510,7 @@ def build_live_authenticated_smoke_receipt(
                     {
                         "billing_handoff_probe": billing_handoff_probe,
                         "billing_handoff_resolution": billing_handoff_resolution,
+                        **({"billing_bridge_login_assist_probe": bridge_login_assist_probe} if bridge_login_assist_probe else {}),
                     }
                     if path == "/app/billing" and status_code in {303, 307}
                     else {}

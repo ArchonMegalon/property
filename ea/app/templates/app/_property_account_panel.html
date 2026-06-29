@@ -238,7 +238,7 @@
           <div>
             <strong>Access links</strong>
             <small>{{ (access_links.get('active_total') or 0) }} active · {{ (access_links.get('revoked_total') or 0) }} revoked.</small>
-            <small>Create account or collaborator links without leaving this page.</small>
+            <small>Send access or collaborator links without leaving this page.</small>
             {% if access_status_note %}<small>{{ access_status_note }}</small>{% endif %}
             {% for row in access_links.get('rows') or [] %}
             <small>{{ row.get('email') }} · {{ row.get('role_label') }}{% if row.get('expires_at') %} · expires {{ row.get('expires_at')[:19] }}{% endif %}</small>

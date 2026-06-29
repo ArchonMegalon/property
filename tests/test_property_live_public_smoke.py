@@ -41,7 +41,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
             'href="/how-it-works/score" Hard filters decide eligibility. '
             "You choose what is shared Account data stays editable"
         ),
-        "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Create account Open account, then activate from billing.",
+        "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free First sign-in creates the account automatically. Open account, then activate from billing.",
         "https://propertyquarry.com/privacy": "PropertyQuarry Privacy Public tours should use a narrow public manifest",
         "https://propertyquarry.com/terms": "PropertyQuarry Terms Generated or embedded tours help screening",
         "https://propertyquarry.com/support": "PropertyQuarry Support wrong-area matches",
@@ -50,7 +50,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/subprocessors": "PropertyQuarry Subprocessors Service partner registry",
         "https://propertyquarry.com/refunds": "PropertyQuarry Refunds and Cancellation failed payment recovery",
         "https://propertyquarry.com/disclaimers": "PropertyQuarry Disclaimers Generated visualization",
-        "https://propertyquarry.com/register": "PropertyQuarry Create account",
+        "https://propertyquarry.com/register": "PropertyQuarry Set up your PropertyQuarry account Finish setup",
         "https://propertyquarry.com/sign-in": (
             'PropertyQuarry Use a saved session, email link, or connected identity. '
             "First-time provider sign-in also creates the account automatically. "

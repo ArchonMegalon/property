@@ -142,7 +142,7 @@
     {% if return_to %}<a class="btn primary" href="{{ return_to }}">{{ return_label or 'Return' }}</a>{% endif %}
     <a class="btn{% if not return_to %} primary{% endif %}" href="/app/search">Open search</a>
     <a class="btn" href="/app/settings/google">Google settings</a>
-    <a class="btn ghost" href="{{ return_to or '/get-started' }}">{{ return_label or 'Back to setup' }}</a>
+    {% if not return_to %}<a class="btn ghost" href="/sign-in?signing_in=1">Back to sign in</a>{% endif %}
   </div>
   <details class="scope-details">
     <summary>Show raw Google OAuth scopes</summary>

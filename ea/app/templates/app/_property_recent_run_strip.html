@@ -11,7 +11,7 @@
 <section class="pqx-card" style="margin:0 0 12px;" data-pqx-inline-run-history>
   <div class="pqx-section-head">
     <div>
-      <h2>Recent searches</h2>
+      <h2>Search history</h2>
       <div class="pqx-note">Open an earlier run without losing this screen.</div>
     </div>
   </div>
@@ -37,4 +37,44 @@
     {% endfor %}
   </div>
 </section>
+{% set total_history_runs = namespace(value=0) %}
+{% for previous in previous_search_runs or [] %}
+{% if previous.get('run_id') != current_run_id %}
+{% set total_history_runs.value = total_history_runs.value + 1 %}
+{% endif %}
+{% endfor %}
+{% if total_history_runs.value > recent_run_strip_limit %}
+<details class="pqx-card pqx-mobile-fold" style="margin:0 0 12px;" data-pqx-run-history-fold>
+  <summary>
+    <span class="pqx-mobile-fold-copy">
+      <span class="pqx-small">History</span>
+      <strong>All recent searches</strong>
+      <span class="pqx-note">Keep the current run open and jump back into an older result when needed.</span>
+    </span>
+    <span class="pqx-mobile-fold-meta">
+      <span class="pqx-pill">{{ total_history_runs.value }} runs</span>
+    </span>
+  </summary>
+  <div class="pqx-mobile-fold-content">
+    <div class="pqx-pref-list">
+      {% for previous in previous_search_runs or [] %}
+      {% if previous.get('run_id') != current_run_id %}
+      <div class="pqx-pref-row" data-pqx-run-history-row>
+        <div>
+          <strong>{{ previous.get('title') or previous.get('scope_label') or 'Search' }}</strong>
+          <small>{{ previous.get('mode_label') }} · {{ previous.get('scope_summary') or previous.get('scope_label') }} · {{ previous.get('status_label') }}</small>
+        </div>
+        <div class="pqx-actions">
+          {% if previous.get('ranked_total') %}
+          <span class="pqx-pill">{{ previous.get('ranked_total') }} ranked</span>
+          {% endif %}
+          <a class="pqx-link-button subtle" href="{{ previous.get('href') or '/app/shortlist' }}">Open</a>
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</details>
+{% endif %}
 {% endif %}

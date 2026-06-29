@@ -26,7 +26,7 @@ def _propertyquarry_brand() -> dict[str, str]:
         "key": "propertyquarry",
         "name": "PropertyQuarry",
         "mark": "PQ",
-        "create_label": "Create account",
+        "create_label": "Use email instead",
         "sign_in_label": "Sign in",
         "workspace_label": "Property research account",
         "app_home": "/app/search",

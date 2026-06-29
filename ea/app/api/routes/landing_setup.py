@@ -359,7 +359,10 @@ async def google_connect_browser(
 ) -> RedirectResponse | HTMLResponse:
     form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     principal_id = _browser_form_context(form_data=form_data, container=container, access_identity=access_identity)
-    return_to = _normalize_browser_return_to(_form_value(form_data, "return_to", "/get-started"), default="/get-started")
+    return_to = _normalize_browser_return_to(
+        _form_value(form_data, "return_to", "/sign-in?signing_in=1"),
+        default="/sign-in?signing_in=1",
+    )
     result = container.onboarding.start_google(
         principal_id=principal_id,
         scope_bundle=_form_value(form_data, "scope_bundle", "identity"),
@@ -683,11 +686,13 @@ def google_oauth_browser_callback(
             "sync_suppressed_total": int(sync_result.get("suppressed_total") or 0),
             "sync_error": str(sync_result.get("error") or "").strip(),
         }
-    return_label = "Back to setup"
+    return_label = "Return to sign in"
     if return_to.startswith("/register"):
-        return_label = "Return to registration"
+        return_label = "Return to email setup"
+    elif return_to.startswith("/sign-in"):
+        return_label = "Return to sign in"
     elif return_to.startswith("/get-started"):
-        return_label = "Back to setup"
+        return_label = "Return to sign in"
     elif return_to.startswith("/app/"):
         return_label = "Return to account"
     return _render_public_template(

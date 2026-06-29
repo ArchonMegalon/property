@@ -1190,8 +1190,8 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert sign_in.status_code == 200
     assert public_pricing.status_code == 200
     assert signed_in_sign_in.status_code == 200
-    assert "Start an account that finds and ranks the right properties" in page.text
-    assert "Create the account and start the first search" in page.text
+    assert "Set up an account that finds and ranks the right properties" in page.text
+    assert "Finish setup and start the first search" in page.text
     assert 'href="/app/search"' in page.text
     assert 'href="/app/search"' not in sign_in.text
     assert 'href="/sign-in/current-session"' in sign_in.text
@@ -1205,12 +1205,14 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert 'href="/register"' not in pricing.text
     assert "Create account" not in pricing.text
     assert "Start free" in public_pricing.text
+    assert 'href="/sign-in?signing_in=1"' in public_pricing.text
+    assert "Create account" not in public_pricing.text
     assert "First sign-in creates the account automatically." in public_pricing.text
     assert 'action="/app/actions/sign-out"' in signed_in_sign_in.text
     assert ">Log out<" in signed_in_sign_in.text
     assert signed_in_sign_in.text.count('action="/app/actions/sign-out"') == 1
     assert signed_in_sign_in.text.count(">Log out<") == 1
-    assert 'href="/register">Create account</a>' not in signed_in_sign_in.text
+    assert 'href="/register">Use email instead</a>' not in signed_in_sign_in.text
     assert 'href="/app/properties">Open current session</a>' not in sign_in.text
     assert sign_in.text.count('href="/sign-in/current-session"') == 1
     assert "Open current session" not in signed_in_sign_in.text
@@ -1247,7 +1249,7 @@ def test_propertyquarry_sign_in_missing_current_session_hides_unusable_saved_ses
     assert 'href="/sign-in/current-session"' not in response.text
     assert "Open current session" not in response.text
     assert 'href="/register"' in response.text
-    assert "Create account" in response.text
+    assert "Use email instead" in response.text
 
     get_started_template = (
         Path(__file__).resolve().parents[1] / "ea/app/templates/get_started.html"
@@ -1311,7 +1313,7 @@ def test_propertyquarry_pricing_stays_public_without_auth_headers_when_api_token
 
     assert response.status_code == 200
     assert "Start free" in response.text
-    assert "Create account" in response.text
+    assert "Create account" not in response.text
     assert "Your account is already active." not in response.text
 
 
@@ -7845,7 +7847,7 @@ def test_public_ctas_and_selected_review_panel_expose_rybbit_events() -> None:
     results_list = (repo_root / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
     workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
     feedback_script = (repo_root / "ea/app/templates/app/_property_workbench_feedback_script.html").read_text(encoding="utf-8")
-    assert 'data-rybbit-event="home_create_account"' in home
+    assert 'data-rybbit-event="home_email_setup"' in home
     assert 'data-rybbit-event="pricing_checkout_start"' in pricing
     assert "data-pricing-provider" not in pricing
     assert "Opening secure checkout" in pricing
@@ -10699,6 +10701,68 @@ def test_property_search_surface_loads_recent_runs_without_saved_brief(monkeypat
     assert all(call == ("pq-fast-search", 24, False) for call in calls)
 
 
+def test_propertyquarry_search_surface_exposes_full_history_fold_when_recent_runs_exceed_inline_limit(monkeypatch) -> None:
+    principal_id = "pq-search-history-fold"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Search History Fold")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_list_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+        assert principal_id == "pq-search-history-fold"
+        assert limit == 24
+        assert hydrate is False
+        return [
+            {
+                "run_id": f"run-history-{index}",
+                "status": "processed",
+                "updated_at": f"2026-06-2{8 - min(index, 7)}T0{index}:00:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": f"10{index}0 Vienna",
+                },
+                "summary": {
+                    "status": "processed",
+                    "listing_total": 10 + index,
+                    "ranked_candidates": [
+                        {
+                            "title": f"History flat {index}",
+                            "fit_score": 50 + index,
+                            "packet_url": f"/app/research/history-flat-{index}?run_id=run-history-{index}",
+                        }
+                    ],
+                },
+            }
+            for index in range(1, 8)
+        ]
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+
+    response = client.get("/app/search", headers=headers)
+
+    assert response.status_code == 200
+    assert "Search history" in response.text
+    assert 'data-pqx-previous-search-history-fold' in response.text
+    assert "All recent searches" in response.text
+    assert response.text.count('data-pqx-previous-search-card') >= 4
+    assert response.text.count('data-pqx-previous-search-history-row') == 3
+    assert "1010 Vienna" in response.text
+    assert "1070 Vienna" in response.text
+
+
 def test_property_properties_surface_uses_active_run_lookup_with_recent_run_list(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-properties-active-run-lookup")
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -12735,6 +12799,191 @@ def test_propertyquarry_running_surface_keeps_recent_search_history_visible(monk
     assert 'data-pqx-inline-run-history' in response.text
     assert 'href="/app/shortlist?run_id=run-history-older"' in response.text
     assert "1090 Vienna" in response.text
+
+
+def test_propertyquarry_running_surface_exposes_full_history_fold_when_recent_runs_exceed_inline_strip(monkeypatch) -> None:
+    principal_id = "pq-running-history-fold"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Running History Fold")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_list_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+        assert principal_id == "pq-running-history-fold"
+        assert hydrate is False
+        return [
+            {
+                "run_id": "run-active-77",
+                "status": "in_progress",
+                "updated_at": "2026-06-29T08:00:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "Vienna",
+                },
+                "summary": {"status": "in_progress", "listing_total": 21},
+            },
+            *[
+                {
+                    "run_id": f"run-history-{index}",
+                    "status": "processed",
+                    "updated_at": f"2026-06-2{8 - min(index, 7)}T0{index}:00:00+00:00",
+                    "property_search_preferences": {
+                        "country_code": "AT",
+                        "listing_mode": "rent",
+                        "location_query": f"10{index}0 Vienna",
+                    },
+                    "summary": {
+                        "status": "processed",
+                        "listing_total": 10 + index,
+                        "ranked_candidates": [
+                            {
+                                "title": f"History flat {index}",
+                                "fit_score": 50 + index,
+                                "packet_url": f"/app/research/history-flat-{index}?run_id=run-history-{index}",
+                            }
+                        ],
+                    },
+                }
+                for index in range(1, 7)
+            ],
+        ]
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-running-history-fold"
+        assert run_id == "run-active-77"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 18,
+            "message": "Checking fresh rental listings for Vienna.",
+            "summary": {
+                "status": "in_progress",
+                "sources_total": 3,
+                "listing_total": 21,
+                "eta_label": "about 4 min",
+                "sources": [],
+            },
+            "events": [
+                {"step": "source_fetch", "message": "Checking fresh rental listings for Vienna.", "status": "in_progress"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", headers=headers)
+
+    assert response.status_code == 200
+    assert 'data-pqx-inline-run-history' in response.text
+    assert 'data-pqx-run-history-fold' in response.text
+    assert "All recent searches" in response.text
+    assert response.text.count('data-pqx-run-history-row') >= 6
+    assert "1010 Vienna" in response.text
+    assert "1060 Vienna" in response.text
+
+
+def test_property_lookup_candidate_across_runs_collects_recent_run_ids_without_hydrating(monkeypatch) -> None:
+    observed_calls: list[tuple[str, int, bool]] = []
+
+    class _StubProduct:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+            observed_calls.append((principal_id, limit, hydrate))
+            return [{"run_id": "run-recent-1"}]
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str):
+            return {"run_id": run_id, "summary": {}}
+
+    monkeypatch.setattr(landing_routes, "_propertyquarry_prepare_run_payload", lambda product, run_payload: dict(run_payload))
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_lookup_candidate",
+        lambda property_context, candidate_ref: {"candidate_ref": candidate_ref}
+        if str((property_context.get("run") or {}).get("run_id") or "").strip() == "run-recent-1"
+        else None,
+    )
+
+    candidate, matched_run_id = landing_routes._property_lookup_candidate_across_runs(
+        _StubProduct(),
+        principal_id="pq-research-cross-run",
+        candidate_ref="perf-candidate-1020",
+        max_runs=3,
+    )
+
+    assert observed_calls == [("pq-research-cross-run", 3, False)]
+    assert matched_run_id == "run-recent-1"
+    assert candidate == {"candidate_ref": "perf-candidate-1020"}
+
+
+def test_property_research_packet_prefers_saved_shortlist_before_cross_run_scan(monkeypatch) -> None:
+    principal_id = "pq-research-saved-shortlist-first"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Saved Shortlist First")
+
+    candidate = {
+        "candidate_ref": "perf-candidate-1020",
+        "saved_from_run_id": "run-shortlist-1",
+        "title": "Saved shortlist home",
+        "source_label": "Willhaben",
+        "location_label": "1020 Vienna",
+        "fit_summary": "Saved shortlist candidate should open directly.",
+        "property_url": "https://example.com/property",
+        "source_url": "https://example.com/property",
+        "packet_url": "/app/research/perf-candidate-1020?run_id=run-shortlist-1",
+        "property_facts": {
+            "price_display": "EUR 1,250",
+            "area_m2": "52",
+            "rooms": "2",
+            "district": "1020 Vienna",
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_console_context",
+        lambda **kwargs: {
+            "run": {},
+            "preferences": {},
+            "commercial": {},
+            "saved_shortlist_candidates": [],
+        },
+    )
+    monkeypatch.setattr(landing_routes, "_property_lookup_candidate", lambda **kwargs: None)
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_lookup_candidate_in_saved_shortlist",
+        lambda *args, **kwargs: dict(candidate),
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_lookup_candidate_across_runs",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("cross-run scan should not run")),
+    )
+    monkeypatch.setattr(landing_routes, "_propertyquarry_refresh_candidate_preview_if_needed", lambda product, candidate: dict(candidate))
+    monkeypatch.setattr(landing_routes, "_property_candidate_orientation_preview", lambda candidate: {})
+    monkeypatch.setattr(landing_routes, "_property_candidate_preview_image", lambda candidate: "")
+    monkeypatch.setattr(landing_routes, "_property_research_gallery_items", lambda **kwargs: [])
+
+    response = client.get("/app/research/perf-candidate-1020?run_id=run-expired", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "Saved shortlist home" in response.text
+    assert "Moved to the latest run" in response.text
+    assert "run-shortlist-1" in response.text
 
 
 def test_propertyquarry_recent_history_keeps_distinct_searches_visible_when_retries_repeat(monkeypatch) -> None:

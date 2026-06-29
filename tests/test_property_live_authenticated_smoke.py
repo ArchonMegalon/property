@@ -237,6 +237,63 @@ def test_live_authenticated_smoke_accepts_local_bridge_launch_then_external_bill
     json.dumps(receipt, sort_keys=True)
 
 
+def test_live_authenticated_smoke_accepts_bridge_guided_login_assist_when_vendor_lane_still_requires_login() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/app/billing": "",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+        "https://propertyquarry.com/app/api/property/billing/bridge-launch": "",
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "/app/api/property/billing/bridge-launch"},
+            )
+        if "/app/api/property/billing/bridge-launch" in url:
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "https://billing.propertyquarry.com/sso/propertyquarry?pq_bridge=token"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+        billing_handoff_resolver=lambda _host, _port: [(object(),)],
+        billing_handoff_checker=lambda _location, _timeout: {
+            "ok": False,
+            "status_code": 302,
+            "redirect_location": "/login?login_direct_url=/account",
+            "error": "handoff_url_requires_separate_login",
+        },
+        billing_bridge_assist_checker=lambda _location, _timeout: {
+            "ok": True,
+            "status_code": 200,
+            "final_url": "https://billing.propertyquarry.com/login?login_direct_url=%2Faccount",
+            "has_guided_markers": True,
+            "has_email_field": True,
+            "error": "",
+        },
+    )
+
+    assert receipt["status"] == "pass"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
+    assert any(check["name"] == "billing_bridge_launch" and check["ok"] is True for check in billing_row["checks"])
+    assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is True for check in billing_row["checks"])
+    assert any(check["name"] == "billing_bridge_guided_login_assist" and check["ok"] is True for check in billing_row["checks"])
+    assert billing_row["billing_handoff_probe"]["error"] == "handoff_url_requires_separate_login"
+    assert billing_row["billing_bridge_login_assist_probe"]["ok"] is True
+
+
 def test_live_authenticated_smoke_accepts_local_bridge_launch_then_internal_account_fallback_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,

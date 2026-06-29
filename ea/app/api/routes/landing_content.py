@@ -116,7 +116,7 @@ PRODUCT_MODULES = (
 
 SIGN_IN_NOTES = (
     "Return through a current session, a secure email link, an account invite, or SSO.",
-    "Create a PropertyQuarry account from /register if you are starting fresh.",
+    "Use the email setup path at /register if you prefer not to start with provider sign-in.",
     "Google connection is optional identity and return access, not the required center of the product.",
     "Shared review, billing, and broader account controls come later from Account, with Connections inside it, after the first shortlist proves useful.",
 )

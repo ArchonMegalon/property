@@ -915,7 +915,7 @@ def test_sign_in_page_shows_friendly_identity_only_google_error(monkeypatch: pyt
     assert "Retry Google sign-in" in response.text
     assert 'href="/sign-in/google"' in response.text
     assert "data-submitting-label=\"Opening Google...\"" in response.text
-    assert "Create account" in response.text
+    assert "Use email instead" in response.text
 
 
 def test_sign_in_google_identity_only_callback_redirects_as_google_identity_only(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1513,7 +1513,7 @@ def test_register_google_callback_page_signals_original_registration_tab(monkeyp
     callback = client.get("/google/callback", params={"code": "code-123", "state": query["state"][0]})
 
     assert callback.status_code == 200
-    assert "Return to registration" in callback.text
+    assert "Return to email setup" in callback.text
     assert "ea-register-google-connected" in callback.text
     assert "window.location.replace" in callback.text
     assert "google_connected" in callback.text
