@@ -30,17 +30,17 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `854b67487c087fb05fa92bbc2b7a6f897a70d154` |
+| Runtime commit SHA | `d99be78a2846f86af5a275afc44f66fd9cc3508d` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current release candidate on 2026-06-29 after `854b6748`, carrying the gold-gate audit pass, mobile/account notification polish, deploy-smoke `.env` identity resolution, Brilliant Directories chrome cleanup, and scene-video provider account hardening |
+| Deployment ID | current release candidate on 2026-06-29 after `d99be78a`, carrying the gold-gate audit pass, mobile/account notification polish, deploy-smoke `.env` identity resolution, Brilliant Directories chrome cleanup, and scene-video provider account hardening |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
 The local audit pass on 2026-06-29 verified:
 
-- Commit `854b6748` is the current runtime candidate for this repo audit.
+- Commit `d99be78a` is the current runtime candidate for this repo audit.
 - `python3 scripts/propertyquarry_authenticated_performance_smoke.py --write _completion/smoke/property-auth-performance-latest.json` returned `status=pass`, `failed_count=0`, and verified warmed `/app/search`, `/app/properties`, `/app/account`, `/app/billing`, and settings surfaces under the 1200 ms route budget.
 - `python3 scripts/propertyquarry_gold_status.py --write _completion/property_gold_status/release-gate.json --fail-on-blocked` now leaves only release hygiene before the manifest update; all product, mobile, analytics privacy, tour delivery, map preview, walkthrough, provider matrix, self-healing, scope, security, BTS methodology, and furniture-style contract gates are green.
 - Focused local regressions passed for Brilliant Directories handoff cleanup, scene-video provider account merging, Chummer scene-video delivery routing, public tour CSP/Matterport/3DVista contracts, ranked search visibility, deploy-smoke principal resolution from `.env`, furniture-style gate alignment, and PropertyQuarry gold status aggregation.
