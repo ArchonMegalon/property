@@ -57,8 +57,9 @@ from app.api.routes.landing_property_surface_contracts import (
 
 _PROPERTY_MAP_PREVIEW_RENDER_LOCK = threading.Lock()
 _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT: set[str] = set()
-_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v1"
+_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v2_radius"
 _PROPERTY_MAP_PREVIEW_SELECTED_FILL = (194, 42, 48, 82)
+_PROPERTY_MAP_PREVIEW_COVERAGE_FILL = (194, 42, 48, 46)
 _PROPERTY_MAP_PREVIEW_SECONDARY_FILL = (194, 42, 48, 44)
 _PROPERTY_MAP_PREVIEW_SELECTED_STROKE = (132, 30, 36, 178)
 _PROPERTY_MAP_PREVIEW_BOUNDARY_STROKE = (68, 62, 55, 112)
@@ -771,6 +772,49 @@ def _draw_flagship_preview_polygon(
     draw.line(points + [points[0]], fill=stroke, width=2, joint="curve")
 
 
+def _positive_preview_int(value: object, *, default: int = 0) -> int:
+    try:
+        parsed = int(float(str(value or "").strip()))
+    except Exception:
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _preview_radius_px(
+    radius_m: int,
+    preview_bounds: tuple[float, float, float, float],
+    *,
+    width: float,
+    height: float,
+) -> int:
+    if radius_m <= 0:
+        return 0
+    west, south, east, north = preview_bounds
+    center_lat = (south + north) / 2.0
+    meters_per_lon_degree = max(111_320.0 * math.cos(math.radians(center_lat)), 1.0)
+    meters_per_lat_degree = 110_540.0
+    lon_meters = max(abs(east - west) * meters_per_lon_degree, 1.0)
+    lat_meters = max(abs(north - south) * meters_per_lat_degree, 1.0)
+    px_per_meter = max(width / lon_meters, height / lat_meters)
+    return max(2, min(120, int(round(radius_m * px_per_meter))))
+
+
+def _draw_flagship_preview_coverage(
+    draw: ImageDraw.ImageDraw,
+    points: list[tuple[float, float]],
+    *,
+    radius_px: int,
+) -> None:
+    if radius_px <= 0:
+        return
+    draw.line(
+        points + [points[0]],
+        fill=_PROPERTY_MAP_PREVIEW_COVERAGE_FILL,
+        width=max(2, radius_px * 2),
+        joint="curve",
+    )
+
+
 def _cached_local_map_overview_png_path(
     cache_path: Path,
     *,
@@ -826,6 +870,19 @@ def _cached_local_map_overview_png_path(
         if len(points) >= 3:
             draw.line(points + [points[0]], fill=_PROPERTY_MAP_PREVIEW_HALO, width=4, joint="curve")
             draw.line(points + [points[0]], fill=_PROPERTY_MAP_PREVIEW_BOUNDARY_STROKE, width=2, joint="curve")
+    for index, row in enumerate(overlay_rows or []):
+        path = str(row.get("path") or "").strip()
+        if not path:
+            continue
+        numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
+        points = list(zip(numbers[0::2], numbers[1::2]))
+        if len(points) < 3:
+            continue
+        _draw_flagship_preview_coverage(
+            draw,
+            points,
+            radius_px=_positive_preview_int(row.get("coverage_radius_px")),
+        )
     for index, row in enumerate(overlay_rows or []):
         path = str(row.get("path") or "").strip()
         if not path:
@@ -1003,6 +1060,19 @@ def _cached_preview_png_path(
         draw.line(points + [points[0]], fill=_PROPERTY_MAP_PREVIEW_HALO, width=4, joint="curve")
         draw.line(points + [points[0]], fill=_PROPERTY_MAP_PREVIEW_BOUNDARY_STROKE, width=2, joint="curve")
     if draw_overlay:
+        for row in overlay_rows or []:
+            path = str(row.get("path") or "").strip()
+            if not path:
+                continue
+            numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
+            points = list(zip(numbers[0::2], numbers[1::2]))
+            if len(points) < 3:
+                continue
+            _draw_flagship_preview_coverage(
+                draw,
+                points,
+                radius_px=_positive_preview_int(row.get("coverage_radius_px")),
+            )
         for index, row in enumerate(overlay_rows or []):
             path = str(row.get("path") or "").strip()
             if not path:
@@ -1495,10 +1565,12 @@ def _build_scope_boundary_preview(
     selected_values: list[str],
     option_lookup: dict[str, str],
     market_label: str,
+    adjacent_area_radius_m: int = 0,
     allow_remote_lookup: bool = True,
     materialize_preview: str = "sync",
     padding_ratio: float = 0.12,
 ) -> dict[str, object]:
+    adjacent_area_radius_m = max(0, min(_positive_preview_int(adjacent_area_radius_m), 20_000))
     queries = [
         _preview_query_with_context(option_lookup.get(value.lower(), value), country_code, region_code)
         for value in selected_values
@@ -1533,12 +1605,32 @@ def _build_scope_boundary_preview(
     union_bounds = _union_geo_bounds(bounds_rows)
     if not union_bounds:
         return {}
+    radius_padding_degrees = (adjacent_area_radius_m / 111_000.0) if adjacent_area_radius_m > 0 else 0.0
     render_bounds = _expand_geo_bounds(union_bounds, padding_ratio=padding_ratio)
+    if radius_padding_degrees > 0:
+        render_bounds = (
+            render_bounds[0] - radius_padding_degrees,
+            render_bounds[1] - radius_padding_degrees,
+            render_bounds[2] + radius_padding_degrees,
+            render_bounds[3] + radius_padding_degrees,
+        )
 
     center_lon = (render_bounds[0] + render_bounds[2]) / 2.0
     center_lat = (render_bounds[1] + render_bounds[3]) / 2.0
-    zoom = _preview_zoom_for_bounds(render_bounds, fit_bounds=union_bounds)
+    fit_bounds = (
+        union_bounds[0] - radius_padding_degrees,
+        union_bounds[1] - radius_padding_degrees,
+        union_bounds[2] + radius_padding_degrees,
+        union_bounds[3] + radius_padding_degrees,
+    ) if radius_padding_degrees > 0 else union_bounds
+    zoom = _preview_zoom_for_bounds(render_bounds, fit_bounds=fit_bounds)
     preview_bounds = _tile_crop_geo_bounds(center_lat=center_lat, center_lon=center_lon, zoom=zoom, width=640, height=368)
+    coverage_radius_px = _preview_radius_px(
+        adjacent_area_radius_m,
+        preview_bounds,
+        width=640.0,
+        height=368.0,
+    )
 
     district_rows: list[dict[str, object]] = []
     for index, row in enumerate(rows):
@@ -1554,7 +1646,12 @@ def _build_scope_boundary_preview(
             path, _ = _project_lonlat_to_preview_path(rect_points, preview_bounds, width=640.0, height=368.0)
         if not path:
             continue
-        overlay_row = {"label": str(row.get("label") or f"Area {index + 1}").strip(), "selected": True, "path": path}
+        overlay_row = {
+            "label": str(row.get("label") or f"Area {index + 1}").strip(),
+            "selected": True,
+            "path": path,
+            **({"coverage_radius_px": coverage_radius_px} if coverage_radius_px else {}),
+        }
         district_rows.append(overlay_row)
 
     if not district_rows:
@@ -1576,6 +1673,8 @@ def _build_scope_boundary_preview(
             "zoom": zoom,
             "overlay_mode": "svg_tile_crop_v6",
             "render_bounds_source": "selected_areas",
+            "adjacent_area_radius_m": adjacent_area_radius_m,
+            "coverage_radius_px": coverage_radius_px,
             "materialize": str(materialize_preview or "sync").strip().lower(),
         },
         center_lat=center_lat,
@@ -1662,7 +1761,13 @@ def _property_scope_point_preview(
     }
 
 
-def _property_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+def _property_scope_preview(
+    country_code: str,
+    region_code: str,
+    location_query: str,
+    *,
+    adjacent_area_radius_m: int = 0,
+) -> dict[str, object]:
     normalized_country = str(country_code or "").strip().upper()
     normalized_region = str(region_code or "").strip().lower()
     normalized_query = str(location_query or "").strip()
@@ -1705,6 +1810,7 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
         selected_values=selected_values,
         option_lookup=option_lookup,
         market_label=market_label,
+        adjacent_area_radius_m=adjacent_area_radius_m,
     )
     if preview:
         return preview
@@ -1917,7 +2023,13 @@ def _property_scope_preview_fast(country_code: str, region_code: str, location_q
     )
 
 
-def _property_scope_preview_map_only(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+def _property_scope_preview_map_only(
+    country_code: str,
+    region_code: str,
+    location_query: str,
+    *,
+    adjacent_area_radius_m: int = 0,
+) -> dict[str, object]:
     """Automation thumbnails must be real map previews, never local diagram thumbnails."""
     normalized_country = str(country_code or "").strip().upper()
     normalized_region = str(region_code or "").strip().lower()
@@ -1945,6 +2057,7 @@ def _property_scope_preview_map_only(country_code: str, region_code: str, locati
             selected_values=selected_values,
             option_lookup=option_lookup,
             market_label=market_label,
+            adjacent_area_radius_m=adjacent_area_radius_m,
             allow_remote_lookup=False,
             materialize_preview="async",
             padding_ratio=0.19,

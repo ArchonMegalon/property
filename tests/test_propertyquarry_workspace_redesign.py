@@ -4994,6 +4994,50 @@ def test_property_surface_state_previous_run_summary_uses_status_copy() -> None:
     assert summary["is_finished"] is True
 
 
+def test_property_surface_state_previous_run_scope_preview_preserves_adjacent_radius() -> None:
+    calls: list[dict[str, object]] = []
+
+    def preview_builder(country: str, region: str, location: str, *, adjacent_area_radius_m: int = 0) -> dict[str, object]:
+        calls.append(
+            {
+                "country": country,
+                "region": region,
+                "location": location,
+                "adjacent_area_radius_m": adjacent_area_radius_m,
+            }
+        )
+        return {"summary": f"{country}:{region}:{location}", "radius": adjacent_area_radius_m}
+
+    summary = property_surface_state.build_property_previous_run_summary(
+        {
+            "run_id": "run-radius",
+            "status": "processed",
+            "summary": {"ranked_candidates": []},
+            "preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "location_query": "1020 Vienna",
+                "listing_mode": "rent",
+                "adjacent_area_radius_m": 850,
+            },
+        },
+        include_scope_preview=True,
+        scope_preview_builder=preview_builder,
+        compact_provider_label=lambda label: label,
+        candidate_maps_url_builder=lambda candidate: "",
+    )
+
+    assert calls == [
+        {
+            "country": "AT",
+            "region": "vienna",
+            "location": "1020 Vienna",
+            "adjacent_area_radius_m": 850,
+        }
+    ]
+    assert summary["scope_preview"]["radius"] == 850
+
+
 def test_property_surface_state_previous_run_price_fallback_uses_catalog_currencies() -> None:
     summary = property_surface_state.build_property_previous_run_summary(
         {
@@ -6298,6 +6342,45 @@ def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) ->
     assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v6"
     assert preview_render_calls[0]["cache_key"]["render_bounds_source"] == "selected_areas"
     assert preview_render_calls[0]["zoom"] >= 10
+
+
+def test_property_scope_preview_renders_adjacent_radius_as_coverage_overlay(monkeypatch) -> None:
+    def fake_record(query: str) -> dict[str, object]:
+        lowered = query.lower()
+        if "1020" in lowered:
+            return {
+                "display_name": "Leopoldstadt, Vienna, Austria",
+                "bounds": (16.39, 48.20, 16.46, 48.24),
+                "geojson": {
+                    "type": "Polygon",
+                    "coordinates": [[[16.39, 48.20], [16.46, 48.20], [16.46, 48.24], [16.39, 48.24], [16.39, 48.20]]],
+                },
+            }
+        return {}
+
+    monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", fake_record)
+    preview_render_calls: list[dict[str, object]] = []
+
+    def fake_cached_preview_image_url(**kwargs) -> str:
+        preview_render_calls.append(dict(kwargs))
+        return "/app/api/property/map-previews/scope-radius.png"
+
+    monkeypatch.setattr(landing_view_models, "_cached_preview_image_url", fake_cached_preview_image_url)
+    preview = landing_view_models._property_scope_preview(
+        "AT",
+        "vienna",
+        "1020 Vienna",
+        adjacent_area_radius_m=850,
+    )
+
+    assert preview["image_url"] == "/app/api/property/map-previews/scope-radius.png"
+    assert preview["preview_kind"] == "osm_district_overlay"
+    assert preview["district_rows"][0]["coverage_radius_px"] > 0
+    assert len(preview_render_calls) == 1
+    render_call = preview_render_calls[0]
+    assert render_call["overlay_rows"][0]["coverage_radius_px"] > 0
+    assert render_call["cache_key"]["adjacent_area_radius_m"] == 850
+    assert render_call["cache_key"]["coverage_radius_px"] > 0
 
 
 def test_property_scope_preview_without_boundary_data_uses_local_vienna_overlay_fallback(monkeypatch) -> None:
@@ -12214,6 +12297,64 @@ def test_property_search_agent_builder_renders_all_scope_previews() -> None:
     assert agents[0]["scope_preview"]["preview_kind"] == "osm_district_overlay"
     assert agents[1]["scope_preview"]["preview_kind"] == "osm_district_overlay"
     assert agents[2]["scope_preview"]["image_url"] == "/app/api/property/map-previews/0000000000000000000000000000000000000003.png"
+
+
+def test_property_search_agent_builder_preserves_adjacent_radius_for_scope_previews() -> None:
+    calls: list[dict[str, object]] = []
+
+    def _preview_builder(country_code: str, region_code: str, location_query: str, *, adjacent_area_radius_m: int = 0) -> dict[str, object]:
+        calls.append(
+            {
+                "country_code": country_code,
+                "region_code": region_code,
+                "location_query": location_query,
+                "adjacent_area_radius_m": adjacent_area_radius_m,
+            }
+        )
+        return {
+            "image_url": "/app/api/property/map-previews/radius.png",
+            "preview_kind": "osm_district_overlay",
+            "radius": adjacent_area_radius_m,
+        }
+
+    agents, _selected = landing_property_saved_searches.build_property_search_agents(
+        {
+            "search_agents": [
+                {
+                    "agent_id": "agent-radius",
+                    "name": "Radius watch",
+                    "enabled": True,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1020 Vienna",
+                        "adjacent_area_radius_m": 850,
+                    },
+                }
+            ]
+        },
+        selected_platforms=["willhaben"],
+        selected_listing_mode="rent",
+        search_mode_requested="strict",
+        default_duration_days=30,
+        default_notification_limit=3,
+        default_notification_period="week",
+        normalize_property_type_values=lambda value: [str(value or "apartment")],
+        scope_preview_builder=_preview_builder,
+    )
+
+    assert calls == [
+        {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1020 Vienna",
+            "adjacent_area_radius_m": 850,
+        }
+    ]
+    assert agents[0]["scope_preview"]["radius"] == 850
 
 
 def test_property_agents_surface_strips_candidate_media_from_management_payload(monkeypatch) -> None:

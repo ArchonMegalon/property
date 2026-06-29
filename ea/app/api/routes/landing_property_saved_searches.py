@@ -69,7 +69,7 @@ def format_property_search_agent(
     default_notification_limit: int,
     default_notification_period: str,
     normalize_property_type_values: Callable[[object], list[str]],
-    scope_preview_builder: Callable[[str, str, str], dict[str, object]],
+    scope_preview_builder: Callable[..., dict[str, object]],
 ) -> dict[str, object]:
     return build_property_recurring_watch_snapshot(
         raw_agent,
@@ -96,7 +96,7 @@ def build_property_search_agents(
     default_notification_limit: int,
     default_notification_period: str,
     normalize_property_type_values: Callable[[object], list[str]],
-    scope_preview_builder: Callable[[str, str, str], dict[str, object]],
+    scope_preview_builder: Callable[..., dict[str, object]],
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
     explicit_agent_list = isinstance(property_preferences.get("search_agents"), list)
     raw_property_search_agents = property_preferences.get("search_agents") if explicit_agent_list else []

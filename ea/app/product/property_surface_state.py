@@ -25,6 +25,28 @@ from app.product.models import (
 )
 
 
+def _build_scope_preview(
+    scope_preview_builder: Callable[..., dict[str, object]],
+    country: str,
+    region: str,
+    location: str,
+    *,
+    adjacent_area_radius_m: object = 0,
+) -> dict[str, object]:
+    radius_m = _previous_run_int(adjacent_area_radius_m)
+    if radius_m > 0:
+        try:
+            return scope_preview_builder(
+                country,
+                region,
+                location,
+                adjacent_area_radius_m=radius_m,
+            )
+        except TypeError:
+            return scope_preview_builder(country, region, location)
+    return scope_preview_builder(country, region, location)
+
+
 _GENERIC_SOURCE_FAMILIES = {
     "genossenschaften",
     "genossenschaften at",
@@ -1994,7 +2016,7 @@ def build_property_previous_run_summary(
     raw_run: dict[str, object],
     *,
     include_scope_preview: bool,
-    scope_preview_builder: Callable[[str, str, str], dict[str, object]],
+    scope_preview_builder: Callable[..., dict[str, object]],
     compact_provider_label: Callable[[str], str],
     candidate_maps_url_builder: Callable[[dict[str, object]], str],
 ) -> dict[str, object]:
@@ -2081,7 +2103,17 @@ def build_property_previous_run_summary(
         status_note = str(summary.get("brief_stale_message") or "").strip() or (
             "This run used an earlier brief. Start an updated search to refresh counts with the current saved brief."
         )
-    scope_preview = scope_preview_builder(country, region, location) if include_scope_preview else {}
+    scope_preview = (
+        _build_scope_preview(
+            scope_preview_builder,
+            country,
+            region,
+            location,
+            adjacent_area_radius_m=preferences_json.get("adjacent_area_radius_m") or summary.get("adjacent_area_radius_m"),
+        )
+        if include_scope_preview
+        else {}
+    )
     return {
         "run_id": run_id_value,
         "agent_id": str(raw_run.get("active_search_agent_id") or preferences_json.get("active_search_agent_id") or "").strip(),
@@ -2664,7 +2696,7 @@ def build_property_recurring_watch_snapshot(
     default_notification_limit: int,
     default_notification_period: str,
     normalize_property_type_values: Callable[[object], list[str]],
-    scope_preview_builder: Callable[[str, str, str], dict[str, object]],
+    scope_preview_builder: Callable[..., dict[str, object]],
     safe_agent_load_payload: Callable[[dict[str, object]], dict[str, object]],
 ) -> dict[str, object]:
     saved_preferences = (
@@ -2711,10 +2743,16 @@ def build_property_recurring_watch_snapshot(
     remaining_notifications = max(agent_notification_limit - sent_in_current_window, 0)
     area_label = agent_location_query or agent_country_code or "No area saved"
     notification_label = f"{agent_notification_limit} per {('week' if agent_notification_period == 'week' else 'day')}"
-    scope_preview = scope_preview_builder(
+    scope_preview = _build_scope_preview(
+        scope_preview_builder,
         agent_country_code,
         agent_region_code,
         agent_location_query,
+        adjacent_area_radius_m=(
+            saved_preferences.get("adjacent_area_radius_m")
+            or raw_agent.get("adjacent_area_radius_m")
+            or property_preferences.get("adjacent_area_radius_m")
+        ),
     )
     commercial_snapshot = property_commercial_snapshot(dict(property_preferences or {}))
     plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
