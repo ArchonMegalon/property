@@ -2524,6 +2524,169 @@ def _property_run_scope_snapshot(run_payload: dict[str, object]) -> dict[str, ob
     }
 
 
+_PROPERTY_RUN_HISTORY_SIGNATURE_KEYS = {
+    "avoid_keywords",
+    "country_code",
+    "custom_location_query",
+    "full_region_scope",
+    "ganztag_required",
+    "include_distressed_sale_signals",
+    "investment_research_mode",
+    "investment_strategy",
+    "keywords",
+    "listing_mode",
+    "location_query",
+    "max_area_m2",
+    "max_price_eur",
+    "max_rooms",
+    "miete_mit_kaufoption",
+    "min_area_m2",
+    "min_price_eur",
+    "min_rooms",
+    "property_type",
+    "region_code",
+    "require_barrier_free",
+    "require_energy_certificate",
+    "require_floorplan",
+    "search_goal",
+    "selected_location_values",
+    "subsidized_required",
+    "wiener_wohnticket_available",
+}
+
+
+def _property_run_history_int(value: object) -> int:
+    try:
+        return max(0, int(float(str(value or "").strip())))
+    except Exception:
+        return 0
+
+
+def _property_run_history_updated_at(run_payload: dict[str, object]) -> float:
+    for raw_value in (
+        run_payload.get("updated_at"),
+        run_payload.get("generated_at"),
+        run_payload.get("created_at"),
+    ):
+        text = str(raw_value or "").strip()
+        if not text:
+            continue
+        normalized = text.replace("Z", "+00:00")
+        with contextlib.suppress(Exception):
+            return datetime.fromisoformat(normalized).timestamp()
+    return 0.0
+
+
+def _property_run_history_signature_value(value: object, *, depth: int = 0) -> object:
+    if depth >= 5:
+        return None
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        text = re.sub(r"\s+", " ", value).strip()
+        return text or None
+    if isinstance(value, dict):
+        normalized: dict[str, object] = {}
+        for raw_key in sorted(value.keys(), key=lambda item: str(item or "")):
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            child = _property_run_history_signature_value(value.get(raw_key), depth=depth + 1)
+            if child in (None, "", [], {}):
+                continue
+            normalized[key] = child
+        return normalized or None
+    if isinstance(value, (list, tuple, set)):
+        normalized_items = [
+            normalized
+            for normalized in (
+                _property_run_history_signature_value(item, depth=depth + 1)
+                for item in value
+            )
+            if normalized not in (None, "", [], {})
+        ]
+        if not normalized_items:
+            return None
+        if all(not isinstance(item, (dict, list)) for item in normalized_items):
+            serialized = sorted({json.dumps(item, sort_keys=True, ensure_ascii=True) for item in normalized_items})
+            return [json.loads(item) for item in serialized]
+        return normalized_items
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    return text or None
+
+
+def _property_run_history_signature(run_payload: dict[str, object]) -> str:
+    preferences_json = (
+        dict(run_payload.get("property_search_preferences") or run_payload.get("preferences") or {})
+        if isinstance(run_payload.get("property_search_preferences") or run_payload.get("preferences"), dict)
+        else {}
+    )
+    signature_seed = {
+        key: preferences_json.get(key)
+        for key in _PROPERTY_RUN_HISTORY_SIGNATURE_KEYS
+        if key in preferences_json
+    }
+    for scope_key, scope_value in _property_run_scope_snapshot(run_payload).items():
+        if scope_key not in signature_seed or signature_seed.get(scope_key) in (None, "", [], {}):
+            signature_seed[scope_key] = scope_value
+    signature_seed.pop("agent_id", None)
+    signature_seed.pop("selected_platforms", None)
+    signature_payload = _property_run_history_signature_value(signature_seed) or _property_run_scope_snapshot(run_payload)
+    return json.dumps(signature_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _property_run_history_display_sort_key(run_payload: dict[str, object]) -> tuple[int, int, int, int, float]:
+    summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
+    ranked_candidates = [row for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
+    ranked_total = max(
+        len(ranked_candidates),
+        _property_run_history_int(summary.get("ranked_total")),
+        _property_run_history_int(summary.get("ranked_candidate_total")),
+        _property_run_history_int(summary.get("results_total")),
+        _property_run_history_int(summary.get("survivor_total")),
+    )
+    visible_total = _property_run_history_int(summary.get("listing_total") or summary.get("raw_listing_total"))
+    reviewed_total = _property_run_history_int(summary.get("reviewed_listing_total") or summary.get("scanned_listing_total"))
+    return (
+        1 if ranked_total > 0 else 0,
+        ranked_total,
+        max(visible_total, reviewed_total),
+        reviewed_total,
+        _property_run_history_updated_at(run_payload),
+    )
+
+
+def _property_distinct_recent_search_runs(
+    raw_runs: list[dict[str, object]],
+    *,
+    limit: int,
+) -> list[dict[str, object]]:
+    grouped_runs: dict[str, list[dict[str, object]]] = {}
+    group_order: list[str] = []
+    for raw_run in raw_runs:
+        run_id = str(raw_run.get("run_id") or "").strip()
+        if not run_id:
+            continue
+        signature = _property_run_history_signature(raw_run)
+        if signature not in grouped_runs:
+            grouped_runs[signature] = []
+            group_order.append(signature)
+        grouped_runs[signature].append(dict(raw_run))
+
+    distinct_runs: list[dict[str, object]] = []
+    for signature in group_order:
+        rows = grouped_runs.get(signature) or []
+        if not rows:
+            continue
+        best_row = max(rows, key=_property_run_history_display_sort_key)
+        distinct_runs.append(best_row)
+        if len(distinct_runs) >= max(int(limit or 0), 1):
+            break
+    return distinct_runs
+
+
 def _property_run_matches_saved_brief(
     run_payload: dict[str, object],
     *,
@@ -2628,6 +2791,7 @@ def _property_console_context(
     country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
     run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
+    raw_recent_search_runs: list[dict[str, object]] = []
     recent_search_runs: list[dict[str, object]] = []
     lightweight_active_run: dict[str, object] = {}
     active_run: dict[str, object] | None = None
@@ -2644,17 +2808,19 @@ def _property_console_context(
     )
     if should_load_recent_runs:
         try:
-            recent_search_runs = [
+            raw_recent_search_runs = [
                 normalize_property_search_run_snapshot(dict(row))
                 for row in product.list_property_search_runs(
                     principal_id=principal_id,
-                    limit=8,
+                    limit=24,
                     hydrate=surface_scope.section not in {"properties", "shortlist", "research", "search"},
                 )
                 if isinstance(row, dict)
             ]
         except Exception:
-            recent_search_runs = []
+            raw_recent_search_runs = []
+        recent_search_runs = _property_distinct_recent_search_runs(raw_recent_search_runs, limit=8)
+    history_run_candidates = raw_recent_search_runs or recent_search_runs
     if wants_run_state and not normalized_run_id:
         terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started"}
         if surface_scope.section == "properties":
@@ -2666,7 +2832,7 @@ def _property_console_context(
             active_run = next(
                 (
                     row
-                    for row in recent_search_runs
+                    for row in history_run_candidates
                     if _current_scope_compatible_run(row)
                     and str(row.get("run_id") or "").strip()
                     and _property_run_payload_has_shortlist_results(row)
@@ -2677,7 +2843,7 @@ def _property_console_context(
             active_run = next(
                 (
                     row
-                    for row in recent_search_runs
+                    for row in history_run_candidates
                     if _current_scope_compatible_run(row)
                     and str(row.get("run_id") or "").strip()
                     and str(
@@ -2693,7 +2859,7 @@ def _property_console_context(
             active_run = next(
                 (
                     row
-                    for row in recent_search_runs
+                    for row in history_run_candidates
                     if _current_scope_compatible_run(row)
                     and str(row.get("run_id") or "").strip()
                     and str(
@@ -2709,7 +2875,7 @@ def _property_console_context(
             active_run = next(
                 (
                     row
-                    for row in recent_search_runs
+                    for row in history_run_candidates
                     if _current_scope_compatible_run(row)
                     and str(row.get("run_id") or "").strip()
                     and _property_run_payload_has_shortlist_results(row)

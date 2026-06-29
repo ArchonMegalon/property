@@ -10616,7 +10616,7 @@ def test_property_properties_surface_loads_recent_runs_without_saved_brief(monke
     def _fake_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
         calls.append((principal_id, limit, hydrate))
         assert principal_id == "pq-fast-properties"
-        assert limit == 8
+        assert limit == 24
         assert hydrate is False
         return [
             {
@@ -10650,7 +10650,7 @@ def test_property_properties_surface_loads_recent_runs_without_saved_brief(monke
     assert response.status_code == 200
     assert 'data-property-decision-workbench' in response.text
     assert calls
-    assert all(call == ("pq-fast-properties", 8, False) for call in calls)
+    assert all(call == ("pq-fast-properties", 24, False) for call in calls)
 
 
 def test_property_search_surface_loads_recent_runs_without_saved_brief(monkeypatch) -> None:
@@ -10661,7 +10661,7 @@ def test_property_search_surface_loads_recent_runs_without_saved_brief(monkeypat
     def _fake_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
         calls.append((principal_id, limit, hydrate))
         assert principal_id == "pq-fast-search"
-        assert limit == 8
+        assert limit == 24
         assert hydrate is False
         return [
             {
@@ -10696,7 +10696,7 @@ def test_property_search_surface_loads_recent_runs_without_saved_brief(monkeypat
     assert "1020 Vienna" in response.text
     assert "No previous searches yet" not in response.text
     assert calls
-    assert all(call == ("pq-fast-search", 8, False) for call in calls)
+    assert all(call == ("pq-fast-search", 24, False) for call in calls)
 
 
 def test_property_properties_surface_uses_active_run_lookup_with_recent_run_list(monkeypatch) -> None:
@@ -10705,7 +10705,7 @@ def test_property_properties_surface_uses_active_run_lookup_with_recent_run_list
 
     def _fake_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
         assert principal_id == "pq-properties-active-run-lookup"
-        assert limit == 8
+        assert limit == 24
         assert hydrate is False
         return []
 
@@ -12735,6 +12735,182 @@ def test_propertyquarry_running_surface_keeps_recent_search_history_visible(monk
     assert 'data-pqx-inline-run-history' in response.text
     assert 'href="/app/shortlist?run_id=run-history-older"' in response.text
     assert "1090 Vienna" in response.text
+
+
+def test_propertyquarry_recent_history_keeps_distinct_searches_visible_when_retries_repeat(monkeypatch) -> None:
+    principal_id = "pq-history-distinct"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Distinct History")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna, 1020 Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_list_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+        assert principal_id == "pq-history-distinct"
+        assert limit == 24
+        assert hydrate is False
+        return [
+            {
+                "run_id": "run-current-vienna",
+                "status": "processed",
+                "updated_at": "2026-06-29T10:00:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "region_code": "vienna",
+                    "location_query": "1010 Vienna, 1020 Vienna",
+                    "selected_platforms": ["willhaben"],
+                    "max_price_eur": 1600,
+                    "min_area_m2": 50,
+                },
+                "summary": {"status": "processed", "listing_total": 0, "reviewed_listing_total": 60, "ranked_candidates": []},
+            },
+            {
+                "run_id": "run-retry-vienna-1",
+                "status": "processed",
+                "updated_at": "2026-06-29T09:59:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "region_code": "vienna",
+                    "location_query": "1010 Vienna, 1020 Vienna",
+                    "selected_platforms": ["willhaben"],
+                    "max_price_eur": 1600,
+                    "min_area_m2": 50,
+                },
+                "summary": {"status": "processed", "listing_total": 0, "reviewed_listing_total": 60, "ranked_candidates": []},
+            },
+            {
+                "run_id": "run-retry-vienna-2",
+                "status": "processed",
+                "updated_at": "2026-06-29T09:58:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "region_code": "vienna",
+                    "location_query": "1010 Vienna, 1020 Vienna",
+                    "selected_platforms": ["willhaben"],
+                    "max_price_eur": 1600,
+                    "min_area_m2": 50,
+                },
+                "summary": {"status": "processed", "listing_total": 0, "reviewed_listing_total": 60, "ranked_candidates": []},
+            },
+            {
+                "run_id": "run-history-san-jose",
+                "status": "processed",
+                "updated_at": "2026-06-29T09:30:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "CR",
+                    "listing_mode": "buy",
+                    "region_code": "san-jose",
+                    "location_query": "San Jose, Escazu",
+                    "selected_platforms": ["desarrollos_cr"],
+                    "max_price_eur": 2600,
+                    "min_area_m2": 80,
+                },
+                "summary": {
+                    "status": "processed",
+                    "listing_total": 2,
+                    "ranked_candidates": [
+                        {
+                            "title": "Escazu home",
+                            "packet_url": "/app/research/escazu-home?run_id=run-history-san-jose",
+                        }
+                    ],
+                },
+            },
+            {
+                "run_id": "run-history-berlin",
+                "status": "processed",
+                "updated_at": "2026-06-29T09:10:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "DE",
+                    "listing_mode": "rent",
+                    "region_code": "berlin",
+                    "location_query": "Berlin, Munich",
+                    "selected_platforms": ["immobilienscout24_de"],
+                    "max_price_eur": 2400,
+                    "min_area_m2": 65,
+                },
+                "summary": {
+                    "status": "processed",
+                    "listing_total": 10,
+                    "ranked_candidates": [
+                        {
+                            "title": "Berlin archive home",
+                            "packet_url": "/app/research/berlin-home?run_id=run-history-berlin",
+                        }
+                    ],
+                },
+            },
+            {
+                "run_id": "run-history-vienna-wide",
+                "status": "processed",
+                "updated_at": "2026-06-29T08:50:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "region_code": "vienna",
+                    "location_query": "1010 Vienna, 1020 Vienna, 1090 Vienna",
+                    "selected_platforms": ["willhaben"],
+                    "max_price_eur": 2000,
+                    "min_area_m2": 55,
+                },
+                "summary": {
+                    "status": "processed",
+                    "listing_total": 14,
+                    "ranked_candidates": [
+                        {
+                            "title": "Wide Vienna search",
+                            "packet_url": "/app/research/vienna-wide?run_id=run-history-vienna-wide",
+                        }
+                    ],
+                },
+            },
+        ]
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-history-distinct"
+        assert run_id == "run-current-vienna"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Finished checking the latest Vienna retry.",
+            "summary": {
+                "status": "processed",
+                "listing_total": 0,
+                "reviewed_listing_total": 60,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", headers=headers)
+
+    assert response.status_code == 200
+    assert 'href="/app/shortlist?run_id=run-history-san-jose"' in response.text
+    assert 'href="/app/shortlist?run_id=run-history-berlin"' in response.text
+    assert 'href="/app/shortlist?run_id=run-history-vienna-wide"' in response.text
+    assert 'href="/app/shortlist?run_id=run-retry-vienna-1"' not in response.text
+    assert 'href="/app/shortlist?run_id=run-retry-vienna-2"' not in response.text
 
 
 def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkeypatch) -> None:
