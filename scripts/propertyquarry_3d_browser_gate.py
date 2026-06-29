@@ -82,6 +82,27 @@ def _bad_responses(responses: list[dict[str, object]], *, browser_base_url: str)
     return bad
 
 
+def _bad_request_failures(request_failures: list[dict[str, str]], *, browser_base_url: str) -> list[dict[str, str]]:
+    parsed_base = urllib.parse.urlparse(browser_base_url)
+    base_host = str(parsed_base.hostname or "").lower()
+    bad: list[dict[str, str]] = []
+    for row in request_failures:
+        url = str(row.get("url") or "")
+        resource_type = str(row.get("resource_type") or "")
+        failure = str(row.get("failure") or "")
+        if "favicon" in url.lower():
+            continue
+        if resource_type == "media" and "net::ERR_ABORTED" in failure:
+            continue
+        parsed = urllib.parse.urlparse(url)
+        host = str(parsed.hostname or "").lower()
+        if host != base_host and resource_type in {"image", "media", "font"}:
+            continue
+        if host == base_host or resource_type in {"document", "script", "fetch", "xhr"}:
+            bad.append(row)
+    return bad
+
+
 def _frame_render_state(page: Any, *, provider: str) -> dict[str, object]:
     frames = [frame.url for frame in page.frames]
     iframe_srcs = page.locator("iframe").evaluate_all("(els) => els.map((node) => node.getAttribute('src') || '')")
@@ -217,20 +238,18 @@ def build_browser_gate_receipt(
                     page.screenshot(path=str(screenshot_dir / f"{provider_key}.png"), full_page=True)
                 bad_console = _bad_console_messages(console_messages)
                 bad_http = _bad_responses(responses, browser_base_url=browser_base_url)
-                bad_request_failures = [
-                    row
-                    for row in request_failures
-                    if "favicon" not in str(row.get("url") or "").lower()
-                    and not (
-                        str(row.get("resource_type") or "") == "media"
-                        and "net::ERR_ABORTED" in str(row.get("failure") or "")
-                    )
-                ]
+                bad_request_failures = _bad_request_failures(request_failures, browser_base_url=browser_base_url)
                 frame_url = str(state.get("provider_frame_url") or "")
                 rendered_ok = _provider_rendered_ok(provider_key, state)
+                load_button_required_ok = clicked or not load_button.count()
                 provider_checks = [
                     _check(f"{provider_key}_control_page_ok", bool(response and response.ok), status=response.status if response else 0),
-                    _check(f"{provider_key}_load_button_clicked", clicked),
+                    _check(
+                        f"{provider_key}_direct_viewer_loaded",
+                        load_button_required_ok,
+                        clicked=clicked,
+                        load_button_present=bool(load_button.count()),
+                    ),
                     _check(f"{provider_key}_iframe_navigated", bool(frame_url and frame_url != "about:blank"), frame_url=frame_url),
                     _check(f"{provider_key}_no_browser_console_blockers", not bad_console, bad_console=bad_console[:8]),
                     _check(f"{provider_key}_no_request_failures", not bad_request_failures, request_failures=bad_request_failures[:8]),

@@ -59,8 +59,15 @@ def test_provider_options_are_filtered_by_country() -> None:
     assert any(row["value"] == "neubaukompass_de" and row["family"] == "developer_projects" for row in germany)
     assert any(row["value"] == "ohne_makler_de" and row["family"] == "broker_direct" for row in germany)
     assert any(row["value"] == "von_poll_de" and row["family"] == "broker_direct" for row in germany)
+    assert any(row["value"] == "wohnungsboerse_de" and row["family"] == "core_portal" for row in germany)
     assert any(row["value"] == "genossenschaften_at" for row in austria)
     assert any(row["value"] == "wag_at" and row["family"] == "cooperative" for row in austria)
+    assert any(row["value"] == "immobilien_net_at" and row["family"] == "marketplace" for row in austria)
+    assert any(row["value"] == "ohne_makler_at" and row["family"] == "broker_direct" for row in austria)
+    assert any(row["value"] == "sreal_at" and row["family"] == "broker_direct" for row in austria)
+    assert any(row["value"] == "raiffeisen_immobilien_at" and row["family"] == "broker_direct" for row in austria)
+    assert any(row["value"] == "wohnnet_at" and row["family"] == "marketplace" for row in austria)
+    assert any(row["value"] == "keinmakler_at" and row["family"] == "broker_direct" for row in austria)
     assert any(row["value"] == "heimat_oesterreich_at" and row["family"] == "cooperative" for row in austria)
     assert any(row["value"] == "bwsg_at" and row["family"] == "cooperative" for row in austria)
     assert any(row["value"] == "arwag_at" and row["family"] == "developer_projects" for row in austria)
@@ -71,6 +78,9 @@ def test_provider_options_are_filtered_by_country() -> None:
     assert any(row["value"] == "re_cr_mls" and "MLS" in row["label"] for row in costa_rica)
     assert any(row["value"] == "desarrollos_cr" and row["family"] == "developer_projects" for row in costa_rica)
     assert any(row["value"] == "tierraverde_cr" and row["family"] == "developer_projects" for row in costa_rica)
+    assert any(row["value"] == "properstar_cr" and row["family"] == "marketplace" for row in costa_rica)
+    assert any(row["value"] == "century21_cr" and row["family"] == "broker_direct" for row in costa_rica)
+    assert any(row["value"] == "remax_cr" and row["family"] == "broker_direct" for row in costa_rica)
     assert any(row["value"] == "theagency_cr" and row["family"] == "broker_direct" for row in costa_rica)
     assert any(row["value"] == "krain_cr" and row["family"] == "broker_direct" for row in costa_rica)
     assert all("Germany" in str(row.get("description") or "") for row in germany)
@@ -108,6 +118,53 @@ def test_provider_governance_fails_closed_for_unknown_provider() -> None:
     assert governance["customer_packet_allowed"] is False
     assert governance["public_packet_allowed"] is False
     assert governance["maximum_concurrency"] == 0
+
+
+def test_immobilien_net_is_integrated_as_browser_backed_austria_provider() -> None:
+    provider = property_provider_for_platform("immobilien_net_at")
+    assert provider is not None
+    assert provider.country_code == "AT"
+    assert property_provider_search_ready("immobilien_net_at") is True
+
+    governance = provider_governance("immobilien_net_at")
+    assert governance["access_mode"] == "browser_public_web"
+    assert governance["browser_access_allowed"] is True
+    assert governance["maximum_concurrency"] == 1
+
+    rent_defaults = default_platforms_for_country_listing_mode("AT", "rent")
+    buy_defaults = default_platforms_for_country_listing_mode("AT", "buy")
+    assert "immobilien_net_at" in rent_defaults
+    assert "immobilien_net_at" in buy_defaults
+
+    markers = provider_listing_markers_for_host("www.immobilien.net")
+    assert "/immobiliensuche/" in markers
+
+
+def test_new_provider_research_batch_is_cataloged_with_explicit_governance() -> None:
+    expected = {
+        "ohne_makler_at": ("AT", "public_web", False),
+        "sreal_at": ("AT", "public_web", False),
+        "raiffeisen_immobilien_at": ("AT", "public_web", False),
+        "wohnnet_at": ("AT", "public_web", False),
+        "keinmakler_at": ("AT", "public_web", False),
+        "wohnungsboerse_de": ("DE", "public_web", False),
+        "properstar_cr": ("CR", "browser_public_web", True),
+        "century21_cr": ("CR", "public_web", False),
+        "remax_cr": ("CR", "public_web", False),
+    }
+
+    for key, (country_code, access_mode, browser_required) in expected.items():
+        provider = property_provider_for_platform(key)
+        assert provider is not None
+        assert provider.country_code == country_code
+        assert provider.search_urls
+        assert property_provider_search_ready(key) is True
+
+        governance = provider_governance(key)
+        assert governance["access_mode"] == access_mode
+        assert governance["browser_access_allowed"] is browser_required
+        assert governance["maximum_concurrency"] >= 1
+        assert governance["requests_per_hour"] >= 1
 
 
 def test_normalize_property_search_preferences_defaults_country_and_language() -> None:
@@ -301,7 +358,7 @@ def test_generated_source_specs_pushes_only_hard_keywords_to_provider_search() -
             },
         },
         selected_platforms=("willhaben",),
-        principal_id="cf-email:tibor.girschele@gmail.com",
+        principal_id="cf-email:person@example.test",
     )
 
     assert specs
@@ -319,7 +376,7 @@ def test_generated_source_specs_ignores_legacy_managed_soft_keywords_without_pri
             "keywords": "balcony, terrace, quiet, bright",
         },
         selected_platforms=("willhaben",),
-        principal_id="cf-email:tibor.girschele@gmail.com",
+        principal_id="cf-email:person@example.test",
     )
 
     assert specs
@@ -497,6 +554,7 @@ def test_germany_provider_catalog_groups_by_family() -> None:
     families = {(row["value"], row["family"]) for row in germany}
 
     assert ("core_portals_de", "core_portal") in families
+    assert ("wohnungsboerse_de", "core_portal") in families
     assert ("shared_housing_de", "shared_housing") in families
     assert ("corporate_landlords_de", "corporate_landlord") in families
     assert ("municipal_housing_de", "municipal_housing") in families
@@ -554,6 +612,11 @@ def test_austria_provider_catalog_groups_by_family() -> None:
     assert ("genossenschaften_at", "cooperative") in families
     assert ("developer_projects_at", "developer_projects") in families
     assert ("distressed_sales_at", "distressed_sales") in families
+    assert ("ohne_makler_at", "broker_direct") in families
+    assert ("sreal_at", "broker_direct") in families
+    assert ("raiffeisen_immobilien_at", "broker_direct") in families
+    assert ("wohnnet_at", "marketplace") in families
+    assert ("keinmakler_at", "broker_direct") in families
     assert ("wohnberatung_wien", "public_housing") in families
     assert ("wiener_wohnen", "public_housing") in families
     assert ("gesiba_at", "cooperative") in families
@@ -597,7 +660,8 @@ def test_austria_default_platforms_follow_listing_mode() -> None:
 def test_germany_buy_defaults_drop_dead_corporate_landlord_lane() -> None:
     buy_defaults = default_platforms_for_country_listing_mode("DE", "buy")
 
-    assert buy_defaults == ("core_portals_de", "new_build_de", "broker_direct_de")
+    assert buy_defaults == ("core_portals_de", "wohnungsboerse_de", "new_build_de", "broker_direct_de")
+    assert "corporate_landlords_de" not in buy_defaults
     assert all(property_provider_search_ready(platform) for platform in buy_defaults)
 
 
@@ -839,25 +903,25 @@ def test_default_platforms_for_country_are_stable() -> None:
     assert default_platforms_for_country("CR") == (
         "encuentra24_cr",
         "re_cr_mls",
-        "realtor_cr",
-        "coldwellbanker_cr",
-        "theagency_cr",
-        "krain_cr",
-        "desarrollos_cr",
-        "propertiesincostarica_cr",
-        "twocostaricarealestate_cr",
-        "tierraverde_cr",
+        "properstar_cr",
     )
     assert default_platforms_for_country("AT") == (
         "willhaben",
         "immmo",
         "immoscout_at",
+        "immobilien_net_at",
+        "ohne_makler_at",
+        "sreal_at",
+        "raiffeisen_immobilien_at",
+        "wohnnet_at",
+        "keinmakler_at",
         "derstandard_at",
         "public_housing_at",
         "genossenschaften_at",
     )
     assert default_platforms_for_country("DE") == (
         "core_portals_de",
+        "wohnungsboerse_de",
         "corporate_landlords_de",
         "municipal_housing_de",
         "broker_direct_de",
@@ -986,8 +1050,9 @@ def test_generated_source_specs_cover_costa_rica_providers() -> None:
         max_results=4,
     )
 
-    assert {row["platform"] for row in rent_specs} == {"encuentra24_cr", "re_cr_mls"}
+    assert {row["platform"] for row in rent_specs} == {"encuentra24_cr", "re_cr_mls", "properstar_cr"}
     assert any("encuentra24.com/costa-rica-en/real-estate-for-rent" in str(row["url"]) for row in rent_specs)
+    assert any("properstar.com/costa-rica/rent" in str(row["url"]) for row in rent_specs)
     assert any("Escaz" in str(row["label"]) for row in rent_specs)
     assert {row["platform"] for row in buy_specs} == {"encuentra24_cr", "re_cr_mls", "realtor_cr", "coldwellbanker_cr"}
     assert any("realtor.com/international/cr" in str(row["url"]) for row in buy_specs)
@@ -1014,7 +1079,10 @@ def test_generated_source_specs_allow_countrywide_costa_rica_without_target_area
         "encuentra24_cr",
         "re_cr_mls",
         "realtor_cr",
+        "properstar_cr",
         "coldwellbanker_cr",
+        "century21_cr",
+        "remax_cr",
         "theagency_cr",
         "krain_cr",
         "desarrollos_cr",
@@ -1059,19 +1127,37 @@ def test_generated_source_specs_include_new_costa_rica_broker_direct_providers()
             "location_query": "Monteverde",
             "keywords": "cloud forest",
         },
-        selected_platforms=("propertiesincostarica_cr", "costaricarealestateservice_cr", "twocostaricarealestate_cr", "theagency_cr", "krain_cr"),
+        selected_platforms=(
+            "propertiesincostarica_cr",
+            "costaricarealestateservice_cr",
+            "twocostaricarealestate_cr",
+            "theagency_cr",
+            "krain_cr",
+            "century21_cr",
+            "remax_cr",
+        ),
         principal_id="exec-property-cr-broker-direct",
         default_person_id="self",
         max_results=3,
     )
 
     by_platform = {row["platform"]: row for row in specs}
-    assert set(by_platform) == {"propertiesincostarica_cr", "costaricarealestateservice_cr", "twocostaricarealestate_cr", "theagency_cr", "krain_cr"}
+    assert set(by_platform) == {
+        "propertiesincostarica_cr",
+        "costaricarealestateservice_cr",
+        "twocostaricarealestate_cr",
+        "theagency_cr",
+        "krain_cr",
+        "century21_cr",
+        "remax_cr",
+    }
     assert "propertiesincostarica.com" in by_platform["propertiesincostarica_cr"]["url"]
     assert "costaricarealestateservice.com" in by_platform["costaricarealestateservice_cr"]["url"]
     assert "2costaricarealestate.com" in by_platform["twocostaricarealestate_cr"]["url"]
     assert "ta.cr" in by_platform["theagency_cr"]["url"]
     assert "kraincostarica.com" in by_platform["krain_cr"]["url"]
+    assert "century21costarica.com" in by_platform["century21_cr"]["url"]
+    assert "remax-costa-rica.com" in by_platform["remax_cr"]["url"]
     assert by_platform["twocostaricarealestate_cr"]["url"].startswith("https://www.2costaricarealestate.com/?")
     assert all(row["provider_family"] == "broker_direct" for row in by_platform.values())
     assert all("q=Monteverde+cloud+forest" in str(row["url"]) for row in by_platform.values())

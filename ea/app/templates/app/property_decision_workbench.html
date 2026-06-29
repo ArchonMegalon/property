@@ -10546,7 +10546,7 @@
                   data-pqx-scope-alt="{{ scope_preview.get('alt') or 'Search area preview' }}"
                   data-pqx-scope-title="{{ previous.get('title') or 'Search' }}"
                   data-pqx-scope-caption="{{ previous.get('scope_summary') or previous.get('scope_label') }}"
-                  data-pqx-scope-overlay='{{ (scope_preview.get("district_rows") or [])|tojson }}'
+                  data-pqx-scope-overlay="[]"
                 >
                   <img
                     class="pqx-previous-scope-image"
@@ -10557,15 +10557,6 @@
                     decoding="async"
                     fetchpriority="low"
                   >
-                  {% if scope_preview.get("district_rows") %}
-                  <svg class="pqx-previous-district-hotspots" viewBox="0 0 640 368" preserveAspectRatio="none" aria-hidden="true">
-                    {% for row in scope_preview.get("district_rows") or [] %}
-                    {% if row.get("path") %}
-                    <path class="pqx-previous-district-hotspot{% if row.get('selected') %} is-selected{% endif %}" d="{{ row.get('path') }}"></path>
-                    {% endif %}
-                    {% endfor %}
-                  </svg>
-                  {% endif %}
                 </button>
                 {% else %}
                 <div class="pqx-previous-scope-empty">

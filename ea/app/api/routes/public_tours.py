@@ -17,7 +17,7 @@ import urllib.parse
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app.api.dependencies import get_container
 from app.container import AppContainer
@@ -608,7 +608,7 @@ def _safe_live_360_url(value: object) -> str:
 def _embedded_live_360_url(payload: dict[str, object]) -> str:
     normalized = dict(payload or {})
     if str(normalized.get("scene_strategy") or "").strip() == "pure_360_cube":
-        return _safe_live_360_url(normalized.get("source_virtual_tour_url"))
+        return ""
     return _safe_live_360_url(
         normalized.get("source_virtual_tour_url")
         or normalized.get("source_virtual_tour_origin")
@@ -1811,6 +1811,34 @@ def _tour_spatial_review_experience(
         "primary_label": "Request 3D tour",
         "primary_href": "#",
     }
+
+
+def _public_tour_primary_control_path(payload: dict[str, object]) -> str:
+    slug = str(payload.get("slug") or "").strip()
+    if not slug:
+        return ""
+    quoted_slug = urllib.parse.quote(slug, safe="")
+    for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
+        if _safe_matterport_external_url(payload.get(key)):
+            return f"/tours/{quoted_slug}/control/matterport"
+
+    three_d_vista_browser_ready = _3dvista_browser_render_proof_ready(payload)
+    if three_d_vista_browser_ready:
+        for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
+            if _safe_3dvista_external_url(payload.get(key)):
+                return f"/tours/{quoted_slug}/control/3dvista"
+        local_3dvista_entry = _public_tour_safe_asset_relpath(
+            str(
+                payload.get("three_d_vista_entry_relpath")
+                or payload.get("threedvista_entry_relpath")
+                or payload.get("3dvista_entry_relpath")
+                or ""
+            ).strip()
+        )
+        if local_3dvista_entry and _3dvista_entry_ready(slug, payload, local_3dvista_entry):
+            return f"/tours/{quoted_slug}/control/3dvista"
+
+    return ""
 
 
 def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
@@ -5394,8 +5422,7 @@ def _tour_control_external_iframe_html(
       .provider-launch {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }}
       .provider-launch strong {{ display: block; margin-bottom: 3px; }}
       .provider-actions {{ display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }}
-      .provider-actions button, .provider-actions a {{ min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 13px; border: 1px solid var(--line); background: var(--text); color: #111; font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
-      .provider-actions a {{ background: transparent; color: var(--text); }}
+      .provider-actions a {{ min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 13px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
       .provider-layer-switch {{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }}
       .provider-layer-switch button {{ min-height: 42px; border: 1px solid var(--line); border-radius: 999px; padding: 0 13px; background: rgba(255,250,240,.08); color: var(--text); font: inherit; font-weight: 800; cursor: pointer; }}
       .provider-layer-switch button[aria-pressed="true"] {{ background: var(--text); color: #111; }}
@@ -5454,16 +5481,15 @@ def _tour_control_external_iframe_html(
           <div class="provider-launch">
             <div>
               <strong>{provider_badge}</strong>
-              <p class="hint">Load the interactive viewer when you want to inspect the space directly.</p>
+              <p class="hint">Interactive tour loaded here.</p>
               {provider_layer_switch_html}
               <p class="provider-layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>
             </div>
             <div class="provider-actions">
-              <button type="button" id="load-provider">Load 3D tour</button>
               <a href="{clean_fullscreen_href}" target="_blank" rel="noopener noreferrer">Open fullscreen</a>
             </div>
           </div>
-          <iframe src="about:blank" data-src="{html.escape(iframe_src)}" class="provider-frame" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
+          <iframe src="{html.escape(iframe_src)}" class="provider-frame" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
         </section>
         <aside class="panel evidence" aria-label="Visual evidence">
           <div>
@@ -5487,7 +5513,6 @@ def _tour_control_external_iframe_html(
       const thumbs = document.getElementById("thumbs");
       const tourVideo = document.getElementById("tour-video");
       const providerFrame = document.querySelector(".provider-frame");
-      const loadProvider = document.getElementById("load-provider");
       const providerLayerNote = document.getElementById("provider-layer-note");
       let selectedProviderLayer = providerLayers[0] || {{}};
       let activeIndex = 0;
@@ -5499,21 +5524,9 @@ def _tour_control_external_iframe_html(
           selectedProviderLayer = layer;
           document.querySelectorAll("[data-provider-layer]").forEach((candidate) => candidate.setAttribute("aria-pressed", String(candidate === button)));
           if (providerLayerNote) providerLayerNote.textContent = layer.disclosure || "";
-          if (providerFrame && providerFrame.getAttribute("src") !== "about:blank") providerFrame.setAttribute("src", layer.src || "about:blank");
-          if (loadProvider) {{
-            loadProvider.textContent = "Load 3D tour";
-            loadProvider.disabled = false;
-          }}
+          if (providerFrame) providerFrame.setAttribute("src", layer.src || "about:blank");
         }});
       }});
-      if (loadProvider && providerFrame) {{
-        loadProvider.addEventListener("click", () => {{
-          const src = selectedProviderLayer.src || providerFrame.dataset.src || "";
-          if (src && providerFrame.getAttribute("src") !== src) providerFrame.setAttribute("src", src);
-          loadProvider.textContent = "3D tour loaded";
-          loadProvider.disabled = true;
-        }});
-      }}
       function visibleSceneIndexes() {{
         return scenes
           .map((scene, index) => (activeRoleFilter === "all" || scene.role === activeRoleFilter ? index : -1))
@@ -6035,13 +6048,20 @@ def public_tour_page(
     slug: str,
     request: Request,
     container: AppContainer = Depends(get_container),
-) -> HTMLResponse:
+) -> Response:
     hostname = request_hostname(request)
     try:
         payload = _load_tour_with_private_receipt(slug)
         _require_public_tour_viewable(payload)
         if _tour_payload_is_disabled_fallback(payload):
             raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+        primary_control_path = _public_tour_primary_control_path(payload)
+        if primary_control_path:
+            return RedirectResponse(
+                primary_control_path,
+                status_code=302,
+                headers=_public_tour_security_headers(),
+            )
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
         rendered_facts, research_snapshot = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
         rendered_facts.pop("public_preference_snapshot", None)

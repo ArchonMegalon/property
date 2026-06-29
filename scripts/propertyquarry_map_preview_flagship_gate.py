@@ -15,7 +15,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageStat
+from PIL import Image, ImageFilter, ImageStat
 
 
 DEFAULT_DISCOVER_ROUTES = ("/app/search",)
@@ -116,11 +116,13 @@ def _discover_preview_urls(
     host_header: str,
     api_token: str,
     principal_id: str,
+    discovery_results: list[dict[str, object]] | None = None,
 ) -> list[str]:
     urls: list[str] = []
     seen: set[str] = set()
     for route in routes:
         route_url = _absolute_url(base_url, route)
+        started = time.monotonic()
         response = _fetch(
             route_url,
             timeout_seconds=timeout_seconds,
@@ -129,12 +131,26 @@ def _discover_preview_urls(
             principal_id=principal_id,
             accept="text/html,*/*",
         )
+        elapsed_ms = int(round((time.monotonic() - started) * 1000))
         body = bytes(response.get("body") or b"").decode("utf-8", errors="replace")
+        before_count = len(urls)
         for match in PREVIEW_RE.finditer(body):
             url = _absolute_url(base_url, match.group("url"))
             if url and url not in seen:
                 seen.add(url)
                 urls.append(url)
+        if discovery_results is not None:
+            discovery_results.append(
+                {
+                    "route": route,
+                    "url": route_url,
+                    "status_code": int(response.get("status_code") or 0),
+                    "elapsed_ms": elapsed_ms,
+                    "body_bytes": len(bytes(response.get("body") or b"")),
+                    "preview_count": len(urls) - before_count,
+                    "error": str(response.get("error") or "").strip(),
+                }
+            )
     return urls
 
 
@@ -169,6 +185,15 @@ def _image_metrics(body: bytes) -> dict[str, object]:
     very_dark = sum(1 for r, g, b in pixels if max(r, g, b) < 50) / count
     near_white = sum(1 for r, g, b in pixels if min(r, g, b) > 235) / count
     saturated = sum(1 for r, g, b in pixels if max(r, g, b) - min(r, g, b) > 90) / count
+    thumbnail = image.resize((160, 92))
+    edge_image = thumbnail.convert("L").filter(ImageFilter.FIND_EDGES)
+    if hasattr(edge_image, "get_flattened_data"):
+        edge_pixels = list(edge_image.get_flattened_data())
+    else:
+        edge_pixels = list(edge_image.getdata())
+    edge_count = max(len(edge_pixels), 1)
+    thumbnail_edge_mean = sum(edge_pixels) / edge_count
+    thumbnail_edge_ratio = sum(1 for value in edge_pixels if value > 32) / edge_count
     return {
         "width": width,
         "height": height,
@@ -182,6 +207,8 @@ def _image_metrics(body: bytes) -> dict[str, object]:
         "very_dark_ratio": very_dark,
         "near_white_ratio": near_white,
         "saturated_ratio": saturated,
+        "thumbnail_edge_mean": thumbnail_edge_mean,
+        "thumbnail_edge_ratio": thumbnail_edge_ratio,
     }
 
 
@@ -223,7 +250,8 @@ def _evaluate_preview(url: str, *, timeout_seconds: float, host_header: str, set
                     _check("not_placeholder_sized", int(metrics["byte_count"]) >= 18_000, byte_count=metrics["byte_count"]),
                     _check("not_blank", float(metrics["stddev_mean"]) >= 10.0, stddev_mean=metrics["stddev_mean"]),
                     _check("not_mostly_empty_canvas", float(metrics["near_white_ratio"]) <= 0.55, near_white_ratio=metrics["near_white_ratio"]),
-                    _check("red_overlay_not_aggressive", float(metrics["strong_red_ratio"]) <= 0.20, strong_red_ratio=metrics["strong_red_ratio"]),
+                    _check("thumbnail_detail_not_noisy", float(metrics["thumbnail_edge_ratio"]) <= 0.24 and float(metrics["thumbnail_edge_mean"]) <= 28.0, thumbnail_edge_ratio=metrics["thumbnail_edge_ratio"], thumbnail_edge_mean=metrics["thumbnail_edge_mean"]),
+                    _check("red_overlay_not_aggressive", float(metrics["strong_red_ratio"]) <= 0.14 and float(metrics["red_dominant_ratio"]) <= 0.18, strong_red_ratio=metrics["strong_red_ratio"], red_dominant_ratio=metrics["red_dominant_ratio"]),
                     _check("hot_red_not_dominant", float(metrics["hot_red_ratio"]) <= 0.075, hot_red_ratio=metrics["hot_red_ratio"]),
                     _check("border_noise_not_heavy", float(metrics["dark_red_edge_ratio"]) <= 0.014, dark_red_edge_ratio=metrics["dark_red_edge_ratio"]),
                     _check("dark_noise_not_heavy", float(metrics["very_dark_ratio"]) <= 0.018, very_dark_ratio=metrics["very_dark_ratio"]),
@@ -255,6 +283,7 @@ def build_map_preview_flagship_receipt(
     base = str(base_url or "http://localhost:8097").strip().rstrip("/")
     urls: list[str] = []
     seen: set[str] = set()
+    discovery_results: list[dict[str, object]] = []
     for image_url in image_urls:
         absolute = _absolute_url(base, image_url)
         if absolute and absolute not in seen:
@@ -267,8 +296,9 @@ def build_map_preview_flagship_receipt(
             timeout_seconds=timeout_seconds,
             host_header=host_header,
             api_token=api_token,
-            principal_id=principal_id,
-        ):
+                principal_id=principal_id,
+                discovery_results=discovery_results,
+            ):
             if discovered not in seen:
                 seen.add(discovered)
                 urls.append(discovered)
@@ -297,6 +327,7 @@ def build_map_preview_flagship_receipt(
         "base_url": base,
         "host_header": host_header,
         "discover_routes": discover_routes,
+        "discovery_results": discovery_results,
         "preview_count": len(preview_results),
         "failed_count": len(failed),
         "checks": checks,

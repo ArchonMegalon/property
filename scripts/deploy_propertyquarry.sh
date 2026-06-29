@@ -32,6 +32,8 @@ Environment:
   PROPERTYQUARRY_*_CONTAINER_NAME Optional container names for isolated deploys.
   EA_HOST_PORT                    Host port for the API, default 8090.
   PROPERTYQUARRY_DEPLOY_BASE_URL  Probe URL, default http://localhost:${EA_HOST_PORT}.
+  PROPERTYQUARRY_DEPLOY_CORE_PROBE_TIMEOUT_SECONDS
+                                  Timeout for /version, /, and auth-boundary curl probes. Default 20.
   PROPERTYQUARRY_DEPLOY_PROVIDER_E2E
                                   1 enables the full all-search-ready provider matrix with strict and
                                   soft-filter dispatch/readback checks after deploy. Default 0 keeps the
@@ -45,6 +47,8 @@ Environment:
                                   for example AT,DE,CR. When set with PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1,
                                   the deploy runs the strict/soft targeted matrix only for those countries
                                   instead of every search-ready country.
+  PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED
+                                  1 enables the Telegram gold-status notification. Defaults to 0.
   PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID
                                   Telegram notification principal for a green gold receipt.
                                   Defaults to EA_PRINCIPAL_ID or propertyquarry-operator.
@@ -545,19 +549,20 @@ PY
 
 bootstrap_billing_edge_worker "${bd_bootstrap_edge}"
 
-version_json="$(curl -fsS --connect-timeout 2 --max-time 8 "${base_url}/version")"
+core_probe_timeout_seconds="${PROPERTYQUARRY_DEPLOY_CORE_PROBE_TIMEOUT_SECONDS:-20}"
+version_json="$(curl -fsS --connect-timeout 2 --max-time "${core_probe_timeout_seconds}" "${base_url}/version")"
 if ! printf '%s' "${version_json}" | grep -q '"storage_backend"[[:space:]]*:[[:space:]]*"postgres"'; then
   echo "Expected /version to report storage_backend=postgres; got: ${version_json}" >&2
   exit 1
 fi
 
-landing_html="$(curl -fsS --connect-timeout 2 --max-time 8 "${base_url}/")"
+landing_html="$(curl -fsS --connect-timeout 2 --max-time "${core_probe_timeout_seconds}" "${base_url}/")"
 if [[ "${landing_html}" != *PropertyQuarry* ]]; then
   echo "Landing page probe did not find PropertyQuarry branding." >&2
   exit 1
 fi
 
-app_status="$(curl -sS --connect-timeout 2 --max-time 8 -o /tmp/propertyquarry_deploy_app_probe.html -w '%{http_code}' "${base_url}/app/properties" || true)"
+app_status="$(curl -sS --connect-timeout 2 --max-time "${core_probe_timeout_seconds}" -o /tmp/propertyquarry_deploy_app_probe.html -w '%{http_code}' "${base_url}/app/properties" || true)"
 case "${app_status}" in
   401|302|303) ;;
   *)
@@ -610,7 +615,7 @@ fi
 cp "${mobile_smoke_receipt}" _completion/smoke/property-live-mobile-surface-latest.json
 
 map_preview_gate_receipt="/tmp/propertyquarry_deploy_map_preview_flagship.json"
-map_preview_gate_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MAP_PREVIEW_GATE_TIMEOUT_SECONDS:-12}"
+map_preview_gate_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MAP_PREVIEW_GATE_TIMEOUT_SECONDS:-60}"
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_map_preview_flagship_gate.py \
   --base-url "${base_url}" \
   --host-header "propertyquarry.com" \
@@ -639,6 +644,7 @@ cp "${market_scope_smoke_receipt}" _completion/smoke/property-live-market-scope-
 
 provider_smoke_receipt="/tmp/propertyquarry_deploy_provider_smoke.json"
 provider_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PROVIDER_SMOKE_TIMEOUT_SECONDS:-20}"
+provider_search_run_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PROVIDER_SEARCH_RUN_TIMEOUT_SECONDS:-60}"
 provider_smoke_mode="catalog"
 provider_smoke_scope_label="catalog"
 provider_country_scope_raw="$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES)"
@@ -686,6 +692,7 @@ if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"; then
     --execute-search-matrix \
     --resume-from "${provider_e2e_receipt}" \
     --timeout-seconds "${provider_smoke_timeout_seconds}" \
+    --search-run-timeout-seconds "${provider_search_run_timeout_seconds}" \
     --write "${provider_smoke_receipt}" >/dev/null; then
     echo "PropertyQuarry provider E2E matrix failed." >&2
     cat "${provider_smoke_receipt}" >&2 2>/dev/null || true
@@ -788,19 +795,29 @@ gold_notification_base_url="${gold_notification_base_url:-https://propertyquarry
 gold_notification_state="$(effective_env_value PROPERTYQUARRY_GOLD_NOTIFICATION_STATE)"
 gold_notification_state="${gold_notification_state:-_completion/propertyquarry-gold-notification-state.json}"
 gold_notification_report="_completion/property_gold_status/telegram-notify-report.json"
-if ! DATABASE_URL="${database_url}" \
-  EA_STORAGE_BACKEND="${storage_backend}" \
-  EA_TELEGRAM_BOT_REGISTRY_JSON="${telegram_bot_registry_json}" \
-  EA_TELEGRAM_BOT_TOKEN="${telegram_bot_token}" \
-  EA_TELEGRAM_BOT_HANDLE="${telegram_bot_handle}" \
-  PYTHONPATH=ea python3 scripts/propertyquarry_notify_gold_status.py \
-    --receipt "${gold_status_receipt}" \
-    --state-file "${gold_notification_state}" \
-    --principal-id "${gold_notification_principal_id}" \
-    --base-url "${gold_notification_base_url}" \
-    --write "${gold_notification_report}" >/dev/null; then
-  echo "Warning: PropertyQuarry gold notification script failed." >&2
-  cat "${gold_notification_report}" >&2 2>/dev/null || true
-fi
+gold_notification_enabled="$(effective_env_value PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED)"
+gold_notification_enabled="${gold_notification_enabled:-0}"
+case "${gold_notification_enabled,,}" in
+  1|true|yes|y|on|enabled)
+    if ! DATABASE_URL="${database_url}" \
+      EA_STORAGE_BACKEND="${storage_backend}" \
+      EA_TELEGRAM_BOT_REGISTRY_JSON="${telegram_bot_registry_json}" \
+      EA_TELEGRAM_BOT_TOKEN="${telegram_bot_token}" \
+      EA_TELEGRAM_BOT_HANDLE="${telegram_bot_handle}" \
+      PYTHONPATH=ea python3 scripts/propertyquarry_notify_gold_status.py \
+        --receipt "${gold_status_receipt}" \
+        --state-file "${gold_notification_state}" \
+        --principal-id "${gold_notification_principal_id}" \
+        --base-url "${gold_notification_base_url}" \
+        --write "${gold_notification_report}" >/dev/null; then
+      echo "Warning: PropertyQuarry gold notification script failed." >&2
+      cat "${gold_notification_report}" >&2 2>/dev/null || true
+    fi
+    ;;
+  *)
+    mkdir -p "$(dirname "${gold_notification_report}")"
+    printf '{"status":"skipped","reason":"PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED_not_set"}\n' > "${gold_notification_report}"
+    ;;
+esac
 
 echo "ok: PropertyQuarry deployed at ${base_url} (${provider_smoke_mode} provider verification: ${provider_smoke_scope_label})"

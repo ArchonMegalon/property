@@ -1643,7 +1643,7 @@ def get_property_magic_fit_reference_file(
 def get_property_map_preview_file(
     preview_id: str,
     container: AppContainer = Depends(get_container),
-) -> FileResponse:
+) -> Response:
     safe_preview_id = _api_safe_token(preview_id, "preview")
     if not re.fullmatch(r"[0-9a-f]{40}", safe_preview_id):
         raise HTTPException(status_code=404, detail="property_map_preview_not_found")
@@ -1653,16 +1653,22 @@ def get_property_map_preview_file(
             _property_map_preview_missing_png(),
             media_type="image/png",
             headers={
-                "Cache-Control": "no-store, max-age=0",
+                "Cache-Control": "no-store, max-age=0, no-transform",
+                "Content-Encoding": "identity",
                 "X-Property-Map-Preview-State": "pending",
                 "X-Robots-Tag": "noindex, nofollow",
             },
         )
-    return FileResponse(
-        file_path,
+    try:
+        content = file_path.read_bytes()
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="property_map_preview_not_found") from exc
+    return Response(
+        content,
         media_type="image/png",
         headers={
-            "Cache-Control": "private, max-age=86400",
+            "Cache-Control": "private, max-age=86400, no-transform",
+            "Content-Encoding": "identity",
             "X-Property-Map-Preview-State": "ready",
             "X-Robots-Tag": "noindex, nofollow",
         },

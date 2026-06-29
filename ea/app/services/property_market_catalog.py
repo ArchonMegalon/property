@@ -89,7 +89,20 @@ COUNTRIES: tuple[PropertyCountrySpec, ...] = (
         "EUR",
         "EUR",
         "Vienna, Graz, Linz",
-        ("willhaben", "immmo", "immoscout_at", "derstandard_at", "public_housing_at", "genossenschaften_at"),
+        (
+            "willhaben",
+            "immmo",
+            "immoscout_at",
+            "immobilien_net_at",
+            "ohne_makler_at",
+            "sreal_at",
+            "raiffeisen_immobilien_at",
+            "wohnnet_at",
+            "keinmakler_at",
+            "derstandard_at",
+            "public_housing_at",
+            "genossenschaften_at",
+        ),
         "Europe/Vienna",
     ),
     PropertyCountrySpec("BE", "Belgium", "nl", "EUR", "EUR", "Brussels, Antwerp, Ghent", ("immoweb", "zimmo"), "Europe/Brussels"),
@@ -105,7 +118,10 @@ COUNTRIES: tuple[PropertyCountrySpec, ...] = (
             "encuentra24_cr",
             "re_cr_mls",
             "realtor_cr",
+            "properstar_cr",
             "coldwellbanker_cr",
+            "century21_cr",
+            "remax_cr",
             "theagency_cr",
             "krain_cr",
             "desarrollos_cr",
@@ -124,6 +140,7 @@ COUNTRIES: tuple[PropertyCountrySpec, ...] = (
         "Berlin, Munich, Hamburg",
         (
             "core_portals_de",
+            "wohnungsboerse_de",
             "shared_housing_de",
             "corporate_landlords_de",
             "municipal_housing_de",
@@ -244,6 +261,142 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.immoscout24.at/liste/kauf",
         },
         description="Austria search portal for rentals and residential purchase.",
+    ),
+    PropertyProviderSpec(
+        key="immobilien_net_at",
+        label="immobilien.net",
+        country_code="AT",
+        host_markers=("immobilien.net", "www.immobilien.net"),
+        listing_path_markers=("/expose/", "/immobilien/", "/immobiliensuche/", "/objekt/"),
+        search_urls={
+            "rent": "https://www.immobilien.net/immobiliensuche/wohnungen/mieten",
+            "buy": "https://www.immobilien.net/immobiliensuche/wohnungen/kaufen",
+        },
+        description="Austria broad-market marketplace for residential rentals and purchases. Plain HTTP probes can be blocked, so this provider must stay under browser-backed repair and weekly health probing.",
+        family="marketplace",
+        trust_tier="standard",
+        coverage="national",
+        floorplan_reliability="medium",
+        duplicate_rate="medium",
+        tour_availability="occasional",
+        scan_reliability="browser_required",
+        filter_pushdown_strength="partial",
+        official_source_quality="provider_only",
+        last_verified="2026-06-29",
+        access_mode="browser_public_web",
+        browser_access_allowed=True,
+        maximum_concurrency=1,
+        requests_per_hour=30,
+    ),
+    PropertyProviderSpec(
+        key="ohne_makler_at",
+        label="ohne-makler.at",
+        country_code="AT",
+        host_markers=("ohne-makler.at", "www.ohne-makler.at"),
+        listing_path_markers=("/immobilien/", "/immobilie/", "/wohnung-mieten/", "/wohnung-kaufen/"),
+        search_urls={
+            "rent": "https://www.ohne-makler.at/immobilien/",
+            "buy": "https://www.ohne-makler.at/immobilien/wohnung-kaufen/",
+        },
+        description="Austria owner-direct and commission-free property portal for rentals and purchases.",
+        family="broker_direct",
+        trust_tier="standard",
+        coverage="national",
+        floorplan_reliability="medium",
+        duplicate_rate="low",
+        tour_availability="rare",
+        scan_reliability="standard",
+        filter_pushdown_strength="partial",
+        official_source_quality="owner_direct",
+        last_verified="2026-06-29",
+    ),
+    PropertyProviderSpec(
+        key="sreal_at",
+        label="s REAL",
+        country_code="AT",
+        host_markers=("sreal.at", "www.sreal.at"),
+        listing_path_markers=("/de/immobilien-suche", "/de/wohnungen-miete/", "/de/wohnungen-kauf/", "/immobilien/"),
+        search_urls={
+            "rent": "https://www.sreal.at/de/immobilien-suche",
+            "buy": "https://www.sreal.at/de/immobilien-suche",
+        },
+        description="Austria Sparkasse and Erste Group broker-direct property lane with national residential inventory.",
+        family="broker_direct",
+        trust_tier="standard",
+        coverage="national",
+        floorplan_reliability="medium",
+        duplicate_rate="medium",
+        tour_availability="occasional",
+        scan_reliability="standard",
+        filter_pushdown_strength="partial",
+        official_source_quality="broker_primary",
+        last_verified="2026-06-29",
+    ),
+    PropertyProviderSpec(
+        key="raiffeisen_immobilien_at",
+        label="Raiffeisen Immobilien",
+        country_code="AT",
+        host_markers=("raiffeisen-immobilien.at", "www.raiffeisen-immobilien.at", "raiffeisen.at"),
+        listing_path_markers=("/de/immobilien", "/immobiliensuche", "/immobilien/"),
+        search_urls={
+            "rent": "https://www.raiffeisen-immobilien.at/de/immobilien",
+            "buy": "https://www.raiffeisen-immobilien.at/de/immobilien",
+        },
+        description="Austria Raiffeisen broker-direct property lane for residential rentals, purchases, and regional office inventory.",
+        family="broker_direct",
+        trust_tier="standard",
+        coverage="national",
+        floorplan_reliability="medium",
+        duplicate_rate="medium",
+        tour_availability="occasional",
+        scan_reliability="standard",
+        filter_pushdown_strength="partial",
+        official_source_quality="broker_primary",
+        last_verified="2026-06-29",
+    ),
+    PropertyProviderSpec(
+        key="wohnnet_at",
+        label="Wohnnet Immobilien",
+        country_code="AT",
+        host_markers=("wohnnet.at", "www.wohnnet.at"),
+        listing_path_markers=("/immobilien/", "/immobiliensuche/", "/objekt/", "/detail/"),
+        search_urls={
+            "rent": "https://www.wohnnet.at/immobilien/",
+            "buy": "https://www.wohnnet.at/immobilien/",
+        },
+        description="Austria residential property and housing portal with search pages and market-facing property content.",
+        family="marketplace",
+        trust_tier="standard",
+        coverage="national",
+        floorplan_reliability="low",
+        duplicate_rate="medium",
+        tour_availability="rare",
+        scan_reliability="standard",
+        filter_pushdown_strength="partial",
+        official_source_quality="provider_only",
+        last_verified="2026-06-29",
+    ),
+    PropertyProviderSpec(
+        key="keinmakler_at",
+        label="keinmakler.at",
+        country_code="AT",
+        host_markers=("keinmakler.at", "www.keinmakler.at"),
+        listing_path_markers=("/immobilien/", "/detail/", "/objekt/", "/wohnung"),
+        search_urls={
+            "rent": "https://www.keinmakler.at/",
+            "buy": "https://www.keinmakler.at/",
+        },
+        description="Austria commission-free property source for owner-direct rental and purchase leads.",
+        family="broker_direct",
+        trust_tier="watch",
+        coverage="national",
+        floorplan_reliability="low",
+        duplicate_rate="medium",
+        tour_availability="rare",
+        scan_reliability="standard",
+        filter_pushdown_strength="weak",
+        official_source_quality="owner_direct",
+        last_verified="2026-06-29",
     ),
     PropertyProviderSpec(
         key="immowelt_at",
@@ -1140,6 +1293,28 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.immonet.de/wohnung-kaufen.html",
         },
         description="Germany search inventory with apartment rent and buy lanes.",
+    ),
+    PropertyProviderSpec(
+        key="wohnungsboerse_de",
+        label="Wohnungsboerse.net",
+        country_code="DE",
+        host_markers=("wohnungsboerse.net", "www.wohnungsboerse.net"),
+        listing_path_markers=("/wohnung-mieten", "/wohnung-kaufen", "/immobilien/", "/expose/"),
+        search_urls={
+            "rent": "https://www.wohnungsboerse.net/wohnung-mieten-provisionsfrei",
+            "buy": "https://www.wohnungsboerse.net/wohnung-kaufen",
+        },
+        description="Germany apartment-focused residential portal for rental and purchase discovery.",
+        family="core_portal",
+        trust_tier="standard",
+        coverage="national",
+        floorplan_reliability="medium",
+        duplicate_rate="medium",
+        tour_availability="rare",
+        scan_reliability="standard",
+        filter_pushdown_strength="medium",
+        official_source_quality="provider_only",
+        last_verified="2026-06-29",
     ),
     PropertyProviderSpec(
         key="kleinanzeigen_immo",
@@ -2052,6 +2227,32 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         supported_listing_modes=("buy",),
     ),
     PropertyProviderSpec(
+        key="properstar_cr",
+        label="Properstar Costa Rica",
+        country_code="CR",
+        host_markers=("properstar.com", "www.properstar.com"),
+        listing_path_markers=("/costa-rica", "/buy", "/rent", "/property/"),
+        search_urls={
+            "rent": "https://www.properstar.com/costa-rica/rent/apartment-house",
+            "buy": "https://www.properstar.com/costa-rica/buy",
+        },
+        description="Costa Rica international marketplace lane for residential sale and rental discovery. Plain HTTP probes are blocked, so it must use the browser-backed provider path.",
+        family="marketplace",
+        trust_tier="standard",
+        coverage="national",
+        floorplan_reliability="low",
+        duplicate_rate="medium",
+        tour_availability="rare",
+        scan_reliability="browser_required",
+        filter_pushdown_strength="partial",
+        official_source_quality="provider_only",
+        last_verified="2026-06-29",
+        access_mode="browser_public_web",
+        browser_access_allowed=True,
+        maximum_concurrency=1,
+        requests_per_hour=20,
+    ),
+    PropertyProviderSpec(
         key="coldwellbanker_cr",
         label="Coldwell Banker Costa Rica",
         country_code="CR",
@@ -2064,6 +2265,50 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         family="broker_direct",
         trust_tier="standard",
         supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
+        key="century21_cr",
+        label="Century 21 Costa Rica",
+        country_code="CR",
+        host_markers=("century21costarica.com", "www.century21costarica.com"),
+        listing_path_markers=("/en/", "/property/", "/properties/", "/real-estate/"),
+        search_urls={
+            "buy": "https://www.century21costarica.com/en/",
+        },
+        description="Costa Rica Century 21 broker network lane for residential sale inventory and regional broker offices.",
+        family="broker_direct",
+        trust_tier="standard",
+        supported_listing_modes=("buy",),
+        coverage="national",
+        floorplan_reliability="low",
+        duplicate_rate="medium",
+        tour_availability="occasional",
+        scan_reliability="standard",
+        filter_pushdown_strength="weak",
+        official_source_quality="broker_primary",
+        last_verified="2026-06-29",
+    ),
+    PropertyProviderSpec(
+        key="remax_cr",
+        label="RE/MAX Costa Rica",
+        country_code="CR",
+        host_markers=("remax-costa-rica.com", "www.remax-costa-rica.com"),
+        listing_path_markers=("/Properties-Propiedades/", "/property/", "/properties/", "/listing/"),
+        search_urls={
+            "buy": "https://www.remax-costa-rica.com/Properties-Propiedades/properties-for-sale-orotina-ruta-34-costanera/",
+        },
+        description="Costa Rica RE/MAX broker network lane for national residential and investment sale inventory.",
+        family="broker_direct",
+        trust_tier="standard",
+        supported_listing_modes=("buy",),
+        coverage="national",
+        floorplan_reliability="low",
+        duplicate_rate="medium",
+        tour_availability="occasional",
+        scan_reliability="standard",
+        filter_pushdown_strength="partial",
+        official_source_quality="broker_primary",
+        last_verified="2026-06-29",
     ),
     PropertyProviderSpec(
         key="theagency_cr",
@@ -2485,6 +2730,18 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "immoscoutat": "immoscout_at",
     "immoweltat": "immowelt_at",
     "immowelt_at": "immowelt_at",
+    "immobiliennet": "immobilien_net_at",
+    "immobiliennetat": "immobilien_net_at",
+    "ohnemaklerat": "ohne_makler_at",
+    "ohne_makler_at": "ohne_makler_at",
+    "sreal": "sreal_at",
+    "srealat": "sreal_at",
+    "raiffeisenimmobilien": "raiffeisen_immobilien_at",
+    "raiffeisenimmobilienat": "raiffeisen_immobilien_at",
+    "wohnnet": "wohnnet_at",
+    "wohnnetat": "wohnnet_at",
+    "keinmakler": "keinmakler_at",
+    "keinmaklerat": "keinmakler_at",
     "findmyhome": "findmyhome_at",
     "findmyhomeat": "findmyhome_at",
     "findmyhome_at": "findmyhome_at",
@@ -2511,6 +2768,9 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "immobilienderstandardat": "derstandard_at",
     "theagencycr": "theagency_cr",
     "agencycr": "theagency_cr",
+    "properstarcr": "properstar_cr",
+    "century21cr": "century21_cr",
+    "remaxcr": "remax_cr",
     "krain": "krain_cr",
     "kraincr": "krain_cr",
     "desarrollos": "desarrollos_cr",
@@ -2549,6 +2809,9 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "immonet": "immonet",
     "kleinanzeigen": "kleinanzeigen_immo",
     "kleinanzeigenimmo": "kleinanzeigen_immo",
+    "wohnungsboerse": "wohnungsboerse_de",
+    "wohnungsboersede": "wohnungsboerse_de",
+    "wohnungsboerse_de": "wohnungsboerse_de",
     "neubaukompass": "neubaukompass_de",
     "neubaukompassde": "neubaukompass_de",
     "wggesucht": "wg_gesucht_de",
@@ -3411,12 +3674,7 @@ def provider_quality_labels(provider_key: str) -> dict[str, str]:
 
 def default_platforms_for_country(country_code: object) -> tuple[str, ...]:
     normalized_country = normalize_country_code(country_code)
-    if normalized_country in {"AT", "DE"}:
-        return default_platforms_for_country_listing_mode(normalized_country, "rent")
-    country = _COUNTRY_INDEX.get(normalized_country)
-    defaults = tuple(country.featured_platforms if country is not None else _COUNTRY_INDEX["AT"].featured_platforms)
-    kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country)
-    return kept
+    return default_platforms_for_country_listing_mode(normalized_country, "rent")
 
 
 def default_platforms_for_country_listing_mode(
@@ -3433,24 +3691,53 @@ def default_platforms_for_country_listing_mode(
             if normalized_type == "land":
                 defaults = ("willhaben", "immmo", "immoscout_at", "broker_direct_at")
             else:
-                defaults = ("willhaben", "immmo", "immoscout_at", "derstandard_at", "broker_direct_at", "developer_projects_at")
+                defaults = (
+                    "willhaben",
+                    "immmo",
+                    "immoscout_at",
+                    "immobilien_net_at",
+                    "ohne_makler_at",
+                    "sreal_at",
+                    "raiffeisen_immobilien_at",
+                    "wohnnet_at",
+                    "keinmakler_at",
+                    "derstandard_at",
+                    "broker_direct_at",
+                    "developer_projects_at",
+                )
             kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country, listing_mode=normalized_mode)
             return kept
-        defaults = ("willhaben", "immmo", "immoscout_at", "derstandard_at", "public_housing_at", "genossenschaften_at")
+        defaults = (
+            "willhaben",
+            "immmo",
+            "immoscout_at",
+            "immobilien_net_at",
+            "ohne_makler_at",
+            "sreal_at",
+            "raiffeisen_immobilien_at",
+            "wohnnet_at",
+            "keinmakler_at",
+            "derstandard_at",
+            "public_housing_at",
+            "genossenschaften_at",
+        )
         kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country, listing_mode=normalized_mode)
         return kept
     if normalized_country == "DE":
         if normalized_mode == "buy":
             if normalized_type == "land":
-                defaults = ("core_portals_de", "broker_direct_de", "new_build_de")
+                defaults = ("core_portals_de", "wohnungsboerse_de", "broker_direct_de", "new_build_de")
             else:
-                defaults = ("core_portals_de", "new_build_de", "broker_direct_de")
+                defaults = ("core_portals_de", "wohnungsboerse_de", "new_build_de", "broker_direct_de")
             kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country, listing_mode=normalized_mode)
             return kept
-        defaults = ("core_portals_de", "corporate_landlords_de", "municipal_housing_de", "broker_direct_de")
+        defaults = ("core_portals_de", "wohnungsboerse_de", "corporate_landlords_de", "municipal_housing_de", "broker_direct_de")
         kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country, listing_mode=normalized_mode)
         return kept
-    return default_platforms_for_country(normalized_country)
+    country = _COUNTRY_INDEX.get(normalized_country)
+    defaults = tuple(country.featured_platforms if country is not None else _COUNTRY_INDEX["AT"].featured_platforms)
+    kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country, listing_mode=normalized_mode)
+    return kept
 
 
 def _slugify_grouped_location_query(value: object) -> str:

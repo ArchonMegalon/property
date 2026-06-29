@@ -637,6 +637,25 @@ def property_workspace_payload(
         if isinstance(agent, dict)
     ]
     property_search_agent = next((agent for agent in property_search_agents if agent.get("is_active")), property_search_agents[0] if property_search_agents else {})
+
+    def _compact_scope_preview_payload(row: dict[str, object]) -> None:
+        scope_preview = dict(row.get("scope_preview") or {})
+        if not scope_preview:
+            return
+        compact_rows = []
+        for preview_row in list(scope_preview.get("district_rows") or []):
+            if not isinstance(preview_row, dict):
+                continue
+            compact_rows.append(
+                {
+                    "label": str(preview_row.get("label") or "").strip(),
+                    "selected": bool(preview_row.get("selected")),
+                }
+            )
+        scope_preview["district_rows"] = compact_rows
+        scope_preview["district_overlay_svg"] = ""
+        row["scope_preview"] = scope_preview
+
     provider_options = []
     for field in list(property_form.get("schema") or []):
         if not isinstance(field, dict):
@@ -695,6 +714,8 @@ def property_workspace_payload(
                 (agent for agent in property_search_agents if agent.get("is_active")),
                 property_search_agents[0],
             )
+    for agent in property_search_agents:
+        _compact_scope_preview_payload(agent)
     raw_preference_nodes = (
         [
             dict(row)
@@ -1222,6 +1243,8 @@ def property_workspace_payload(
         for index, row in enumerate(list(property_state.get("recent_search_runs") or []))
         if isinstance(row, dict) and str(row.get("run_id") or "").strip()
     ] if (wants_recent_runs or wants_agent_views) else []
+    for previous_run in previous_search_runs:
+        _compact_scope_preview_payload(previous_run)
     if wants_search_runs or wants_agent_views:
         selected_agent_context = select_property_search_agent(
             property_search_agents,
@@ -2052,7 +2075,7 @@ def property_workspace_payload(
                 )
                 return {
                     "status": "ready",
-                    "label": "360 ready",
+                    "label": "3D tour ready",
                     "url": verified_tour_url,
                     "embed_url": verified_tour_url,
                     "eta_label": visual_runtime["eta_label"],
@@ -2065,7 +2088,7 @@ def property_workspace_payload(
                 }
             return {
                 "status": "blocked",
-                "label": "360 unavailable",
+                "label": "3D tour unavailable",
                 "url": "",
                 "embed_url": "",
                 "eta_label": "A live 3D tour is not available for this listing yet.",
@@ -2113,7 +2136,7 @@ def property_workspace_payload(
             )
             return {
                 "status": visual_runtime["status"],
-                "label": "360 queued",
+                "label": "3D tour queued",
                 "url": "",
                 "embed_url": "",
                 "eta_label": visual_runtime["eta_label"],
@@ -2134,7 +2157,7 @@ def property_workspace_payload(
             )
             return {
                 "status": visual_runtime["status"],
-                "label": "360 rendering",
+                "label": "3D tour rendering",
                 "url": "",
                 "embed_url": "",
                 "eta_label": visual_runtime["eta_label"],
@@ -2154,7 +2177,7 @@ def property_workspace_payload(
             )
             return {
                 "status": visual_runtime["status"],
-                "label": "360 repair running",
+                "label": "3D tour refresh running",
                 "url": "",
                 "embed_url": "",
                 "eta_label": visual_runtime["eta_label"],
@@ -2175,7 +2198,7 @@ def property_workspace_payload(
             )
             return {
                 "status": "blocked",
-                "label": "360 unavailable",
+                "label": "3D tour unavailable",
                 "url": "",
                 "embed_url": "",
                 "eta_label": _tour_source_gap_detail(candidate),
@@ -2189,7 +2212,7 @@ def property_workspace_payload(
         gap_detail = _tour_source_gap_detail(candidate)
         return {
             "status": "missing",
-            "label": "360 unavailable",
+            "label": "3D tour unavailable",
             "url": "",
             "embed_url": "",
             "eta_label": gap_detail,
@@ -2226,7 +2249,7 @@ def property_workspace_payload(
                 status="ready",
                 ready_url=open_url,
             )
-            ready_detail = f"{provider_label} rendered walkthrough ready" if provider_label else "Walkthrough ready"
+            ready_detail = "Walkthrough ready"
             return {
                 "status": "ready",
                 "label": "Open walkthrough",

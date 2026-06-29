@@ -276,7 +276,7 @@ def test_google_oauth_routes_create_and_disconnect_binding(monkeypatch: pytest.M
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-123",
-            "email": "runner@gmail.example",
+            "email": "person@example.test",
             "hd": "gmail.example",
         },
     )
@@ -288,7 +288,7 @@ def test_google_oauth_routes_create_and_disconnect_binding(monkeypatch: pytest.M
     assert callback.status_code == 200
     callback_body = callback.json()
     assert callback_body["principal_id"] == "exec-google"
-    assert callback_body["google_email"] == "runner@gmail.example"
+    assert callback_body["google_email"] == "person@example.test"
     assert callback_body["consent_stage"] == "send"
     assert callback_body["token_status"] == "active"
     assert callback_body["connector_binding_id"]
@@ -318,8 +318,8 @@ def test_google_oauth_routes_create_and_disconnect_binding(monkeypatch: pytest.M
     smoke = owner.post("/v1/providers/google/gmail/smoke-test", json={})
     assert smoke.status_code == 200
     smoke_body = smoke.json()
-    assert smoke_body["sender_email"] == "runner@gmail.example"
-    assert smoke_body["recipient_email"] == "runner@gmail.example"
+    assert smoke_body["sender_email"] == "person@example.test"
+    assert smoke_body["recipient_email"] == "person@example.test"
     assert smoke_body["gmail_message_id"] == "gmail-message-123"
     assert smoke_body["rfc822_message_id"].startswith("<ea-smoke-")
 
@@ -713,7 +713,7 @@ def test_onboarding_telegram_bind_chat_promotes_live_bot_binding() -> None:
 
 def test_onboarding_status_reflects_fallback_telegram_binding(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "local-user")
-    owner = _client(principal_id="cf-email:tibor.girschele@gmail.com")
+    owner = _client(principal_id="cf-email:person@example.test")
     owner.app.state.container.tool_runtime.upsert_connector_binding(
         principal_id="local-user",
         connector_name="telegram_identity",
@@ -764,7 +764,7 @@ def test_onboarding_google_callback_returns_api_payload(monkeypatch: pytest.Monk
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-onboarding",
-            "email": "onboarding@gmail.example",
+            "email": "person@example.test",
             "hd": "gmail.example",
         },
     )
@@ -777,7 +777,7 @@ def test_onboarding_google_callback_returns_api_payload(monkeypatch: pytest.Monk
     callback_body = callback.json()
     assert callback_body["provider_key"] == "google_gmail"
     assert callback_body["principal_id"] == "exec-onboarding-callback"
-    assert callback_body["google_email"] == "onboarding@gmail.example"
+    assert callback_body["google_email"] == "person@example.test"
     assert callback_body["connector_binding_id"]
     assert callback_body["granted_scopes"] == ["email", "openid", "profile"]
     assert callback_body["consent_stage"] == "identity"
@@ -3439,7 +3439,7 @@ def test_telegram_ingest_deduped_voice_message_skips_retranscription(monkeypatch
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "person@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
     monkeypatch.setattr(channels_route, "resolve_telegram_message_payload", _fake_resolve_message_payload)
@@ -3494,7 +3494,7 @@ def test_telegram_ingest_answers_done_from_recent_google_photos_context(monkeypa
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "person@example.test"
 
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
     monkeypatch.setattr(
@@ -3577,7 +3577,7 @@ def test_telegram_ingest_suppresses_repeated_done_when_google_photos_state_uncha
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "person@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -3688,7 +3688,7 @@ def test_telegram_ingest_suppresses_repeated_again_when_google_photos_state_unch
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "person@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -3782,7 +3782,7 @@ def test_telegram_ingest_reuses_google_photos_context_for_voice_message_placehol
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "person@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -3859,7 +3859,7 @@ def test_telegram_ingest_answers_start_picker_immediately(monkeypatch: pytest.Mo
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "person@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -3916,7 +3916,7 @@ def test_telegram_ingest_surfaces_google_photos_picker_forbidden(monkeypatch: py
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "person@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -3976,7 +3976,7 @@ def test_telegram_ingest_surfaces_google_photos_picker_service_disabled(monkeypa
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "person@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -4411,7 +4411,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-browser",
-            "email": "browser@gmail.example",
+            "email": "person@example.test",
             "hd": "gmail.example",
         },
     )
@@ -4419,7 +4419,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
     assert callback.status_code == 200
     assert "Google account linked." in callback.text
-    assert "browser@gmail.example" in callback.text
+    assert "person@example.test" in callback.text
     assert "openid" in callback.text
     assert 'href="/sign-in?signing_in=1"' in callback.text
     assert "No Gmail or Calendar sync was requested." in callback.text
@@ -4441,14 +4441,14 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
         deps,
         "resolve_access_identity",
         lambda **kwargs: CloudflareAccessIdentity(
-            principal_id="cf-email:browser@gmail.com",
-            email="browser@gmail.com",
+            principal_id="cf-email:person@example.test",
+            email="person@example.test",
             subject="subject-browser",
             display_name="Browser Gmail",
             issuer="https://girschele.cloudflareaccess.com",
             idp_name="google",
             audiences=("aud-123",),
-            claims={"email": "browser@gmail.com", "sub": "subject-browser"},
+            claims={"email": "person@example.test", "sub": "subject-browser"},
         ),
     )
 
@@ -4496,7 +4496,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-browser",
-            "email": "browser@gmail.com",
+            "email": "person@example.test",
             "hd": "gmail.com",
         },
     )
@@ -4504,8 +4504,8 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
     assert callback.status_code == 200
     assert "Google account linked." in callback.text
-    assert "browser@gmail.com" in callback.text
-    assert "cf-email:browser@gmail.com" not in callback.text
+    assert "person@example.test" in callback.text
+    assert "cf-email:person@example.test" not in callback.text
     assert 'href="/sign-in?signing_in=1"' in callback.text
     assert "No Gmail or Calendar sync was requested." in callback.text
 
@@ -8010,11 +8010,15 @@ def test_public_tour_routes_allow_matterport_thumb_preview_for_live_360(
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
     client = _client(principal_id="exec-public-tour-matterport-live-360")
+    entry = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     page = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"})
 
+    assert entry.status_code == 302
+    assert entry.headers["location"] == f"/tours/{slug}/control/matterport"
     assert page.status_code == 200
     assert "Matterport Live 360" in page.text
-    assert "my.matterport.com/show/?m=BmVWxvZQZLq" in page.text
+    assert 'src="https://my.matterport.com/show/?m=BmVWxvZQZLq"' in page.text
+    assert "Load 3D tour" not in page.text
 
 
 def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
@@ -8026,7 +8030,7 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
     bundle_dir = tmp_path / slug
     vista_dir = bundle_dir / "3dvista"
     vista_dir.mkdir(parents=True)
-    (vista_dir / "index.htm").write_text("<html>private viewer runtime</html>", encoding="utf-8")
+    (vista_dir / "index.htm").write_text("<html><script src='tdvplayer.js'></script></html>", encoding="utf-8")
     (vista_dir / "locale").mkdir()
     (vista_dir / "locale" / "en.txt").write_text("#: locale=en\n", encoding="utf-8")
     (vista_dir / "runtime.wasm").write_bytes(b"\0asm\x01\0\0\0")
@@ -8074,15 +8078,19 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
     client = _client(principal_id="exec-public-tour-private-viewer-3dvista")
+    entry = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     page = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"})
     control = client.get(f"/tours/{slug}/control/3dvista", headers={"host": "propertyquarry.com"})
     locale = client.get(f"/tours/3dvista/{slug}/3dvista/locale/en.txt", headers={"host": "propertyquarry.com"})
     wasm = client.get(f"/tours/3dvista/{slug}/3dvista/runtime.wasm", headers={"host": "propertyquarry.com"})
 
+    assert entry.status_code == 302
+    assert entry.headers["location"] == f"/tours/{slug}/control/3dvista"
     assert page.status_code == 200
-    assert "Open Fly-through" in page.text
+    assert f'src="/tours/3dvista/{slug}/3dvista/index.htm"' in page.text
+    assert "Load 3D tour" not in page.text
     assert control.status_code == 200
-    assert "3DVista Control" in control.text
+    assert "3D Tour" in control.text
     assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control.text
     assert locale.status_code == 200
     assert wasm.status_code == 200
@@ -8138,9 +8146,8 @@ def test_public_tour_hides_3dvista_link_without_browser_render_proof_but_keeps_p
     assert page.status_code == 200
     assert "Open 3DVista" not in page.text
     assert f"/tours/{slug}/control/3dvista" not in page.text
-    assert control.status_code == 200
-    assert "3DVista Control" in control.text
-    assert asset.status_code == 200
+    assert control.status_code == 404
+    assert asset.status_code == 404
 
 
 def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
@@ -8238,9 +8245,9 @@ def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
     client = _client(principal_id="exec-public-tour-pure-360")
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
 
-    assert page.status_code == 200
-    assert "3D cube fallback blocked" in page.text
-    assert "not allowed to masquerade as a real 3D tour" in page.text
+    assert page.status_code == 404
+    assert "This tour link is no longer available." in page.text
+    assert "Generated preview removed" in page.text
     assert "@photo-sphere-viewer" not in page.text
     assert "CubemapAdapter" not in page.text
     assert "scene-01-f.jpg" not in page.text
@@ -8284,11 +8291,10 @@ def test_public_tour_payload_ignores_legacy_video_fallback_relpath(
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
     client = _client(principal_id="exec-public-tour-video-clean")
-    body = client.get(f"/tours/{slug}.json").json()
+    response = client.get(f"/tours/{slug}.json")
 
-    assert body["video_url"].endswith(f"/tours/files/{slug}/tour.mp4")
-    assert "video_fallback_url" not in body
-    assert "video_fallback_relpath" not in body
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "tour_disabled_fallback"
 
 
 def test_public_tour_routes_keep_pure_360_white_labeled_when_origin_present(
@@ -8316,8 +8322,8 @@ def test_public_tour_routes_keep_pure_360_white_labeled_when_origin_present(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "pure_360_cube",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
-                "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-fit-priority-1",
+                "principal_id": "cf-email:person@example.test",
+                "source_ref": "gmail-thread:person@example.test:test-fit-priority-1",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
                     "rooms": 3,
@@ -8379,10 +8385,9 @@ def test_public_tour_routes_keep_pure_360_white_labeled_when_origin_present(
     client = _client(principal_id="exec-public-tour-pure-360-origin")
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
 
-    assert page.status_code == 200
+    assert page.status_code == 404
     assert 'src="https://360.kalandra.at/view/portal/id/VZ8P1"' not in page.text
-    assert "3D cube fallback blocked" in page.text
-    assert "not allowed to masquerade as a real 3D tour" in page.text
+    assert "Generated preview removed" in page.text
     assert 'id="prev-link"' not in page.text
     assert 'id="next-link"' not in page.text
     assert 'id="cube"' not in page.text
@@ -8406,15 +8411,15 @@ def test_public_tour_request_details_requires_authenticated_account(
                 "slug": slug,
                 "title": "Pioche Lecombe Pure 360",
                 "display_title": "Pioche Lecombe Pure 360",
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:person@example.test",
                 "property_url": "https://www.kalandra.at/objekt/14997053",
-                "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-fit-priority-1",
+                "source_ref": "gmail-thread:person@example.test:test-fit-priority-1",
                 "variant_key": "layout_first",
                 "listing_url": "https://www.kalandra.at/objekt/14997053",
-                "scene_strategy": "pure_360_cube",
+                "scene_strategy": "live_360_embed",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {"has_360": True},
-                "scenes": [{"name": "Living room", "role": "pure_360", "asset_relpath": "scene.jpg", "cube_faces": {"f": "scene.jpg"}}],
+                "scenes": [{"name": "Living room", "role": "live_360", "asset_relpath": "scene.jpg"}],
             },
             ensure_ascii=False,
         ),
@@ -8465,7 +8470,7 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "live_360_embed",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:person@example.test",
                 "source_virtual_tour_url": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
@@ -8543,12 +8548,12 @@ def test_public_tour_feedback_reports_persistence_failure(
                 "listing_url": "https://www.kalandra.at/objekt/14997053",
                 "property_url": "https://www.kalandra.at/objekt/14997053",
                 "hosted_url": f"https://ea.example/tours/{slug}",
-                "scene_strategy": "pure_360_cube",
+                "scene_strategy": "live_360_embed",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:person@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {"postal_name": "Waehring", "has_floorplan": True},
-                "scenes": [{"name": "Living room", "role": "pure_360", "asset_relpath": "scene.jpg", "cube_faces": {"f": "scene.jpg"}}],
+                "scenes": [{"name": "Living room", "role": "live_360", "asset_relpath": "scene.jpg"}],
             },
             ensure_ascii=False,
         ),
@@ -8594,12 +8599,12 @@ def test_public_tour_feedback_rate_limit_ignores_untrusted_x_forwarded_for(
                 "listing_url": "https://www.kalandra.at/objekt/14997053",
                 "property_url": "https://www.kalandra.at/objekt/14997053",
                 "hosted_url": f"https://ea.example/tours/{slug}",
-                "scene_strategy": "pure_360_cube",
+                "scene_strategy": "live_360_embed",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:person@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {"postal_name": "Waehring", "has_floorplan": True},
-                "scenes": [{"name": "Living room", "role": "pure_360", "asset_relpath": "scene.jpg", "cube_faces": {"f": "scene.jpg"}}],
+                "scenes": [{"name": "Living room", "role": "live_360", "asset_relpath": "scene.jpg"}],
             },
             ensure_ascii=False,
         ),
@@ -8642,9 +8647,9 @@ def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
                 "listing_url": "https://www.kalandra.at/objekt/guard-1",
                 "property_url": "https://www.kalandra.at/objekt/guard-1",
                 "hosted_url": f"https://ea.example/tours/{slug}",
-                "scene_strategy": "pure_360_cube",
+                "scene_strategy": "live_360_embed",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:person@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/guard",
                 "facts": {
                     "postal_name": "Waehring",
@@ -8660,17 +8665,9 @@ def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
                 "scenes": [
                     {
                         "name": "Living room",
-                        "role": "pure_360",
+                            "role": "live_360",
                         "scene_id": "living",
                         "asset_relpath": "scene-01-f.jpg",
-                        "cube_faces": {
-                            "f": "scene-01-f.jpg",
-                            "b": "scene-01-b.jpg",
-                            "r": "scene-01-r.jpg",
-                            "l": "scene-01-l.jpg",
-                            "u": "scene-01-u.jpg",
-                            "d": "scene-01-d.jpg",
-                        },
                     }
                 ],
             },
@@ -8736,9 +8733,9 @@ def test_public_tour_filter_update_requires_authenticated_account(
                 "listing_url": "https://www.kalandra.at/objekt/14997053",
                 "property_url": "https://www.kalandra.at/objekt/14997053",
                 "hosted_url": f"https://ea.example/tours/{slug}",
-                "scene_strategy": "pure_360_cube",
+                "scene_strategy": "live_360_embed",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:person@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
                     "postal_name": "1190 Wien",
@@ -8753,17 +8750,9 @@ def test_public_tour_filter_update_requires_authenticated_account(
                 "scenes": [
                     {
                         "name": "Living room",
-                        "role": "pure_360",
+                            "role": "live_360",
                         "scene_id": "living",
                         "asset_relpath": "scene-01-f.jpg",
-                        "cube_faces": {
-                            "f": "scene-01-f.jpg",
-                            "b": "scene-01-b.jpg",
-                            "r": "scene-01-r.jpg",
-                            "l": "scene-01-l.jpg",
-                            "u": "scene-01-u.jpg",
-                            "d": "scene-01-d.jpg",
-                        },
                     }
                 ],
             },
@@ -8826,9 +8815,9 @@ def test_public_tour_filter_update_rejects_invalid_payload(
                 "listing_url": "https://www.kalandra.at/objekt/14997053",
                 "property_url": "https://www.kalandra.at/objekt/14997053",
                 "hosted_url": f"https://ea.example/tours/{slug}",
-                "scene_strategy": "pure_360_cube",
+                "scene_strategy": "live_360_embed",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:person@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
                     "postal_name": "1190 Wien",
@@ -8843,17 +8832,9 @@ def test_public_tour_filter_update_rejects_invalid_payload(
                 "scenes": [
                     {
                         "name": "Living room",
-                        "role": "pure_360",
+                            "role": "live_360",
                         "scene_id": "living",
                         "asset_relpath": "scene-01-f.jpg",
-                        "cube_faces": {
-                            "f": "scene-01-f.jpg",
-                            "b": "scene-01-b.jpg",
-                            "r": "scene-01-r.jpg",
-                            "l": "scene-01-l.jpg",
-                            "u": "scene-01-u.jpg",
-                            "d": "scene-01-d.jpg",
-                        },
                     }
                 ],
             },
@@ -8938,7 +8919,7 @@ def test_public_tour_renders_shortlist_compare_cards(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "live_360_embed",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:person@example.test",
                 "source_virtual_tour_url": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
@@ -9187,9 +9168,8 @@ def test_public_tour_routes_use_listing_research_to_fill_decision_brief(
     client = _client(principal_id="exec-public-tour-research")
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
 
-    assert page.status_code == 200
-    assert "3D cube fallback blocked" in page.text
-    assert "not allowed to masquerade as a real 3D tour" in page.text
+    assert page.status_code == 404
+    assert "Generated preview removed" in page.text
     assert "Lift and floor plan materially reduce remote-viewing uncertainty." not in page.text
     assert "43 m² of terrace area adds meaningful private outdoor space." not in page.text
     assert "Immersive 360 tour is available." not in page.text

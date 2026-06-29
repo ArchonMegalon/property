@@ -754,7 +754,7 @@ def test_signal_ingest_email_thread_records_ooda_ltd_recommendations_for_propert
             "external_id": "gmail-message:ooda-property-1",
             "payload": {
                 "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/garden-apartment-789",
-                "delivery_recipient_email": "tibor.girschele@gmail.com",
+                "delivery_recipient_email": "owner@example.test",
             },
         },
     )
@@ -791,12 +791,12 @@ def test_signal_ingest_willhaben_search_agent_mail_skips_commitment_staging_but_
             "summary": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
             "text": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
             "counterparty": "willhaben-Suchagent",
-            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-willhaben-agent-1",
-            "external_id": "gmail-message:elisabeth.girschele@gmail.com:test-willhaben-agent-1",
+            "source_ref": "gmail-thread:scout@example.test:test-willhaben-agent-1",
+            "external_id": "gmail-message:scout@example.test:test-willhaben-agent-1",
             "payload": {
                 "from_email": "no-reply@agent.willhaben.at",
                 "from_name": "willhaben-Suchagent",
-                "account_email": "elisabeth.girschele@gmail.com",
+                "account_email": "scout@example.test",
                 "labels": ["CATEGORY_UPDATES", "INBOX"],
             },
         },
@@ -836,12 +836,12 @@ def test_signal_ingest_immmo_property_alert_mail_uses_property_review_lane() -> 
             "summary": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
             "text": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
             "counterparty": "IMMMO",
-            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-immmo-alert-1",
-            "external_id": "gmail-message:elisabeth.girschele@gmail.com:test-immmo-alert-1",
+            "source_ref": "gmail-thread:scout@example.test:test-immmo-alert-1",
+            "external_id": "gmail-message:scout@example.test:test-immmo-alert-1",
             "payload": {
                 "from_email": "mailrobot@immmo.at",
                 "from_name": "IMMMO",
-                "account_email": "elisabeth.girschele@gmail.com",
+                "account_email": "scout@example.test",
                 "labels": ["CATEGORY_UPDATES", "INBOX"],
             },
         },
@@ -902,12 +902,12 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
             "summary": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
             "text": "https://www.immoscout24.at/expose/telegram-test-property-1",
             "counterparty": "IMMMO",
-            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-telegram-property-alert-1",
-            "external_id": "gmail-message:elisabeth.girschele@gmail.com:test-telegram-property-alert-1",
+            "source_ref": "gmail-thread:scout@example.test:test-telegram-property-alert-1",
+            "external_id": "gmail-message:scout@example.test:test-telegram-property-alert-1",
             "payload": {
                 "from_email": "mailrobot@immmo.at",
                 "from_name": "IMMMO",
-                "account_email": "elisabeth.girschele@gmail.com",
+                "account_email": "scout@example.test",
                 "labels": ["CATEGORY_UPDATES", "INBOX"],
             },
         },
@@ -926,7 +926,7 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
 
 
 def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Alert Dossier Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -984,9 +984,9 @@ def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatc
         title="Scout alert for 1050 Vienna",
         summary="New Neubau listing with lift and storage room.",
         counterparty="IMMMO",
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="scout@example.test",
         property_url="https://www.immobilienscout24.at/expose/telegram-test-property-dossier",
-        source_ref="gmail-thread:elisabeth.girschele@gmail.com:test-telegram-property-alert-dossier",
+        source_ref="gmail-thread:scout@example.test:test-telegram-property-alert-dossier",
         assessment={"fit_score": 64.0, "recommendation": "ask_for_clarification"},
         fit_score=64.0,
         preference_person_id="self",
@@ -1010,7 +1010,7 @@ def test_property_scout_hit_notification_also_uses_heyy_when_business_whatsapp_i
     onboarding._replace_channel_pref(  # noqa: SLF001
         state,
         "whatsapp",
-        {"mode": "business", "phone_number": "+436647916419"},
+        {"mode": "business", "phone_number": "+43 660 0000000"},
         status="in_progress",
     )
     monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
@@ -1067,7 +1067,7 @@ def test_property_scout_hit_notification_also_uses_heyy_when_business_whatsapp_i
         title="Scout alert for 1050 Vienna",
         summary="New Neubau listing with lift and storage room.",
         counterparty="IMMMO",
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="scout@example.test",
         property_url="https://www.immobilienscout24.at/expose/heyy-telegram-test-property-dossier",
         source_ref="property-scout:heyy-hit-1",
         assessment={"fit_score": 64.0, "recommendation": "ask_for_clarification"},
@@ -1077,15 +1077,15 @@ def test_property_scout_hit_notification_also_uses_heyy_when_business_whatsapp_i
     assert result["status"] == "sent"
     assert result["heyy_delivery_status"] == "sent"
     assert result["heyy_message_id"] == "msg-heyy-1"
-    assert observed["phone_number"] == "+436647916419"
+    assert observed["phone_number"] == "+43 660 0000000"
     assert observed["template_id"] == "tmpl-property-match"
     assert any(item.get("name") == "property_title" for item in list(observed.get("variables") or []))
     packet_service = build_fliplink_packet_service(client.app.state.container)
     events = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_template_sent", limit=10)
     payload = next(dict(row.get("payload_json") or {}) for row in events if dict(row.get("payload_json") or {}).get("template_kind") == "property_match")
     assert payload["property_ref"] == "property-scout:heyy-hit-1"
-    assert payload["phone_last4"] == "6419"
-    assert payload["phone_e164_hash"] == redact_phone_number("+436647916419")["phone_e164_hash"]
+    assert payload["phone_last4"] == "0000"
+    assert payload["phone_e164_hash"] == redact_phone_number("+43 660 0000000")["phone_e164_hash"]
     assert "phone_number" not in payload
 
 
@@ -1098,7 +1098,7 @@ def test_property_scout_heyy_notification_honors_stop_command(monkeypatch) -> No
     onboarding._replace_channel_pref(  # noqa: SLF001
         state,
         "whatsapp",
-        {"mode": "business", "phone_number": "+436647916419"},
+        {"mode": "business", "phone_number": "+43 660 0000000"},
         status="in_progress",
     )
     monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
@@ -1112,7 +1112,7 @@ def test_property_scout_heyy_notification_honors_stop_command(monkeypatch) -> No
             "actor": "heyy",
             "payload_json": {
                 "opt_command": "STOP",
-                **redact_phone_number("+436647916419"),
+                **redact_phone_number("+43 660 0000000"),
             },
         }
     )
@@ -1146,7 +1146,7 @@ def test_property_scout_heyy_notification_enforces_sixty_score_floor(monkeypatch
     onboarding._replace_channel_pref(  # noqa: SLF001
         state,
         "whatsapp",
-        {"mode": "business", "phone_number": "+436647916419"},
+        {"mode": "business", "phone_number": "+43 660 0000000"},
         status="in_progress",
     )
     monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
@@ -1198,7 +1198,7 @@ def test_property_scout_heyy_notification_suppresses_out_of_scope_candidate(monk
     onboarding._replace_channel_pref(  # noqa: SLF001
         state,
         "whatsapp",
-        {"mode": "business", "phone_number": "+436647916419"},
+        {"mode": "business", "phone_number": "+43 660 0000000"},
         status="in_progress",
     )
     monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
@@ -1374,7 +1374,7 @@ def test_property_notification_preference_suppresses_unselected_channels(monkeyp
     onboarding._replace_channel_pref(  # noqa: SLF001
         state,
         "whatsapp",
-        {"mode": "business", "phone_number": "+436647916419"},
+        {"mode": "business", "phone_number": "+43 660 0000000"},
         status="in_progress",
     )
     monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
@@ -1470,7 +1470,7 @@ def test_property_account_notifications_route_persists_telegram_primary_for_mult
         data={
             "notification_channels": ["telegram", "whatsapp"],
             "preferred_channel": "telegram",
-            "whatsapp_ai_support_phone": "+43 664 791 6419",
+            "whatsapp_ai_support_phone": "+43 660 0000000",
         },
         headers={"host": "propertyquarry.com"},
         follow_redirects=False,
@@ -1481,7 +1481,7 @@ def test_property_account_notifications_route_persists_telegram_primary_for_mult
     property_notifications = dict(dict(status.get("delivery_preferences") or {}).get("property_notifications") or {})
     assert property_notifications["preferred_channel"] == "telegram"
     assert property_notifications["selected_channels"] == ["telegram", "whatsapp"]
-    assert property_notifications["whatsapp_ai_support_phone"] == "+436647916419"
+    assert property_notifications["whatsapp_ai_support_phone"] == "+436600000000"
 
 
 def test_property_account_notifications_route_allows_multiselect_without_primary() -> None:
@@ -1605,7 +1605,7 @@ def test_property_account_notifications_route_rejects_when_no_channels_selected(
 
 
 def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -1762,7 +1762,7 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
 
 
 def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_photo_fails(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Photo Fallback Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -1949,7 +1949,7 @@ def test_hosted_property_tour_helpers_use_public_tours_files_route(monkeypatch, 
 
 def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_ENABLED", raising=False)
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Dossier Media Office")
     observed: dict[str, object] = {}
@@ -2021,7 +2021,7 @@ def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(mo
         title="1050 Vienna Listing",
         summary="Bright two-room flat with lift.",
         counterparty="immobilienscout24.at",
-        account_email="tibor.girschele@gmail.com",
+        account_email="owner@example.test",
         property_url="https://www.immobilienscout24.at/expose/test-media-probe",
         source_ref="probe-src",
         assessment={},
@@ -2126,7 +2126,7 @@ def test_property_link_dossier_does_not_use_short_appendix_page_gate(monkeypatch
 
 
 def test_render_property_scout_dossier_filters_locked_listing_placeholder_when_magicfit_stills_exist(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Placeholder Filter Office")
     observed: dict[str, object] = {}
@@ -2184,7 +2184,7 @@ def test_render_property_scout_dossier_filters_locked_listing_placeholder_when_m
         title="1050 Vienna Listing",
         summary="Bright two-room flat with lift.",
         counterparty="immobilienscout24.at",
-        account_email="tibor.girschele@gmail.com",
+        account_email="owner@example.test",
         property_url="https://www.immobilienscout24.at/expose/test-media-probe",
         source_ref="probe-src",
         assessment={},
@@ -2222,7 +2222,7 @@ def test_render_property_scout_dossier_filters_locked_listing_placeholder_when_m
 
 
 def test_deliver_telegram_property_link_bundle_renders_dossier_after_magicfit_video_is_ready(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Ordering Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -2330,7 +2330,7 @@ def test_deliver_telegram_property_link_bundle_renders_dossier_after_magicfit_vi
     assert observed["video_calls_at_dossier"] == 2
 
 
-@pytest.mark.parametrize("principal_id", ["cf-email:tibor.girschele@gmail.com", "cf-email:elizabeth.girschele@gmail.com"])
+@pytest.mark.parametrize("principal_id", ["cf-email:owner@example.test", "cf-email:scout-alt@example.test"])
 def test_deliver_telegram_property_link_bundle_supports_multiple_family_principals(monkeypatch, tmp_path: Path, principal_id: str) -> None:
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Family Office")
@@ -2389,7 +2389,7 @@ def test_deliver_telegram_property_link_bundle_supports_multiple_family_principa
 
 
 def test_deliver_telegram_property_link_bundle_shortens_pdf_button_through_workspace_access_launch(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Long PDF URL Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -2514,7 +2514,7 @@ def test_deliver_telegram_property_link_bundle_shortens_pdf_button_through_works
 
 
 def test_deliver_telegram_property_link_bundle_uses_hosted_control_and_direct_magicfit_video_targets(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Direct Targets Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -2603,7 +2603,7 @@ def test_deliver_telegram_property_link_bundle_uses_hosted_control_and_direct_ma
 
 
 def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_sending_assets(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Pending Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -2701,7 +2701,7 @@ def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_send
 
 
 def test_deliver_telegram_property_link_bundle_requires_verified_premium_flythrough(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Premium Video Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -2800,7 +2800,7 @@ def test_deliver_telegram_property_link_bundle_requires_verified_premium_flythro
 
 
 def test_deliver_telegram_property_link_bundle_auto_renders_magicfit_flythrough(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Auto MagicFit Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -2955,7 +2955,7 @@ def test_deliver_telegram_property_link_bundle_auto_renders_magicfit_flythrough(
 
 
 def test_deliver_telegram_property_link_bundle_prefers_hosted_control_and_magicfit_mp4_buttons(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Bundle Direct Buttons Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -3094,7 +3094,7 @@ def test_deliver_telegram_property_link_bundle_prefers_hosted_control_and_magicf
 
 
 def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Alert Mail Office")
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
@@ -3129,7 +3129,7 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
         summary="New Neubau listing with lift and storage room in 1010 Wien.",
         counterparty="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
         property_url="https://www.immobilienscout24.at/expose/telegram-test-property-dossier",
-        source_ref="gmail-thread:elisabeth.girschele@gmail.com:test-property-alert-email-dossier",
+        source_ref="gmail-thread:scout@example.test:test-property-alert-email-dossier",
         assessment={"fit_score": 64.0, "recommendation": "ask_for_clarification"},
         review_url="",
         tour_result={"status": "blocked", "blocked_reason": "browseract_connector_unconfigured"},
@@ -3164,7 +3164,7 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
 
 
 def test_poppy_provider_operator_routes_verify_and_list(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_operator_product_client(principal_id=principal_id)
 
     monkeypatch.setattr(
@@ -3177,7 +3177,7 @@ def test_poppy_provider_operator_routes_verify_and_list(monkeypatch) -> None:
             "api_key_present": False,
             "chatbot_enabled": False,
             "manual_boards_enabled": True,
-            "account_email": "the.girscheles@gmail.com",
+            "account_email": "owner@example.test",
             "base_url": "https://app.poppy.ai",
             "reason": "poppy_api_not_verified",
         },
@@ -3229,7 +3229,7 @@ def test_poppy_provider_operator_routes_verify_and_list(monkeypatch) -> None:
 
 
 def test_property_scout_hit_email_falls_back_to_google_gmail_on_unverified_sender(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Alert Gmail Fallback Office")
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
@@ -3275,7 +3275,7 @@ def test_property_scout_hit_email_falls_back_to_google_gmail_on_unverified_sende
         summary="New Neubau listing with lift and storage room.",
         counterparty="ImmoScout24 Austria",
         property_url="https://www.immobilienscout24.at/expose/telegram-test-property-dossier",
-        source_ref="gmail-thread:elisabeth.girschele@gmail.com:test-property-alert-email-gmail-fallback",
+        source_ref="gmail-thread:scout@example.test:test-property-alert-email-gmail-fallback",
         assessment={"fit_score": 64.0, "recommendation": "ask_for_clarification"},
         review_url="",
         tour_result={"status": "blocked", "blocked_reason": "browseract_connector_unconfigured"},
@@ -3283,14 +3283,14 @@ def test_property_scout_hit_email_falls_back_to_google_gmail_on_unverified_sende
 
     assert result["status"] == "sent"
     assert result["message_id"] == "gmail-message-1"
-    assert observed_gmail["recipient_email"] == "tibor.girschele@gmail.com"
+    assert observed_gmail["recipient_email"] == "owner@example.test"
     gmail_body = str(observed_gmail["body_text"])
     assert "Action: open the titled dossier button." in gmail_body
     assert "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token-gmail" not in gmail_body
 
 
 def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_principal(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Alert Telegram Office")
     client.app.state.container.tool_runtime.upsert_connector_binding(
@@ -3332,12 +3332,12 @@ def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_p
             "summary": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
             "text": "https://www.immobilienscout24.at/expose/telegram-test-property-2",
             "counterparty": "IMMMO",
-            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-telegram-property-alert-2",
-            "external_id": "gmail-message:elisabeth.girschele@gmail.com:test-telegram-property-alert-2",
+            "source_ref": "gmail-thread:scout@example.test:test-telegram-property-alert-2",
+            "external_id": "gmail-message:scout@example.test:test-telegram-property-alert-2",
             "payload": {
                 "from_email": "mailrobot@immmo.at",
                 "from_name": "IMMMO",
-                "account_email": "elisabeth.girschele@gmail.com",
+                "account_email": "scout@example.test",
                 "labels": ["CATEGORY_UPDATES", "INBOX"],
             },
         },
@@ -3450,12 +3450,12 @@ def test_signal_ingest_willhaben_property_alert_review_uses_personal_fit_priorit
                 "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/test-fit-priority-1"
             ),
             "counterparty": "willhaben-Suchagent",
-            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-fit-priority-1",
-            "external_id": "gmail-message:elisabeth.girschele@gmail.com:test-fit-priority-1",
+            "source_ref": "gmail-thread:scout@example.test:test-fit-priority-1",
+            "external_id": "gmail-message:scout@example.test:test-fit-priority-1",
             "payload": {
                 "from_email": "no-reply@agent.willhaben.at",
                 "from_name": "willhaben-Suchagent",
-                "account_email": "elisabeth.girschele@gmail.com",
+                "account_email": "scout@example.test",
                 "labels": ["CATEGORY_UPDATES", "INBOX"],
             },
         },
@@ -3539,12 +3539,12 @@ def test_signal_ingest_property_alert_queue_orders_higher_fit_first(monkeypatch)
                 "summary": f"\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden ({suffix})",
                 "text": f"https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/{suffix}",
                 "counterparty": "willhaben-Suchagent",
-                "source_ref": f"gmail-thread:elisabeth.girschele@gmail.com:{suffix}",
-                "external_id": f"gmail-message:elisabeth.girschele@gmail.com:{suffix}",
+                "source_ref": f"gmail-thread:scout@example.test:{suffix}",
+                "external_id": f"gmail-message:scout@example.test:{suffix}",
                 "payload": {
                     "from_email": "no-reply@agent.willhaben.at",
                     "from_name": "willhaben-Suchagent",
-                    "account_email": "elisabeth.girschele@gmail.com",
+                    "account_email": "scout@example.test",
                     "labels": ["CATEGORY_UPDATES", "INBOX"],
                 },
             },
@@ -4335,7 +4335,7 @@ def test_property_scout_source_specs_infers_platform_from_url_host() -> None:
 
 
 def test_property_scout_route_uses_explicit_preference_person_and_creates_reviews(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Office")
     monkeypatch.setenv(
@@ -4406,7 +4406,7 @@ def test_property_scout_route_uses_explicit_preference_person_and_creates_review
 
 
 def test_property_scout_scans_beyond_result_limit_until_high_fit_matches(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Scan Depth Office")
     candidate_urls = (
@@ -7541,7 +7541,7 @@ def test_property_scout_keeps_provider_fallback_when_all_personal_scores_are_zer
 
 
 def test_property_scout_route_deduplicates_duplicate_listings_across_sources(monkeypatch) -> None:
-    principal_id = "cf-email:elizabeth.girschele@gmail.com"
+    principal_id = "cf-email:scout-alt@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Dedup Office")
     monkeypatch.setenv(
@@ -7612,7 +7612,7 @@ def test_property_scout_route_deduplicates_duplicate_listings_across_sources(mon
 
 
 def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_review(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Notify Office")
     product = ProductService(client.app.state.container)
@@ -7779,7 +7779,7 @@ def test_property_scout_route_sends_client_email_alerts_via_emailit(monkeypatch)
     from app.services.registration_email import RegistrationEmailReceipt
 
     monkeypatch.setenv("EMAILIT_API_KEY", "emailit-test-key")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Email Office")
     product = ProductService(client.app.state.container)
@@ -7863,13 +7863,13 @@ def test_property_scout_route_sends_client_email_alerts_via_emailit(monkeypatch)
     assert body["sources"][0]["top_candidates"][0]["title"] == "Email fit flat"
     assert body["sources"][0]["top_candidates"][0]["recommendation"] == "shortlist"
     assert body["sources"][0]["top_candidates"][0]["review_url"]
-    assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
+    assert observed_email["recipient_email"] == "owner@example.test"
     assert observed_email["property_title"] == "Email fit flat"
     assert "Willhaben Wien rentals" in str(observed_email["provider_label"])
 
 
 def test_property_scout_route_suppresses_top_watch_hit_below_outbound_score_floor(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Watch Notify Office")
     client.post(
@@ -7981,7 +7981,7 @@ def test_property_scout_route_suppresses_top_watch_hit_below_outbound_score_floo
 
 
 def test_property_alert_review_handoff_page_renders_research_packet() -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Review Packet Office")
     product = ProductService(client.app.state.container)
@@ -7992,7 +7992,7 @@ def test_property_alert_review_handoff_page_renders_research_packet() -> None:
         source_ref="property-scout:watch-fit-1",
         external_id="https://www.immobilienscout24.at/expose/watch-fit-1",
         counterparty="IMMMO Wien rentals",
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="scout@example.test",
         property_url="https://www.immobilienscout24.at/expose/watch-fit-1",
         actor="test",
         notify_telegram=False,
@@ -8045,7 +8045,7 @@ def test_property_alert_review_uses_heyy_when_business_whatsapp_is_staged(monkey
     onboarding._replace_channel_pref(  # noqa: SLF001
         state,
         "whatsapp",
-        {"mode": "business", "phone_number": "+436647916419"},
+        {"mode": "business", "phone_number": "+43 660 0000000"},
         status="in_progress",
     )
     monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
@@ -8072,7 +8072,7 @@ def test_property_alert_review_uses_heyy_when_business_whatsapp_is_staged(monkey
         source_ref="property-scout:watch-fit-heyy",
         external_id="https://www.immobilienscout24.at/expose/watch-fit-heyy",
         counterparty="IMMMO Wien rentals",
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="scout@example.test",
         property_url="https://www.immobilienscout24.at/expose/watch-fit-heyy",
         actor="test",
         notify_telegram=False,
@@ -8091,7 +8091,7 @@ def test_property_alert_review_uses_heyy_when_business_whatsapp_is_staged(monkey
     assert result["status"] == "opened"
     assert result["heyy_delivery_status"] == "sent"
     assert result["heyy_message_id"] == "msg-alert-review-1"
-    assert observed["phone_number"] == "+436647916419"
+    assert observed["phone_number"] == "+43 660 0000000"
     assert observed["template_id"] == "tmpl-property-alert-review"
     assert any(item.get("name") == "fit_score" and item.get("value") == "91/100" for item in list(observed.get("variables") or []))
 
@@ -8136,7 +8136,7 @@ def test_property_alert_review_handoff_keeps_vendor_360_as_external_action() -> 
 
 
 def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Reason Buttons Office")
     product = ProductService(client.app.state.container)
@@ -8253,7 +8253,7 @@ def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch)
 
 
 def test_telegram_feedback_callback_records_generic_notification_preference(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Feedback Office")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
@@ -8343,7 +8343,7 @@ def test_telegram_feedback_callback_records_generic_notification_preference(monk
 
 
 def test_telegram_property_feedback_callback_prompts_for_followup_and_captures_reply(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Property Feedback Followup Office")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
@@ -8544,12 +8544,12 @@ def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monk
                 "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/low-fit-telegram-1"
             ),
             "counterparty": "willhaben-Suchagent",
-            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:high-low-fit-batch",
-            "external_id": "gmail-message:elisabeth.girschele@gmail.com:high-low-fit-batch",
+            "source_ref": "gmail-thread:scout@example.test:high-low-fit-batch",
+            "external_id": "gmail-message:scout@example.test:high-low-fit-batch",
             "payload": {
                 "from_email": "no-reply@agent.willhaben.at",
                 "from_name": "willhaben-Suchagent",
-                "account_email": "elisabeth.girschele@gmail.com",
+                "account_email": "scout@example.test",
                 "labels": ["CATEGORY_UPDATES", "INBOX"],
             },
         },
@@ -9373,14 +9373,14 @@ def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_t
 
     monkeypatch.setenv("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", "1")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL", "tibor.girschele@gmail.com")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL", "owner@example.test")
     monkeypatch.setenv(
         "EA_WILLHABEN_PROPERTY_TOUR_RECIPIENT_MAP_JSON",
-        '{"elisabeth.girschele@gmail.com":"tibor.girschele@gmail.com"}',
+        '{"scout@example.test":"owner@example.test"}',
     )
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
 
-    principal_id = "cf-email:elisabeth.girschele@gmail.com"
+    principal_id = "cf-email:scout@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Willhaben Auto Tour Office")
 
@@ -9447,12 +9447,12 @@ def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_t
             "summary": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
             "text": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
             "counterparty": "willhaben-Suchagent",
-            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:auto-willhaben-agent-1",
-            "external_id": "gmail-message:elisabeth.girschele@gmail.com:auto-willhaben-agent-1",
+            "source_ref": "gmail-thread:scout@example.test:auto-willhaben-agent-1",
+            "external_id": "gmail-message:scout@example.test:auto-willhaben-agent-1",
             "payload": {
                 "from_email": "no-reply@agent.willhaben.at",
                 "from_name": "willhaben-Suchagent",
-                "account_email": "elisabeth.girschele@gmail.com",
+                "account_email": "scout@example.test",
                 "body_text_excerpt": (
                     "Neue Anzeige gefunden. "
                     "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/search-agent-apartment-555"
@@ -9466,7 +9466,7 @@ def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_t
     body = signal.json()
     assert body["staged_count"] == 0
     assert body["draft_count"] == 0
-    assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
+    assert observed_email["recipient_email"] == "owner@example.test"
     assert observed_email["property_url"] == (
         "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/search-agent-apartment-555"
     )
@@ -9481,9 +9481,9 @@ def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_t
     sent = next(
         item
         for item in events.json()["items"]
-        if item["payload"]["source_ref"] == "gmail-thread:elisabeth.girschele@gmail.com:auto-willhaben-agent-1"
+        if item["payload"]["source_ref"] == "gmail-thread:scout@example.test:auto-willhaben-agent-1"
     )
-    assert sent["payload"]["delivery_email"] == "tibor.girschele@gmail.com"
+    assert sent["payload"]["delivery_email"] == "owner@example.test"
 
     handoffs = client.get("/app/api/handoffs")
     assert handoffs.status_code == 200
@@ -9497,7 +9497,7 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -9626,7 +9626,7 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     assert body["editor_url"] == "https://vendor.example.com/editor/brigittenau-apartment-a"
     assert body["artifact_id"] == "artifact-property-tour-1"
     assert body["execution_session_id"] == "session-property-tour-1"
-    assert body["delivery_email"] == "tibor.girschele@gmail.com"
+    assert body["delivery_email"] == "owner@example.test"
     assert body["delivery_status"] == "sent"
     assert body["telegram_delivery_status"] == "sent"
     assert body["telegram_chat_ref"] == "1354554303"
@@ -9634,7 +9634,7 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     assert body["telegram_video_delivery_status"] == "sent"
     assert body["telegram_video_message_ids"] == ["tg-video-1"]
     assert body["telegram_video_url"] == "https://myexternalbrain.com/tours/files/brigittenau-apartment-a/tour.mp4"
-    assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
+    assert observed_email["recipient_email"] == "owner@example.test"
     assert observed_email["tour_url"] == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
     assert observed_email["decision_summary_json"]["recommendation"] == "shortlist"
 
@@ -9643,7 +9643,7 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
         params={"channel": "product", "event_type": "willhaben_property_tour_email_sent"},
     )
     assert events.status_code == 200
-    assert any(item["payload"]["delivery_email"] == "tibor.girschele@gmail.com" for item in events.json()["items"])
+    assert any(item["payload"]["delivery_email"] == "owner@example.test" for item in events.json()["items"])
     tg_events = client.get(
         "/app/api/events",
         params={"channel": "product", "event_type": "willhaben_property_tour_telegram_sent"},
@@ -9723,7 +9723,7 @@ def test_property_alert_review_telegram_text_includes_top_candidate_summary() ->
         title='"Eigentumswohnungen" hat 5 neue Anzeigen für dich gefunden',
         summary="Recent mail from willhaben-Suchagent.",
         counterparty="willhaben-Suchagent",
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="scout@example.test",
         property_url="",
         personal_fit_assessment=None,
         candidate_properties=(
@@ -9899,7 +9899,7 @@ def test_property_alert_review_telegram_text_prefers_internal_tour_link() -> Non
         title="Watch fit apartment",
         summary="Recent scout hit.",
         counterparty="IMMMO",
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="scout@example.test",
         property_url="https://www.immobilienscout24.at/expose/watch-fit-1",
         personal_fit_assessment={"fit_score": 91.0, "recommendation": "shortlist"},
         candidate_properties=(
@@ -9926,7 +9926,7 @@ def test_property_alert_review_telegram_text_uses_fit_note_language() -> None:
         title="Watch fit apartment",
         summary="Recent scout hit.",
         counterparty="IMMMO",
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="scout@example.test",
         property_url="https://www.immobilienscout24.at/expose/watch-fit-1",
         personal_fit_assessment={"fit_score": 54.0, "recommendation": "ask_for_clarification"},
         candidate_properties=(
@@ -9952,7 +9952,7 @@ def test_property_alert_review_telegram_text_prefers_review_link_over_listing() 
         title="Watch fit apartment",
         summary="Recent scout hit.",
         counterparty="IMMMO",
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="scout@example.test",
         property_url="https://www.immobilienscout24.at/expose/watch-fit-1",
         personal_fit_assessment={"fit_score": 91.0, "recommendation": "shortlist"},
         candidate_properties=(
@@ -9992,7 +9992,7 @@ def test_property_telegram_url_buttons_include_direct_map_without_visible_link_t
 def test_generic_property_tour_creates_myexternalbrain_tour_for_immoscout(monkeypatch) -> None:
     from app.domain.models import Artifact
 
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Generic Property Tour Office")
     service = ProductService(client.app.state.container)
@@ -10077,7 +10077,7 @@ def test_generic_property_tour_creates_myexternalbrain_tour_for_immoscout(monkey
 
 
 def test_generic_property_tour_blocks_without_real_360_source(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
     client = build_product_client(principal_id=principal_id)
@@ -10902,7 +10902,7 @@ def test_property_scout_page_preview_extracts_kronofogden_facts(monkeypatch: pyt
 
 
 def test_generic_property_tour_blocks_cube_360_bundle_when_provider_is_unavailable(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
     client = build_product_client(principal_id=principal_id)
@@ -11737,10 +11737,10 @@ def test_preference_profile_mailbox_import_applies_property_history_without_revi
 
     def _fake_list_recent_workspace_signals(**kwargs):
         assert kwargs["principal_id"] == principal_id
-        assert kwargs["account_email_filter"] == "elisabeth.girschele@gmail.com"
+        assert kwargs["account_email_filter"] == "scout@example.test"
         return google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="elisabeth.girschele@gmail.com",
-            account_emails=("elisabeth.girschele@gmail.com",),
+            account_email="scout@example.test",
+            account_emails=("scout@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_METADATA,),
             signals=(
                 google_oauth_service.GoogleWorkspaceSignal(
@@ -11749,13 +11749,13 @@ def test_preference_profile_mailbox_import_applies_property_history_without_revi
                     title="Vormerkung Genossenschaft Waehring 1180 - 82 m² Balkon",
                     summary="Sie sind für das Projekt vorgemerkt. 3 Zimmer, EUR 1.480.",
                     text="Vormerkung bestätigt. Waehring 1180, 82 m², 3 Zimmer, Balkon, Lift, U-Bahn nah.",
-                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:thread-1",
-                    external_id="gmail-message:elisabeth.girschele@gmail.com:msg-1",
+                    source_ref="gmail-thread:scout@example.test:thread-1",
+                    external_id="gmail-message:scout@example.test:msg-1",
                     counterparty="GESIBA",
                     due_at=None,
                     payload={
                         "thread_id": "thread-1",
-                        "account_email": "elisabeth.girschele@gmail.com",
+                        "account_email": "scout@example.test",
                         "from_email": "wohnen@gesiba.at",
                         "body_text_excerpt": "Vormerkung bestätigt. Waehring 1180, 82 m², 3 Zimmer, Balkon, Lift, U-Bahn nah.",
                     },
@@ -11766,13 +11766,13 @@ def test_preference_profile_mailbox_import_applies_property_history_without_revi
                     title="Anfrage zu Wohnung in Döbling mit Grundriss",
                     summary="Ihre Anfrage wurde beantwortet. 94 m², 4 Zimmer, EUR 1.920.",
                     text="Nachfrage beantwortet. Döbling, 94 m², 4 Zimmer, Grundriss vorhanden, ruhig, Spielplatz in der Nähe.",
-                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:thread-2",
-                    external_id="gmail-message:elisabeth.girschele@gmail.com:msg-2",
+                    source_ref="gmail-thread:scout@example.test:thread-2",
+                    external_id="gmail-message:scout@example.test:msg-2",
                     counterparty="Willhaben",
                     due_at=None,
                     payload={
                         "thread_id": "thread-2",
-                        "account_email": "elisabeth.girschele@gmail.com",
+                        "account_email": "scout@example.test",
                         "from_email": "agent@willhaben.at",
                         "body_text_excerpt": "Nachfrage beantwortet. Döbling, 94 m², 4 Zimmer, Grundriss vorhanden, ruhig, Spielplatz in der Nähe.",
                     },
@@ -11790,7 +11790,7 @@ def test_preference_profile_mailbox_import_applies_property_history_without_revi
     response = client.post(
         "/app/api/people/elisabeth/preference-profile/mailbox-import",
         json={
-            "account_email": "elisabeth.girschele@gmail.com",
+            "account_email": "scout@example.test",
             "consent_confirmed": True,
             "consent_note": "Explicitly approved import of housing-related Gmail threads.",
             "email_limit": 50,
@@ -11826,7 +11826,7 @@ def test_preference_profile_mailbox_import_requires_explicit_consent() -> None:
     response = client.post(
         "/app/api/people/elisabeth/preference-profile/mailbox-import",
         json={
-            "account_email": "elisabeth.girschele@gmail.com",
+            "account_email": "scout@example.test",
             "consent_confirmed": False,
         },
     )
@@ -11838,7 +11838,7 @@ def test_preference_profile_mailbox_import_requires_consent_note() -> None:
     response = client.post(
         "/app/api/people/elisabeth/preference-profile/mailbox-import",
         json={
-            "account_email": "elisabeth.girschele@gmail.com",
+            "account_email": "scout@example.test",
             "consent_confirmed": True,
             "consent_note": "   ",
         },
@@ -11946,7 +11946,7 @@ def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile
 
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
     client.post(
@@ -12057,7 +12057,7 @@ def test_willhaben_property_tour_records_video_followup_when_telegram_video_deli
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Video Followup Office")
 
@@ -12805,7 +12805,7 @@ def test_preference_profile_teable_sync_preview_blocks_when_runtime_is_unreachab
 def test_willhaben_property_tour_route_prefers_panorama_media_and_disables_floorplan_scene_in_360_mode(monkeypatch) -> None:
     from app.domain.models import Artifact
 
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -12869,7 +12869,7 @@ def test_willhaben_property_tour_route_prefers_panorama_media_and_disables_floor
 def test_willhaben_property_tour_route_accepts_external_live_360_source_when_panorama_images_are_absent(monkeypatch) -> None:
     from app.domain.models import Artifact
 
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -12933,7 +12933,7 @@ def test_willhaben_property_tour_route_accepts_external_live_360_source_when_pan
 
 
 def test_willhaben_property_tour_route_publishes_pure_360_bundle_when_crezlo_is_unavailable(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -13005,7 +13005,7 @@ def test_matterport_hosted_pure_360_bundle_uses_http_thumb_preview(monkeypatch, 
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
     payload = product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
-        principal_id="cf-email:tibor.girschele@gmail.com",
+        principal_id="cf-email:owner@example.test",
         title="Matterport Preview Test",
         listing_id="matterport-preview-test",
         property_url="https://www.immobilienscout24.at/expose/matterport-preview-test",
@@ -13040,7 +13040,7 @@ def test_3dvista_hosted_pure_360_bundle_preserves_provider_url(monkeypatch, tmp_
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
     payload = product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
-        principal_id="cf-email:tibor.girschele@gmail.com",
+        principal_id="cf-email:owner@example.test",
         title="3DVista Preview Test",
         listing_id="3dvista-preview-test",
         property_url="https://www.immobilienscout24.at/expose/3dvista-preview-test",
@@ -13077,7 +13077,7 @@ def test_kalandra_cube_360_bundle_generation_is_disabled(monkeypatch, tmp_path: 
 
     with pytest.raises(RuntimeError, match="property_tour_cube_fallback_disabled"):
         product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
-            principal_id="cf-email:tibor.girschele@gmail.com",
+            principal_id="cf-email:owner@example.test",
             title="Kalandra Cube Blocked Test",
             listing_id="kalandra-cube-blocked-test",
             property_url="https://www.kalandra.at/objekt/14997053",
@@ -13091,7 +13091,7 @@ def test_kalandra_cube_360_bundle_generation_is_disabled(monkeypatch, tmp_path: 
 
 
 def test_willhaben_property_tour_route_blocks_when_only_flat_listing_photos_exist_and_360_is_required(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -13141,7 +13141,7 @@ def test_willhaben_property_tour_route_falls_back_to_projected_crezlo_task_when_
     from app.domain.models import Artifact
 
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -13208,7 +13208,7 @@ def test_generic_property_tour_creates_hosted_floorplan_when_crezlo_fails(
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path / "tours"))
     monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -13277,7 +13277,7 @@ def test_generic_property_tour_creates_hosted_photo_gallery_when_crezlo_fails(
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path / "tours"))
     monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -13551,7 +13551,7 @@ def test_hosted_photo_gallery_tour_revalidates_asset_suffix_after_content_type(m
 
 
 def test_property_tour_binding_bootstraps_crezlo_metadata_from_runtime_state(monkeypatch, tmp_path: Path) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -13681,11 +13681,11 @@ def test_property_tour_url_resolver_keeps_external_live_360_as_vendor_truth(monk
 
 
 def test_property_scout_tour_auto_create_skips_existing_vendor_url(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Office")
     service = ProductService(client.app.state.container)
-    source_ref = "gmail-thread:tibor.girschele@gmail.com:legacy-kalandra-tour"
+    source_ref = "gmail-thread:owner@example.test:legacy-kalandra-tour"
 
     service._record_product_event(
         principal_id=principal_id,
@@ -13724,11 +13724,11 @@ def test_property_scout_tour_auto_create_skips_existing_vendor_url(monkeypatch) 
 
 
 def test_property_scout_tour_auto_create_reuses_existing_branded_url(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Office")
     service = ProductService(client.app.state.container)
-    source_ref = "gmail-thread:tibor.girschele@gmail.com:branded-tourexisting"
+    source_ref = "gmail-thread:owner@example.test:branded-tourexisting"
 
     service._record_product_event(
         principal_id=principal_id,
@@ -13898,7 +13898,7 @@ def test_runtime_python_executable_falls_back_to_sys_python(monkeypatch, tmp_pat
 def test_willhaben_property_tour_route_blocks_with_handoff_when_connector_missing(monkeypatch) -> None:
     monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -15857,7 +15857,7 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
     start_workspace(client, mode="personal", workspace_name="Executive Office")
     seed_product_state(client, principal_id=principal_id)
@@ -16013,7 +16013,7 @@ def test_recreate_property_tour_followup_keeps_pending_when_visual_is_still_proc
 def test_willhaben_property_tour_block_followup_sends_telegram_scout_update(monkeypatch) -> None:
     monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -16084,7 +16084,7 @@ def test_property_tour_followup_suppresses_internal_repair_blockers() -> None:
 def test_willhaben_property_tour_without_browseract_binding_uses_hosted_floorplan_when_available(monkeypatch) -> None:
     monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -16138,7 +16138,7 @@ def test_office_signal_can_auto_create_willhaben_property_tour(monkeypatch) -> N
 
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -19683,12 +19683,15 @@ def test_property_market_bootstrap_ready_notification_sends_email(monkeypatch) -
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Bootstrap Ready Office")
 
-    started = client.post(
-        "/app/api/signals/property/search/run",
-        json={"property_preferences": {"country_code": "NO", "listing_mode": "buy", "location_query": "Oslo"}},
+    service = product_service.build_product_service(client.app.state.container)
+    started = service.start_property_search_run(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=(),
+        property_search_preferences={"country_code": "NO", "listing_mode": "buy", "location_query": "Oslo"},
     )
-    assert started.status_code == 200, started.text
-    handoff_ref = started.json()["bootstrap_handoff_ref"]
+    assert started["bootstrap_required"] is True
+    handoff_ref = started["bootstrap_handoff_ref"]
     handoff = client.get(f"/app/api/handoffs/{handoff_ref}")
     assert handoff.status_code == 200, handoff.text
     assert handoff.json()["owner"] == "property-market-codex"
@@ -20033,8 +20036,8 @@ def test_google_signal_sync_saves_pdf_attachments_to_onedrive_and_enrolls_onedri
         google_oauth_service,
         "list_recent_workspace_signals",
         lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="tibor.girschele@gmail.com",
-            account_emails=("tibor.girschele@gmail.com",),
+            account_email="owner@example.test",
+            account_emails=("owner@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
             signals=(
                 google_oauth_service.GoogleWorkspaceSignal(
@@ -20043,14 +20046,14 @@ def test_google_signal_sync_saves_pdf_attachments_to_onedrive_and_enrolls_onedri
                     title="Noah birth certificate",
                     summary="Birth certificate attached as PDF.",
                     text="Birth certificate attached as PDF.",
-                    source_ref="gmail-thread:tibor.girschele@gmail.com:pdf-import-1",
-                    external_id="gmail-message:tibor.girschele@gmail.com:pdf-import-1",
+                    source_ref="gmail-thread:owner@example.test:pdf-import-1",
+                    external_id="gmail-message:owner@example.test:pdf-import-1",
                     counterparty="Magistrat",
                     due_at=None,
                     payload={
                         "thread_id": "pdf-import-1",
                         "message_id": "msg-pdf-import-1",
-                        "account_email": "tibor.girschele@gmail.com",
+                        "account_email": "owner@example.test",
                     },
                     attachments=(
                         google_oauth_service.GoogleWorkspaceAttachment(
@@ -20116,8 +20119,8 @@ def test_google_signal_sync_marks_pdf_attachment_pending_when_answerly_training_
         google_oauth_service,
         "list_recent_workspace_signals",
         lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="tibor.girschele@gmail.com",
-            account_emails=("tibor.girschele@gmail.com",),
+            account_email="owner@example.test",
+            account_emails=("owner@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
             signals=(
                 google_oauth_service.GoogleWorkspaceSignal(
@@ -20126,14 +20129,14 @@ def test_google_signal_sync_marks_pdf_attachment_pending_when_answerly_training_
                     title="Medication plan",
                     summary="Medication PDF attached.",
                     text="Medication PDF attached.",
-                    source_ref="gmail-thread:tibor.girschele@gmail.com:pdf-import-pending-1",
-                    external_id="gmail-message:tibor.girschele@gmail.com:pdf-import-pending-1",
+                    source_ref="gmail-thread:owner@example.test:pdf-import-pending-1",
+                    external_id="gmail-message:owner@example.test:pdf-import-pending-1",
                     counterparty="Apotheke",
                     due_at=None,
                     payload={
                         "thread_id": "pdf-import-pending-1",
                         "message_id": "msg-pdf-import-pending-1",
-                        "account_email": "tibor.girschele@gmail.com",
+                        "account_email": "owner@example.test",
                     },
                     attachments=(
                         google_oauth_service.GoogleWorkspaceAttachment(
@@ -20169,14 +20172,14 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
 
     monkeypatch.setenv("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", "1")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL", "tibor.girschele@gmail.com")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL", "owner@example.test")
     monkeypatch.setenv(
         "EA_WILLHABEN_PROPERTY_TOUR_RECIPIENT_MAP_JSON",
-        '{"elisabeth.girschele@gmail.com":"tibor.girschele@gmail.com"}',
+        '{"scout@example.test":"owner@example.test"}',
     )
     monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
 
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Willhaben Google Sync Office")
 
@@ -20185,8 +20188,8 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
     def _fake_list_recent_workspace_signals(**kwargs):  # type: ignore[no-untyped-def]
         observed_sync_kwargs.update(kwargs)
         return google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="elisabeth.girschele@gmail.com",
-            account_emails=("elisabeth.girschele@gmail.com",),
+            account_email="scout@example.test",
+            account_emails=("scout@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
             signals=(
                 google_oauth_service.GoogleWorkspaceSignal(
@@ -20195,14 +20198,14 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
                     title='"Mietwohnungen 2,20, 09" hat 1 neue Anzeige für dich gefunden',
                     summary='"Mietwohnungen 2,20, 09" hat 1 neue Anzeige für dich gefunden',
                     text="Neue Anzeige gefunden. https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/google-sync-apartment-777",
-                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:google-sync-willhaben-1",
-                    external_id="gmail-message:elisabeth.girschele@gmail.com:google-sync-willhaben-1",
+                    source_ref="gmail-thread:scout@example.test:google-sync-willhaben-1",
+                    external_id="gmail-message:scout@example.test:google-sync-willhaben-1",
                     counterparty="willhaben-Suchagent",
                     due_at=None,
                     payload={
                         "from_email": "no-reply@agent.willhaben.at",
                         "from_name": "willhaben-Suchagent",
-                        "account_email": "elisabeth.girschele@gmail.com",
+                        "account_email": "scout@example.test",
                         "body_text_excerpt": (
                             "Neue Anzeige gefunden. "
                             "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/google-sync-apartment-777"
@@ -20247,7 +20250,7 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
         observed_email.update(kwargs)
         return google_oauth_service.GoogleGmailSendResult(
             binding=SimpleNamespace(binding_id="google-binding-elisabeth"),
-            sender_email="elisabeth.girschele@gmail.com",
+            sender_email="scout@example.test",
             recipient_email=str(kwargs["recipient_email"]),
             subject=str(kwargs["subject"]),
             rfc822_message_id="<property-tour-google-sync@ea.local>",
@@ -20262,7 +20265,7 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
         lambda **_: [
             SimpleNamespace(
                 binding=SimpleNamespace(binding_id="google-binding-elisabeth"),
-                google_email="elisabeth.girschele@gmail.com",
+                google_email="scout@example.test",
             )
         ],
     )
@@ -20285,20 +20288,20 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
 
     synced = client.post(
         "/app/api/signals/google/willhaben-sync",
-        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+        params={"account_email": "scout@example.test", "email_limit": 5},
     )
     assert synced.status_code == 200
     body = synced.json()
-    assert body["account_email"] == "elisabeth.girschele@gmail.com"
-    assert body["account_emails"] == ["elisabeth.girschele@gmail.com"]
+    assert body["account_email"] == "scout@example.test"
+    assert body["account_emails"] == ["scout@example.test"]
     assert body["total"] == 1
     assert body["synced_total"] == 1
-    assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
+    assert observed_email["recipient_email"] == "owner@example.test"
     assert observed_email["binding_id"] == "google-binding-elisabeth"
     google_body = str(observed_email["body_text"])
     assert "Open the titled review button" in google_body
     assert "google-sync-apartment-777" not in google_body
-    assert observed_sync_kwargs["account_email_filter"] == "elisabeth.girschele@gmail.com"
+    assert observed_sync_kwargs["account_email_filter"] == "scout@example.test"
     assert observed_sync_kwargs["gmail_query"] == (
         "from:("
         "agent.willhaben.at OR "
@@ -20317,7 +20320,7 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
 
 def test_google_property_sync_uses_configured_property_alert_query(monkeypatch) -> None:
     monkeypatch.setenv("EA_PROPERTY_ALERT_GMAIL_QUERY", "from:(immmo.at OR immoscout.example)")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -20326,8 +20329,8 @@ def test_google_property_sync_uses_configured_property_alert_query(monkeypatch) 
     def _fake_list_recent_workspace_signals(**kwargs):
         observed_sync_kwargs.update(kwargs)
         return google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="elisabeth.girschele@gmail.com",
-            account_emails=("elisabeth.girschele@gmail.com",),
+            account_email="scout@example.test",
+            account_emails=("scout@example.test",),
             granted_scopes=(),
             signals=(),
         )
@@ -20336,7 +20339,7 @@ def test_google_property_sync_uses_configured_property_alert_query(monkeypatch) 
 
     response = client.post(
         "/app/api/signals/google/property-sync",
-        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+        params={"account_email": "scout@example.test", "email_limit": 5},
     )
     assert response.status_code == 200
     assert observed_sync_kwargs["gmail_query"] == "from:(immmo.at OR immoscout.example)"
@@ -20344,7 +20347,7 @@ def test_google_property_sync_uses_configured_property_alert_query(monkeypatch) 
 
 
 def test_google_property_sync_suppresses_telegram_for_weak_digest_alert(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Quiet Property Alert Office")
 
@@ -20352,8 +20355,8 @@ def test_google_property_sync_suppresses_telegram_for_weak_digest_alert(monkeypa
         google_oauth_service,
         "list_recent_workspace_signals",
         lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="elisabeth.girschele@gmail.com",
-            account_emails=("elisabeth.girschele@gmail.com",),
+            account_email="scout@example.test",
+            account_emails=("scout@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
             signals=(
                 google_oauth_service.GoogleWorkspaceSignal(
@@ -20362,14 +20365,14 @@ def test_google_property_sync_suppresses_telegram_for_weak_digest_alert(monkeypa
                     title='"Eigentumswohnungen" hat 5 neue Anzeigen für dich gefunden',
                     summary="Recent mail from willhaben-Suchagent.",
                     text="Neue Anzeigen gefunden.",
-                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:quiet-digest-1",
-                    external_id="gmail-message:elisabeth.girschele@gmail.com:quiet-digest-1",
+                    source_ref="gmail-thread:scout@example.test:quiet-digest-1",
+                    external_id="gmail-message:scout@example.test:quiet-digest-1",
                     counterparty="willhaben-Suchagent",
                     due_at=None,
                     payload={
                         "from_email": "no-reply@agent.willhaben.at",
                         "from_name": "willhaben-Suchagent",
-                        "account_email": "elisabeth.girschele@gmail.com",
+                        "account_email": "scout@example.test",
                         "body_text_excerpt": "Neue Anzeigen gefunden.",
                         "labels": ["CATEGORY_UPDATES", "INBOX"],
                     },
@@ -20386,7 +20389,7 @@ def test_google_property_sync_suppresses_telegram_for_weak_digest_alert(monkeypa
 
     synced = client.post(
         "/app/api/signals/google/property-sync",
-        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+        params={"account_email": "scout@example.test", "email_limit": 5},
     )
     assert synced.status_code == 200
     assert synced.json()["synced_total"] == 1
@@ -20401,7 +20404,7 @@ def test_google_property_sync_suppresses_telegram_for_weak_digest_alert(monkeypa
 
 def test_google_property_sync_scores_elisabeth_mailbox_against_elisabeth_profile(monkeypatch) -> None:
     monkeypatch.setenv("EA_PROPERTY_SCOUT_DEFAULT_PERSON_ID", "elisabeth")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Elisabeth Property Alert Office")
 
@@ -20410,8 +20413,8 @@ def test_google_property_sync_scores_elisabeth_mailbox_against_elisabeth_profile
         google_oauth_service,
         "list_recent_workspace_signals",
         lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="elisabeth.girschele@gmail.com",
-            account_emails=("elisabeth.girschele@gmail.com",),
+            account_email="scout@example.test",
+            account_emails=("scout@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
             signals=(
                 google_oauth_service.GoogleWorkspaceSignal(
@@ -20420,14 +20423,14 @@ def test_google_property_sync_scores_elisabeth_mailbox_against_elisabeth_profile
                     title='"Mietwohnungen 1180" hat 1 neue Anzeige fuer dich gefunden',
                     summary="Recent mail from willhaben-Suchagent.",
                     text=listing_url,
-                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:high-fit-mailbox-1",
-                    external_id="gmail-message:elisabeth.girschele@gmail.com:high-fit-mailbox-1",
+                    source_ref="gmail-thread:scout@example.test:high-fit-mailbox-1",
+                    external_id="gmail-message:scout@example.test:high-fit-mailbox-1",
                     counterparty="willhaben-Suchagent",
                     due_at=None,
                     payload={
                         "from_email": "no-reply@agent.willhaben.at",
                         "from_name": "willhaben-Suchagent",
-                        "account_email": "elisabeth.girschele@gmail.com",
+                        "account_email": "scout@example.test",
                         "body_text_excerpt": listing_url,
                         "labels": ["CATEGORY_UPDATES", "INBOX"],
                     },
@@ -20482,7 +20485,7 @@ def test_google_property_sync_scores_elisabeth_mailbox_against_elisabeth_profile
 
     synced = client.post(
         "/app/api/signals/google/property-sync",
-        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+        params={"account_email": "scout@example.test", "email_limit": 5},
     )
     assert synced.status_code == 200
     assert synced.json()["synced_total"] == 1
@@ -20504,7 +20507,7 @@ def test_google_property_sync_scores_elisabeth_mailbox_against_elisabeth_profile
 
     events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_alert_review_created"})
     assert events.status_code == 200
-    created = [item for item in events.json()["items"] if item["payload"].get("source_ref") == "gmail-thread:elisabeth.girschele@gmail.com:high-fit-mailbox-1"]
+    created = [item for item in events.json()["items"] if item["payload"].get("source_ref") == "gmail-thread:scout@example.test:high-fit-mailbox-1"]
     assert created
     assert created[0]["payload"]["preference_person_id"] == "elisabeth"
     assert created[0]["payload"]["personal_fit_assessment"]["fit_score"] == 94.0
@@ -20514,9 +20517,9 @@ def test_google_property_sync_scores_elisabeth_mailbox_against_elisabeth_profile
 def test_google_property_sync_updates_elisabeth_preference_profile_from_mailbox_hints(monkeypatch) -> None:
     monkeypatch.setenv(
         "EA_PROPERTY_ALERT_ACCOUNT_PERSON_MAP_JSON",
-        '{"elisabeth.girschele@gmail.com":"elisabeth"}',
+        '{"scout@example.test":"elisabeth"}',
     )
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Elisabeth Preference Learning Office")
 
@@ -20524,8 +20527,8 @@ def test_google_property_sync_updates_elisabeth_preference_profile_from_mailbox_
         google_oauth_service,
         "list_recent_workspace_signals",
         lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="elisabeth.girschele@gmail.com",
-            account_emails=("elisabeth.girschele@gmail.com",),
+            account_email="scout@example.test",
+            account_emails=("scout@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
                 signals=(
                     google_oauth_service.GoogleWorkspaceSignal(
@@ -20534,13 +20537,13 @@ def test_google_property_sync_updates_elisabeth_preference_profile_from_mailbox_
                         title='"Eigentumswohnungen" hat 1 neue Anzeige für dich gefunden',
                         summary="Recent mail from willhaben-Suchagent.",
                         text="Waehring 1180, 82 m², 3 Zimmer, Balkon, Lift, U-Bahn nah.",
-                        source_ref="gmail-thread:elisabeth.girschele@gmail.com:profile-sync-1",
-                        external_id="gmail-message:elisabeth.girschele@gmail.com:profile-sync-1",
+                        source_ref="gmail-thread:scout@example.test:profile-sync-1",
+                        external_id="gmail-message:scout@example.test:profile-sync-1",
                         counterparty="willhaben-Suchagent",
                         due_at=None,
                         payload={
                             "thread_id": "profile-sync-1",
-                            "account_email": "elisabeth.girschele@gmail.com",
+                            "account_email": "scout@example.test",
                             "from_email": "no-reply@agent.willhaben.at",
                             "from_name": "willhaben-Suchagent",
                             "body_text_excerpt": "Waehring 1180, 82 m², 3 Zimmer, Balkon, Lift, U-Bahn nah.",
@@ -20553,7 +20556,7 @@ def test_google_property_sync_updates_elisabeth_preference_profile_from_mailbox_
 
     synced = client.post(
         "/app/api/signals/google/property-sync",
-        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+        params={"account_email": "scout@example.test", "email_limit": 5},
     )
     assert synced.status_code == 200
     assert synced.json()["synced_total"] == 1
@@ -20570,7 +20573,7 @@ def test_google_property_sync_updates_elisabeth_preference_profile_from_mailbox_
 
 
 def test_google_property_sync_splits_digest_into_per_listing_reviews(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Split Digest Property Office")
 
@@ -20578,8 +20581,8 @@ def test_google_property_sync_splits_digest_into_per_listing_reviews(monkeypatch
         google_oauth_service,
         "list_recent_workspace_signals",
         lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="elisabeth.girschele@gmail.com",
-            account_emails=("elisabeth.girschele@gmail.com",),
+            account_email="scout@example.test",
+            account_emails=("scout@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
             signals=(
                 google_oauth_service.GoogleWorkspaceSignal(
@@ -20591,14 +20594,14 @@ def test_google_property_sync_splits_digest_into_per_listing_reviews(monkeypatch
                         "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/waehring/top-fit-1 "
                         "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/floridsdorf/weak-fit-2"
                     ),
-                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:split-digest-1",
-                    external_id="gmail-message:elisabeth.girschele@gmail.com:split-digest-1",
+                    source_ref="gmail-thread:scout@example.test:split-digest-1",
+                    external_id="gmail-message:scout@example.test:split-digest-1",
                     counterparty="willhaben-Suchagent",
                     due_at=None,
                     payload={
                         "from_email": "no-reply@agent.willhaben.at",
                         "from_name": "willhaben-Suchagent",
-                        "account_email": "elisabeth.girschele@gmail.com",
+                        "account_email": "scout@example.test",
                         "body_text_excerpt": (
                             "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/waehring/top-fit-1 "
                             "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/floridsdorf/weak-fit-2"
@@ -20656,7 +20659,7 @@ def test_google_property_sync_splits_digest_into_per_listing_reviews(monkeypatch
 
     synced = client.post(
         "/app/api/signals/google/property-sync",
-        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+        params={"account_email": "scout@example.test", "email_limit": 5},
     )
     assert synced.status_code == 200
     assert synced.json()["synced_total"] == 1
@@ -20670,7 +20673,7 @@ def test_google_property_sync_splits_digest_into_per_listing_reviews(monkeypatch
 
 
 def test_google_property_sync_reranks_digest_using_learned_feedback_conflicts(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Feedback Ranked Property Office")
 
@@ -20678,8 +20681,8 @@ def test_google_property_sync_reranks_digest_using_learned_feedback_conflicts(mo
         google_oauth_service,
         "list_recent_workspace_signals",
         lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="elisabeth.girschele@gmail.com",
-            account_emails=("elisabeth.girschele@gmail.com",),
+            account_email="scout@example.test",
+            account_emails=("scout@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
             signals=(
                 google_oauth_service.GoogleWorkspaceSignal(
@@ -20691,14 +20694,14 @@ def test_google_property_sync_reranks_digest_using_learned_feedback_conflicts(mo
                         "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/doebling/conflict-flat-1 "
                         "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/waehring/good-flat-2"
                     ),
-                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:feedback-rank-1",
-                    external_id="gmail-message:elisabeth.girschele@gmail.com:feedback-rank-1",
+                    source_ref="gmail-thread:scout@example.test:feedback-rank-1",
+                    external_id="gmail-message:scout@example.test:feedback-rank-1",
                     counterparty="willhaben-Suchagent",
                     due_at=None,
                     payload={
                         "from_email": "no-reply@agent.willhaben.at",
                         "from_name": "willhaben-Suchagent",
-                        "account_email": "elisabeth.girschele@gmail.com",
+                        "account_email": "scout@example.test",
                         "body_text_excerpt": (
                             "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/doebling/conflict-flat-1 "
                             "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/waehring/good-flat-2"
@@ -20792,7 +20795,7 @@ def test_google_property_sync_reranks_digest_using_learned_feedback_conflicts(mo
 
     synced = client.post(
         "/app/api/signals/google/property-sync",
-        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+        params={"account_email": "scout@example.test", "email_limit": 5},
     )
     assert synced.status_code == 200
 
@@ -20800,7 +20803,7 @@ def test_google_property_sync_reranks_digest_using_learned_feedback_conflicts(mo
     assert events.status_code == 200
     created = [item for item in events.json()["items"] if "feedback-rank-1" in str(item.get("payload", {}).get("source_ref") or "")]
     assert len(created) == 2
-    primary = next(item for item in created if item["payload"]["source_ref"] == "gmail-thread:elisabeth.girschele@gmail.com:feedback-rank-1")
+    primary = next(item for item in created if item["payload"]["source_ref"] == "gmail-thread:scout@example.test:feedback-rank-1")
     assert primary["payload"]["property_url"].endswith("good-flat-2")
     if sent:
         assert "Good flat" in sent[0]["kwargs"]["text"]
@@ -20809,7 +20812,7 @@ def test_google_property_sync_reranks_digest_using_learned_feedback_conflicts(mo
 
 
 def test_google_property_sync_suppresses_high_raw_score_when_learned_conflicts_stack(monkeypatch) -> None:
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Feedback Suppression Property Office")
 
@@ -20818,8 +20821,8 @@ def test_google_property_sync_suppresses_high_raw_score_when_learned_conflicts_s
         google_oauth_service,
         "list_recent_workspace_signals",
         lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="elisabeth.girschele@gmail.com",
-            account_emails=("elisabeth.girschele@gmail.com",),
+            account_email="scout@example.test",
+            account_emails=("scout@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
             signals=(
                 google_oauth_service.GoogleWorkspaceSignal(
@@ -20828,14 +20831,14 @@ def test_google_property_sync_suppresses_high_raw_score_when_learned_conflicts_s
                     title='"Mietwohnungen Wien" hat 1 neue Anzeige fuer dich gefunden',
                     summary="Recent mail from willhaben-Suchagent.",
                     text=listing_url,
-                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:feedback-suppress-1",
-                    external_id="gmail-message:elisabeth.girschele@gmail.com:feedback-suppress-1",
+                    source_ref="gmail-thread:scout@example.test:feedback-suppress-1",
+                    external_id="gmail-message:scout@example.test:feedback-suppress-1",
                     counterparty="willhaben-Suchagent",
                     due_at=None,
                     payload={
                         "from_email": "no-reply@agent.willhaben.at",
                         "from_name": "willhaben-Suchagent",
-                        "account_email": "elisabeth.girschele@gmail.com",
+                        "account_email": "scout@example.test",
                         "body_text_excerpt": listing_url,
                         "labels": ["CATEGORY_UPDATES", "INBOX"],
                     },
@@ -20905,7 +20908,7 @@ def test_google_property_sync_suppresses_high_raw_score_when_learned_conflicts_s
 
     synced = client.post(
         "/app/api/signals/google/property-sync",
-        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+        params={"account_email": "scout@example.test", "email_limit": 5},
     )
     assert synced.status_code == 200
     assert sent == []
@@ -20913,9 +20916,9 @@ def test_google_property_sync_suppresses_high_raw_score_when_learned_conflicts_s
     events = client.get("/app/api/events", params={"channel": "product"})
     assert events.status_code == 200
     created = [item for item in events.json()["items"] if item["event_type"] == "property_alert_review_created"]
-    assert any(item["payload"]["source_ref"] == "gmail-thread:elisabeth.girschele@gmail.com:feedback-suppress-1" for item in created)
+    assert any(item["payload"]["source_ref"] == "gmail-thread:scout@example.test:feedback-suppress-1" for item in created)
     suppressed = [item for item in events.json()["items"] if item["event_type"] == "property_alert_review_telegram_suppressed"]
-    assert any(item["payload"]["source_ref"] == "gmail-thread:elisabeth.girschele@gmail.com:feedback-suppress-1" for item in suppressed)
+    assert any(item["payload"]["source_ref"] == "gmail-thread:scout@example.test:feedback-suppress-1" for item in suppressed)
 
 
 def test_property_alert_upstream_personalization_names_confirmed_daily_life_places() -> None:
@@ -20984,7 +20987,7 @@ def test_resolve_primary_telegram_binding_prefers_real_numeric_chat_ref() -> Non
 
     from app.services.telegram_delivery import resolve_primary_telegram_binding
 
-    binding = resolve_primary_telegram_binding(_Runtime(), principal_id="cf-email:tibor.girschele@gmail.com")
+    binding = resolve_primary_telegram_binding(_Runtime(), principal_id="cf-email:owner@example.test")
     assert binding is not None
     assert str(binding.external_account_ref) == "1354554303"
 
@@ -20993,7 +20996,7 @@ def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_bind
     from app.domain.models import Artifact
 
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -21044,14 +21047,14 @@ def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_bind
             return [
                 SimpleNamespace(
                     binding=SimpleNamespace(binding_id="google-binding-stale"),
-                    google_email="tibor.girschele@gmail.com",
+                    google_email="owner@example.test",
                 )
             ]
         if principal == "local-user":
             return [
                 SimpleNamespace(
                     binding=SimpleNamespace(binding_id="google-binding-fallback"),
-                    google_email="tibor.girschele@gmail.com",
+                    google_email="owner@example.test",
                 )
             ]
         return []
@@ -21067,7 +21070,7 @@ def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_bind
             raise RuntimeError("google_oauth_refresh_failed invalid_grant")
         return google_oauth_service.GoogleGmailSendResult(
             binding=SimpleNamespace(binding_id=binding_id),
-            sender_email="tibor.girschele@gmail.com",
+            sender_email="owner@example.test",
             recipient_email=str(kwargs["recipient_email"]),
             subject=str(kwargs["subject"]),
             rfc822_message_id="<property-tour-fallback@ea.local>",
@@ -21106,7 +21109,7 @@ def test_willhaben_property_tour_route_backfills_hosted_url_from_structured_outp
     from app.domain.models import Artifact
 
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -21177,7 +21180,7 @@ def test_willhaben_property_tour_route_backfills_hosted_url_from_structured_outp
 def test_generic_property_tour_blocks_generated_listing_fallback_payload(monkeypatch) -> None:
     from app.domain.models import Artifact
 
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
     service = ProductService(client.app.state.container)
@@ -21239,7 +21242,7 @@ def test_willhaben_property_tour_blocks_generated_listing_fallback_payload(monke
     from app.domain.models import Artifact
 
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
@@ -21360,14 +21363,14 @@ def test_google_signal_sync_suppresses_low_signal_calendar_and_promotional_noise
                     channel="calendar",
                     title="Boulderbar noah kurs",
                     summary="Starts 2026-04-01T13:00:00+00:00",
-                    text="Boulderbar noah kurs Attendees: elisabeth.girschele@gmail.com",
+                    text="Boulderbar noah kurs Attendees: scout@example.test",
                     source_ref="calendar-event:meeting-1",
                     external_id="calendar-event:meeting-1",
-                    counterparty="elisabeth.girschele@gmail.com",
+                    counterparty="scout@example.test",
                     due_at="2026-04-01T13:00:00+00:00",
                     payload={
                         "event_id": "meeting-1",
-                        "attendees": ["elisabeth.girschele@gmail.com"],
+                        "attendees": ["scout@example.test"],
                         "organizer": "exec@example.com",
                         "account_email": "exec@example.com",
                         "description": "",
@@ -21784,7 +21787,7 @@ def test_google_photos_picker_session_route_returns_picker_uri(monkeypatch) -> N
         google_oauth_service,
         "create_google_photos_picker_session",
         lambda **_: google_oauth_service.GooglePhotosPickerSession(
-            account_email="elisabeth.girschele@gmail.com",
+            account_email="scout@example.test",
             binding_id="exec-google-photos:google_gmail:acct:elisabeth",
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER,),
             session_id="photos-session-1",
@@ -21798,7 +21801,7 @@ def test_google_photos_picker_session_route_returns_picker_uri(monkeypatch) -> N
     created = client.post(
         "/app/api/signals/google/photos/session",
         json={
-            "account_email": "elisabeth.girschele@gmail.com",
+            "account_email": "scout@example.test",
             "max_item_count": 25,
             "autoclose": True,
         },
@@ -21806,7 +21809,7 @@ def test_google_photos_picker_session_route_returns_picker_uri(monkeypatch) -> N
     assert created.status_code == 200
     body = created.json()
     assert body["status"] == "ready_for_selection"
-    assert body["account_email"] == "elisabeth.girschele@gmail.com"
+    assert body["account_email"] == "scout@example.test"
     assert body["session_id"] == "photos-session-1"
     assert body["picker_uri"].endswith("/autoclose")
     assert google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER in body["granted_scopes"]
@@ -21821,8 +21824,8 @@ def test_google_photos_sync_ingests_analyzed_photo_signals(monkeypatch) -> None:
         google_oauth_service,
         "sync_google_photos_picker_session",
         lambda **_: google_oauth_service.GooglePhotosSignalSync(
-            account_email="tibor.girschele@gmail.com",
-            account_emails=("tibor.girschele@gmail.com",),
+            account_email="owner@example.test",
+            account_emails=("owner@example.test",),
             binding_id="exec-google-photos:google_gmail",
             session_id="photos-session-2",
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER,),
@@ -21833,13 +21836,13 @@ def test_google_photos_sync_ingests_analyzed_photo_signals(monkeypatch) -> None:
                     channel="google_photos",
                     title="IMG_1001.JPG",
                     summary="PHOTO · 4032x3024 · Apple iPhone",
-                    text="Google Photos photo selected by tibor.girschele@gmail.com.",
-                    source_ref="google-photo:tibor.girschele@gmail.com:item-1001",
-                    external_id="google-photo:tibor.girschele@gmail.com:item-1001",
-                    counterparty="tibor.girschele@gmail.com",
+                    text="Google Photos photo selected by owner@example.test.",
+                    source_ref="google-photo:owner@example.test:item-1001",
+                    external_id="google-photo:owner@example.test:item-1001",
+                    counterparty="owner@example.test",
                     due_at=None,
                     payload={
-                        "account_email": "tibor.girschele@gmail.com",
+                        "account_email": "owner@example.test",
                         "google_photos_session_id": "photos-session-2",
                         "google_photos_media_item_id": "item-1001",
                         "mime_type": "image/jpeg",
@@ -21880,14 +21883,14 @@ def test_google_photos_sync_ingests_analyzed_photo_signals(monkeypatch) -> None:
         "/app/api/signals/google/photos/sync",
         json={
             "session_id": "photos-session-2",
-            "account_email": "tibor.girschele@gmail.com",
+            "account_email": "owner@example.test",
             "max_items": 10,
             "delete_session": False,
         },
     )
     assert synced.status_code == 200
     body = synced.json()
-    assert body["account_email"] == "tibor.girschele@gmail.com"
+    assert body["account_email"] == "owner@example.test"
     assert body["session_id"] == "photos-session-2"
     assert body["selected_total"] == 1
     assert body["analyzed_total"] == 1
@@ -22988,7 +22991,7 @@ def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_emailit_is
     product = ProductService(client.app.state.container)
     product.issue_workspace_access_session(
         principal_id=principal_id,
-        email="tibor.girschele@gmail.com",
+        email="owner@example.test",
         role="principal",
         display_name="Tibor Girschele",
         source_kind="sign_in_email",
@@ -23008,14 +23011,14 @@ def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_emailit_is
     )
 
     result = product.request_workspace_sign_in_email_links(
-        email="tibor.girschele@gmail.com",
+        email="owner@example.test",
         base_url="https://myexternalbrain.com",
     )
     assert result["status"] == "sent"
     assert result["sent_total"] == 1
     assert result["failed_total"] == 0
     assert sent
-    assert sent[0]["recipient_email"] == "tibor.girschele@gmail.com"
+    assert sent[0]["recipient_email"] == "owner@example.test"
     assert "https://myexternalbrain.com/workspace-access/" in str(sent[0]["body_text"])
     assert "It is not your app login." in str(sent[0]["body_text"])
     sessions = product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=10)
@@ -23535,7 +23538,7 @@ def test_executive_assistant_settings_store_whatsapp_ai_support_contact() -> Non
             "enabled": "true",
             "cadence": "daily_morning",
             "recipient_email": "briefs@example.com",
-            "whatsapp_ai_support_phone": "+43 664 123 4567",
+            "whatsapp_ai_support_phone": "+43 660 1234567",
             "whatsapp_notifications_enabled": "true",
             "delivery_time_local": "08:00",
             "quiet_hours_start": "20:00",
@@ -23551,7 +23554,7 @@ def test_executive_assistant_settings_store_whatsapp_ai_support_contact() -> Non
     body = status.json()
     assistant_notifications = body["delivery_preferences"]["assistant_notifications"]
     assert assistant_notifications["notification_scope"] == "morning_memo_queue_and_support"
-    assert assistant_notifications["whatsapp_ai_support_phone"] == "+436641234567"
+    assert assistant_notifications["whatsapp_ai_support_phone"] == "+436601234567"
     assert assistant_notifications["whatsapp_ai_support_enabled"] is True
     assert assistant_notifications["whatsapp_notification_opt_in"] is True
     assert assistant_notifications["whatsapp_ai_support_purpose"] == "ai_support_only"
@@ -23865,6 +23868,32 @@ def test_property_search_run_blocks_free_plan_when_limits_exceed_free_tier() -> 
 
     assert response.status_code == 409
     assert response.json()["error"]["details"] == "property_plan_upgrade_required:plus"
+
+
+def test_property_search_run_rejects_explicit_unsupported_country_instead_of_defaulting_to_austria() -> None:
+    principal_id = "exec-property-unsupported-country-gate"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Unsupported Country Gate Office")
+
+    response = client.post(
+        "/app/api/signals/property/search/run",
+        json={
+            "property_preferences": {
+                "country_code": "NO",
+                "listing_mode": "rent",
+                "location_query": "Oslo",
+                "property_commercial": {
+                    "active_plan_key": "agent",
+                    "status": "active",
+                    "active_until": "2999-01-01T00:00:00+00:00",
+                    "plan_source": "product_contract",
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["details"] == "unsupported_property_market"
 
 
 def test_property_search_run_allows_free_plan_across_multiple_platforms_when_result_cap_is_respected(

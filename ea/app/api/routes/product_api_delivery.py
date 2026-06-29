@@ -84,7 +84,6 @@ from app.services.property_billing import (
 )
 from app.services.property_market_catalog import (
     country_label as property_country_label,
-    default_platforms_for_country as property_default_platforms_for_country,
     default_platforms_for_country_listing_mode as property_default_platforms_for_country_listing_mode,
     evidence_source_options as property_evidence_source_options,
     filter_selectable_property_platform_details as property_filter_selectable_property_platform_details,
@@ -95,6 +94,7 @@ from app.services.property_market_catalog import (
     normalize_property_type as property_normalize_property_type,
     normalize_country_code as property_normalize_country_code,
     provider_options as property_provider_options,
+    resolve_country_code as property_resolve_country_code,
 )
 
 router = APIRouter(prefix="/app/api", tags=["product"])
@@ -275,7 +275,12 @@ def _sanitize_property_search_run_platforms(
     selected_platforms: list[str] | tuple[str, ...],
 ) -> tuple[dict[str, object], tuple[str, ...]]:
     normalized_preferences = property_normalize_search_preferences(dict(property_preferences or {}))
-    country_code = property_normalize_country_code(normalized_preferences.get("country_code")) or "AT"
+    raw_country_code = str(dict(property_preferences or {}).get("country_code") or "").strip()
+    resolved_raw_country_code = property_resolve_country_code(raw_country_code) if raw_country_code else ""
+    if raw_country_code and not resolved_raw_country_code:
+        raise ValueError("unsupported_property_market")
+    country_code = resolved_raw_country_code or property_normalize_country_code(normalized_preferences.get("country_code"))
+    country_code = country_code or "AT"
     if not property_is_customer_search_country_code(country_code):
         raise ValueError("unsupported_property_market")
     listing_mode = property_normalize_listing_mode(normalized_preferences.get("listing_mode"))
@@ -1118,8 +1123,6 @@ def get_property_providers(
                 normalized_listing_mode,
                 property_type=normalized_property_type,
             )
-            if country_code in {"AT", "DE"}
-            else property_default_platforms_for_country(country_code)
         ),
         "providers": [dict(row) for row in property_provider_options(country_code=country_code)],
         "evidence_sources": [dict(row) for row in property_evidence_source_options(country_code=country_code)],

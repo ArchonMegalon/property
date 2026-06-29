@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 
 from scripts.property_live_provider_smoke import build_live_provider_smoke_receipt
-from app.services.property_market_catalog import CUSTOMER_SEARCH_COUNTRY_ORDER, provider_options
+from app.services.property_market_catalog import (
+    CUSTOMER_SEARCH_COUNTRY_ORDER,
+    default_platforms_for_country_listing_mode,
+    provider_options,
+)
 
 
 def _search_ready_provider_count(country_code: str) -> int:
@@ -178,45 +182,15 @@ def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> No
             "country_code": "AT",
             "listing_mode": "rent",
             "property_type": "any",
-            "default_platforms": [
-                "willhaben",
-                "derstandard_at",
-                "immoscout_at",
-                "public_housing_at",
-                "genossenschaften_at",
-                "immmo",
-            ],
+            "default_platforms": list(default_platforms_for_country_listing_mode("AT", "rent")),
             "providers": [{"value": row.get("value"), "country_code": row.get("country_code")} for row in provider_options(country_code="AT")],
         },
         "CR": {
             "country_code": "CR",
             "listing_mode": "rent",
             "property_type": "any",
-            "default_platforms": [
-                "encuentra24_cr",
-                "re_cr_mls",
-                "realtor_cr",
-                "propertiesincostarica_cr",
-                "coldwellbanker_cr",
-                "krain_cr",
-                "theagency_cr",
-                "desarrollos_cr",
-                "tierraverde_cr",
-                "twocostaricarealestate_cr",
-            ],
-            "providers": [{"value": value, "country_code": "CR"} for value in [
-                "encuentra24_cr",
-                "re_cr_mls",
-                "realtor_cr",
-                "propertiesincostarica_cr",
-                "coldwellbanker_cr",
-                "krain_cr",
-                "theagency_cr",
-                "desarrollos_cr",
-                "tierraverde_cr",
-                "twocostaricarealestate_cr",
-                "century21_cr",
-            ]],
+            "default_platforms": list(default_platforms_for_country_listing_mode("CR", "rent")),
+            "providers": [{"value": row.get("value"), "country_code": row.get("country_code")} for row in provider_options(country_code="CR")],
         },
     }
 
@@ -279,14 +253,7 @@ def test_live_provider_smoke_live_mode_rejects_cross_country_runtime_provider(mo
         "country_code": "AT",
         "listing_mode": "rent",
         "property_type": "any",
-        "default_platforms": [
-            "willhaben",
-            "derstandard_at",
-            "immoscout_at",
-            "public_housing_at",
-            "genossenschaften_at",
-            "immmo",
-        ],
+        "default_platforms": list(default_platforms_for_country_listing_mode("AT", "rent")),
         "providers": [
             *[
                 {"value": row.get("value"), "country_code": row.get("country_code")}
@@ -316,14 +283,7 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
         "country_code": "AT",
         "listing_mode": "rent",
         "property_type": "apartment",
-        "default_platforms": [
-            "willhaben",
-            "derstandard_at",
-            "immoscout_at",
-            "public_housing_at",
-            "genossenschaften_at",
-            "immmo",
-        ],
+        "default_platforms": list(default_platforms_for_country_listing_mode("AT", "rent")),
         "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
     }
     observed_payloads: list[dict[str, object]] = []
@@ -417,6 +377,55 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     assert sanitization_row["foreign_provider"] in sanitization_row["removed_platforms"]
 
 
+def test_live_provider_smoke_can_use_explicit_search_run_timeout(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E", "1")
+
+    catalog_payload = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "property_type": "apartment",
+        "default_platforms": list(default_platforms_for_country_listing_mode("AT", "rent")),
+        "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
+    }
+    observed_search_timeouts: list[float] = []
+    observed_status_timeouts: list[float] = []
+
+    def _search_executor(payload: dict[str, object], timeout: float) -> dict[str, object]:
+        observed_search_timeouts.append(timeout)
+        selected_platforms = list(payload.get("selected_platforms") or [])
+        if len(selected_platforms) > 1:
+            return _sanitized_cross_country_response(payload)
+        provider = str(selected_platforms[0])
+        mode = str(dict(payload.get("property_preferences") or {}).get("search_mode") or "strict")
+        return {
+            "run_id": f"run-{provider}-{mode}",
+            "status_url": f"/app/api/property/search-runs/run-{provider}-{mode}",
+            "status": "queued",
+        }
+
+    def _status_fetcher(run_id: str, status_url: str, timeout: float) -> dict[str, object]:
+        observed_status_timeouts.append(timeout)
+        return {"run_id": run_id, "status_url": status_url, "status": "queued"}
+
+    receipt = build_live_provider_smoke_receipt(
+        countries=("AT",),
+        timeout_seconds=20,
+        search_run_timeout_seconds=60,
+        provider_keys=("willhaben",),
+        fetcher=lambda _country, _timeout: catalog_payload,
+        search_executor=_search_executor,
+        status_fetcher=_status_fetcher,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["provider_catalog_timeout_seconds"] == 20
+    assert receipt["search_run_timeout_seconds"] == 60
+    assert set(observed_search_timeouts) == {60}
+    assert set(observed_status_timeouts) == {60}
+
+
 def test_live_provider_smoke_executes_filtered_provider_scope(monkeypatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
     monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
@@ -426,14 +435,7 @@ def test_live_provider_smoke_executes_filtered_provider_scope(monkeypatch) -> No
         "country_code": "AT",
         "listing_mode": "rent",
         "property_type": "apartment",
-        "default_platforms": [
-            "willhaben",
-            "derstandard_at",
-            "immoscout_at",
-            "public_housing_at",
-            "genossenschaften_at",
-            "immmo",
-        ],
+        "default_platforms": list(default_platforms_for_country_listing_mode("AT", "rent")),
         "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
     }
     observed_payloads: list[dict[str, object]] = []
@@ -480,14 +482,7 @@ def test_live_provider_smoke_fails_when_cross_country_sanitization_does_not_remo
         "country_code": "AT",
         "listing_mode": "rent",
         "property_type": "apartment",
-        "default_platforms": [
-            "willhaben",
-            "derstandard_at",
-            "immoscout_at",
-            "public_housing_at",
-            "genossenschaften_at",
-            "immmo",
-        ],
+        "default_platforms": list(default_platforms_for_country_listing_mode("AT", "rent")),
         "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
     }
 
@@ -554,14 +549,7 @@ def test_live_provider_smoke_can_resume_passed_targeted_search_cases(monkeypatch
         "country_code": "AT",
         "listing_mode": "rent",
         "property_type": "apartment",
-        "default_platforms": [
-            "willhaben",
-            "derstandard_at",
-            "immoscout_at",
-            "public_housing_at",
-            "genossenschaften_at",
-            "immmo",
-        ],
+        "default_platforms": list(default_platforms_for_country_listing_mode("AT", "rent")),
         "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
     }
     observed_payloads: list[dict[str, object]] = []
@@ -610,14 +598,7 @@ def test_live_provider_smoke_execution_fails_when_status_probe_is_unreadable(mon
         "country_code": "AT",
         "listing_mode": "rent",
         "property_type": "apartment",
-        "default_platforms": [
-            "willhaben",
-            "derstandard_at",
-            "immoscout_at",
-            "public_housing_at",
-            "genossenschaften_at",
-            "immmo",
-        ],
+        "default_platforms": list(default_platforms_for_country_listing_mode("AT", "rent")),
         "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
     }
 

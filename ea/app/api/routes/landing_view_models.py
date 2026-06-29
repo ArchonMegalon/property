@@ -16,7 +16,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageEnhance
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 from app.product.property_location_research import (
     _property_research_boundary_record,
     _property_research_geojson_outer_rings,
@@ -57,13 +57,13 @@ from app.api.routes.landing_property_surface_contracts import (
 
 _PROPERTY_MAP_PREVIEW_RENDER_LOCK = threading.Lock()
 _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT: set[str] = set()
-_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v2_radius"
-_PROPERTY_MAP_PREVIEW_SELECTED_FILL = (194, 42, 48, 82)
-_PROPERTY_MAP_PREVIEW_COVERAGE_FILL = (194, 42, 48, 46)
-_PROPERTY_MAP_PREVIEW_SECONDARY_FILL = (194, 42, 48, 44)
-_PROPERTY_MAP_PREVIEW_SELECTED_STROKE = (132, 30, 36, 178)
-_PROPERTY_MAP_PREVIEW_BOUNDARY_STROKE = (68, 62, 55, 112)
-_PROPERTY_MAP_PREVIEW_HALO = (255, 250, 242, 155)
+_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v6_labeled_multi_area_thumbnail"
+_PROPERTY_MAP_PREVIEW_SELECTED_FILL = (194, 42, 48, 58)
+_PROPERTY_MAP_PREVIEW_COVERAGE_FILL = (194, 42, 48, 30)
+_PROPERTY_MAP_PREVIEW_SECONDARY_FILL = (194, 42, 48, 30)
+_PROPERTY_MAP_PREVIEW_SELECTED_STROKE = (132, 30, 36, 142)
+_PROPERTY_MAP_PREVIEW_BOUNDARY_STROKE = (68, 62, 55, 72)
+_PROPERTY_MAP_PREVIEW_HALO = (255, 250, 242, 112)
 
 
 PROPERTY_FURNITURE_STYLE_CATALOG: tuple[dict[str, str], ...] = (
@@ -754,9 +754,10 @@ def _map_preview_cache_path_for_key(cache_key: dict[str, object]) -> Path:
 def _flagship_map_backdrop(image: Image.Image) -> Image.Image:
     """Make raw OSM tiles read as a calm backdrop rather than the product UI."""
     softened = image.convert("RGB")
-    softened = ImageEnhance.Color(softened).enhance(0.42)
-    softened = ImageEnhance.Contrast(softened).enhance(0.78)
-    softened = ImageEnhance.Brightness(softened).enhance(1.06)
+    softened = softened.filter(ImageFilter.GaussianBlur(radius=1.35))
+    softened = ImageEnhance.Color(softened).enhance(0.13)
+    softened = ImageEnhance.Contrast(softened).enhance(0.52)
+    softened = ImageEnhance.Brightness(softened).enhance(1.04)
     return softened
 
 
@@ -770,6 +771,46 @@ def _draw_flagship_preview_polygon(
     draw.polygon(points, fill=fill)
     draw.line(points + [points[0]], fill=_PROPERTY_MAP_PREVIEW_HALO, width=4, joint="curve")
     draw.line(points + [points[0]], fill=stroke, width=2, joint="curve")
+
+
+def _short_map_preview_label(value: object, *, limit: int = 18) -> str:
+    label = re.sub(r"\s+", " ", str(value or "").split(",", 1)[0]).strip()
+    if len(label) <= limit:
+        return label
+    return f"{label[: max(1, limit - 3)].rstrip()}..."
+
+
+def _draw_flagship_preview_label_marker(
+    draw: ImageDraw.ImageDraw,
+    *,
+    center: tuple[float, float],
+    label: object,
+    width: int,
+    height: int,
+) -> None:
+    text = _short_map_preview_label(label)
+    if not text:
+        return
+    font = ImageFont.load_default()
+    x = max(24.0, min(float(width) - 24.0, float(center[0])))
+    y = max(24.0, min(float(height) - 24.0, float(center[1])))
+    draw.ellipse((x - 12, y - 12, x + 12, y + 12), fill=(194, 42, 48, 205))
+    draw.ellipse((x - 4, y - 4, x + 4, y + 4), fill=(255, 249, 239, 245))
+
+    text_box = draw.textbbox((0, 0), text, font=font)
+    text_width = max(1, int(text_box[2] - text_box[0]))
+    text_height = max(1, int(text_box[3] - text_box[1]))
+    box_width = min(max(text_width + 20, 58), 156)
+    box_height = max(text_height + 12, 25)
+    left = x + 15 if x <= width * 0.58 else x - 15 - box_width
+    top = y - (box_height / 2)
+    left = max(10.0, min(float(width) - box_width - 10.0, left))
+    top = max(10.0, min(float(height) - box_height - 10.0, top))
+    box = (left, top, left + box_width, top + box_height)
+    line_end_x = box[0] if x <= width * 0.58 else box[2]
+    draw.line((x, y, line_end_x, top + (box_height / 2)), fill=(132, 30, 36, 118), width=2)
+    draw.rounded_rectangle(box, radius=10, fill=(255, 249, 239, 232), outline=(132, 30, 36, 132), width=1)
+    draw.text((left + 10, top + ((box_height - text_height) / 2) - 1), text, fill=(68, 45, 39, 235), font=font)
 
 
 def _positive_preview_int(value: object, *, default: int = 0) -> int:
@@ -1085,6 +1126,27 @@ def _cached_preview_png_path(
             fill = _PROPERTY_MAP_PREVIEW_SELECTED_FILL if selected else _PROPERTY_MAP_PREVIEW_SECONDARY_FILL
             stroke = _PROPERTY_MAP_PREVIEW_SELECTED_STROKE if selected else (132, 30, 36, 118)
             _draw_flagship_preview_polygon(draw, points, fill=fill, stroke=stroke)
+        for row in overlay_rows or []:
+            if not bool(row.get("show_label_marker")):
+                continue
+            path = str(row.get("path") or "").strip()
+            if not path:
+                continue
+            numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
+            points = list(zip(numbers[0::2], numbers[1::2]))
+            if len(points) < 3:
+                continue
+            center = (
+                sum(float(point[0]) for point in points) / len(points),
+                sum(float(point[1]) for point in points) / len(points),
+            )
+            _draw_flagship_preview_label_marker(
+                draw,
+                center=center,
+                label=row.get("label"),
+                width=width,
+                height=height,
+            )
     if pin:
         marker_x, marker_y = pin
         draw.ellipse((marker_x - 18, marker_y - 18, marker_x + 18, marker_y + 18), fill=(207, 53, 53, 58))
@@ -1605,6 +1667,9 @@ def _build_scope_boundary_preview(
     union_bounds = _union_geo_bounds(bounds_rows)
     if not union_bounds:
         return {}
+    lon_span = abs(float(union_bounds[2]) - float(union_bounds[0]))
+    lat_span = abs(float(union_bounds[3]) - float(union_bounds[1]))
+    multi_area_overview = len(rows) > 1 and (lon_span > 1.0 or lat_span > 1.0)
     radius_padding_degrees = (adjacent_area_radius_m / 111_000.0) if adjacent_area_radius_m > 0 else 0.0
     render_bounds = _expand_geo_bounds(union_bounds, padding_ratio=padding_ratio)
     if radius_padding_degrees > 0:
@@ -1650,6 +1715,7 @@ def _build_scope_boundary_preview(
             "label": str(row.get("label") or f"Area {index + 1}").strip(),
             "selected": True,
             "path": path,
+            **({"show_label_marker": True} if multi_area_overview else {}),
             **({"coverage_radius_px": coverage_radius_px} if coverage_radius_px else {}),
         }
         district_rows.append(overlay_row)
@@ -1676,6 +1742,7 @@ def _build_scope_boundary_preview(
             "adjacent_area_radius_m": adjacent_area_radius_m,
             "coverage_radius_px": coverage_radius_px,
             "materialize": str(materialize_preview or "sync").strip().lower(),
+            "label_markers": multi_area_overview,
         },
         center_lat=center_lat,
         center_lon=center_lon,

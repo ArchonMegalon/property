@@ -77,6 +77,33 @@ def test_3d_browser_gate_requires_matterport_embeddable_show_url() -> None:
     )
 
 
+def test_3d_browser_gate_ignores_noncritical_external_provider_asset_failures() -> None:
+    from scripts import propertyquarry_3d_browser_gate as gate
+
+    failures = gate._bad_request_failures(
+        [
+            {
+                "url": "https://cdn-2.matterport.com/model/preview.jpg",
+                "resource_type": "image",
+                "failure": "net::ERR_BLOCKED_BY_ORB",
+            },
+            {
+                "url": "http://propertyquarry.com:8097/app.js",
+                "resource_type": "script",
+                "failure": "net::ERR_FAILED",
+            },
+            {
+                "url": "https://my.matterport.com/show/?m=demo",
+                "resource_type": "document",
+                "failure": "net::ERR_BLOCKED_BY_RESPONSE",
+            },
+        ],
+        browser_base_url="http://propertyquarry.com:8097",
+    )
+
+    assert [row["resource_type"] for row in failures] == ["script", "document"]
+
+
 def test_walkthrough_quality_gate_fails_without_room_coverage_receipt(
     monkeypatch,
     tmp_path: Path,
@@ -394,3 +421,7 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     assert "--map-preview-flagship-receipt _completion/smoke/property-live-map-preview-flagship-release-gate.json" in release
     assert "--browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-release-gate.json" in release
     assert "--walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-release-gate.json" in release
+    assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED" in deploy
+    assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED_not_set" in deploy
+    assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED" in release
+    assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED_not_set" in release

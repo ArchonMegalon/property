@@ -13,6 +13,7 @@ __pycache__/
 .venv/
 
 # Local runtime data
+state/
 attachments/
 logs/
 daemon-gogcli-config/
@@ -50,6 +51,9 @@ feedback/*github-review-pr.md
 # Local smoke/test scratch
 .smoke_tmp/
 tmp_audit/
+_tmp_*.png
+_tmp_live_*/
+/-
 scripts/materialize_private_*_showcase.py
 api_rewrite_artifact_details.json
 combined_sort_seed.json

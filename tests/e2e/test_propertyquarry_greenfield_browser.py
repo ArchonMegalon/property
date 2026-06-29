@@ -2117,7 +2117,7 @@ def test_propertyquarry_account_notifications_save_multi_channel_preferences_in_
         expect(email_checkbox).to_be_checked()
         telegram_checkbox.uncheck()
         whatsapp_checkbox.check()
-        whatsapp_phone.fill("+43 664 791 6419")
+        whatsapp_phone.fill("+43 660 0000000")
 
         with page.expect_navigation(wait_until="networkidle"):
             delivery_card.get_by_role("button", name="Save").click()
@@ -2126,7 +2126,7 @@ def test_propertyquarry_account_notifications_save_multi_channel_preferences_in_
         expect(email_checkbox).to_be_checked()
         expect(telegram_checkbox).not_to_be_checked()
         expect(whatsapp_checkbox).to_be_checked()
-        expect(whatsapp_phone).to_have_value("+436647916419")
+        expect(whatsapp_phone).to_have_value("+43 660 0000000")
 
         original_workspace_cookie = client.cookies.get("ea_workspace_session")
         client.cookies.set("ea_workspace_session", access_token)
@@ -2139,7 +2139,7 @@ def test_propertyquarry_account_notifications_save_multi_channel_preferences_in_
         preferences = export.json()["delivery_preferences"]["property_notifications"]
         assert preferences["selected_channels"] == ["email", "whatsapp"]
         assert preferences["preferred_channel"] == "email"
-        assert preferences["whatsapp_ai_support_phone"] == "+436647916419"
+        assert preferences["whatsapp_ai_support_phone"] == "+43 660 0000000"
     finally:
         context.close()
 

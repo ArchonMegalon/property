@@ -5915,6 +5915,12 @@ def app_shell(
     else:
         property_payload_section = property_surface_aliases.get(resolved_section, resolved_section) if property_brand else resolved_section
         product = build_product_service(container)
+        if property_brand and resolved_section == "properties":
+            query = str(request.url.query or "").strip()
+            target = "/app/search"
+            if query:
+                target = f"{target}?{query}"
+            return RedirectResponse(target, status_code=307)
         property_context = (
             _property_console_context(
                 container=container,
@@ -5929,20 +5935,6 @@ def app_shell(
             if resolved_section in property_sections or resolved_section == "properties"
             else None
         )
-        if (
-            property_brand
-            and resolved_section == "properties"
-            and not str(run_id or "").strip()
-            and isinstance(property_context, dict)
-        ):
-            route_run = dict(property_context.get("run") or {}) if isinstance(property_context.get("run"), dict) else {}
-            route_run_id = str(route_run.get("run_id") or "").strip()
-            if not route_run_id:
-                query = str(request.url.query or "").strip()
-                target = "/app/search"
-                if query:
-                    target = f"{target}?{query}"
-                return RedirectResponse(target, status_code=307)
         if property_context is not None and property_brand:
             property_context["surface_mode"] = current_nav
             property_context["requested_run_id"] = normalized_run_id

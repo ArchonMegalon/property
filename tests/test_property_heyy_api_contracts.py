@@ -66,7 +66,7 @@ def test_heyy_whatsapp_send_template_endpoint_returns_send_receipt(monkeypatch) 
     response = client.post(
         "/app/api/integrations/heyy/whatsapp/send-template",
         json={
-            "phone_number": "+436647916419",
+            "phone_number": "+43 660 0000000",
             "template_id": "tmpl-1",
             "channel_id": "channel-1",
             "variables": [{"name": "property_title", "value": "Altbau near U6"}],
@@ -119,7 +119,7 @@ def test_heyy_whatsapp_send_template_endpoint_requires_opt_in(monkeypatch) -> No
     response = client.post(
         "/app/api/integrations/heyy/whatsapp/send-template",
         json={
-            "phone_number": "+436647916419",
+            "phone_number": "+43 660 0000000",
             "template_id": "tmpl-1",
             "channel_id": "channel-1",
             "variables": [{"name": "property_title", "value": "Altbau near U6"}],
@@ -137,7 +137,7 @@ def test_heyy_whatsapp_send_template_endpoint_requires_enabled_flag(monkeypatch)
     response = client.post(
         "/app/api/integrations/heyy/whatsapp/send-template",
         json={
-            "phone_number": "+436647916419",
+            "phone_number": "+43 660 0000000",
             "template_id": "tmpl-1",
             "channel_id": "channel-1",
             "variables": [{"name": "property_title", "value": "Altbau near U6"}],
@@ -158,7 +158,7 @@ def test_heyy_whatsapp_stop_blocks_templates_until_start(monkeypatch) -> None:
         json={
             "type": "message.received",
             "message": {"id": "msg-stop", "text": "STOP"},
-            "contact": {"phoneNumber": "+436647916419"},
+            "contact": {"phoneNumber": "+43 660 0000000"},
             "metadata": {"principal_id": "heyy-api-owner"},
         },
         headers={"X-PropertyQuarry-Heyy-Secret": "heyy-secret"},
@@ -168,7 +168,7 @@ def test_heyy_whatsapp_stop_blocks_templates_until_start(monkeypatch) -> None:
     blocked = client.post(
         "/app/api/integrations/heyy/whatsapp/send-template",
         json={
-            "phone_number": "+436647916419",
+            "phone_number": "+43 660 0000000",
             "template_id": "tmpl-1",
             "channel_id": "channel-1",
             "variables": [{"name": "property_title", "value": "Altbau near U6"}],
@@ -182,7 +182,7 @@ def test_heyy_whatsapp_stop_blocks_templates_until_start(monkeypatch) -> None:
         json={
             "type": "message.received",
             "message": {"id": "msg-start", "text": "START"},
-            "contact": {"phoneNumber": "+436647916419"},
+            "contact": {"phoneNumber": "+43 660 0000000"},
             "metadata": {"principal_id": "heyy-api-owner"},
         },
         headers={"X-PropertyQuarry-Heyy-Secret": "heyy-secret"},
@@ -197,14 +197,14 @@ def test_heyy_whatsapp_stop_blocks_templates_until_start(monkeypatch) -> None:
             "channel_id": kwargs.get("channel_id") or "channel-1",
             "message_id": "msg-after-start",
             "delivery_status": "queued",
-            "phone_e164_hash": hashlib.sha256("+436647916419".encode("utf-8")).hexdigest(),
-            "phone_last4": "6419",
+            "phone_e164_hash": hashlib.sha256("+43 660 0000000".encode("utf-8")).hexdigest(),
+            "phone_last4": "0000",
         },
     )
     allowed = client.post(
         "/app/api/integrations/heyy/whatsapp/send-template",
         json={
-            "phone_number": "+436647916419",
+            "phone_number": "+43 660 0000000",
             "template_id": "tmpl-1",
             "channel_id": "channel-1",
             "variables": [{"name": "property_title", "value": "Altbau near U6"}],
@@ -227,15 +227,15 @@ def test_heyy_property_match_notification_endpoint_records_event(monkeypatch) ->
             "channel_id": kwargs.get("channel_id") or "channel-1",
             "message_id": "msg-property-1",
             "delivery_status": "queued",
-            "phone_e164_hash": hashlib.sha256("+436647916419".encode("utf-8")).hexdigest(),
-            "phone_last4": "6419",
+            "phone_e164_hash": hashlib.sha256("+43 660 0000000".encode("utf-8")).hexdigest(),
+            "phone_last4": "0000",
         },
     )
 
     response = client.post(
         "/app/api/integrations/heyy/notifications/property-match",
         json={
-            "phone_number": "+436647916419",
+            "phone_number": "+43 660 0000000",
             "template_id": "tmpl-property",
             "channel_id": "channel-1",
             "property_ref": "property-scout:123",
@@ -251,8 +251,8 @@ def test_heyy_property_match_notification_endpoint_records_event(monkeypatch) ->
     payloads = [dict(row.get("payload_json") or {}) for row in events]
     assert any(payload.get("template_kind") == "property_match" for payload in payloads)
     property_payload = next(payload for payload in payloads if payload.get("template_kind") == "property_match")
-    assert property_payload["phone_last4"] == "6419"
-    assert property_payload["phone_e164_hash"] == hashlib.sha256("+436647916419".encode("utf-8")).hexdigest()
+    assert property_payload["phone_last4"] == "0000"
+    assert property_payload["phone_e164_hash"] == hashlib.sha256("+43 660 0000000".encode("utf-8")).hexdigest()
     assert "phone_number" not in property_payload
 
 
@@ -269,15 +269,15 @@ def test_heyy_search_agent_digest_notification_endpoint_records_event(monkeypatc
             "channel_id": kwargs.get("channel_id") or "channel-1",
             "message_id": "msg-digest-1",
             "delivery_status": "queued",
-            "phone_e164_hash": hashlib.sha256("+436647916419".encode("utf-8")).hexdigest(),
-            "phone_last4": "6419",
+            "phone_e164_hash": hashlib.sha256("+43 660 0000000".encode("utf-8")).hexdigest(),
+            "phone_last4": "0000",
         },
     )
 
     response = client.post(
         "/app/api/integrations/heyy/notifications/search-agent-digest",
         json={
-            "phone_number": "+436647916419",
+            "phone_number": "+43 660 0000000",
             "template_id": "tmpl-digest",
             "channel_id": "channel-1",
             "search_agent_id": "agent-1",
@@ -294,6 +294,6 @@ def test_heyy_search_agent_digest_notification_endpoint_records_event(monkeypatc
     payloads = [dict(row.get("payload_json") or {}) for row in events]
     assert any(payload.get("template_kind") == "search_agent_digest" for payload in payloads)
     digest_payload = next(payload for payload in payloads if payload.get("template_kind") == "search_agent_digest")
-    assert digest_payload["phone_last4"] == "6419"
-    assert digest_payload["phone_e164_hash"] == hashlib.sha256("+436647916419".encode("utf-8")).hexdigest()
+    assert digest_payload["phone_last4"] == "0000"
+    assert digest_payload["phone_e164_hash"] == hashlib.sha256("+43 660 0000000".encode("utf-8")).hexdigest()
     assert "phone_number" not in digest_payload

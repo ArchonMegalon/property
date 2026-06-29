@@ -2632,10 +2632,9 @@ def build_property_research_packet_snapshot(
     risk_signal_rows: list[dict[str, object]],
 ) -> dict[str, object]:
     if isinstance(preview_image, dict):
-        preview_image_payload = dict(preview_image)
+        preview_image_payload = str(preview_image.get("image_url") or preview_image.get("url") or "").strip()
     else:
-        preview_image_url = str(preview_image or "").strip()
-        preview_image_payload = {"image_url": preview_image_url} if preview_image_url else {}
+        preview_image_payload = str(preview_image or "").strip()
     return PropertyResearchPacketSnapshot(
         research_title=str(title or "").strip() or "Research packet",
         research_summary=str(summary or "").strip(),

@@ -113,6 +113,11 @@ def _has_public_control_link(body: str, demo_path: str, provider: str) -> bool:
     return f"{demo_path}/control/{provider}" in body and "Open 3D tour" in body
 
 
+def _final_path(value: object) -> str:
+    parsed = urllib.parse.urlparse(str(value or "").strip())
+    return parsed.path
+
+
 def build_live_presentation_e2e_receipt(
     *,
     base_url: str,
@@ -168,15 +173,35 @@ def build_live_presentation_e2e_receipt(
     demo_path = f"/tours/{urllib.parse.quote(slug, safe='')}"
     demo = _fetch(f"{base}{demo_path}", timeout_seconds=timeout_seconds, host_header=host_header)
     demo_body = str(demo.get("body") or "")
+    demo_final_path = _final_path(demo.get("final_url"))
+    demo_opened_primary_control = demo_final_path == f"{demo_path}/control/matterport"
     checks.extend(
         [
             _check("demo_tour_route_ok", int(demo.get("status_code") or 0) == 200, status_code=demo.get("status_code")),
-            _check("demo_tour_is_propertyquarry_presentation", "PropertyQuarry Spatial Review" in demo_body),
-            _check("demo_tour_has_matterport_control", _has_public_control_link(demo_body, demo_path, "matterport")),
+            _check(
+                "demo_tour_opens_primary_control_directly",
+                demo_opened_primary_control,
+                final_path=demo_final_path,
+                expected_path=f"{demo_path}/control/matterport",
+            ),
+            _check(
+                "demo_tour_is_propertyquarry_presentation",
+                "3D Tour" in demo_body and "provider-frame" in demo_body and "my.matterport.com" in demo_body,
+            ),
+            _check(
+                "demo_tour_has_matterport_control",
+                demo_opened_primary_control and "provider-frame" in demo_body and "Load 3D tour" not in demo_body,
+            ),
             _check("demo_tour_hides_unproven_3d_export", f"{demo_path}/control/3dvista" not in demo_body),
             _check("demo_tour_hides_panorama_export", f"{demo_path}/control/pano2vr" not in demo_body),
-            _check("demo_tour_has_walkthrough", "Open walkthrough" in demo_body and "magicfit-walkthrough.mp4" in demo_body),
-            _check("demo_tour_no_generated_cube_fallback", "generated 3d cube fallback has been removed" in _visible_text(demo_body).lower()),
+            _check(
+                "demo_tour_has_walkthrough",
+                'data-provider-backed-walkthrough="true"' in demo_body and "magicfit-walkthrough.mp4" in demo_body,
+            ),
+            _check(
+                "demo_tour_no_generated_cube_fallback",
+                "pure_360_cube" not in demo_body and "generated 3d cube fallback" not in _visible_text(demo_body).lower(),
+            ),
         ]
     )
 
@@ -191,7 +216,12 @@ def build_live_presentation_e2e_receipt(
                 _check(f"{provider}_control_route_ok", int(response.get("status_code") or 0) == 200, route=route, status_code=response.get("status_code")),
                 _check(
                     f"{provider}_control_marker_visible",
-                    marker in body and "Load 3D tour" in body,
+                    marker in body and "provider-frame" in body and "my.matterport.com" in body,
+                    route=route,
+                ),
+                _check(
+                    f"{provider}_control_no_load_hop",
+                    "Load 3D tour" not in body,
                     route=route,
                 ),
             ]

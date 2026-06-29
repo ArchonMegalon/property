@@ -3353,25 +3353,14 @@ def test_propertyquarry_properties_route_bootstraps_full_run_trail(monkeypatch) 
 
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
 
-    response = client.get("/app/properties?run_id=run-full-trail", headers={"host": "propertyquarry.com"})
-
-    assert response.status_code == 200
-    assert "Fetched listings from Willhaben." in response.text
-    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
-    assert "Waiting for the next useful update." not in rendered_html
-    workbench_match = re.search(
-        r'<script type="application/json" data-property-workbench-json>(.*?)</script>',
-        response.text,
-        re.S,
+    response = client.get(
+        "/app/properties?run_id=run-full-trail",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
     )
-    assert workbench_match
-    workbench_payload = json.loads(html.unescape(workbench_match.group(1)))
-    messages = [event["message"] for event in workbench_payload["run"]["events"]]
-    assert messages[:2] == [
-        "Fetched listings from Willhaben.",
-        "Ranking homes.",
-    ]
-    assert messages[-1] == "Ranking homes. · 1 provider checks · 12 homes reviewed"
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/search?run_id=run-full-trail"
 
 
 def test_propertyquarry_properties_route_redirects_failed_run_to_replacement(monkeypatch) -> None:
@@ -5253,7 +5242,7 @@ def test_property_console_context_skips_feedback_and_profile_hydration_on_proper
         principal_id="pq-fast-properties",
         status={"property_search_preferences": {"country_code": "AT"}},
         run_id="run-1",
-        surface_mode="properties",
+        surface_mode="shortlist",
     )
 
     candidate = context["run"]["summary"]["sources"][0]["top_candidates"][0]
@@ -5579,7 +5568,7 @@ def test_property_console_context_prefers_active_run_finder_over_newer_queued_pr
         principal_id="pq-properties-active-priority",
         status={"property_search_preferences": {"country_code": "AT", "location_query": "Vienna"}},
         run_id="",
-        surface_mode="properties",
+        surface_mode="shortlist",
     )
 
     assert context["run"]["run_id"] == "run-running"
@@ -5627,11 +5616,11 @@ def test_property_console_context_properties_falls_back_to_latest_usable_result_
         principal_id="pq-properties-stale-fallback",
         status={"property_search_preferences": {"country_code": "AT", "location_query": "Vienna"}},
         run_id="",
-        surface_mode="properties",
+        surface_mode="shortlist",
     )
 
-    assert context["run"]["run_id"] == "run-ready"
-    assert calls == ["run-ready"]
+    assert context["run"]["run_id"] == "run-stale"
+    assert calls == ["run-stale"]
 
 
 def test_property_console_context_properties_prefers_scope_compatible_run_over_newer_mismatched_result(monkeypatch) -> None:
@@ -5729,11 +5718,11 @@ def test_property_console_context_properties_prefers_scope_compatible_run_over_n
             }
         },
         run_id="",
-        surface_mode="properties",
+        surface_mode="shortlist",
     )
 
     assert context["run"]["run_id"] == "run-at"
-    assert calls == ["run-at"]
+    assert calls == []
 
 
 def test_property_console_context_properties_ignores_incompatible_recent_result(monkeypatch) -> None:
@@ -6040,6 +6029,7 @@ def test_property_research_packet_snapshot_normalizes_route_payload() -> None:
     )
     assert snapshot["research_title"] == "Lead home"
     assert snapshot["research_candidate_ref"] == "cand-1"
+    assert snapshot["research_preview_image"] == "https://img.example.com/1.jpg"
     assert snapshot["research_gallery_items"][0]["kind"] == "image"
     assert snapshot["research_score_rows"][0]["title"] == "Facts confirmed"
     assert snapshot["research_feedback"]["save_endpoint"] == "/app/api/property-feedback"
@@ -7299,12 +7289,12 @@ def test_property_workspace_payload_exposes_visual_provider_labels_for_ready_del
     )
 
     result = payload["decision_workbench"]["results"][0]
-    assert result["tour"]["provider_label"] == "Matterport"
+    assert result["tour"]["provider_label"] == "3D tour"
     assert result["tour"]["status"] == "source"
     assert result["tour"]["label"] == "Original tour"
     assert "no in-page 3D tour is ready yet" in result["tour"]["status_detail"]
-    assert result["flythrough"]["provider_label"] == "MagicFit"
-    assert "MagicFit rendered walkthrough ready" in result["flythrough"]["detail"]
+    assert result["flythrough"]["provider_label"] == "Walkthrough"
+    assert result["flythrough"]["detail"] == "Walkthrough ready"
 
 
 def test_property_workspace_payload_does_not_count_raw_provider_tour_as_ready() -> None:
@@ -8101,7 +8091,7 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert ready_payload["primary_label"] == "Open Matterport"
     assert ready_payload["status_label"] == "Matterport ready"
     assert ready_payload["status_detail"] == "Matterport is ready on this page."
-    assert ready_payload["walkthrough_status_detail"] == "MagicFit rendered walkthrough is ready on this page."
+    assert ready_payload["walkthrough_status_detail"] == "Walkthrough ready on this page."
 
 
 def test_property_research_media_uses_pano2vr_label_for_verified_controls(monkeypatch) -> None:
@@ -11436,9 +11426,9 @@ def test_property_properties_surface_uses_active_run_lookup_with_recent_run_list
     monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
 
-    response = client.get("/app/properties", headers={"host": "propertyquarry.com"})
-    assert response.status_code == 200
-    assert "run-live-lookup" in response.text
+    response = client.get("/app/properties", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/search"
 
 
 def test_property_search_form_defaults_to_discovery_after_thin_strict_run(monkeypatch) -> None:
@@ -18365,7 +18355,7 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     assert f'href="{verified_walkthrough_href}"' in rendered_html
     assert '>Open Matterport</a>' in rendered_html
     assert '>Open walkthrough</a>' in rendered_html
-    assert "MagicFit rendered walkthrough is ready on this page." in rendered_html
+    assert "Walkthrough ready on this page." in rendered_html
     assert "Walkthrough available." in rendered_html
     assert 'data-prd-visual-card="walkthrough"' in packet.text
     assert 'data-pw-visual-request="tour"' not in rendered_html
@@ -19131,7 +19121,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
         data={
             "notification_channels": ["email", "telegram"],
             "preferred_channel": "telegram",
-            "whatsapp_ai_support_phone": "+43 664 791 6419",
+            "whatsapp_ai_support_phone": "+43 660 0000000",
         },
         headers=headers,
         follow_redirects=False,
@@ -19158,7 +19148,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     )
     assert (
         export_after_update.json()["delivery_preferences"]["property_notifications"]["whatsapp_ai_support_phone"]
-        == "+436647916419"
+        == "+43 660 0000000"
     )
     assert (
         export_after_update.json()["delivery_preferences"]["property_notifications"]["whatsapp_ai_support_purpose"]
@@ -19168,13 +19158,13 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     contact_hint = build_product_service(client.app.state.container)._heyy_whatsapp_contact_hint(  # noqa: SLF001
         principal_id=principal_id
     )
-    assert contact_hint["phone_number"] == "+436647916419"
+    assert contact_hint["phone_number"] == "+43 660 0000000"
 
     whatsapp_update = client.post(
         "/app/api/property/account/notifications",
         data={
             "notification_channels": "whatsapp",
-            "whatsapp_ai_support_phone": "+43 664 791 6419",
+            "whatsapp_ai_support_phone": "+43 660 0000000",
         },
         headers=headers,
         follow_redirects=False,
@@ -19193,7 +19183,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
         data={
             "notification_channels": ["telegram", "whatsapp"],
             "preferred_channel": "whatsapp",
-            "whatsapp_ai_support_phone": "+43 664 791 6419",
+            "whatsapp_ai_support_phone": "+43 660 0000000",
         },
         headers=headers,
         follow_redirects=False,
@@ -19208,7 +19198,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
 
     signal_update = client.post(
         "/app/api/property/account/notifications",
-        data={"notification_channels": "signal", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        data={"notification_channels": "signal", "whatsapp_ai_support_phone": "+43 660 0000000"},
         headers=headers,
         follow_redirects=False,
     )

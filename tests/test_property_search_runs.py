@@ -2472,6 +2472,7 @@ def test_property_provider_greenfield_api_returns_country_scoped_catalog_with_au
     assert any(row["value"] == "furnished_relocation_de" and row["family"] == "furnished_relocation" for row in de_body["providers"])
     assert any(row["value"] == "ohne_makler_de" and row["family"] == "broker_direct" for row in de_body["providers"])
     assert any(row["value"] == "von_poll_de" and row["family"] == "broker_direct" for row in de_body["providers"])
+    assert any(row["value"] == "wohnungsboerse_de" and row["family"] == "core_portal" for row in de_body["providers"])
 
     at_body = client.get("/app/api/property/providers?country=AT").json()
 
@@ -2482,9 +2483,20 @@ def test_property_provider_greenfield_api_returns_country_scoped_catalog_with_au
     assert any(row["value"] == "gesiba_at" and row["family"] == "cooperative" for row in at_body["providers"])
     assert any(row["value"] == "oesw_at" and row["family"] == "cooperative" for row in at_body["providers"])
     assert any(row["value"] == "egw_at" and row["family"] == "cooperative" for row in at_body["providers"])
+    assert any(row["value"] == "ohne_makler_at" and row["family"] == "broker_direct" for row in at_body["providers"])
+    assert any(row["value"] == "sreal_at" and row["family"] == "broker_direct" for row in at_body["providers"])
+    assert any(row["value"] == "raiffeisen_immobilien_at" and row["family"] == "broker_direct" for row in at_body["providers"])
+    assert any(row["value"] == "wohnnet_at" and row["family"] == "marketplace" for row in at_body["providers"])
+    assert any(row["value"] == "keinmakler_at" and row["family"] == "broker_direct" for row in at_body["providers"])
     assert any(row["value"] == "zvginfo_at" and row["family"] == "distressed_sales" for row in at_body["providers"])
     assert any(row["value"] == "school_directories_de" for row in de_body["evidence_sources"])
     assert any(row["value"] == "statatlas_schulen_at" for row in at_body["evidence_sources"])
+
+    cr_body = client.get("/app/api/property/providers?country=CR").json()
+
+    assert any(row["value"] == "properstar_cr" and row["family"] == "marketplace" for row in cr_body["providers"])
+    assert any(row["value"] == "century21_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
+    assert any(row["value"] == "remax_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
 
 
 def test_property_provider_greenfield_api_returns_mode_aware_default_platforms() -> None:
@@ -2502,6 +2514,14 @@ def test_property_provider_greenfield_api_returns_mode_aware_default_platforms()
         "/app/api/property/providers",
         params={"country": "DE", "listing_mode": "buy", "property_type": "apartment"},
     ).json()
+    cr_rent_body = client.get(
+        "/app/api/property/providers",
+        params={"country": "CR", "listing_mode": "rent", "property_type": "apartment"},
+    ).json()
+    cr_buy_body = client.get(
+        "/app/api/property/providers",
+        params={"country": "CR", "listing_mode": "buy", "property_type": "apartment"},
+    ).json()
 
     assert at_buy_body["listing_mode"] == "buy"
     assert at_buy_body["property_type"] == "apartment"
@@ -2509,6 +2529,12 @@ def test_property_provider_greenfield_api_returns_mode_aware_default_platforms()
         "willhaben",
         "immmo",
         "immoscout_at",
+        "immobilien_net_at",
+        "ohne_makler_at",
+        "sreal_at",
+        "raiffeisen_immobilien_at",
+        "wohnnet_at",
+        "keinmakler_at",
         "derstandard_at",
         "broker_direct_at",
         "developer_projects_at",
@@ -2521,9 +2547,17 @@ def test_property_provider_greenfield_api_returns_mode_aware_default_platforms()
     ]
     assert de_buy_body["default_platforms"] == [
         "core_portals_de",
+        "wohnungsboerse_de",
         "new_build_de",
         "broker_direct_de",
     ]
+    assert cr_rent_body["default_platforms"] == [
+        "encuentra24_cr",
+        "re_cr_mls",
+        "properstar_cr",
+    ]
+    assert "century21_cr" in cr_buy_body["default_platforms"]
+    assert "remax_cr" in cr_buy_body["default_platforms"]
 
 
 def test_austria_generated_source_defaults_use_public_and_cooperative_lanes_for_rent() -> None:
@@ -2640,6 +2674,7 @@ def test_germany_generated_source_defaults_use_live_buy_lanes_only() -> None:
     urls = [str(row["url"]) for row in specs]
 
     assert "core_portals_de" in platforms
+    assert "wohnungsboerse_de" in platforms
     assert "new_build_de" in platforms
     assert "broker_direct_de" in platforms
     assert "corporate_landlords_de" not in platforms
@@ -11048,9 +11083,17 @@ def test_property_provider_greenfield_api_returns_country_scoped_catalog() -> No
     assert any(row["value"] == "bwsg_at" and row["family"] == "cooperative" for row in at_body["providers"])
     assert any(row["value"] == "arwag_at" and row["family"] == "developer_projects" for row in at_body["providers"])
     assert any(row["value"] == "raiffeisen_wohnbau_at" and row["family"] == "developer_projects" for row in at_body["providers"])
+    assert any(row["value"] == "ohne_makler_at" and row["family"] == "broker_direct" for row in at_body["providers"])
+    assert any(row["value"] == "sreal_at" and row["family"] == "broker_direct" for row in at_body["providers"])
+    assert any(row["value"] == "raiffeisen_immobilien_at" and row["family"] == "broker_direct" for row in at_body["providers"])
+    assert any(row["value"] == "wohnnet_at" and row["family"] == "marketplace" for row in at_body["providers"])
+    assert any(row["value"] == "keinmakler_at" and row["family"] == "broker_direct" for row in at_body["providers"])
     assert uk_response.json()["error"]["code"] == "unsupported_property_market"
     assert any(row["value"] == "encuentra24_cr" for row in cr_body["providers"])
     assert any(row["value"] == "re_cr_mls" for row in cr_body["providers"])
+    assert any(row["value"] == "properstar_cr" and row["family"] == "marketplace" for row in cr_body["providers"])
+    assert any(row["value"] == "century21_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
+    assert any(row["value"] == "remax_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
     assert any(row["value"] == "theagency_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
     assert any(row["value"] == "krain_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
     assert any(row["value"] == "desarrollos_cr" and row["family"] == "developer_projects" for row in cr_body["providers"])
@@ -14346,7 +14389,7 @@ def test_property_search_results_ready_can_send_heyy_digest(monkeypatch: pytest.
     onboarding._replace_channel_pref(  # noqa: SLF001
         state,
         "whatsapp",
-        {"mode": "business", "phone_number": "+436647916419"},
+        {"mode": "business", "phone_number": "+43 660 0000000"},
         status="in_progress",
     )
     monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
@@ -14376,15 +14419,15 @@ def test_property_search_results_ready_can_send_heyy_digest(monkeypatch: pytest.
         },
     )
     assert result["status"] == "sent"
-    assert observed["phone_number"] == "+436647916419"
+    assert observed["phone_number"] == "+436600000000"
     assert observed["template_id"] == "tmpl-search-digest"
     assert any(item.get("name") == "agent_name" and item.get("value") == "Vienna rent watch" for item in list(observed.get("variables") or []))
     assert any(item.get("name") == "top_fit_score" and item.get("value") == "91" for item in list(observed.get("variables") or []))
     packet_service = build_fliplink_packet_service(client.app.state.container)
     events = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_template_sent", limit=10)
     payload = next(dict(row.get("payload_json") or {}) for row in events if dict(row.get("payload_json") or {}).get("template_kind") == "search_agent_digest")
-    assert payload["phone_last4"] == "6419"
-    assert payload["phone_e164_hash"] == redact_phone_number("+436647916419")["phone_e164_hash"]
+    assert payload["phone_last4"] == "0000"
+    assert payload["phone_e164_hash"] == redact_phone_number("+43 660 0000000")["phone_e164_hash"]
     assert "phone_number" not in payload
 
 
@@ -14397,7 +14440,7 @@ def test_property_search_results_ready_heyy_digest_honors_stop_command(monkeypat
     onboarding._replace_channel_pref(  # noqa: SLF001
         state,
         "whatsapp",
-        {"mode": "business", "phone_number": "+436647916419"},
+        {"mode": "business", "phone_number": "+43 660 0000000"},
         status="in_progress",
     )
     monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
@@ -14411,7 +14454,7 @@ def test_property_search_results_ready_heyy_digest_honors_stop_command(monkeypat
             "actor": "heyy",
             "payload_json": {
                 "opt_command": "STOP",
-                **redact_phone_number("+436647916419"),
+                **redact_phone_number("+43 660 0000000"),
             },
         }
     )
@@ -14456,7 +14499,7 @@ def test_property_scout_queued_alert_routes_to_selected_whatsapp_channel(monkeyp
     assert stored.status_code == 200, stored.text
     updated = client.post(
         "/app/api/property/account/notifications",
-        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 660 0000000"},
         headers=headers,
         follow_redirects=False,
     )
@@ -14525,14 +14568,14 @@ def test_property_scout_queued_alert_routes_to_selected_whatsapp_channel(monkeyp
 
     assert result["status"] == "sent"
     assert result["message_id"] == "msg-whatsapp-alert-1"
-    assert observed["phone_number"] == "+436647916419"
+    assert observed["phone_number"] == "+436600000000"
     assert observed["template_id"] == "tmpl-property-match"
     assert any(item.get("name") == "fit_score" and item.get("value") == "91/100" for item in list(observed.get("variables") or []))
     packet_service = build_fliplink_packet_service(client.app.state.container)
     sent_events = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_template_sent", limit=10)
     payload = dict(sent_events[0].get("payload_json") or {})
     assert payload["template_kind"] == "property_match"
-    assert payload["phone_last4"] == "6419"
+    assert payload["phone_last4"] == "0000"
     assert "phone_number" not in payload
 
 
@@ -14557,7 +14600,7 @@ def test_property_scout_queued_whatsapp_suppresses_wrong_area_and_opens_repair(
     assert stored.status_code == 200, stored.text
     updated = client.post(
         "/app/api/property/account/notifications",
-        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 660 0000000"},
         headers={"host": "propertyquarry.com"},
         follow_redirects=False,
     )
@@ -14639,7 +14682,7 @@ def test_property_scout_queued_near_miss_respects_nontelegram_channel(monkeypatc
     start_workspace(client, mode="personal", workspace_name="Property Scout Near Miss Preference")
     updated = client.post(
         "/app/api/property/account/notifications",
-        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 660 0000000"},
         headers={"host": "propertyquarry.com"},
         follow_redirects=False,
     )
@@ -14682,7 +14725,7 @@ def test_property_scout_queued_hit_delivers_to_all_selected_channels_with_explic
         data={
             "notification_channels": ["email", "whatsapp"],
             "preferred_channel": "whatsapp",
-            "whatsapp_ai_support_phone": "+43 664 791 6419",
+            "whatsapp_ai_support_phone": "+43 660 0000000",
         },
         headers={"host": "propertyquarry.com"},
         follow_redirects=False,
@@ -14744,7 +14787,7 @@ def test_property_scout_queued_hit_delivers_to_all_selected_channels_with_explic
     assert set(result["delivery_results"]) == {"email", "whatsapp"}
     assert result["delivery_results"]["email"]["status"] == "sent"
     assert result["delivery_results"]["whatsapp"]["status"] == "sent"
-    assert observed_whatsapp["phone_number"] == "+436647916419"
+    assert observed_whatsapp["phone_number"] == "+436600000000"
 
 
 def test_property_scout_queued_near_miss_uses_explicit_primary_not_checkbox_order(
@@ -14758,7 +14801,7 @@ def test_property_scout_queued_near_miss_uses_explicit_primary_not_checkbox_orde
         data={
             "notification_channels": ["telegram", "whatsapp"],
             "preferred_channel": "whatsapp",
-            "whatsapp_ai_support_phone": "+43 664 791 6419",
+            "whatsapp_ai_support_phone": "+43 660 0000000",
         },
         headers={"host": "propertyquarry.com"},
         follow_redirects=False,

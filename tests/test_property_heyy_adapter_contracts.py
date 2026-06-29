@@ -44,11 +44,11 @@ def test_heyy_plan_channel_binding_records_whatsapp_connector(monkeypatch: pytes
     binding = service.plan_channel_binding(
         principal_id="heyy-owner",
         channel_id="channel-1",
-        phone_number="+436647916419",
+        phone_number="+43 660 0000000",
         label="PropertyQuarry WhatsApp",
     )
     assert binding.connector_name == "whatsapp_heyy"
-    assert binding.external_account_ref == "+436647916419"
+    assert binding.external_account_ref == "+43 660 0000000"
     assert binding.scope_json["channel_id"] == "channel-1"
 
 
@@ -88,16 +88,16 @@ def test_heyy_send_template_posts_whatsapp_message(monkeypatch: pytest.MonkeyPat
     service = HeyyWhatsAppBridgeService(tool_runtime=client.app.state.container.tool_runtime)
     with patch("app.services.heyy_whatsapp_service.urllib.request.urlopen", _fake_urlopen):
         result = service.send_template(
-            phone_number="+436647916419",
+            phone_number="+43 660 0000000",
             template_id="tmpl-1",
             channel_id="channel-1",
             variables=[{"name": "property_title", "value": "Altbau near U6"}],
         )
     assert observed["url"] == "https://api.heyy.test/api/v2.0/channel-1/whatsapp_messages/send"
     assert observed["authorization"] == "Bearer secret-token"
-    assert observed["payload"]["phoneNumber"] == "+436647916419"
+    assert observed["payload"]["phoneNumber"] == "+43 660 0000000"
     assert observed["payload"]["messageTemplateId"] == "tmpl-1"
     assert result["message_id"] == "msg-1"
     assert result["delivery_status"] == "queued"
-    assert result["phone_last4"] == "6419"
+    assert result["phone_last4"] == "0000"
     assert "phone_e164_hash" in result

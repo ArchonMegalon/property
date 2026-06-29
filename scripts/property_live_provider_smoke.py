@@ -23,7 +23,7 @@ if str(EA_ROOT) not in sys.path:
 from app.services.property_market_catalog import (
     COUNTRIES,
     CUSTOMER_SEARCH_COUNTRY_ORDER,
-    default_platforms_for_country,
+    default_platforms_for_country_listing_mode,
     is_customer_search_country_code,
     provider_options,
     selectable_property_platform_keys,
@@ -111,8 +111,18 @@ def _execute_search_matrix_enabled() -> bool:
     }
 
 
-def _effective_search_run_timeout_seconds(timeout_seconds: float, *, enabled: bool, dry_run: bool) -> float:
+def _effective_search_run_timeout_seconds(
+    timeout_seconds: float,
+    *,
+    enabled: bool,
+    dry_run: bool,
+    search_run_timeout_seconds: float | None = None,
+) -> float:
     normalized_timeout = max(float(timeout_seconds or 0), 0.0)
+    if search_run_timeout_seconds is not None:
+        normalized_search_timeout = max(float(search_run_timeout_seconds or 0), 0.0)
+        if normalized_search_timeout > 0:
+            return normalized_search_timeout
     if normalized_timeout <= 0:
         return 0.0
     if enabled and not dry_run:
@@ -329,7 +339,7 @@ def _select_targeted_provider_options(
 def _post_search_run_payload(*, base_url: str, payload: dict[str, object], timeout_seconds: float) -> dict[str, object]:
     url = urllib.parse.urljoin(base_url.rstrip("/") + "/", "app/api/property/search-runs")
     api_token = str(os.getenv("EA_API_TOKEN") or "").strip()
-    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:tibor.girschele@gmail.com").strip()
+    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:person@example.test").strip()
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -488,7 +498,7 @@ def _fetch_search_run_status_payload(*, base_url: str, status_url: str, run_id: 
     else:
         url = urllib.parse.urljoin(base_url.rstrip("/") + "/", f"app/api/property/search-runs/{urllib.parse.quote(str(run_id or '').strip())}?lightweight=true")
     api_token = str(os.getenv("EA_API_TOKEN") or "").strip()
-    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:tibor.girschele@gmail.com").strip()
+    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:person@example.test").strip()
     request = urllib.request.Request(
         url,
         method="GET",
@@ -857,7 +867,7 @@ def _fetch_provider_payload(*, base_url: str, country_code: str, timeout_seconds
     params = urllib.parse.urlencode({"country": country_code})
     url = urllib.parse.urljoin(base_url.rstrip("/") + "/", f"app/api/property/providers?{params}")
     api_token = str(os.getenv("EA_API_TOKEN") or "").strip()
-    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:tibor.girschele@gmail.com").strip()
+    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:person@example.test").strip()
     request = urllib.request.Request(
         url,
         headers={
@@ -885,6 +895,7 @@ def build_live_provider_smoke_receipt(
     countries: Iterable[str] = ("AT", "CR"),
     base_url: str = "http://localhost:8097",
     timeout_seconds: float = 8.0,
+    search_run_timeout_seconds: float | None = None,
     provider_keys: Iterable[str] = (),
     max_providers: int = 0,
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
@@ -903,16 +914,17 @@ def build_live_provider_smoke_receipt(
     enabled = _enabled()
     dry_run = _dry_run()
     should_execute_search_matrix = _execute_search_matrix_enabled() if execute_search_matrix is None else bool(execute_search_matrix)
-    search_run_timeout_seconds = _effective_search_run_timeout_seconds(
+    effective_search_run_timeout_seconds = _effective_search_run_timeout_seconds(
         timeout_seconds,
         enabled=enabled,
         dry_run=dry_run,
+        search_run_timeout_seconds=search_run_timeout_seconds,
     )
     checks: list[dict[str, object]] = []
     effective_fetcher = fetcher or (lambda country, timeout: _fetch_provider_payload(base_url=base_url, country_code=country, timeout_seconds=timeout))
     for country in normalized_countries:
         options = provider_options(country_code=country)
-        defaults = set(default_platforms_for_country(country))
+        defaults = set(default_platforms_for_country_listing_mode(country, "rent"))
         row = {
             "country_code": country,
             "status": "skipped" if not enabled else "dry_run" if dry_run else "ready_for_live_probe",
@@ -955,14 +967,16 @@ def build_live_provider_smoke_receipt(
                 runtime_country_code = str(payload.get("country_code") or "").strip().upper()
                 runtime_listing_mode = str(payload.get("listing_mode") or "").strip().lower()
                 runtime_property_type = str(payload.get("property_type") or "").strip().lower()
+                expected_runtime_defaults = set(default_platforms_for_country_listing_mode(country, runtime_listing_mode or "rent"))
                 runtime_contract_ok = (
                     runtime_provider_count_ok
-                    and runtime_defaults_present_ok
+                    and runtime_defaults == expected_runtime_defaults
                     and not runtime_provider_country_mismatches
                     and runtime_country_code == country
                     and runtime_listing_mode in {"rent", "buy"}
                     and bool(runtime_property_type)
                 )
+                runtime_defaults_present_ok = runtime_defaults == expected_runtime_defaults
                 row.update(
                     {
                         "status": "pass" if runtime_contract_ok else "fail",
@@ -1031,6 +1045,8 @@ def build_live_provider_smoke_receipt(
             "targeted_search_matrix_count": len(rows),
             "targeted_search_matrix_status": "running",
             "targeted_search_matrix_executed": should_execute_search_matrix and enabled and not dry_run,
+            "provider_catalog_timeout_seconds": timeout_seconds,
+            "search_run_timeout_seconds": effective_search_run_timeout_seconds,
             "checkpoint": True,
             "complete": False,
             "notes": [
@@ -1047,7 +1063,7 @@ def build_live_provider_smoke_receipt(
         enabled=enabled,
         dry_run=dry_run,
         execute=should_execute_search_matrix,
-        timeout_seconds=search_run_timeout_seconds,
+        timeout_seconds=effective_search_run_timeout_seconds,
         provider_keys=provider_keys,
         max_providers=max_providers,
         search_executor=search_executor,
@@ -1060,7 +1076,7 @@ def build_live_provider_smoke_receipt(
         base_url=base_url,
         enabled=enabled,
         dry_run=dry_run,
-        timeout_seconds=search_run_timeout_seconds,
+        timeout_seconds=effective_search_run_timeout_seconds,
         search_executor=search_executor,
     )
     search_matrix_summary = _targeted_search_matrix_summary(
@@ -1095,7 +1111,7 @@ def build_live_provider_smoke_receipt(
         "dry_run": dry_run,
         "base_url": base_url,
         "provider_catalog_timeout_seconds": timeout_seconds,
-        "search_run_timeout_seconds": search_run_timeout_seconds,
+        "search_run_timeout_seconds": effective_search_run_timeout_seconds,
         "resume_source": resume_source,
         "country_scope": "all_search_ready" if all_search_ready_scope else "explicit",
         "checks": checks,
@@ -1160,6 +1176,12 @@ def main() -> int:
     parser.add_argument("--resume-from", default="", help="Optional checkpoint/final receipt whose passed targeted search rows should be reused.")
     parser.add_argument("--base-url", default=os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_BASE_URL") or "http://localhost:8097")
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
+    parser.add_argument(
+        "--search-run-timeout-seconds",
+        type=float,
+        default=None,
+        help="Optional timeout for search-run dispatch and status readback. Defaults to max(--timeout-seconds, 25) in live mode.",
+    )
     parser.add_argument("--provider", action="append", default=[], help="Provider key to include in the targeted matrix. Repeatable.")
     parser.add_argument("--max-providers", type=int, default=0, help="Optional global cap for how many search-ready providers to include in the targeted matrix scope.")
     matrix_group = parser.add_mutually_exclusive_group()
@@ -1186,6 +1208,9 @@ def main() -> int:
             countries=tuple(args.country or (() if args.all_search_ready_countries else CUSTOMER_SEARCH_COUNTRY_ORDER)),
             base_url=str(args.base_url),
             timeout_seconds=float(args.timeout_seconds),
+            search_run_timeout_seconds=(
+                None if args.search_run_timeout_seconds is None else float(args.search_run_timeout_seconds)
+            ),
             provider_keys=tuple(args.provider or []),
             max_providers=int(args.max_providers or 0),
             execute_search_matrix=execute_search_matrix,

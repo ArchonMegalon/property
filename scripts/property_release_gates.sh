@@ -268,15 +268,24 @@ gold_notification_principal_id="${PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID:
 gold_notification_base_url="${PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL:-${live_mobile_base_url}}"
 gold_notification_state="${PROPERTYQUARRY_GOLD_NOTIFICATION_STATE:-_completion/propertyquarry-gold-notification-state.json}"
 gold_notification_report="_completion/property_gold_status/telegram-notify-report.json"
-if ! PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_notify_gold_status.py \
-  --receipt _completion/property_gold_status/release-gate.json \
-  --state-file "${gold_notification_state}" \
-  --principal-id "${gold_notification_principal_id}" \
-  --base-url "${gold_notification_base_url}" \
-  --write "${gold_notification_report}" >/dev/null; then
-  echo "warning: PropertyQuarry gold notification script failed." >&2
-  cat "${gold_notification_report}" >&2 2>/dev/null || true
-fi
+gold_notification_enabled="${PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED:-0}"
+case "${gold_notification_enabled,,}" in
+  1|true|yes|y|on|enabled)
+    if ! PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_notify_gold_status.py \
+      --receipt _completion/property_gold_status/release-gate.json \
+      --state-file "${gold_notification_state}" \
+      --principal-id "${gold_notification_principal_id}" \
+      --base-url "${gold_notification_base_url}" \
+      --write "${gold_notification_report}" >/dev/null; then
+      echo "warning: PropertyQuarry gold notification script failed." >&2
+      cat "${gold_notification_report}" >&2 2>/dev/null || true
+    fi
+    ;;
+  *)
+    mkdir -p "$(dirname "${gold_notification_report}")"
+    printf '{"status":"skipped","reason":"PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED_not_set"}\n' > "${gold_notification_report}"
+    ;;
+esac
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
   tests/test_property_live_mobile_surface_smoke.py \

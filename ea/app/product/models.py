@@ -526,7 +526,7 @@ class PropertyResearchPacketSnapshot:
     research_rooms: str
     research_location: str
     research_media: dict[str, object] = field(default_factory=dict)
-    research_preview_image: dict[str, object] = field(default_factory=dict)
+    research_preview_image: str = ""
     research_gallery_items: list[dict[str, object]] = field(default_factory=list)
     research_location_preview: dict[str, object] = field(default_factory=dict)
     research_actions: list[dict[str, object]] = field(default_factory=list)
