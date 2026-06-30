@@ -3815,7 +3815,7 @@ def property_workspace_payload(
             "hero_highlights": hero_highlights["shortlist"],
             "primary_cards": [shortlist_card],
             "secondary_cards": [run_card, market_coverage_card],
-            "console_form": property_form,
+            "console_form": {},
             "show_brief_form": False,
             "show_shortlist_cards": True,
         },

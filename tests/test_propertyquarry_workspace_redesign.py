@@ -2233,6 +2233,13 @@ def test_propertyquarry_shortlist_without_run_id_prefers_latest_terminal_run_wit
         assert hydrate is False
         return [
             {
+                "run_id": "run-in-progress-no-shortlist",
+                "principal_id": principal_id,
+                "status": "in_progress",
+                "updated_at": "2026-06-17T15:20:00+00:00",
+                "summary": {"status": "in_progress", "raw_listing_total": 30, "ranked_candidates": []},
+            },
+            {
                 "run_id": "run-empty-terminal",
                 "principal_id": principal_id,
                 "status": "completed_partial",
@@ -5458,12 +5465,14 @@ def test_property_candidate_feedback_skips_empty_feedback_summary_hydration() ->
 
 def test_property_console_context_skips_recent_run_hydration_for_explicit_shortlist_run(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-shortlist-no-recent-runs")
+    calls: list[bool] = []
 
     class _Product:
         def list_property_search_runs(self, *, principal_id: str, limit: int = 8):
             raise AssertionError("explicit shortlist run should not hydrate recent runs")
 
-        def get_property_search_run_status(self, *, principal_id: str, run_id: str):
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+            calls.append(lightweight)
             return {
                 "run_id": run_id,
                 "status": "completed_partial",
@@ -5486,6 +5495,7 @@ def test_property_console_context_skips_recent_run_hydration_for_explicit_shortl
 
     assert context["recent_search_runs"] == []
     assert context["run"]["run_id"] == "run-1"
+    assert calls == [True]
 
 
 def test_property_console_context_uses_lightweight_status_for_explicit_research_run(monkeypatch) -> None:
@@ -8659,6 +8669,38 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     assert "156 scans" not in snapshot["summary_label"]
     assert snapshot["phase_label"] == "Playground: Sigmund-Freud-Park playground is 830 m away. Limit 400 m."
     assert snapshot["source_count_label"] == "25 / 60"
+
+
+def test_property_run_live_board_distinguishes_found_from_reviewed_candidates() -> None:
+    snapshot = property_surface_state.build_property_run_live_board_snapshot(
+        {
+            "status": "running",
+            "progress": 74,
+            "message": "Prepared 30 listing previews from Willhaben.",
+            "summary": {
+                "sources_total": 2,
+                "source_variant_total": 2,
+                "provider_total": 1,
+                "raw_listing_total": 30,
+                "reviewed_listing_total": 0,
+                "ranked_total": 0,
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "platform": "willhaben",
+                        "status": "warming",
+                        "raw_listing_total": 30,
+                        "reviewed_listing_total": 0,
+                        "preview_prepared_total": 30,
+                    }
+                ],
+            },
+        },
+        plan_key="agent",
+    )
+
+    assert "30 homes found" in snapshot["aggregate_label"]
+    assert "30 homes reviewed" not in snapshot["aggregate_label"]
 
 
 def test_property_run_live_board_shows_four_real_provider_lanes_for_agent_runs() -> None:

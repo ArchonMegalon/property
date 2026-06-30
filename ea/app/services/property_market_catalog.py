@@ -4616,6 +4616,12 @@ def _provider_filter_pushdown_payload(
             requested[key] = value
 
     weak_search_query_providers = {
+        "immobilien_net_at",
+        "ohne_makler_at",
+        "sreal_at",
+        "raiffeisen_immobilien_at",
+        "wohnnet_at",
+        "keinmakler_at",
         "re_cr_mls",
         "realtor_cr",
         "coldwellbanker_cr",
@@ -4899,15 +4905,7 @@ def _normalized_location_option_key(value: object) -> str:
 def _adjacent_location_query_variants(preferences: dict[str, object]) -> tuple[str, ...]:
     if bool(preferences.get("full_region_scope")):
         return ()
-    has_postal_scope = bool(
-        any(
-            re.search(r"\b[1-9]\d{3,4}\b", str(value or ""))
-            for value in _explicit_location_query_variants(preferences)
-        )
-    )
-    if _adjacent_area_radius_m_from_preferences(preferences) <= 0 and not (
-        has_postal_scope and str(preferences.get("search_mode") or "").strip().lower() == "discovery"
-    ):
+    if _adjacent_area_radius_m_from_preferences(preferences) <= 0:
         return ()
     selected_variants = _explicit_location_query_variants(preferences)
     if not selected_variants:

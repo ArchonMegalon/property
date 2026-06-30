@@ -3001,7 +3001,7 @@ def _property_console_context(
                 ),
                 None,
             )
-        if not isinstance(active_run, dict) or not active_run:
+        if (not isinstance(active_run, dict) or not active_run) and surface_scope.section != "shortlist":
             active_run = next(
                 (
                     row
@@ -3049,7 +3049,7 @@ def _property_console_context(
                     product.get_property_search_run_status(
                         principal_id=principal_id,
                         run_id=normalized_run_id,
-                        lightweight=surface_scope.section == "research",
+                        lightweight=surface_scope.section in {"research", "shortlist"},
                         account_email=access_email,
                     )
                     or {}
@@ -3060,7 +3060,7 @@ def _property_console_context(
                         product.get_property_search_run_status(
                             principal_id=principal_id,
                             run_id=normalized_run_id,
-                            lightweight=surface_scope.section == "research",
+                            lightweight=surface_scope.section in {"research", "shortlist"},
                         )
                         or {}
                     )

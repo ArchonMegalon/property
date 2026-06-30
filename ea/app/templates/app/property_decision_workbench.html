@@ -258,9 +258,10 @@
 {% set source_variant_total = (summary.get('source_variant_total') or summary.get('sources_total') or source_total or 0)|int %}
 {% set provider_total = (summary.get('provider_total') or 0)|int %}
 {% set provider_display_total = (run.get('provider_display_total') or provider_total)|int %}
-{% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
+{% set raw_listing_total = (summary.get('raw_listing_total') or 0)|int %}
+{% set listing_total = (summary.get('listing_total') or 0)|int %}
 {% set reviewed_total = ((run.get('summary') or {}).get('reviewed_listing_total') or listing_total)|int %}
-{% set checked_label = listing_total|string ~ ' homes checked' if listing_total > 0 else 'checking' %}
+{% set checked_label = (reviewed_total|string ~ ' homes reviewed') if reviewed_total > 0 else (raw_listing_total|string ~ ' homes found' if raw_listing_total > 0 else 'checking') %}
 {% set source_progress_label = source_completed|string ~ ' of ' ~ source_variant_total|string ~ ' provider checks' if source_variant_total > provider_display_total and source_completed > 0 else '' %}
 {% if provider_display_total > 0 %}
 {% set scan_count_label = provider_display_total|string ~ ' providers · ' ~ checked_label %}
@@ -310,7 +311,7 @@
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
       <strong data-pqx-radar-count>{{ source_progress_label or scan_count_label }}</strong>
-      <span class="pqx-small">{% if reviewed_total %}{{ reviewed_total }} homes reviewed{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first checks{% endif %}</span>
+      <span class="pqx-small">{% if reviewed_total %}{{ reviewed_total }} homes reviewed{% elif raw_listing_total %}Reviewing {{ raw_listing_total }} found homes{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first checks{% endif %}</span>
     </div>
     <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider update.' }}</span>
     <div class="pqx-progress-meter under-source" aria-hidden="true">

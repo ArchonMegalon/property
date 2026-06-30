@@ -3,7 +3,10 @@
     <div class="pqx-section-head">
       <div>
         <h2>{% if run_active %}Live search{% else %}Search summary{% endif %}</h2>
-        <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('reviewed_listing_total') or (run.get('summary') or {}).get('listing_total') or 0 }} homes checked so far</div>
+        {% set run_summary_head = run.get('summary') or {} %}
+        {% set run_reviewed_head = run_summary_head.get('reviewed_listing_total') or run_summary_head.get('listing_total') or 0 %}
+        {% set run_found_head = run_summary_head.get('raw_listing_total') or 0 %}
+        <div class="pqx-note" data-pqx-run-summary>{% if run_reviewed_head %}{{ run_reviewed_head }} homes reviewed{% elif run_found_head %}{{ run_found_head }} homes found{% else %}Checking providers{% endif %}</div>
       </div>
       <div class="pqx-inline-actions">
         {% if run_active %}
@@ -22,6 +25,7 @@
     {% set run_summary = run.get('summary') or {} %}
     {% set run_reliability = run.get('reliability') or {} %}
     {% set run_reviewed_total = run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0 %}
+    {% set run_found_total = run_summary.get('raw_listing_total') or 0 %}
     {% set run_provider_total = run_summary.get('provider_total') or run_summary.get('source_variant_total') or 0 %}
     {% set run_provider_label = run_provider_total|string ~ ' provider checks' if run_provider_total else 'selected providers' %}
     {% set run_repair_status = (run_summary.get('repair_status') or run_summary.get('repair_status_label') or '')|lower %}
@@ -32,6 +36,8 @@
     {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] %}
       {% if run_reviewed_total %}
       {% set run_message_display = 'Checking ' ~ run_provider_label ~ ' · ' ~ run_reviewed_total ~ ' homes reviewed.' %}
+      {% elif run_found_total %}
+      {% set run_message_display = 'Found ' ~ run_found_total ~ ' homes. Reviews are starting.' %}
       {% elif run_provider_total %}
       {% set run_message_display = 'Preparing ' ~ run_provider_label ~ '.' %}
       {% else %}

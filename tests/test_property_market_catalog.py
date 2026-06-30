@@ -430,6 +430,60 @@ def test_normalize_property_search_preferences_scopes_full_region_backend_runs()
     assert payload["selected_location_values"] == []
 
 
+def test_generated_source_specs_do_not_expand_selected_districts_without_radius() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "search_mode": "discovery",
+            "location_query": "1010 Vienna, 1020 Vienna",
+            "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+        },
+        selected_platforms=("ohne_makler_at",),
+        principal_id="cf-email:person@example.test",
+    )
+
+    assert [row["location_query"] for row in specs] == ["1010 Vienna", "1020 Vienna"]
+
+
+def test_generated_source_specs_expand_selected_districts_only_with_explicit_radius() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "search_mode": "discovery",
+            "location_query": "1010 Vienna",
+            "selected_location_values": ["1010 Vienna"],
+            "adjacent_area_radius_m": 850,
+        },
+        selected_platforms=("ohne_makler_at",),
+        principal_id="cf-email:person@example.test",
+    )
+
+    locations = [str(row["location_query"]) for row in specs]
+    assert locations[0] == "1010 Vienna"
+    assert len(locations) > 1
+
+
+def test_generated_source_specs_marks_weak_austrian_location_queries_as_attempted() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_location_values": ["1010 Vienna"],
+        },
+        selected_platforms=("ohne_makler_at",),
+        principal_id="cf-email:person@example.test",
+    )
+
+    assert specs
+    pushdown = dict(specs[0].get("provider_filter_pushdown") or {})
+    assert dict(pushdown.get("attempted") or {}).get("location_query") == "1010 Vienna"
+    assert dict(pushdown.get("applied") or {}).get("location_query") is None
+    assert "location_query" in list(pushdown.get("post_filter_only") or [])
+
+
 def test_normalize_property_search_preferences_drops_stale_austrian_postal_codes_for_foreign_searches() -> None:
     payload = normalize_property_search_preferences(
         {
@@ -1240,7 +1294,7 @@ def test_generated_source_specs_expand_selected_districts_to_adjacent_sources_wh
     )
 
 
-def test_generated_source_specs_expand_selected_districts_to_adjacent_sources_without_radius() -> None:
+def test_generated_source_specs_keep_selected_districts_exact_without_radius() -> None:
     specs = generated_source_specs(
         preferences={
             "country_code": "AT",
@@ -1260,7 +1314,7 @@ def test_generated_source_specs_expand_selected_districts_to_adjacent_sources_wi
 
     location_queries = [str(row["location_query"]) for row in specs]
     assert location_queries[0] == "1010 Vienna"
-    assert {"1020 Vienna", "1030 Vienna", "1040 Vienna", "1090 Vienna"}.issubset(set(location_queries))
+    assert location_queries == ["1010 Vienna"]
 
 
 def test_generated_source_specs_ignore_stale_districts_for_full_region_scope() -> None:

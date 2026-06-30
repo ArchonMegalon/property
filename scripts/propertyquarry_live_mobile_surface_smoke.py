@@ -782,6 +782,7 @@ def build_live_mobile_surface_receipt(
                 viewport={"width": viewport_width, "height": viewport_height},
                 is_mobile=True,
                 has_touch=True,
+                service_workers="block",
                 extra_http_headers=headers,
             )
             for route in routes:
@@ -1068,4 +1069,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    exit_code = main()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # Playwright/browser helper processes can keep Python alive after the
+    # receipt is flushed. A smoke gate must return deterministically.
+    os._exit(exit_code)

@@ -1600,7 +1600,8 @@ def build_property_run_live_board_snapshot(
     source_total = max(0, _positive_int(summary.get("sources_total")))
     source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
     source_total = max(source_total, _positive_int(summary.get("source_variant_total")), len(source_rows))
-    reviewed_total = max(0, _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total") or summary.get("raw_listing_total")))
+    reviewed_total = max(0, _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total")))
+    found_total = max(0, _positive_int(summary.get("raw_listing_total")))
     waiting_on_floorplans = max(0, _positive_int(summary.get("filtered_floorplan_total")))
     packet_prepared = max(0, _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total")))
     shortlist_ready = _property_summary_ranked_total(summary)
@@ -1610,7 +1611,11 @@ def build_property_run_live_board_snapshot(
     active_source_label = _canonical_property_run_source_label(current_info.get("source_label") or live_info.get("source_label") or "")
     message_text = str(payload.get("message") or "").strip().lower()
 
-    aggregate_label = f"{reviewed_total} homes reviewed"
+    aggregate_label = (
+        f"{reviewed_total} homes reviewed"
+        if reviewed_total > 0
+        else (f"{found_total} homes found" if found_total > 0 else "checking")
+    )
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} still waiting on floorplans"
     phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first provider update."
