@@ -230,8 +230,8 @@ def build_property_shortlist_panel(
         }
         review_url = str(candidate.get("review_url") or "").strip()
         tour_url = str(candidate.get("tour_url") or "").strip()
-        property_url = str(candidate.get("property_url") or "").strip()
         external_listing_url = _candidate_external_listing_url(candidate, facts=candidate_facts)
+        property_url = external_listing_url
         packet_ref = property_candidate_ref(
             {
                 "title": title,
@@ -260,30 +260,30 @@ def build_property_shortlist_panel(
             if row.get("secondary_action_href"):
                 row["tertiary_action_href"] = tour_url
                 row["tertiary_action_method"] = "get"
-                row["tertiary_action_label"] = "Open 360"
+                row["tertiary_action_label"] = "Open 3D tour"
             elif row.get("action_href"):
                 row["secondary_action_href"] = tour_url
                 row["secondary_action_method"] = "get"
-                row["secondary_action_label"] = "Open 360"
+                row["secondary_action_label"] = "Open 3D tour"
             else:
                 row["action_href"] = tour_url
                 row["action_method"] = "get"
-                row["action_label"] = "Open 360"
-        if property_url:
+                row["action_label"] = "Open 3D tour"
+        if external_listing_url:
             if row.get("tertiary_action_href"):
-                row["quaternary_action_href"] = property_url
+                row["quaternary_action_href"] = external_listing_url
                 row["quaternary_action_method"] = "get"
                 row["quaternary_action_label"] = "Source"
             elif row.get("secondary_action_href"):
-                row["tertiary_action_href"] = property_url
+                row["tertiary_action_href"] = external_listing_url
                 row["tertiary_action_method"] = "get"
                 row["tertiary_action_label"] = "Source"
             elif row.get("action_href"):
-                row["secondary_action_href"] = property_url
+                row["secondary_action_href"] = external_listing_url
                 row["secondary_action_method"] = "get"
                 row["secondary_action_label"] = "Source"
             else:
-                row["action_href"] = property_url
+                row["action_href"] = external_listing_url
                 row["action_method"] = "get"
                 row["action_label"] = "Source"
         property_shortlist_rows.append(row)

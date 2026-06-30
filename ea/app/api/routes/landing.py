@@ -424,8 +424,8 @@ def _property_pricing_billing_link_copy(handoff: dict[str, object] | None = None
         )
     if status == "bridge_ready":
         return (
-            "Open billing account",
-            "Continue through the PropertyQuarry billing bridge.",
+            "Continue billing sign-in",
+            "Use the same email in the billing lane.",
         )
     if status in {"login_required", "unresolved", "verifying", "disabled"}:
         return (
@@ -1039,11 +1039,11 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         verified_tour_href = ""
         tour_label = ""
         try:
-            if property_tour_hosting._hosted_property_tour_has_matterport_export(bundle_tour_url):
-                verified_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/matterport"
-                tour_label = "3D tour ready"
-            elif property_tour_hosting._hosted_property_tour_has_3dvista_export(bundle_tour_url):
+            if property_tour_hosting._hosted_property_tour_has_3dvista_export(bundle_tour_url):
                 verified_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/3dvista"
+                tour_label = "3D tour ready"
+            elif property_tour_hosting._hosted_property_tour_has_matterport_export(bundle_tour_url):
+                verified_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/matterport"
                 tour_label = "3D tour ready"
         except Exception:
             verified_tour_href = ""
@@ -3208,7 +3208,7 @@ def _property_console_context(
                 if hosted_url:
                     row["action_href"] = hosted_url
                     row["action_method"] = "get"
-                    row["action_label"] = "Open 360"
+                    row["action_label"] = "Open 3D tour"
                 if review_url:
                     if hosted_url:
                         row["secondary_action_href"] = review_url
@@ -5107,7 +5107,7 @@ def property_research_packet(
     if not timeline_rows:
         timeline_rows = [
             _object_detail_row("Shortlist state", "This property page is ready for a decision and agent follow-up.", "Now"),
-            _object_detail_row("Tour state", _property_tour_detail_line(candidate), "360"),
+            _object_detail_row("Tour state", _property_tour_detail_line(candidate), "3D tour"),
             _object_detail_row("Feedback state", "No timeline events are recorded yet. The first saved decision will start the visible timeline.", "Waiting"),
         ]
     latest_magic_fit_scene: dict[str, object] = {}

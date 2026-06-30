@@ -909,7 +909,7 @@
       if (!link) {
         link = document.createElement('a');
         link.className = 'pqx-result-fact pqx-result-tour-link';
-        link.textContent = '360 ready';
+        link.textContent = '3D tour ready';
         facts.appendChild(link);
       }
       link.setAttribute('href', resolvedTourUrl);
@@ -2803,7 +2803,7 @@
         const factChips = [
           layout ? `<span class="pqx-result-fact">${escapeHtml(layout)}</span>` : '',
           tourUrl
-            ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}" title="${escapeHtml(tourDetail || '3D tour ready')}" aria-label="3D tour ready">360 ready</a>`
+            ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}" title="${escapeHtml(tourDetail || '3D tour ready')}" aria-label="3D tour ready">3D tour ready</a>`
             : '',
           flythroughUrl
             ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughDetail || 'Walkthrough ready')}" aria-label="Walkthrough ready">Walkthrough ready</a>`

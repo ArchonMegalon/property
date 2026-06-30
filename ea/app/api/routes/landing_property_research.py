@@ -668,7 +668,6 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     hosted_tour_ready = _property_hosted_tour_ready(tour_url)
     verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) if hosted_tour_ready else ""
     verified_tour_provider = property_tour_hosting._hosted_property_tour_verified_provider(tour_url) if hosted_tour_ready else ""
-    verified_tour_provider_label = _property_visual_provider_label(verified_tour_provider) if verified_tour_provider else ""
     embed_href = verified_tour_href if hosted_tour_ready else ""
     verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(tour_url) or property_tour_hosting._published_walkthrough_asset_url(
         candidate.get("flythrough_url")
@@ -698,37 +697,35 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     ):
         walkthrough_status = str(live_walkthrough_progress.get("status") or "").strip().lower()
     vendor_tour_provider = property_tour_hosting._property_tour_provider_host_kind(vendor_tour_url) if vendor_tour_url else ""
-    vendor_tour_provider_label = _property_visual_provider_label(vendor_tour_provider) if vendor_tour_provider else ""
     walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
-    walkthrough_provider_label = _property_visual_provider_label(walkthrough_provider) if walkthrough_provider else ""
     if hosted_tour_ready:
         status_label = "3D tour ready"
         status_detail = "3D tour is ready on this page and should be reviewed before the raw listing."
     elif tour_url:
-        status_label = "360 needs rebuild"
+        status_label = "3D tour needs rebuild"
         status_detail = _hosted_tour_rebuild_detail()
     elif vendor_tour_url:
         status_label = "Original tour available"
         status_detail = "The original tour is available. Open it directly while the in-page 3D tour is still missing."
     elif status in {"queued", "pending"}:
-        status_label = "360 queued"
+        status_label = "3D tour queued"
         status_detail = (
             "Tour generation is still queued. Taking longer than usual."
             if eta_label.startswith("delayed")
             else f"Tour generation is queued. ETA {eta_label or f'about {eta_minutes or 10} min'}."
         )
     elif status in {"processing", "running", "in_progress", "started", "rendering"}:
-        status_label = "360 rendering"
+        status_label = "3D tour rendering"
         status_detail = (
             "Tour generation is still rendering. Taking longer than usual."
             if eta_label.startswith("delayed")
             else f"Tour generation is running. ETA {eta_label or f'about {eta_minutes or 5} min'}."
         )
     elif status in {"blocked", "failed", "skipped", "not_applicable"}:
-        status_label = "360 unavailable"
+        status_label = "3D tour unavailable"
         status_detail = _property_tour_source_gap_detail(candidate)
     else:
-        status_label = "360 unavailable"
+        status_label = "3D tour unavailable"
         status_detail = _property_tour_source_gap_detail(candidate)
     return {
         "status_label": status_label,
@@ -748,9 +745,9 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "tertiary_href": vendor_tour_url if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
         "tertiary_label": "Open original tour" if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
         "walkthrough_href": verified_walkthrough_href,
-        "provider_label": verified_tour_provider_label or vendor_tour_provider_label,
+        "provider_label": "3D tour" if hosted_tour_ready or vendor_tour_url else "",
         "provider_key": verified_tour_provider or vendor_tour_provider,
-        "walkthrough_provider_label": walkthrough_provider_label,
+        "walkthrough_provider_label": "Walkthrough" if walkthrough_provider or walkthrough_ready else "",
         "walkthrough_provider_key": walkthrough_provider,
         "walkthrough_status_detail": (
             "Walkthrough is ready on this page."

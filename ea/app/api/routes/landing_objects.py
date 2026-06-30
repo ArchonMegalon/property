@@ -620,7 +620,7 @@ def handoff_detail(
                 "Action",
                 href=primary_tour_url or review_path,
                 secondary_action_href=primary_tour_url or "",
-                secondary_action_label="Open 360" if primary_tour_url else "",
+                secondary_action_label="Open 3D tour" if primary_tour_url else "",
                 secondary_action_method="get" if primary_tour_url else "",
             ),
             _object_detail_row(
@@ -734,7 +734,7 @@ def handoff_detail(
                     "Tour",
                     href=primary_tour_url,
                     secondary_action_href=primary_tour_url,
-                    secondary_action_label="Open 360" if primary_tour_url else "",
+                    secondary_action_label="Open 3D tour" if primary_tour_url else "",
                     secondary_action_method="get" if primary_tour_url else "",
                 ),
                 _object_detail_row(

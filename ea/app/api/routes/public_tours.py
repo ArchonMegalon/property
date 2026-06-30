@@ -4000,7 +4000,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <div class="shell">
       <section class="hero">
         <div class="card hero-main">
-          <div class="eyebrow">PropertyQuarry <span>•</span> Hosted 360</div>
+          <div class="eyebrow">PropertyQuarry <span>•</span> Hosted 3D tour</div>
           <h1>{title_html}</h1>
           <p class="sub">A white-label 360 review with an actual panorama viewer, a clear scene overview, and floorplan access on the same surface. Pure 360 hosted on {hosted_brand_html}.</p>
           <div class="actions">

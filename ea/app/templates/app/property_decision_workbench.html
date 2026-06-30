@@ -11621,7 +11621,7 @@
                 <div>
                   <div class="pqx-small">{{ hero_kicker or 'Research pages' }}</div>
                   <h2>{{ hero_title or 'Inspect the evidence before you open the raw listing.' }}</h2>
-                  <div class="pqx-note">{{ hero_summary or 'Hosted property pages and 360 tours stay primary. Raw portal links remain secondary.' }}</div>
+                  <div class="pqx-note">{{ hero_summary or 'Hosted property pages and 3D tours stay primary. Raw portal links remain secondary.' }}</div>
                 </div>
               </div>
               {% if hero_actions %}
@@ -11636,7 +11636,7 @@
             <div class="pqx-section-head">
               <div>
                 <h2>{% if surface_mode == 'research' %}Open the strongest property pages first{% else %}Best matches{% endif %}</h2>
-                <div class="pqx-note" data-pqx-run-summary">{% if surface_mode == 'research' %}Hosted property pages and 360 tours stay primary. {{ results|length }} ranked homes are ready for review{% if run_active %} while the rest of the search keeps checking in the background{% endif %}.{% else %}{{ results|length }} homes ranked from the current brief{% if run_active %} · search is still checking the rest in the background{% endif %}{% endif %}</div>
+                <div class="pqx-note" data-pqx-run-summary">{% if surface_mode == 'research' %}Hosted property pages and 3D tours stay primary. {{ results|length }} ranked homes are ready for review{% if run_active %} while the rest of the search keeps checking in the background{% endif %}.{% else %}{{ results|length }} homes ranked from the current brief{% if run_active %} · search is still checking the rest in the background{% endif %}{% endif %}</div>
               </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
@@ -11708,9 +11708,9 @@
                     {% if hosted_tour_url %}
                     <a href="{{ hosted_tour_url }}" target="_blank" rel="noreferrer">
                       {% if hosted_tour_provider == 'matterport' or 'matterport' in hosted_tour_url|lower %}
-                      Matterport
+                      3D tour
                       {% elif hosted_tour_provider == '3dvista' or '3dvista' in hosted_tour_url|lower %}
-                      3DVista
+                      3D tour
                       {% else %}
                       3D tour
                       {% endif %}

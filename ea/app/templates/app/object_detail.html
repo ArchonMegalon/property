@@ -680,20 +680,20 @@
   <section class="object-panel object-media-frame">
     <div class="object-media-frame-inner">
       {% if object_media.get('embed_href') %}
-      <iframe src="{{ object_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
-      <div class="object-media-toolbar" aria-label="360 tour status and actions">
-        <div class="object-media-status">{{ object_media.get('status_label') or '360 ready' }}</div>
+      <iframe src="{{ object_media.get('embed_href') }}" title="Property 3D tour" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <div class="object-media-toolbar" aria-label="3D tour status and actions">
+        <div class="object-media-status">{{ object_media.get('status_label') or '3D tour ready' }}</div>
         <div class="object-actions">
-          {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 360' }}</a>{% endif %}
+          {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 3D tour' }}</a>{% endif %}
           {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open property page' }}</a>{% endif %}
           {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open listing' }}</a>{% endif %}
         </div>
       </div>
       {% else %}
       <div class="object-media-placeholder">
-        <div class="object-media-status">{{ object_media.get('status_label') or '360 pending' }}</div>
+        <div class="object-media-status">{{ object_media.get('status_label') or '3D tour pending' }}</div>
         <div class="object-media-placeholder-copy">
-          <h2>{{ object_media.get('status_label') or '360 pending' }}</h2>
+          <h2>{{ object_media.get('status_label') or '3D tour pending' }}</h2>
           <p class="object-copy">{{ object_media.get('status_detail') or 'The tour preview is still catching up.' }}</p>
         </div>
         <div class="object-actions">

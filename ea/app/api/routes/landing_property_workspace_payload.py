@@ -2106,7 +2106,7 @@ def property_workspace_payload(
                 provider_key = property_tour_hosting._property_tour_provider_host_kind(provider_tour_url)  # type: ignore[attr-defined]
             except Exception:
                 provider_key = ""
-            provider_label = _visual_provider_label(provider_key) if provider_key else "Original tour"
+            provider_label = "3D tour" if provider_key else "Original tour"
             visual_runtime = _visual_runtime_payload(
                 candidate,
                 request_kind="tour",
@@ -2122,9 +2122,9 @@ def property_workspace_payload(
                 "progress_pct": visual_runtime["progress_pct"],
                 "provider_label": provider_label,
                 "provider_key": provider_key,
-                "status_detail": f"{provider_label} is available, but no in-page 3D tour is ready yet.",
+                "status_detail": "Original tour is available, but no in-page 3D tour is ready yet.",
                 "recovery_label": "",
-                "control_label": f"Open {provider_label}" if provider_key else "Open original tour",
+                "control_label": "Open 3D tour" if provider_key else "Open original tour",
             }
         if status in {"queued", "pending"}:
             visual_runtime = _visual_runtime_payload(
@@ -2232,7 +2232,7 @@ def property_workspace_payload(
         if terminal_status and status in _pending_visual_states:
             status = terminal_status
         provider = str(candidate.get("flythrough_provider") or "").strip()
-        provider_label = _visual_provider_label(provider) if provider else ""
+        provider_label = "Walkthrough" if provider else ""
         try:
             from app.product import property_tour_hosting
 
@@ -2259,7 +2259,7 @@ def property_workspace_payload(
                 "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
-                "status_detail": f"{ready_detail} on this page.",
+                "status_detail": "Walkthrough is ready on this page.",
                 "recovery_label": "",
             }
         if status in {"queued", "pending"}:
@@ -2280,11 +2280,7 @@ def property_workspace_payload(
                 "provider_label": provider_label,
                 "provider_key": provider,
                 "status_detail": str(visual_runtime.get("status_detail") or "").strip() or (
-                    f"{provider_label} render is still queued. Taking longer than usual."
-                    if provider_label and str(visual_runtime["eta_label"]).startswith("delayed")
-                    else f"{provider_label} render is queued behind the current visual batch."
-                    if provider_label
-                    else "Walkthrough is still queued behind the current visual batch."
+                    "Walkthrough is still queued behind the current visual batch."
                     if str(visual_runtime["eta_label"]).startswith("delayed")
                     else "Walkthrough is queued behind the current visual batch."
                 ),
@@ -3009,7 +3005,7 @@ def property_workspace_payload(
         results_table_rows.append(
             {
                 "cells": [
-                    {"title": "Open 360" if str(tour_payload.get("url") or "").strip() else tour_status_line, "detail": "Hosted 360 tour" if str(tour_payload.get("url") or "").strip() else "", "href": str(tour_payload.get("url") or "").strip()},
+                    {"title": "Open 3D tour" if str(tour_payload.get("url") or "").strip() else tour_status_line, "detail": "Hosted 3D tour" if str(tour_payload.get("url") or "").strip() else "", "href": str(tour_payload.get("url") or "").strip()},
                     {"title": f"#{len(results_table_rows) + 1} {str(candidate.get('title') or 'Candidate').strip() or 'Candidate'}", "detail": str(candidate.get("source_label") or "").strip()},
                     {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
                     {"title": "Open Map" if map_url else "Map pending", "detail": "", "href": map_url},
@@ -3149,7 +3145,7 @@ def property_workspace_payload(
         "shortlist": [
             {"label": "Candidates", "value": str(len(admitted_shortlist_candidates)), "detail": "Ranked properties worth direct review now.", "href": f"/app/shortlist{run_suffix}"},
             {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready before the raw portal listing.", "href": f"/app/research{run_suffix}"},
-            {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted or embedded tours already available.", "href": f"/app/research{run_suffix}"},
+            {"label": "3D tours", "value": str(tour_ready_total), "detail": "Hosted or embedded tours already available.", "href": f"/app/research{run_suffix}"},
             {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest run status.", "href": f"/app/properties{run_suffix}"},
         ],
         "research": [
@@ -3360,6 +3356,14 @@ def property_workspace_payload(
     )
     alerts_rows.insert(
         1,
+        row_item(
+            "Pause or resume",
+            "Channels stay opt-in. Reply STOP to pause alerts and START to resume them.",
+            "STOP/START",
+        ),
+    )
+    alerts_rows.insert(
+        2,
         row_item(
             "Source follow-up",
             delivery_recovery_label,
@@ -3674,7 +3678,7 @@ def property_workspace_payload(
                 "action_label": "Open property page",
                 "secondary_action_href": str(external_listing_url or tour_url or "").strip(),
                 "secondary_action_method": "get" if (external_listing_url or tour_url) else "",
-                "secondary_action_label": "Open listing" if external_listing_url else ("Open 360" if tour_url else ""),
+                "secondary_action_label": "Open listing" if external_listing_url else ("Open 3D tour" if tour_url else ""),
             }
         )
     if not research_rows:
@@ -3789,7 +3793,7 @@ def property_workspace_payload(
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
                 {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready now."},
-                {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
+                {"label": "3D tours", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
             ]),
             "primary_cards": [] if (run_status_value in {"processed", "completed"} and results_table_rows) or run_in_progress else [search_posture_card, market_coverage_card],
             "secondary_cards": [] if run_status_value in {"processed", "completed"} and results_table_rows else ([run_card] if run_in_progress else [run_card, recent_matches_card]),
@@ -3827,7 +3831,7 @@ def property_workspace_payload(
                 {
                     "eyebrow": "Research pages",
                     "title": "Open the strongest property pages first",
-                    "body": "Hosted property pages and 360 tours stay primary. Raw portal links remain secondary.",
+                    "body": "Hosted property pages and 3D tours stay primary. Raw portal links remain secondary.",
                     "items": research_rows,
                 }
             ],

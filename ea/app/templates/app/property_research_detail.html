@@ -2993,9 +2993,9 @@
     {% for action in visual_actions.items %}
       {% set action_label = (action.get('label') or '')|lower %}
       {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': research_media.get('provider_label') or ('3D tour' if action.get('href') else '3D tour pending'), 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open the tour or rebuild it from this page.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': ('3D tour' if action.get('href') else '3D tour pending'), 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open the tour or rebuild it from this page.', 'action': action}] %}
       {% elif action.get('kind') == 'flythrough' or 'walkthrough' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': ('MagicFit walkthrough' if action.get('href') else 'MagicFit walkthrough pending'), 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': ('Walkthrough ready' if action.get('href') else 'Walkthrough pending'), 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
       {% endif %}
     {% endfor %}
     {% set visual_status = namespace(active=None) %}
@@ -3013,7 +3013,7 @@
     {% endif %}
     <section class="prd-media-stack">
       {% set inline_media_preview = research_preview_image or research_location_preview.get('image_url') or '' %}
-      <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live prd-media-frame-inline-gated{% endif %}" data-object-media-stage{% if research_media.get('embed_href') %} data-prd-inline-viewer-stage{% endif %}>
+      <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live{% endif %}" data-object-media-stage>
         <div class="prd-media-badge">
           {% if research_media.get('show_status_line') %}
             {{ research_media.get('status_label') or 'Media' }}
@@ -3026,18 +3026,7 @@
           {% endif %}
         </div>
         {% if research_media.get('embed_href') %}
-        <iframe data-prd-inline-viewer data-prd-inline-viewer-src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
-        <button class="prd-inline-viewer-placeholder" type="button" data-prd-inline-viewer-launch aria-label="Load 3D viewer">
-          {% if inline_media_preview %}
-          <span class="prd-inline-viewer-art" aria-hidden="true"><img src="{{ inline_media_preview }}" alt="" loading="lazy"></span>
-          {% endif %}
-          <span class="prd-inline-viewer-copy">
-            <span class="prd-inline-viewer-kicker">{{ research_media.get('provider_label') or '3D tour' }}</span>
-            <strong>{{ research_media.get('status_label') or '3D tour ready' }}</strong>
-            <span>{{ research_media.get('status_detail') or 'Open the live viewer only when you want it.' }}</span>
-          </span>
-          <span class="prd-inline-viewer-action">Load viewer</span>
-        </button>
+        <iframe data-prd-inline-viewer src="{{ research_media.get('embed_href') }}" title="Property 3D tour" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
         {% elif research_preview_image %}
         <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image data-prd-hero-fallback-src="{{ research_location_preview.get('image_url') or '' }}">
         {% elif research_location_preview.get('image_url') %}
@@ -3074,13 +3063,8 @@
             <p class="prd-visual-card-copy">{{ visual_card.get('copy') }}</p>
             {% if visual_card.get('key') == 'tour' %}
             <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
-              {% set verified_provider_label = research_media.get('provider_label') or '' %}
               {% if action.get('href') %}
-              {% if verified_provider_label %}
-              Tour: {{ verified_provider_label }}.
-              {% else %}
-              Tour: available.
-              {% endif %}
+              3D tour ready.
               {% else %}
               No 3D tour yet.
               {% endif %}
@@ -3953,44 +3937,6 @@
       markFailed();
     }
   });
-  const inlineViewerStage = document.querySelector('[data-prd-inline-viewer-stage]');
-  const inlineViewerFrame = inlineViewerStage?.querySelector('[data-prd-inline-viewer]');
-  const inlineViewerLaunch = inlineViewerStage?.querySelector('[data-prd-inline-viewer-launch]');
-  const inlineViewerQuery = window.matchMedia('(max-width: 760px)');
-  const activateInlineViewer = () => {
-    if (!(inlineViewerStage instanceof HTMLElement) || !(inlineViewerFrame instanceof HTMLIFrameElement)) return;
-    const src = String(inlineViewerFrame.getAttribute('data-prd-inline-viewer-src') || '').trim();
-    if (src && !String(inlineViewerFrame.getAttribute('src') || '').trim()) {
-      inlineViewerFrame.setAttribute('src', src);
-    }
-    inlineViewerStage.classList.add('is-inline-viewer-active');
-    inlineViewerFrame.hidden = false;
-    if (inlineViewerLaunch instanceof HTMLElement) inlineViewerLaunch.hidden = true;
-  };
-  const syncInlineViewer = () => {
-    if (!(inlineViewerStage instanceof HTMLElement) || !(inlineViewerFrame instanceof HTMLIFrameElement)) return;
-    const mobile = inlineViewerQuery.matches;
-    const activated = inlineViewerStage.dataset.prdInlineViewerActivated === '1';
-    if (!mobile || activated) {
-      activateInlineViewer();
-      return;
-    }
-    inlineViewerStage.classList.remove('is-inline-viewer-active');
-    inlineViewerFrame.hidden = true;
-    inlineViewerFrame.removeAttribute('src');
-    if (inlineViewerLaunch instanceof HTMLElement) inlineViewerLaunch.hidden = false;
-  };
-  inlineViewerLaunch?.addEventListener('click', () => {
-    if (!(inlineViewerStage instanceof HTMLElement)) return;
-    inlineViewerStage.dataset.prdInlineViewerActivated = '1';
-    activateInlineViewer();
-  });
-  syncInlineViewer();
-  if (typeof inlineViewerQuery.addEventListener === 'function') {
-    inlineViewerQuery.addEventListener('change', syncInlineViewer);
-  } else if (typeof inlineViewerQuery.addListener === 'function') {
-    inlineViewerQuery.addListener(syncInlineViewer);
-  }
   const applyVisualButtonState = (button, state) => {
     if (!(button instanceof HTMLButtonElement)) return;
     const normalized = state && typeof state === 'object' ? state : {};

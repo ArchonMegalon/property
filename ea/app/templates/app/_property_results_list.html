@@ -14,7 +14,7 @@
       <div class="pqx-title" style="margin-bottom:12px;">
         <span>{{ hero_kicker or 'Research pages' }}</span>
         <h1>{{ hero_title or 'Inspect the evidence before you open the raw listing.' }}</h1>
-        <p class="pqx-note">{{ hero_summary or 'Hosted property pages and 360 tours stay primary. Raw portal links remain secondary.' }}</p>
+        <p class="pqx-note">{{ hero_summary or 'Hosted property pages and 3D tours stay primary. Raw portal links remain secondary.' }}</p>
       </div>
       {% if hero_actions %}
       <div class="pqx-actions" style="margin:0 0 12px;">
@@ -33,7 +33,7 @@
         {% endif %}
       </div>
       {% if is_research_surface %}
-      <div class="pqx-note">Open the strongest property pages first. Hosted property pages and 360 tours stay primary.</div>
+      <div class="pqx-note">Open the strongest property pages first. Hosted property pages and 3D tours stay primary.</div>
       {% endif %}
     </div>
   </div>
@@ -152,16 +152,10 @@
               <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('market_delta_display') }}</span>
               {% endif %}
               {% if tour.get('url') %}
-              <a class="pqx-result-fact pqx-result-tour-link" href="{{ tour.get('url') }}" title="{{ tour.get('detail') or '3D tour ready' }}" aria-label="3D tour ready" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">360 ready</a>
+              <a class="pqx-result-fact pqx-result-tour-link" href="{{ tour.get('url') }}" title="{{ tour.get('detail') or '3D tour ready' }}" aria-label="3D tour ready" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">3D tour ready</a>
               {% endif %}
               {% if walkthrough.get('url') %}
               <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}" title="{{ walkthrough.get('detail') or 'Walkthrough ready' }}" aria-label="Walkthrough ready">Walkthrough ready</a>
-              {% endif %}
-              {% if tour_provider_label and tour.get('url') %}
-              <span class="pqx-result-fact">{{ tour_provider_label }}</span>
-              {% endif %}
-              {% if walkthrough_provider_label and walkthrough.get('url') %}
-              <span class="pqx-result-fact">{{ walkthrough_provider_label }}</span>
               {% endif %}
             </span>
           </span>
@@ -195,7 +189,7 @@
           <a class="pqx-result-open" href="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') }}" target="_blank" rel="noopener noreferrer">Open listing</a>
           {% endif %}
           {% if tour.get('url') and not shortlist_compact_actions %}
-          <a class="pqx-result-open" href="{{ tour.get('url') }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">{% if (tour.get('provider_label') or '') == 'Matterport' %}Open Matterport{% elif (tour.get('provider_label') or '') == '3DVista' %}Open 3DVista{% else %}Open 3D tour{% endif %}</a>
+          <a class="pqx-result-open" href="{{ tour.get('url') }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">Open 3D tour</a>
           {% elif tour_pending and not shortlist_compact_actions %}
           <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ tour_progress }}%;" title="{{ tour_tooltip }}" aria-label="{{ tour_tooltip }}">{{ tour.get('label') or '3D tour queued' }}</button>
           {% elif visual_property_url and not shortlist_compact_actions %}

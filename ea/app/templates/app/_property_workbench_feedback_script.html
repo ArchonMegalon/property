@@ -175,7 +175,7 @@
       const runId = String(data.run?.run_id || meta.run_id || '').trim();
       if (tour.url) {
         appendActionControl(node, {
-          label: 'Open 360',
+          label: 'Open 3D tour',
           href: String(tour.url || ''),
           link: true,
           primary: true,
@@ -885,7 +885,7 @@
           clearNode(tourNode);
           const iframe = document.createElement('iframe');
           iframe.src = String(tour.embed_url || '');
-          iframe.title = 'Property 360 tour';
+          iframe.title = 'Property 3D tour';
           iframe.loading = 'lazy';
           iframe.allowFullscreen = true;
           tourNode.appendChild(iframe);
@@ -903,7 +903,7 @@
         const hasTour = Boolean(tour.url || tour.embed_url);
         oodaSummary.textContent = candidate.ooda?.summary || (hasTour
           ? 'Start with the tour, then check the facts below before deciding.'
-          : 'No 360 tour is attached yet.');
+          : 'No 3D tour is attached yet.');
       });
       root.querySelectorAll('[data-pw-match]').forEach((match) => {
         renderReasonCards(match, candidate.match_reasons, { emptyTitle: 'No explicit match reason captured yet.', defaultTitle: 'Fit' });

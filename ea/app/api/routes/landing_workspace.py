@@ -843,7 +843,7 @@ def settings_usage_detail(
         if int(property_usage["packet_ready_total"] or 0) > 0:
             research_output_items.append(_object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"))
         if int(property_usage["tour_ready_total"] or 0) > 0:
-            research_output_items.append(_object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"))
+            research_output_items.append(_object_detail_row("3D tours ready", str(property_usage["tour_ready_total"]), "Tour"))
         research_output_items.extend(
             [
                 _object_detail_row("Current plan", current_plan.replace("_", " ").title(), "Plan", href=billing_href),
@@ -914,7 +914,7 @@ def settings_usage_detail(
             usage_sections.append(
                 {
                     "eyebrow": "Research output",
-                    "title": "Dossiers, pages, and 360 tours",
+                    "title": "Dossiers, pages, and 3D tours",
                     "items": research_output_items,
                 }
             )
@@ -1118,7 +1118,7 @@ def settings_support_detail(
                         _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), ""),
                         _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), ""),
                         _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), ""),
-                        _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), ""),
+                        _object_detail_row("3D tours ready", str(property_usage["tour_ready_total"]), ""),
                     ],
                 },
                 {
@@ -1494,7 +1494,7 @@ def settings_outcomes_detail(
                     "title": "Property pages and tours ready",
                     "items": [
                         _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
-                        _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
+                        _object_detail_row("3D tours ready", str(property_usage["tour_ready_total"]), "Tour"),
                         _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
                         _object_detail_row("First value event", str(outcomes.get("first_value_event") or "pending").replace("_", " "), "Activation"),
                     ],
@@ -2074,7 +2074,7 @@ def settings_trust_detail(
             object_meta=[
                 {"label": "Ranked homes", "value": str(property_usage["ranked_total"])},
                 {"label": "Property pages", "value": str(property_usage["packet_ready_total"])},
-                {"label": "360 tours", "value": str(property_usage["tour_ready_total"])},
+                {"label": "3D tours", "value": str(property_usage["tour_ready_total"])},
                 {"label": "Plan", "value": str(billing.get("current_plan_label") or billing.get("current_plan_key") or "Free").replace("_", " ").title()},
             ],
             object_sidebar_title="Why this is reliable",

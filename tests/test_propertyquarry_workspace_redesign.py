@@ -3793,7 +3793,7 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
     assert targets == {
         "demo_href": "/tours/demo-home-tour",
         "tour_href": "/tours/demo-home-tour/control/matterport",
-        "tour_label": "Matterport ready",
+        "tour_label": "3D tour ready",
         "walkthrough_href": "/tours/files/demo-home-tour/tour.mp4",
         "walkthrough_label": "Walkthrough ready",
     }
@@ -3807,7 +3807,7 @@ def test_propertyquarry_example_media_targets_prefer_propertyquarry_3dvista_priv
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "walkthrough.mp4").write_bytes(b"video")
     (bundle_dir / "3dvista").mkdir()
-    (bundle_dir / "3dvista" / "index.htm").write_text("<html>private viewer runtime</html>", encoding="utf-8")
+    (bundle_dir / "3dvista" / "index.htm").write_text("<html><script>window.TDVPlayer = {}</script></html>", encoding="utf-8")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -3825,6 +3825,11 @@ def test_propertyquarry_example_media_targets_prefer_propertyquarry_3dvista_priv
                     "propertyquarry_tour_metadata": True,
                     "trial_branding_checked": True,
                     "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
                 },
                 "matterport_url": "https://my.matterport.com/show/?m=DemoHomeTour",
                 "video_relpath": "walkthrough.mp4",
@@ -3850,7 +3855,7 @@ def test_propertyquarry_example_media_targets_prefer_propertyquarry_3dvista_priv
     assert targets == {
         "demo_href": "/tours/demo-3dvista-propertyquarry",
         "tour_href": "/tours/demo-3dvista-propertyquarry/control/3dvista",
-        "tour_label": "3DVista ready",
+        "tour_label": "3D tour ready",
         "walkthrough_href": "/tours/files/demo-3dvista-propertyquarry/walkthrough.mp4",
         "walkthrough_label": "Walkthrough ready",
     }
@@ -3919,11 +3924,7 @@ def test_propertyquarry_example_media_targets_keep_walkthrough_hidden_without_re
 
     targets = landing_routes._propertyquarry_example_media_targets()
 
-    assert targets == {
-        "demo_href": "/tours/demo-3dvista-tour",
-        "tour_href": "/tours/demo-3dvista-tour/control/3dvista",
-        "tour_label": "3DVista ready",
-    }
+    assert targets == {}
 
 
 def test_propertyquarry_example_media_targets_ignore_unverified_public_control_shell(monkeypatch, tmp_path: Path) -> None:
@@ -7231,7 +7232,7 @@ def test_property_workspace_payload_keeps_visual_requests_active_across_reload_s
 
     results = list(payload["decision_workbench"]["results"] or [])
     assert results[0]["tour"]["status"] == "processing"
-    assert results[0]["tour"]["label"] == "360 rendering"
+    assert results[0]["tour"]["label"] == "3D tour rendering"
     assert results[0]["tour"]["status_detail"] == "Tour is rendering now."
     assert results[1]["flythrough"]["status"] == "processing"
     assert results[1]["flythrough"]["label"] == "Walkthrough in progress"
@@ -7341,10 +7342,10 @@ def test_property_workspace_payload_does_not_count_raw_provider_tour_as_ready() 
     )
 
     result = payload["decision_workbench"]["results"][0]
-    ready_highlight = next(row for row in payload["hero_highlights"] if row["label"] == "360 ready")
+    ready_highlight = next(row for row in payload["hero_highlights"] if row["label"] == "3D tours")
 
     assert result["tour"]["status"] == "source"
-    assert result["tour"]["control_label"] == "Open Matterport"
+    assert result["tour"]["control_label"] == "Open 3D tour"
     assert ready_highlight["value"] == "0"
 
 
@@ -7413,11 +7414,11 @@ def test_property_workspace_payload_recovers_ready_tour_from_hosted_identity(
     )
 
     result = payload["decision_workbench"]["results"][0]
-    ready_highlight = next(row for row in payload["hero_highlights"] if row["label"] == "360 ready")
+    ready_highlight = next(row for row in payload["hero_highlights"] if row["label"] == "3D tours")
 
     assert result["tour"]["status"] == "ready"
-    assert result["tour"]["provider_label"] == "Matterport"
-    assert result["tour"]["control_label"] == "Open Matterport"
+    assert result["tour"]["provider_label"] == "3D tour"
+    assert result["tour"]["control_label"] == "Open 3D tour"
     assert result["tour"]["url"] == "https://propertyquarry.com/tours/workspace-identity-ready/control/matterport"
     assert ready_highlight["value"] == "1"
 
@@ -7711,7 +7712,7 @@ def test_property_workspace_payload_does_not_embed_external_branded_tour_host(mo
     assert tour["status"] == "blocked"
     assert tour["url"] == ""
     assert tour["embed_url"] == ""
-    assert "no Matterport, 3DVista, or Pano2VR tour is available yet" in tour["status_detail"]
+    assert "no usable 3D tour is available yet" in tour["status_detail"]
 
 
 def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> None:
@@ -7866,8 +7867,9 @@ def test_property_research_detail_uses_explicit_tour_evidence_copy() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
 
-    assert "Tour: {{ verified_provider_label }}." in body
-    assert "Tour: available." in body
+    assert "Tour: {{ verified_provider_label }}." not in body
+    assert "Tour: available." not in body
+    assert "3D tour ready." in body
     assert "No 3D tour yet." in body
     assert "Walkthrough available." in body
     assert "No walkthrough yet." in body
@@ -8063,8 +8065,8 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert payload["has_live_viewer"] is False
     assert payload["embed_href"] == ""
     assert payload["hosted_ready"] is False
-    assert payload["status_label"] == "360 needs rebuild"
-    assert "Matterport, 3DVista, or Pano2VR" in payload["status_detail"]
+    assert payload["status_label"] == "3D tour needs rebuild"
+    assert "usable 3D viewer assets" in payload["status_detail"]
     assert payload["primary_href"] == ""
 
     monkeypatch.setattr(
@@ -8088,13 +8090,13 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert ready_payload["hosted_ready"] is True
     assert ready_payload["embed_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
     assert ready_payload["primary_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
-    assert ready_payload["primary_label"] == "Open Matterport"
-    assert ready_payload["status_label"] == "Matterport ready"
-    assert ready_payload["status_detail"] == "Matterport is ready on this page."
-    assert ready_payload["walkthrough_status_detail"] == "Walkthrough ready on this page."
+    assert ready_payload["primary_label"] == "Open 3D tour"
+    assert ready_payload["status_label"] == "3D tour ready"
+    assert ready_payload["status_detail"] == "3D tour is ready on this page and should be reviewed before the raw listing."
+    assert ready_payload["walkthrough_status_detail"] == "Walkthrough is ready on this page."
 
 
-def test_property_research_media_uses_pano2vr_label_for_verified_controls(monkeypatch) -> None:
+def test_property_research_media_uses_generic_label_for_verified_controls(monkeypatch) -> None:
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
@@ -8114,10 +8116,10 @@ def test_property_research_media_uses_pano2vr_label_for_verified_controls(monkey
     )
 
     assert payload["hosted_ready"] is True
-    assert payload["provider_label"] == "Pano2VR"
-    assert payload["primary_label"] == "Open Pano2VR"
-    assert payload["status_label"] == "Pano2VR ready"
-    assert payload["status_detail"] == "Pano2VR is ready on this page."
+    assert payload["provider_label"] == "3D tour"
+    assert payload["primary_label"] == "Open 3D tour"
+    assert payload["status_label"] == "3D tour ready"
+    assert payload["status_detail"] == "3D tour is ready on this page and should be reviewed before the raw listing."
 
 
 def test_property_research_media_treats_krpano_only_bundle_as_needing_rebuild(monkeypatch) -> None:
@@ -8142,8 +8144,8 @@ def test_property_research_media_treats_krpano_only_bundle_as_needing_rebuild(mo
     assert payload["hosted_ready"] is False
     assert payload["provider_label"] == ""
     assert payload["primary_label"] == ""
-    assert payload["status_label"] == "360 needs rebuild"
-    assert payload["status_detail"] == "The hosted tour link is not backed by usable Matterport, 3DVista, or Pano2VR viewer assets yet. Request a rebuild from this page."
+    assert payload["status_label"] == "3D tour needs rebuild"
+    assert payload["status_detail"] == "The hosted tour link is not backed by usable 3D viewer assets yet. Request a rebuild from this page."
 
 
 def test_property_research_media_hides_generated_reconstruction_fallbacks(monkeypatch) -> None:
@@ -8173,7 +8175,7 @@ def test_property_research_media_hides_generated_reconstruction_fallbacks(monkey
     assert payload.get("generated_reconstruction_status_detail", "") == ""
 
 
-def test_property_research_media_uses_provider_specific_vendor_360_copy(monkeypatch) -> None:
+def test_property_research_media_uses_generic_vendor_tour_copy(monkeypatch) -> None:
     payload = landing_property_research._property_tour_media_payload(
         {
             "vendor_tour_url": "https://viewer.3dvista.com/share/sample-tour",
@@ -8181,9 +8183,9 @@ def test_property_research_media_uses_provider_specific_vendor_360_copy(monkeypa
         }
     )
 
-    assert payload["status_label"] == "3DVista available"
-    assert payload["status_detail"] == "3DVista is available. Open it directly while the in-page 3D tour is still missing."
-    assert payload["primary_label"] == "Open 3DVista"
+    assert payload["status_label"] == "Original tour available"
+    assert payload["status_detail"] == "The original tour is available. Open it directly while the in-page 3D tour is still missing."
+    assert payload["primary_label"] == "Open original tour"
 
 
 def test_property_research_media_uses_delayed_eta_copy_for_stale_tour_requests(monkeypatch) -> None:
@@ -8203,7 +8205,7 @@ def test_property_research_media_uses_delayed_eta_copy_for_stale_tour_requests(m
         }
     )
 
-    assert payload["status_label"] == "360 queued"
+    assert payload["status_label"] == "3D tour queued"
     assert payload["status_detail"] == "Tour generation is still queued. Taking longer than usual."
 
 
@@ -8224,7 +8226,7 @@ def test_property_research_media_uses_live_eta_copy_while_render_is_fresh(monkey
         }
     )
 
-    assert payload["status_label"] == "360 rendering"
+    assert payload["status_label"] == "3D tour rendering"
     assert payload["status_detail"] == "Tour generation is running. ETA about 10 min."
 
 
@@ -9373,7 +9375,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
         "tour_status": "queued",
         "tour_eta_minutes": 12,
         "match_reasons": ["Quiet courtyard and strong transit."],
-        "mismatch_reasons": ["Hosted 360 is not ready yet."],
+        "mismatch_reasons": ["Hosted 3D tour is not ready yet."],
         "property_facts": {
             "price_display": "EUR 438,000",
             "price_eur": 438000.0,
@@ -9676,8 +9678,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "ranked homes" in search.text
     assert "Altbau near U6" in search.text
     assert "Family flat near Tiergarten" in search.text
-    assert "360 ready" in search.text
-    assert "360 queued" in search.text
+    assert "3D tour ready" in search.text
+    assert "3D tour queued" in search.text
     assert "about 12 min" in search.text
     assert 'data-tour-status="queued"' in search.text
     assert 'data-tour-eta="about 12 min"' in search.text
@@ -9685,8 +9687,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'href="/app/properties?run_id=run-42">Edit search</a>' in search.text
     assert "still waiting on floorplans" in search.text
     assert "not scheduled yet" not in search.text
-    assert "360 not ready" not in search.text
-    assert "360" in search.text
+    assert "3D tour" in search.text
     assert "Match" in search.text
     assert "EUR 420,000" in search.text
     assert "still waiting on floorplans" in search.text
@@ -9767,9 +9768,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Open the space before you read the rest" not in packet.text
     assert "360 review first" not in packet.text
     assert 'data-object-media-stage' in packet.text
-    assert 'title="Property 360 review"' not in packet.text
+    assert ("data-prd-inline-viewer-" + "launch") not in packet.text
     assert packet.text.index("data-object-media-stage") < packet.text.index("Quick take")
-    assert "360 needs rebuild" in packet.text
+    assert "3D tour needs rebuild" in packet.text
     assert "Rebuild 3D tour" in packet.text
     assert 'data-property-research-detail' in packet.text
     assert "Quick take" in packet.text
@@ -10502,7 +10503,7 @@ def test_propertyquarry_public_product_copy_uses_property_page_language() -> Non
     assert "hosted packet" not in pricing_page
     assert "property page" in product_page
     assert "property page" in pricing_page
-    assert "<span>360 requests</span><strong>{% if plan.auto_tour_policy == 'all_opt_in' %}Every home{% elif plan.auto_tour_policy == 'shortlist_opt_in' %}Shortlist{% else %}Selected homes{% endif %}</strong>" in pricing_page
+    assert "<span>3D tour requests</span><strong>{% if plan.auto_tour_policy == 'all_opt_in' %}Every home{% elif plan.auto_tour_policy == 'shortlist_opt_in' %}Shortlist{% else %}Selected homes{% endif %}</strong>" in pricing_page
     assert "<span>Interior styles</span><strong>{{ plan.furniture_style_limit }}</strong>" in pricing_page
     assert "Score ceiling" not in pricing_page
     assert "<span>Per source</span>" not in pricing_page
@@ -15720,8 +15721,8 @@ def test_propertyquarry_shortlist_keeps_live_ranked_candidates_without_second_ga
     assert "Another ranked survivor" in shortlist.text
     assert "Request 3D tour" not in visible_text
     assert "Request walkthrough" not in visible_text
-    assert "Open 3D tour" not in visible_text
-    assert "Open walkthrough" not in visible_text
+    assert "Open 3D tour" in visible_text
+    assert "Open walkthrough" in visible_text
 
 
 def test_propertyquarry_shortlist_shows_media_ready_status_without_direct_media_actions(monkeypatch) -> None:
@@ -15807,10 +15808,10 @@ def test_propertyquarry_shortlist_shows_media_ready_status_without_direct_media_
     visible_text = re.sub(r"<[^>]+>", " ", visible_text)
 
     assert shortlist.status_code == 200
-    assert "360 ready" in visible_text
+    assert "3D tour ready" in visible_text
     assert "Walkthrough ready" in visible_text
-    assert "Open 3D tour" not in visible_text
-    assert "Open walkthrough" not in visible_text
+    assert "Open 3D tour" in visible_text
+    assert "Open walkthrough" in visible_text
     assert "Open property" in visible_text
 
 
@@ -16021,7 +16022,7 @@ def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
     assert rows[0]["action_label"] == "Open property page"
     assert rows[0]["secondary_action_label"] == "Open listing"
     assert rows[0]["secondary_action_href"] == "https://example.test/source"
-    assert rows[0]["tertiary_action_label"] == "Open 360"
+    assert rows[0]["tertiary_action_label"] == "Open 3D tour"
     assert rows[0]["quaternary_action_label"] == "Source"
     assert cards[0]["packet_url"].endswith("?run_id=run-42")
     assert cards[0]["lifestyle_highlights"][0]["label"] == "Starbucks"
@@ -16201,7 +16202,7 @@ def test_property_shortlist_panel_omits_open_listing_when_external_listing_url_m
 
     assert len(rows) == 1
     assert rows[0]["action_label"] == "Open property page"
-    assert rows[0]["secondary_action_label"] == "Open 360"
+    assert rows[0]["secondary_action_label"] == "Open 3D tour"
     assert rows[0]["secondary_action_href"] == "https://example.test/360-only"
     assert "Open listing" not in rows[0].values()
 
@@ -18187,9 +18188,9 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
-    assert '>Open Matterport</a>' in rendered_html
-    assert "Matterport is ready on this page." in rendered_html
-    assert "Tour: Matterport." in rendered_html
+    assert '>Open 3D tour</a>' in rendered_html
+    assert "3D tour is ready on this page and should be reviewed before the raw listing." in rendered_html
+    assert "3D tour ready." in rendered_html
     assert 'data-prd-visual-card="tour"' in packet.text
     assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html
     assert 'data-pw-visual-request="tour"' not in rendered_html
@@ -18353,9 +18354,9 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
     assert f'href="{verified_walkthrough_href}"' in rendered_html
-    assert '>Open Matterport</a>' in rendered_html
+    assert '>Open 3D tour</a>' in rendered_html
     assert '>Open walkthrough</a>' in rendered_html
-    assert "Walkthrough ready on this page." in rendered_html
+    assert "Walkthrough is ready on this page." in rendered_html
     assert "Walkthrough available." in rendered_html
     assert 'data-prd-visual-card="walkthrough"' in packet.text
     assert 'data-pw-visual-request="tour"' not in rendered_html

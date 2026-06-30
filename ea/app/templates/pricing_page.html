@@ -108,7 +108,7 @@
       </p>
       <ul class="tier-facts">
         <li><span>Sources</span><strong>{% if plan.max_platforms > 0 %}{{ plan.max_platforms }}{% else %}All{% endif %}</strong></li>
-        <li><span>360 requests</span><strong>{% if plan.auto_tour_policy == 'all_opt_in' %}Every home{% elif plan.auto_tour_policy == 'shortlist_opt_in' %}Shortlist{% else %}Selected homes{% endif %}</strong></li>
+        <li><span>3D tour requests</span><strong>{% if plan.auto_tour_policy == 'all_opt_in' %}Every home{% elif plan.auto_tour_policy == 'shortlist_opt_in' %}Shortlist{% else %}Selected homes{% endif %}</strong></li>
         <li><span>Interior styles</span><strong>{{ plan.furniture_style_limit }}</strong></li>
         <li><span>Research</span><strong>{{ plan.research_depth }}</strong></li>
         <li><span>Saved searches</span><strong>{% if plan.search_agent_limit > 0 %}{{ plan.search_agent_limit }}{% else %}Unlimited{% endif %}</strong></li>
