@@ -27,6 +27,9 @@ def test_score_methodology_languages_cover_country_provider_catalog() -> None:
     payloads = build_property_score_methodology_for_supported_languages()
     assert [payload["language_code"] for payload in payloads] == list(expected_languages)
     for payload in payloads:
+        payload_text = repr(payload).lower()
+        for forbidden in ("matterport", "3dvista", "magicfit", "pano2vr", "krpano"):
+            assert forbidden not in payload_text
         assert payload["contract_name"] == "propertyquarry.score_methodology.v1"
         assert payload["pdf_title"]
         assert len(payload["principles"]) >= 5
