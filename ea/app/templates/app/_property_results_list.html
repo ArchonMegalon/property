@@ -3,6 +3,12 @@
 {% set is_shortlist_surface = surface_mode == 'shortlist' %}
 {% set is_research_surface = surface_mode == 'research' %}
 {% set run_sources = run_summary.get('sources') or [] %}
+{% set location_mismatch = namespace(total=(run_summary.get('location_mismatch_candidate_total') or 0)|int) %}
+{% if not location_mismatch.total %}
+  {% for source in run_sources %}
+    {% set location_mismatch.total = location_mismatch.total + ((source.get('location_mismatch_candidate_total') or 0)|int) %}
+  {% endfor %}
+{% endif %}
 {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_generic_page_total') or 0) + (run_summary.get('filtered_listing_mode_total') or 0) %}
 {% set score_demoted_total = (run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0)|int %}
 {% set results_label = 'shortlisted opportunities' if is_shortlist_surface and brief.get('search_goal') == 'investment' else ('shortlisted homes' if is_shortlist_surface else ('ranked opportunities' if brief.get('search_goal') == 'investment' else 'ranked homes')) %}
@@ -27,8 +33,8 @@
       <div class="pqx-note pqx-results-summary-row">
         <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> {{ results_label }}</a>
         {% if filtered_total %}
-        <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} candidates stayed outside the brief because of hard rules">
-          {{ filtered_total }} {{ 'outside brief' if is_shortlist_surface else 'filtered' }}
+        <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} candidates stayed outside the brief">
+          {{ filtered_total }} {{ 'outside area' if location_mismatch.total else ('outside brief' if is_shortlist_surface else 'filtered') }}
         </a>
         {% endif %}
       </div>
@@ -249,7 +255,11 @@
       </span>
       {% else %}
       <strong>No ranked homes are ready yet.</strong>
-      <span class="pqx-note">Relax one hard rule to rank more homes.</span>
+      {% if location_mismatch.total %}
+      <span class="pqx-note">The provider returned homes outside the selected area, so none were ranked.</span>
+      {% else %}
+      <span class="pqx-note">No in-brief homes were found in this pass.</span>
+      {% endif %}
       <span class="pqx-actions">
         <a class="pqx-button primary" href="/app/properties{{ results_query_suffix }}">Adjust search</a>
         {% if filtered_total %}
@@ -262,7 +272,7 @@
   </div>
   {% if filtered_total and not is_shortlist_surface %}
   <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-    <summary><strong>What to widen</strong><span class="pqx-note">Hard filters</span></summary>
+    <summary><strong>{{ 'Provider scope' if location_mismatch.total else 'What to widen' }}</strong><span class="pqx-note">{{ 'Wrong area returned' if location_mismatch.total else 'Hard filters' }}</span></summary>
     <div class="pqx-source-list" data-pqx-source-breakdown>
       {% for source in run_sources[:8] %}
       <article class="pqx-source-card">
@@ -278,10 +288,16 @@
           or 0
         ) %}
         {% set source_checked_total = source.get('scanned_listing_total') or source.get('reviewed_listing_total') or source.get('raw_listing_total') or source.get('listing_total') or 0 %}
+        {% set source_location_mismatch_total = (source.get('location_mismatch_candidate_total') or 0)|int %}
+        {% set source_area_hard_total = 0 if source.get('location_mismatch_reason') else ((source.get('filtered_area_total') or 0)|int) %}
+        {% set source_hard_total = source_area_hard_total + ((source.get('filtered_property_type_total') or 0)|int) + ((source.get('filtered_availability_total') or 0)|int) + ((source.get('filtered_floorplan_total') or 0)|int) + ((source.get('filtered_generic_page_total') or 0)|int) + ((source.get('filtered_listing_mode_total') or 0)|int) %}
         <div class="pqx-source-metrics">
           <span>Checked <b>{{ source_checked_total }}</b></span>
           <span>Ranked <b>{{ source_ranked_total }}</b></span>
-          <span>Hard rules <b>{{ (source.get('filtered_area_total') or 0) + (source.get('filtered_property_type_total') or 0) + (source.get('filtered_availability_total') or 0) + (source.get('filtered_floorplan_total') or 0) + (source.get('filtered_generic_page_total') or 0) + (source.get('filtered_listing_mode_total') or 0) }}</b></span>
+          {% if source_location_mismatch_total and source.get('location_mismatch_reason') %}
+          <span>Wrong area <b>{{ source_location_mismatch_total }}</b></span>
+          {% endif %}
+          <span>Hard rules <b>{{ source_hard_total }}</b></span>
           <span>Missing floorplans <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
         </div>
         {% if source.get('message') or source.get('error') %}

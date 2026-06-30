@@ -6171,6 +6171,7 @@ def test_property_scout_reports_precise_location_miss_for_costa_rica(monkeypatch
     )
 
     assert result["listing_total"] == 0
+    assert result["location_mismatch_candidate_total"] == 1
     assert result["sources"][0]["location_matched_candidate_total"] == 0
     assert result["sources"][0]["location_mismatch_candidate_total"] == 1
     assert result["sources"][0]["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"

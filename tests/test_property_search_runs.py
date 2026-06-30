@@ -2604,7 +2604,8 @@ def test_generated_source_specs_use_selected_districts_over_broad_location_query
     urls = [str(row.get("url") or "") for row in specs]
     assert labels == ["Willhaben | Austria | Rent | 1010 Vienna"]
     assert len(urls) == 1
-    assert "q=1010+Vienna" in urls[0]
+    assert "/mietwohnungen/wien/wien-1010-innere-stadt" in urls[0]
+    assert "q=1010+Vienna" not in urls[0]
     assert "1020" not in urls[0]
     assert specs[0]["provider_filter_pushdown"]["applied"]["location_query"] == "1010 Vienna"
 
@@ -7705,6 +7706,7 @@ def test_property_search_filters_dirty_source_scope_postal_conflict_before_short
     assert result["listing_total"] == 0
     assert result["high_fit_total"] == 0
     assert result["review_created_total"] == 0
+    assert result["location_mismatch_candidate_total"] >= 1
     source = dict(result["sources"][0])
     assert source["raw_listing_total"] == 1
     assert source["scanned_listing_total"] == 1

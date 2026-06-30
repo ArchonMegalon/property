@@ -2161,13 +2161,18 @@
           ? `<span class="pqx-note">${escapeHtml(source?.location_mismatch_candidate_total || 0)} outside the selected area.</span>`
           : '';
         const message = source?.message || source?.error ? `<span class="pqx-note">${escapeHtml(source.message || source.error)}</span>` : '';
-        const filtered = Number(source?.filtered_area_total || 0)
+        const locationMismatch = Number(source?.location_mismatch_candidate_total || 0);
+        const areaHard = source?.location_mismatch_reason ? 0 : Number(source?.filtered_area_total || 0);
+        const filtered = areaHard
           + Number(source?.filtered_property_type_total || 0)
           + Number(source?.filtered_availability_total || 0)
           + Number(source?.filtered_floorplan_total || 0)
           + Number(source?.filtered_generic_page_total || 0)
           + Number(source?.filtered_listing_mode_total || 0);
-        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Checked')}</span><div class="pqx-source-metrics"><span>Checked <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>Ranked <b>${escapeHtml(rankedTotalForSource(source))}</b></span><span>Hard rules <b>${escapeHtml(filtered)}</b></span><span>Missing floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
+        const wrongAreaMetric = source?.location_mismatch_reason && locationMismatch
+          ? `<span>Wrong area <b>${escapeHtml(locationMismatch)}</b></span>`
+          : '';
+        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Checked')}</span><div class="pqx-source-metrics"><span>Checked <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>Ranked <b>${escapeHtml(rankedTotalForSource(source))}</b></span>${wrongAreaMetric}<span>Hard rules <b>${escapeHtml(filtered)}</b></span><span>Missing floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
       }).join('');
     };
     const renderRouteEvidence = (routes) => {
@@ -2651,6 +2656,10 @@
       const rows = limitRowsForPlan(candidates, 50);
       const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
       const summary = runPayload?.summary && typeof runPayload.summary === 'object' ? runPayload.summary : {};
+      const locationMismatchTotal = Number(summary.location_mismatch_candidate_total || 0)
+        || (Array.isArray(summary.sources)
+          ? summary.sources.reduce((total, source) => total + Number(source?.location_mismatch_candidate_total || 0), 0)
+          : 0);
       const componentFilteredTotal = Number(summary.filtered_area_total || 0)
         + Number(summary.filtered_property_type_total || 0)
         + Number(summary.filtered_availability_total || 0)
@@ -2677,11 +2686,11 @@
         : (investmentSearch ? 'ranked opportunities' : 'ranked homes');
       const filteredLabel = !shortlistSurface && filteredTotal > 0 ? (
         `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
-        `aria-label="${escapeHtml(filteredTotal)} candidates stayed outside the brief because of hard rules">${escapeHtml(filteredTotal)} filtered</a>`
+        `aria-label="${escapeHtml(filteredTotal)} candidates stayed outside the brief">${escapeHtml(filteredTotal)} ${locationMismatchTotal ? 'outside area' : 'filtered'}</a>`
       ) : '';
       const filteredBreakdown = (!shortlistSurface && filteredTotal > 0) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-            <summary><strong>What to widen</strong><span class="pqx-note">Hard filters</span></summary>
+            <summary><strong>${locationMismatchTotal ? 'Provider scope' : 'What to widen'}</strong><span class="pqx-note">${locationMismatchTotal ? 'Wrong area returned' : 'Hard filters'}</span></summary>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
       ` : '';
@@ -2700,7 +2709,7 @@
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
               ${shortlistSurface
                 ? shortlistEmptyResultsMarkup()
-                : '<div class="pqx-empty">No ranked homes are ready yet. Relax one hard rule to rank more homes.</div>'}
+                : `<div class="pqx-empty">No ranked homes are ready yet. ${escapeHtml(locationMismatchTotal ? 'The provider returned homes outside the selected area, so none were ranked.' : 'No in-brief homes were found in this pass.')}</div>`}
             </div>
             ${filteredBreakdown}
           </section>

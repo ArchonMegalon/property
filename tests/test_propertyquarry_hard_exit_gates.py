@@ -370,22 +370,60 @@ def test_map_preview_flagship_gate_rejects_harsh_raw_overlay(tmp_path: Path) -> 
     assert "border_noise_not_heavy" in failed_names
 
 
+def test_map_preview_flagship_gate_rejects_washed_out_map_backdrop(tmp_path: Path) -> None:
+    from scripts import propertyquarry_map_preview_flagship_gate as gate
+
+    image = Image.new("RGB", (640, 368), (246, 244, 239))
+    draw = ImageDraw.Draw(image, "RGBA")
+    for index in range(-80, 720, 84):
+        draw.line([(index, 0), (index + 210, 368)], fill=(212, 210, 204, 84), width=5)
+    selected = [(190, 90), (455, 72), (524, 184), (450, 292), (216, 288), (128, 190)]
+    draw.polygon(selected, fill=(218, 150, 150, 58))
+    draw.line(selected + [selected[0]], fill=(132, 30, 36, 118), width=2)
+    path = tmp_path / "washed-out.png"
+    image.save(path, format="PNG", compress_level=0)
+
+    receipt = gate.build_map_preview_flagship_receipt(
+        base_url="http://localhost",
+        host_header="",
+        api_token="",
+        principal_id="",
+        image_urls=[path.as_uri()],
+        discover_routes=[],
+        timeout_seconds=1.0,
+        settle_seconds=0.0,
+        min_preview_count=1,
+    )
+
+    assert receipt["status"] == "fail"
+    failed_names = {
+        check["name"]
+        for result in receipt["preview_results"]
+        for check in result["checks"]
+        if not check["ok"]
+    }
+    assert "map_backdrop_visible" in failed_names
+
+
 def test_map_preview_flagship_gate_accepts_calm_premium_thumbnail(tmp_path: Path) -> None:
     from scripts import propertyquarry_map_preview_flagship_gate as gate
 
-    image = Image.new("RGB", (640, 368), (232, 226, 215))
+    image = Image.new("RGB", (640, 368), (226, 222, 214))
     draw = ImageDraw.Draw(image, "RGBA")
-    draw.polygon([(0, 24), (210, 0), (640, 80), (640, 128), (260, 104), (0, 120)], fill=(194, 211, 188, 118))
-    draw.polygon([(0, 280), (190, 248), (412, 286), (640, 264), (640, 368), (0, 368)], fill=(188, 208, 214, 112))
-    for index in range(-160, 720, 90):
-        draw.line([(index, 0), (index + 260, 368)], fill=(198, 190, 181, 140), width=9)
-        draw.line([(index, 0), (index + 260, 368)], fill=(255, 253, 247, 110), width=3)
-    for y in range(56, 360, 74):
-        draw.line([(0, y), (640, y - 28)], fill=(202, 194, 184, 120), width=8)
+    draw.polygon([(0, 24), (210, 0), (640, 80), (640, 128), (260, 104), (0, 120)], fill=(178, 204, 168, 150))
+    draw.polygon([(0, 280), (190, 248), (412, 286), (640, 264), (640, 368), (0, 368)], fill=(164, 194, 208, 150))
+    for index in range(-200, 760, 58):
+        draw.line([(index, 0), (index + 250, 368)], fill=(162, 154, 143, 180), width=7)
+        draw.line([(index, 0), (index + 250, 368)], fill=(255, 253, 247, 130), width=2)
+    for index in range(-100, 760, 78):
+        draw.line([(index, 368), (index + 190, 0)], fill=(178, 170, 158, 150), width=5)
+    for y in range(34, 370, 42):
+        draw.line([(0, y), (640, y - 28)], fill=(164, 156, 145, 170), width=6)
+        draw.line([(0, y), (640, y - 28)], fill=(255, 253, 247, 105), width=2)
     selected = [(190, 90), (455, 72), (524, 184), (450, 292), (216, 288), (128, 190)]
-    draw.polygon(selected, fill=(218, 150, 150, 92))
+    draw.polygon(selected, fill=(218, 150, 150, 70))
     draw.line(selected + [selected[0]], fill=(255, 250, 242, 155), width=4)
-    draw.line(selected + [selected[0]], fill=(132, 30, 36, 150), width=2)
+    draw.line(selected + [selected[0]], fill=(132, 30, 36, 126), width=2)
     path = tmp_path / "calm.png"
     image.save(path, format="PNG", compress_level=0)
 
@@ -403,6 +441,7 @@ def test_map_preview_flagship_gate_accepts_calm_premium_thumbnail(tmp_path: Path
 
     assert receipt["status"] == "pass"
     assert receipt["preview_results"][0]["metrics"]["strong_red_ratio"] < 0.20
+    assert receipt["preview_results"][0]["metrics"]["stddev_mean"] >= 18.0
 
 
 def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_gates() -> None:

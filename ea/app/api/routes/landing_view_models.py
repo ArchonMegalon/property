@@ -57,11 +57,11 @@ from app.api.routes.landing_property_surface_contracts import (
 
 _PROPERTY_MAP_PREVIEW_RENDER_LOCK = threading.Lock()
 _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT: set[str] = set()
-_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v6_labeled_multi_area_thumbnail"
-_PROPERTY_MAP_PREVIEW_SELECTED_FILL = (194, 42, 48, 58)
-_PROPERTY_MAP_PREVIEW_COVERAGE_FILL = (194, 42, 48, 30)
-_PROPERTY_MAP_PREVIEW_SECONDARY_FILL = (194, 42, 48, 30)
-_PROPERTY_MAP_PREVIEW_SELECTED_STROKE = (132, 30, 36, 142)
+_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v7_visible_osm_backdrop"
+_PROPERTY_MAP_PREVIEW_SELECTED_FILL = (194, 42, 48, 46)
+_PROPERTY_MAP_PREVIEW_COVERAGE_FILL = (194, 42, 48, 24)
+_PROPERTY_MAP_PREVIEW_SECONDARY_FILL = (194, 42, 48, 24)
+_PROPERTY_MAP_PREVIEW_SELECTED_STROKE = (132, 30, 36, 126)
 _PROPERTY_MAP_PREVIEW_BOUNDARY_STROKE = (68, 62, 55, 72)
 _PROPERTY_MAP_PREVIEW_HALO = (255, 250, 242, 112)
 
@@ -752,12 +752,12 @@ def _map_preview_cache_path_for_key(cache_key: dict[str, object]) -> Path:
 
 
 def _flagship_map_backdrop(image: Image.Image) -> Image.Image:
-    """Make raw OSM tiles read as a calm backdrop rather than the product UI."""
+    """Keep OSM readable under the selected-area layer without turning noisy."""
     softened = image.convert("RGB")
-    softened = softened.filter(ImageFilter.GaussianBlur(radius=1.35))
-    softened = ImageEnhance.Color(softened).enhance(0.13)
-    softened = ImageEnhance.Contrast(softened).enhance(0.52)
-    softened = ImageEnhance.Brightness(softened).enhance(1.04)
+    softened = softened.filter(ImageFilter.GaussianBlur(radius=0.35))
+    softened = ImageEnhance.Color(softened).enhance(0.46)
+    softened = ImageEnhance.Contrast(softened).enhance(0.82)
+    softened = ImageEnhance.Brightness(softened).enhance(1.0)
     return softened
 
 

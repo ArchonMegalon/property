@@ -42471,6 +42471,11 @@ class ProductService:
             for source in source_summaries
             if isinstance(source, dict)
         )
+        location_mismatch_candidate_total = sum(
+            int(float(source.get("location_mismatch_candidate_total") or 0))
+            for source in source_summaries
+            if isinstance(source, dict)
+        )
         payload = {
             "generated_at": _now_iso(),
             "status": "processed",
@@ -42485,6 +42490,7 @@ class ProductService:
             "provider_group_total": provider_group_total,
             "raw_listing_total": raw_listing_total,
             "scanned_listing_total": scanned_listing_total,
+            "location_mismatch_candidate_total": location_mismatch_candidate_total,
             "listing_total": listing_total,
             "reviewed_listing_total": reviewed_listing_total,
             "duplicate_listing_total": duplicate_listing_total,

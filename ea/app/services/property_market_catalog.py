@@ -4751,6 +4751,45 @@ def _location_slug(value: str) -> str:
     return "-".join(_slug_tokens(value))
 
 
+def _willhaben_slug(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    replacements = {
+        "ä": "ae",
+        "ö": "oe",
+        "ü": "ue",
+        "ß": "ss",
+    }
+    for source, target in replacements.items():
+        normalized = normalized.replace(source, target)
+    cleaned = re.sub(r"[^a-z0-9]+", "-", normalized)
+    return re.sub(r"-+", "-", cleaned).strip("-")
+
+
+def _willhaben_location_path(location_query: object) -> str:
+    normalized = str(location_query or "").strip()
+    if not normalized:
+        return ""
+    normalized_key = _normalized_location_option_key(normalized)
+    if normalized_key in {"wien", "vienna"}:
+        return "wien"
+    postal_match = re.search(r"\b(1[0-2]\d0)\b", normalized)
+    if not postal_match:
+        return ""
+    postal_code = str(postal_match.group(1) or "").strip()
+    catalog_rows = _location_options_for_country_region_with_metadata("AT", "vienna")
+    for row in catalog_rows:
+        if not isinstance(row, dict):
+            continue
+        value = str(row.get("value") or "")
+        detail = str(row.get("detail") or "")
+        if postal_code not in value and postal_code not in detail:
+            continue
+        label_slug = _willhaben_slug(row.get("label") or "")
+        if label_slug:
+            return f"wien/wien-{postal_code}-{label_slug}"
+    return f"wien/wien-{postal_code}"
+
+
 _AT_JUSTIZ_BUNDESLAND_CODES: tuple[tuple[str, str], ...] = (
     ("burgenland", "2"),
     ("kaernten", "6"),
@@ -5054,8 +5093,18 @@ def _build_provider_search_url(
     if provider.key == "justiz_edikte_at":
         return _build_justiz_edikte_search_url(base_url=base_url, location_query=location_query)
     if provider.key == "willhaben":
+        base_search_url = _willhaben_search_base_url(
+            base_url=base_url,
+            listing_mode=listing_mode,
+            property_type=property_type,
+        )
+        location_path = _willhaben_location_path(location_query)
+        if location_path:
+            base_search_url = f"{base_search_url.rstrip('/')}/{location_path}"
         query_items = {"isNavigation": "true"}
-        if search_terms:
+        if keywords:
+            query_items["q"] = str(keywords or "").strip()
+        elif search_terms and not location_path:
             query_items["q"] = search_terms
         if max_price_eur:
             query_items["PRICE_TO"] = str(max_price_eur)
@@ -5064,10 +5113,7 @@ def _build_provider_search_url(
         room_bucket = _willhaben_rooms_bucket(min_rooms)
         if room_bucket:
             query_items["NO_OF_ROOMS_BUCKET"] = room_bucket
-        return _append_query(
-            _willhaben_search_base_url(base_url=base_url, listing_mode=listing_mode, property_type=property_type),
-            query_items,
-        )
+        return _append_query(base_search_url, query_items)
     if provider.key == "immoscout_at":
         scout_fallback = "https://www.immmo.at/suche/kauf" if listing_mode == "buy" else "https://www.immmo.at/suche/miete"
         query_items = {"pq_upstream": "immoscout_at"}

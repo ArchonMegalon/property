@@ -249,8 +249,9 @@ def _evaluate_preview(url: str, *, timeout_seconds: float, host_header: str, set
                     _check("flagship_dimensions", metrics["width"] == 640 and metrics["height"] == 368, width=metrics["width"], height=metrics["height"]),
                     _check("not_placeholder_sized", int(metrics["byte_count"]) >= 18_000, byte_count=metrics["byte_count"]),
                     _check("not_blank", float(metrics["stddev_mean"]) >= 10.0, stddev_mean=metrics["stddev_mean"]),
+                    _check("map_backdrop_visible", float(metrics["stddev_mean"]) >= 18.0, stddev_mean=metrics["stddev_mean"], thumbnail_edge_ratio=metrics["thumbnail_edge_ratio"]),
                     _check("not_mostly_empty_canvas", float(metrics["near_white_ratio"]) <= 0.55, near_white_ratio=metrics["near_white_ratio"]),
-                    _check("thumbnail_detail_not_noisy", float(metrics["thumbnail_edge_ratio"]) <= 0.24 and float(metrics["thumbnail_edge_mean"]) <= 28.0, thumbnail_edge_ratio=metrics["thumbnail_edge_ratio"], thumbnail_edge_mean=metrics["thumbnail_edge_mean"]),
+                    _check("thumbnail_detail_not_noisy", float(metrics["thumbnail_edge_ratio"]) <= 0.34 and float(metrics["thumbnail_edge_mean"]) <= 34.0, thumbnail_edge_ratio=metrics["thumbnail_edge_ratio"], thumbnail_edge_mean=metrics["thumbnail_edge_mean"]),
                     _check("red_overlay_not_aggressive", float(metrics["strong_red_ratio"]) <= 0.14 and float(metrics["red_dominant_ratio"]) <= 0.18, strong_red_ratio=metrics["strong_red_ratio"], red_dominant_ratio=metrics["red_dominant_ratio"]),
                     _check("hot_red_not_dominant", float(metrics["hot_red_ratio"]) <= 0.075, hot_red_ratio=metrics["hot_red_ratio"]),
                     _check("border_noise_not_heavy", float(metrics["dark_red_edge_ratio"]) <= 0.014, dark_red_edge_ratio=metrics["dark_red_edge_ratio"]),
@@ -335,6 +336,7 @@ def build_map_preview_flagship_receipt(
         "notes": [
             "This is a visual-asset gate. A PNG route being available is not enough.",
             "The gate rejects pending placeholders, blank canvases, excessive red overlays, heavy dark border noise, and embedded artifact/debug text.",
+            "The gate also requires enough map texture to keep streets and labels visible beneath the selected-area overlay.",
         ],
     }
 

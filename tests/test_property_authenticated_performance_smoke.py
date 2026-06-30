@@ -8,6 +8,9 @@ import json
 from scripts.propertyquarry_authenticated_performance_smoke import build_authenticated_performance_receipt, _route_budget_for
 
 
+SMOKE_SUBPROCESS_TIMEOUT_SECONDS = 120
+
+
 def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     receipt = build_authenticated_performance_receipt(route_budget_ms=1200)
 
@@ -80,6 +83,13 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert any(check["name"] == "results_ranking_only_no_compare_cards" and check["ok"] for check in routes["/app/properties"]["checks"])
     assert any(check["name"] == "results_ranking_only_no_compare_cards" and check["ok"] for check in routes["/app/shortlist"]["checks"])
     assert any(check["name"] == "results_ranked_not_compare_copy" and check["ok"] for check in routes["/app/properties"]["checks"])
+    assert any(check["name"] == "search_gzip_delivery" and check["ok"] for check in routes["/app/search"]["checks"])
+    assert any(check["name"] == "search_gzip_vary_accept_encoding" and check["ok"] for check in routes["/app/search"]["checks"])
+    payload_budget_check = next(
+        check for check in routes["/app/search"]["checks"] if check["name"] == "search_compressed_payload_under_budget"
+    )
+    assert payload_budget_check["ok"]
+    assert 0 < int(payload_budget_check["compressed_bytes"]) <= int(payload_budget_check["max_bytes"])
     assert any(check["name"] == "what_matters_distance_controls_compact" and check["ok"] for check in routes["/app/search"]["checks"])
     assert any(check["name"] == "what_matters_school_distance_controls" and check["ok"] for check in routes["/app/search"]["checks"])
     assert any(check["name"] == "delivery_controls" and check["ok"] for check in routes["/app/alerts"]["checks"])
@@ -114,6 +124,7 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
         capture_output=True,
         text=True,
         env=env,
+        timeout=SMOKE_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 0, result.stderr
@@ -141,6 +152,9 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"research_no_fake_visual_ready"' in result.stdout
     assert '"research_ranking_only_no_compare_cards"' in result.stdout
     assert '"results_ranking_only_no_compare_cards"' in result.stdout
+    assert '"search_gzip_delivery"' in result.stdout
+    assert '"search_gzip_vary_accept_encoding"' in result.stdout
+    assert '"search_compressed_payload_under_budget"' in result.stdout
     assert '"what_matters_distance_controls_compact"' in result.stdout
     assert '"what_matters_school_distance_controls"' in result.stdout
     assert '"notification_destination_controls"' in result.stdout
@@ -166,6 +180,7 @@ def test_property_authenticated_performance_smoke_script_writes_receipt(tmp_path
         capture_output=True,
         text=True,
         env=env,
+        timeout=SMOKE_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 0, result.stderr
@@ -199,6 +214,7 @@ def test_property_authenticated_performance_smoke_script_fails_under_tight_budge
         capture_output=True,
         text=True,
         env=env,
+        timeout=SMOKE_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
     assert result.returncode == 1

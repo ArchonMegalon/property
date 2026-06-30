@@ -347,6 +347,9 @@ def _performance_payload(
         {"name": "research_mobile_visual_frame_compact", "ok": True},
     ]
     search_checks = [
+        {"name": "search_gzip_delivery", "ok": True},
+        {"name": "search_gzip_vary_accept_encoding", "ok": True},
+        {"name": "search_compressed_payload_under_budget", "ok": True},
         {"name": "what_matters_distance_controls_compact", "ok": True},
         {"name": "what_matters_school_distance_controls", "ok": True},
     ]
@@ -3078,6 +3081,9 @@ def test_gold_status_blocks_when_performance_receipt_lacks_search_checks(tmp_pat
     assert receipt["status"] == "blocked"
     assert receipt["performance"]["search_checks_ok"] is False
     assert receipt["performance"]["missing_search_checks"] == [
+        "search_gzip_delivery",
+        "search_gzip_vary_accept_encoding",
+        "search_compressed_payload_under_budget",
         "what_matters_distance_controls_compact",
         "what_matters_school_distance_controls",
     ]

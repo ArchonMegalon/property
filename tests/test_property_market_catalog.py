@@ -1205,8 +1205,11 @@ def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources(
     assert len(specs) == 3
     assert all(row["platform"] == "willhaben" for row in specs)
     assert [row["location_query"] for row in specs] == ["1200 Vienna", "1020 Vienna", "1090"]
-    assert "q=1200+Vienna+lift+family" in str(specs[0]["url"])
-    assert "q=1020+Vienna+lift+family" in str(specs[1]["url"])
+    assert "/mietwohnungen/wien/wien-1200-brigittenau" in str(specs[0]["url"])
+    assert "q=lift+family" in str(specs[0]["url"])
+    assert "/mietwohnungen/wien/wien-1020-leopoldstadt" in str(specs[1]["url"])
+    assert "q=lift+family" in str(specs[1]["url"])
+    assert "/mietwohnungen/wien/wien-1090-alsergrund" in str(specs[2]["url"])
 
 
 def test_generated_source_specs_expand_selected_districts_to_adjacent_sources_when_radius_is_enabled() -> None:
@@ -1306,7 +1309,8 @@ def test_generated_source_specs_pushes_coarse_filters_to_willhaben() -> None:
     assert len(specs) == 1
     url = str(specs[0]["url"])
     params = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-    assert params["q"] == ["1200 Vienna lift family"]
+    assert "/mietwohnungen/wien/wien-1200-brigittenau" in url
+    assert params["q"] == ["lift family"]
     assert params["ESTATE_SIZE/LIVING_AREA_FROM"] == ["80"]
     assert params["PRICE_TO"] == ["2200"]
     assert params["NO_OF_ROOMS_BUCKET"] == ["3X3"]
@@ -1318,6 +1322,40 @@ def test_generated_source_specs_pushes_coarse_filters_to_willhaben() -> None:
     assert pushdown["post_filter_reasons"]["require_floorplan"] == "provider_has_no_reliable_dedicated_filter_or_parameter"
     assert str(pushdown["cache_key"]).startswith("willhaben:")
     assert specs[0]["provider_cache_key"] == pushdown["cache_key"]
+
+
+def test_generated_source_specs_do_not_push_hidden_any_constraints_to_willhaben() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": ["any"],
+            "location_query": "1010 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "min_area_m2": None,
+            "min_rooms": None,
+            "max_price_eur": None,
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-at-any-pushdown",
+        default_person_id="self",
+        max_results=2,
+    )
+
+    assert len(specs) == 1
+    url = str(specs[0]["url"])
+    params = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    assert "/mietwohnungen/wien/wien-1010-innere-stadt" in url
+    assert "q" not in params
+    assert "ESTATE_SIZE/LIVING_AREA_FROM" not in params
+    assert "NO_OF_ROOMS_BUCKET" not in params
+    assert "PRICE_TO" not in params
+    pushdown = dict(specs[0]["provider_filter_pushdown"])
+    assert "property_type" not in dict(pushdown["applied"])
+    assert "min_area_m2" not in dict(pushdown["applied"])
+    assert "min_rooms" not in dict(pushdown["applied"])
+    assert "max_price_eur" not in dict(pushdown["applied"])
 
 
 def test_generated_source_specs_marks_weak_costa_rica_provider_filters_as_attempted() -> None:

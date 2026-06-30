@@ -25,6 +25,9 @@ REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
     "research_mobile_visual_frame_compact",
 )
 REQUIRED_SEARCH_PERFORMANCE_CHECKS = (
+    "search_gzip_delivery",
+    "search_gzip_vary_accept_encoding",
+    "search_compressed_payload_under_budget",
     "what_matters_distance_controls_compact",
     "what_matters_school_distance_controls",
 )
