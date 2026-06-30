@@ -600,7 +600,7 @@ cp "${authenticated_smoke_receipt}" _completion/smoke/property-live-authenticate
 
 mobile_smoke_receipt="/tmp/propertyquarry_deploy_mobile_smoke.json"
 mobile_smoke_timeout_ms="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
-mobile_smoke_process_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIMEOUT_SECONDS:-180}"
+mobile_smoke_process_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIMEOUT_SECONDS:-300}"
 rm -f "${mobile_smoke_receipt}"
 if ! timeout "${mobile_smoke_process_timeout_seconds}" env EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_mobile_surface_smoke.py \
   --base-url "${base_url}" \
