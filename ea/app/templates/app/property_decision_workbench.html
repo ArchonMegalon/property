@@ -10841,7 +10841,7 @@
               <button class="pqx-button subtle" type="button" data-search-agent-reset>Reset</button>
             </div>
           </div>
-          <form class="pqx-form" data-console-form-variant="{{ console_form.get('variant') }}" data-console-form-meta='{{ property_meta|tojson|safe }}'>
+          <form class="pqx-form" data-console-form-variant="{{ console_form.get('variant') }}">
             {% set wizard_steps = property_meta.get('wizard_steps') or [] %}
             {% if wizard_steps %}
             <div role="group" aria-label="PropertyQuarry view mode">

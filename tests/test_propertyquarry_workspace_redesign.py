@@ -3322,6 +3322,7 @@ def test_propertyquarry_properties_route_does_not_duplicate_heavy_run_payload(mo
     assert meta_match
     property_meta = json.loads(html.unescape(meta_match.group(1)))
     assert "initial_run" not in property_meta
+    assert "data-console-form-meta" not in response.text
 
 
 def test_propertyquarry_properties_route_bootstraps_full_run_trail(monkeypatch) -> None:

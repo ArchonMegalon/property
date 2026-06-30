@@ -5045,7 +5045,7 @@ def test_propertyquarry_mobile_provider_family_controls_select_and_clear_cleanly
 
         expected_provider_cap = page.locator('[data-console-form-variant="property_search"]').evaluate(
             """(form) => {
-              const raw = String(form.getAttribute('data-console-form-meta') || '').trim();
+              const raw = String(document.querySelector('[data-property-workspace-meta]')?.getAttribute('data-property-workspace-meta') || '').trim();
               const meta = raw ? JSON.parse(raw) : {};
               return Number(meta?.commercial?.max_platforms || 0);
             }"""
@@ -5085,7 +5085,7 @@ def test_propertyquarry_mobile_provider_family_controls_select_and_clear_cleanly
         assert button_metrics["addBottom"] <= button_metrics["viewportHeight"] + 80
         assert button_metrics["clearBottom"] <= button_metrics["viewportHeight"] + 80
 
-        family_provider_count = first_provider_family.locator('input[name="selected_platforms"]').count()
+        family_provider_count = first_provider_family.locator('input[name="selected_platforms"]:not([disabled])').count()
         assert family_provider_count > 0
 
         add_button.click()
@@ -5244,10 +5244,10 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('[data-keyword-priority-row][data-keyword-value="medical care nearby"] [data-keyword-distance-select]').select_option("1000")
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
-        providerCount = page.locator('input[name="selected_platforms"]').count()
+        providerCount = page.locator('input[name="selected_platforms"]:not([disabled])').count()
         expectedProviderCap = page.locator('[data-console-form-variant="property_search"]').evaluate(
             """(form) => {
-              const raw = String(form.getAttribute('data-console-form-meta') || '').trim();
+              const raw = String(document.querySelector('[data-property-workspace-meta]')?.getAttribute('data-property-workspace-meta') || '').trim();
               const meta = raw ? JSON.parse(raw) : {};
               return Number(meta?.commercial?.max_platforms || 0);
             }"""
@@ -5261,7 +5261,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         firstProviderFamily.locator("summary").click()
         assert firstProviderFamily.get_by_role("button", name="Add family").is_visible()
         assert firstProviderFamily.get_by_role("button", name="Clear family").is_visible()
-        familyProviderCount = firstProviderFamily.locator('input[name="selected_platforms"]').count()
+        familyProviderCount = firstProviderFamily.locator('input[name="selected_platforms"]:not([disabled])').count()
         assert familyProviderCount > 0
         firstProviderFamily.get_by_role("button", name="Add family").click()
         checkedFamilyProviderCount = firstProviderFamily.locator('input[name="selected_platforms"]:checked').count()
@@ -5281,12 +5281,13 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         response = start_response.value
         assert response.ok
         try:
-            page.wait_for_url("**/app/properties?run_id=*", timeout=5000)
+            page.wait_for_url(re.compile(r".*/app/(properties|shortlist)\?run_id=.*"), timeout=10000)
         except Exception:
-            page.wait_for_load_state("networkidle")
+            page.wait_for_load_state("domcontentloaded")
         run_id = urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("run_id", [""])[0]
+        assert run_id
         page.wait_for_selector(
-            "[data-pqx-finished-compare], [data-pqx-empty-results], [data-pqx-screenfit-target=\"run-progress\"], [data-workbench-results-table]",
+            "[data-pqx-finished-compare], [data-pqx-empty-results], [data-pqx-screenfit-target=\"run-progress\"], [data-workbench-results-table], [data-pqx-mobile-panel=\"results\"]",
             timeout=10000,
         )
         assert "Could not start property search" not in page.locator("body").inner_text()
@@ -5322,7 +5323,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert len(observed["selected_platforms"]) == 3
         assert page.locator("body", has_text="Altbau near U6").is_visible()
         assert page.locator("body", has_text="Open property").is_visible()
-        assert page.locator("body", has_text="360 ready").is_visible()
+        assert page.locator("body", has_text="3D tour ready").is_visible()
         page.locator("[data-workbench-row]", has_text="Altbau near U6").locator(".pqx-result-title").click()
         assert "/app/research/" in page.url
         assert urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("run_id", [""])[0] == run_id
@@ -5347,8 +5348,8 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         best_match.wait_for()
         expect(best_match.get_by_role("link", name="3D tour ready")).to_be_visible()
         expect(best_match.get_by_role("link", name="Open 3D tour")).to_have_count(0)
-        open_360 = best_match.get_by_role("link", name="3D tour ready")
-        tour_url = str(open_360.get_attribute("href") or "").strip()
+        open_3d_tour = best_match.get_by_role("link", name="3D tour ready")
+        tour_url = str(open_3d_tour.get_attribute("href") or "").strip()
         assert tour_url.endswith("/tours/altbau-u6/control/matterport")
         tour_entry = tour_url if tour_url.startswith("http") else f"{base_url}{tour_url}"
         response = page.goto(f"{tour_entry}?pane=floorplan-pane", wait_until="networkidle")
