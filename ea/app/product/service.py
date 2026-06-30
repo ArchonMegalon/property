@@ -634,6 +634,9 @@ _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
 _PROPERTY_SEARCH_RUN_STAGES = 8
 _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
 _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
+_PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE_LOCK = threading.Lock()
+_PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE: dict[tuple[str, str], tuple[float, tuple[str, ...]]] = {}
+_PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE_TTL_SECONDS = 60.0
 _PROPERTY_FLEET_DIGEST_CACHE_LOCK = threading.Lock()
 _PROPERTY_FLEET_DIGEST_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 _PROPERTY_FLEET_DIGEST_TTL_SECONDS = 30.0
@@ -37807,6 +37810,14 @@ class ProductService:
         principal_id: str,
         account_email: str = "",
     ) -> tuple[str, ...]:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_account_email = str(account_email or "").strip().lower()
+        cache_key = (normalized_principal, normalized_account_email)
+        now_monotonic = time.monotonic()
+        with _PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE_LOCK:
+            cached_at, cached_value = _PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE.get(cache_key, (0.0, ()))
+            if cached_value and now_monotonic - cached_at <= _PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE_TTL_SECONDS:
+                return tuple(cached_value)
         ordered: list[str] = []
 
         def _add(value: object) -> None:
@@ -37814,10 +37825,9 @@ class ProductService:
             if normalized and normalized not in ordered:
                 ordered.append(normalized)
 
-        normalized_principal = str(principal_id or "").strip()
         _add(normalized_principal)
         email_candidates: list[str] = []
-        for raw_email in (account_email, _principal_email_hint(normalized_principal)):
+        for raw_email in (normalized_account_email, _principal_email_hint(normalized_principal)):
             normalized_email = str(raw_email or "").strip().lower()
             if normalized_email and normalized_email not in email_candidates:
                 email_candidates.append(normalized_email)
@@ -37831,7 +37841,10 @@ class ProductService:
                     per_principal_limit=100,
                 ):
                     _add(candidate.get("principal_id"))
-        return tuple(ordered)
+        resolved = tuple(ordered)
+        with _PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE_LOCK:
+            _PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE[cache_key] = (now_monotonic, resolved)
+        return resolved
 
     def _resolve_property_search_run_owner_principal_id(
         self,

@@ -10,6 +10,8 @@ from typing import Any
 
 _MEMORY_LOCK = RLock()
 _MEMORY_SESSIONS: dict[tuple[str, str], dict[str, object]] = {}
+_SCHEMA_LOCK = RLock()
+_SCHEMA_READY_DATABASE_URLS: set[str] = set()
 
 
 def _now_iso() -> str:
@@ -134,49 +136,53 @@ def _ensure_workspace_access_schema(database_url: str) -> bool:
     normalized_database_url = str(database_url or "").strip()
     if not normalized_database_url:
         return False
-    with _connect(normalized_database_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS workspace_access_sessions (
-                    principal_id TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    payload_json JSONB NOT NULL,
-                    email TEXT NOT NULL DEFAULT '',
-                    role TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'active',
-                    issued_at TEXT NOT NULL DEFAULT '',
-                    expires_at TEXT NOT NULL DEFAULT '',
-                    revoked_at TEXT NOT NULL DEFAULT '',
-                    opened_at TEXT NOT NULL DEFAULT '',
-                    last_seen_at TEXT NOT NULL DEFAULT '',
-                    updated_at TIMESTAMPTZ NOT NULL,
-                    PRIMARY KEY (principal_id, session_id)
+    with _SCHEMA_LOCK:
+        if normalized_database_url in _SCHEMA_READY_DATABASE_URLS:
+            return True
+        with _connect(normalized_database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS workspace_access_sessions (
+                        principal_id TEXT NOT NULL,
+                        session_id TEXT NOT NULL,
+                        payload_json JSONB NOT NULL,
+                        email TEXT NOT NULL DEFAULT '',
+                        role TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL DEFAULT 'active',
+                        issued_at TEXT NOT NULL DEFAULT '',
+                        expires_at TEXT NOT NULL DEFAULT '',
+                        revoked_at TEXT NOT NULL DEFAULT '',
+                        opened_at TEXT NOT NULL DEFAULT '',
+                        last_seen_at TEXT NOT NULL DEFAULT '',
+                        updated_at TIMESTAMPTZ NOT NULL,
+                        PRIMARY KEY (principal_id, session_id)
+                    )
+                    """
                 )
-                """
-            )
-            cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS payload_json JSONB NOT NULL DEFAULT '{}'::jsonb")
-            cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'")
-            cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS issued_at TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS expires_at TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS revoked_at TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS opened_at TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS last_seen_at TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
-            cur.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_workspace_access_sessions_session
-                ON workspace_access_sessions(session_id)
-                """
-            )
-            cur.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_workspace_access_sessions_principal_updated
-                ON workspace_access_sessions(principal_id, updated_at DESC)
-                """
-            )
+                cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS payload_json JSONB NOT NULL DEFAULT '{}'::jsonb")
+                cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''")
+                cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT ''")
+                cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'")
+                cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS issued_at TEXT NOT NULL DEFAULT ''")
+                cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS expires_at TEXT NOT NULL DEFAULT ''")
+                cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS revoked_at TEXT NOT NULL DEFAULT ''")
+                cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS opened_at TEXT NOT NULL DEFAULT ''")
+                cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS last_seen_at TEXT NOT NULL DEFAULT ''")
+                cur.execute("ALTER TABLE workspace_access_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_workspace_access_sessions_session
+                    ON workspace_access_sessions(session_id)
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_workspace_access_sessions_principal_updated
+                    ON workspace_access_sessions(principal_id, updated_at DESC)
+                    """
+                )
+        _SCHEMA_READY_DATABASE_URLS.add(normalized_database_url)
     return True
 
 
