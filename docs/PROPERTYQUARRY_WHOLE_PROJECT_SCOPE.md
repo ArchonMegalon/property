@@ -116,14 +116,18 @@ Required behavior before promotion:
 - Every billing state must have a mobile-safe local fallback that keeps the user on PropertyQuarry when the handoff is unavailable, unsigned, replayed, misconfigured, or returns a non-allowlisted URL.
 - Billing receipts must avoid credentials, payment secrets, raw webhook bodies with private data, and provider-owned customer truth.
 
-### Current Additional Execution Goal (active)
+### Current Long-Running Flagship Goal (active)
 
-For this pass, the additional objective is:
+The active objective is continuous flagship readiness, not a narrow patch pass. Keep auditing, polishing, testing, and redeploying until PropertyQuarry is presentation-safe across the full customer journey. "Gold" means the product feels minimal, human-designed, specific, and reliable on phone and desktop, and every claim is backed by hard receipts rather than optimistic copy.
 
-1. Harden reliability semantics where user-facing state can look stale or contradictory.
-2. Keep hard/soft filter semantics correct for all postal/selected-district workflows.
-3. Preserve user control surfaces (logout, filtered recovery, run lifecycle, automation surfaces) across both API and live-board payloads.
-4. Promote billing, Brilliant Directories, documentation.ai, and release-manifest governance into active gold blockers instead of optional integration notes.
+For every continuation pass, the objective is:
+
+1. Remove noise, internal vocabulary, redundant hops, fake readiness, and cramped mobile layouts wherever they appear.
+2. Keep search semantics correct: hard filters constrain eligibility, soft filters rank, district/postal scope is country-safe, and all tiers see ranked results by default.
+3. Keep provider execution, repair, quarantine, ETA, progress, and targeted-search E2E proof truthful across Austria, Germany, and Costa Rica.
+4. Keep 3D tours and walkthroughs request-driven, style-aware, vendor-real, browser-rendered, and free of user-facing provider/internal labels.
+5. Keep billing and account access single-sign-on quality: a signed-in PropertyQuarry user must not be asked to create a second account or complete an avoidable second login.
+6. Keep release governance strict: documentation.ai P0/P1 findings, runtime security, reproducible builds, visual/accessibility gates, Rybbit receipts, and release-manifest freshness are active blockers until proven or explicitly scoped out.
 
 Acceptance criteria before this pass is considered complete:
 
@@ -133,6 +137,7 @@ Acceptance criteria before this pass is considered complete:
 - Run status/repair messaging stays truthful when repair tasks are queued and when repair completes.
 - Scope/automation thumbnails render usable district overlays without clipping key shapes, and map preview payloads reject unsupported image pipelines.
 - Billing and Brilliant Directories states either pass the governed handoff contract or fail closed on a PropertyQuarry-owned recovery surface.
+- Signed-in billing handoff must prove either an active external account session, a signed member-login-token handoff, or a locally owned recovery surface. Guided second-login assist is not a flagship-ready billing handoff.
 - The documentation.ai audit has a current release-manifest receipt with repository, branch, commit, deployment endpoint, artifact set, verification commands, and unresolved blockers.
 - Default runtime security, reproducibility, CI, auth, and public-network findings from the audit are either fixed in code or tracked as explicit P0/P1 release blockers.
 - Every above is covered by unit/e2e test and a smoke check.

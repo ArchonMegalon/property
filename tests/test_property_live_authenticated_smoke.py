@@ -237,7 +237,7 @@ def test_live_authenticated_smoke_accepts_local_bridge_launch_then_external_bill
     json.dumps(receipt, sort_keys=True)
 
 
-def test_live_authenticated_smoke_accepts_bridge_guided_login_assist_when_vendor_lane_still_requires_login() -> None:
+def test_live_authenticated_smoke_rejects_bridge_guided_login_assist_when_vendor_lane_still_requires_login() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
         "https://propertyquarry.com/app/billing": "",
@@ -285,10 +285,11 @@ def test_live_authenticated_smoke_accepts_bridge_guided_login_assist_when_vendor
         },
     )
 
-    assert receipt["status"] == "pass"
+    assert receipt["status"] == "fail"
     billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
     assert any(check["name"] == "billing_bridge_launch" and check["ok"] is True for check in billing_row["checks"])
-    assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is True for check in billing_row["checks"])
+    assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is False for check in billing_row["checks"])
+    assert any(check["name"] == "billing_no_second_login" and check["ok"] is False for check in billing_row["checks"])
     assert any(check["name"] == "billing_bridge_guided_login_assist" and check["ok"] is True for check in billing_row["checks"])
     assert billing_row["billing_handoff_probe"]["error"] == "handoff_url_requires_separate_login"
     assert billing_row["billing_bridge_login_assist_probe"]["ok"] is True

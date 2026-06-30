@@ -444,16 +444,15 @@ def build_live_authenticated_smoke_receipt(
                 else:
                     billing_handoff_probe = effective_billing_handoff_checker(external_location, timeout_seconds)
                     bridge_login_assist_probe = {}
+                    billing_handoff_error = str(billing_handoff_probe.get("error") or "").strip()
+                    billing_no_second_login = billing_handoff_error != "handoff_url_requires_separate_login"
                     if (
                         billing_handoff_probe.get("ok") is not True
-                        and str(billing_handoff_probe.get("error") or "").strip() == "handoff_url_requires_separate_login"
+                        and not billing_no_second_login
                         and str(urllib.parse.urlparse(external_location).path or "").strip().startswith("/sso/propertyquarry")
                     ):
                         bridge_login_assist_probe = effective_billing_bridge_assist_checker(external_location, timeout_seconds)
-                    external_handoff_usable = bool(
-                        billing_handoff_probe.get("ok")
-                        or bridge_login_assist_probe.get("ok")
-                    )
+                    external_handoff_usable = bool(billing_handoff_probe.get("ok"))
                     route_checks = [
                         ("status_ok", True),
                         *_security_header_checks(headers=headers),
@@ -468,13 +467,17 @@ def build_live_authenticated_smoke_receipt(
                             ),
                         ),
                         ("billing_external_handoff_usable", external_handoff_usable),
-                        (
-                            "billing_bridge_guided_login_assist",
-                            True if not bridge_login_assist_probe else bool(bridge_login_assist_probe.get("ok")),
-                        ),
+                        ("billing_no_second_login", billing_no_second_login),
                         ("billing_local_board_deleted", True),
                         ("billing_no_customer_noise", True),
                     ]
+                    if bridge_login_assist_probe:
+                        route_checks.append(
+                            (
+                                "billing_bridge_guided_login_assist",
+                                bool(bridge_login_assist_probe.get("ok")),
+                            )
+                        )
         elif path == "/app/billing" and status_code == 503:
             route_checks = [
                 ("status_ok", True),

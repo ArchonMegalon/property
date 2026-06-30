@@ -207,8 +207,7 @@ def https_handoff_url_usable(
     body_is_login = "<title" in body and "login" in body and ("email" in body or "password" in body)
     body_has_account_marker = _handoff_body_has_account_marker(body)
     requires_login = body_is_login or (
-        not redirect_location
-        and ("/login" in login_target or "login_direct_url" in login_target)
+        ("/login" in login_target or "login_direct_url" in login_target)
         and not body_has_account_marker
     )
     server_header = str(response_headers.get("server") or response_headers.get("Server") or "").strip().lower()
@@ -233,6 +232,11 @@ def https_handoff_url_usable(
             )
         ),
     }
+    if requires_login and redirect_location:
+        return {
+            **result,
+            "redirect_chain": [urllib.parse.urljoin(str(location or "").strip(), redirect_location)],
+        }
     if not redirect_location:
         return result
     if len(visited_urls) >= 2:

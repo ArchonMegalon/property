@@ -757,6 +757,7 @@ def _authenticated_smoke_payload(
         billing_checks.append({"name": "billing_external_handoff", "ok": True})
         billing_checks.append({"name": "billing_external_handoff_resolves", "ok": True})
         billing_checks.append({"name": "billing_external_handoff_usable", "ok": True})
+        billing_checks.append({"name": "billing_no_second_login", "ok": True})
     if billing_fail_closed:
         billing_checks.append({"name": "billing_fail_closed_recovery", "ok": True})
     if billing_bridge_launch:
@@ -2129,7 +2130,11 @@ def test_gold_status_keeps_bridge_guided_login_assist_as_billing_blocker_until_m
         provider_matrix_receipt_path=provider_matrix,
     )
 
-    assert receipt["authenticated_customer_surfaces"]["billing_checks_ok"] is True
+    assert receipt["authenticated_customer_surfaces"]["billing_checks_ok"] is False
+    assert (
+        "billing_external_handoff_or_fail_closed_recovery"
+        in receipt["authenticated_customer_surfaces"]["missing_billing_checks"]
+    )
     assert receipt["billing_handoff"]["ready"] is False
     assert receipt["billing_handoff"]["member_login_token"]["ready"] is False
     assert "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY" in receipt["billing_handoff"]["member_login_token"]["required_env"]

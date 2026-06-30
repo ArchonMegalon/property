@@ -462,25 +462,45 @@ def _tour_provider_evidence_action(missing_provider_modes: list[str]) -> str:
         "krpano": "real panorama/cube walkable_scene plus the licensed environment",
         "magicfit": "receipt-backed playable walkthrough",
     }
-    parts = [actions[provider] for provider in missing_provider_modes if provider in actions]
+    provider_labels = {
+        "matterport": "Matterport",
+        "3dvista": "3DVista",
+        "pano2vr": "Pano2VR",
+        "krpano": "krpano",
+        "magicfit": "walkthrough",
+    }
+    parts = [
+        f"{provider_labels.get(provider, provider)}: {actions[provider]}"
+        for provider in missing_provider_modes
+        if provider in actions
+    ]
     if not parts:
         return "rerun verify_property_tour_controls.py and attach any provider evidence it still reports missing"
     return f"attach real provider evidence for missing modes only: {', '.join(parts)}"
 
 
 def _tour_provider_missing_note(missing_provider_modes: list[str]) -> str:
-    labels = {
-        "matterport": "hosted 3D model",
-        "3dvista": "branded 3D tour export",
-        "pano2vr": "panorama tour export",
-        "krpano": "panorama/cube viewer",
-        "magicfit": "playable walkthrough",
+    provider_labels = {
+        "matterport": "Matterport",
+        "3dvista": "3DVista",
+        "pano2vr": "Pano2VR",
+        "krpano": "krpano",
+        "magicfit": "MagicFit",
     }
+    labels = {
+        "matterport": "Matterport hosted 3D model",
+        "3dvista": "3DVista branded 3D tour export",
+        "pano2vr": "Pano2VR panorama tour export",
+        "krpano": "krpano panorama/cube viewer",
+        "magicfit": "MagicFit playable walkthrough",
+    }
+    providers = [provider_labels[provider] for provider in missing_provider_modes if provider in provider_labels]
     names = [labels[provider] for provider in missing_provider_modes if provider in labels]
     if not names:
         return "This receipt has no missing tour provider modes in the active verifier output."
+    provider_joined = ", ".join(providers)
     joined = ", ".join(names)
-    return f"This receipt intentionally treats missing {joined} evidence as blocked rather than pass."
+    return f"This receipt intentionally treats missing {provider_joined} evidence ({joined}) as blocked rather than pass."
 
 
 def _magicfit_renderer_summary(vendor_tooling: dict[str, Any], *, receipt_present: bool) -> dict[str, Any]:
@@ -701,12 +721,9 @@ def _authenticated_billing_surface_checks(authenticated_smoke: dict[str, Any]) -
         return False, ["billing_route_missing"], [], ""
     missing = [name for name in REQUIRED_BILLING_SURFACE_CHECKS if name not in passed_checks]
     handoff_or_recovery_ok = (
-        "billing_external_handoff" in passed_checks
+        ("billing_external_handoff" in passed_checks and "billing_no_second_login" in passed_checks)
         or "billing_fail_closed_recovery" in passed_checks
-        or (
-            "billing_bridge_launch" in passed_checks
-            and "billing_internal_account_fallback" in passed_checks
-        )
+        or ("billing_bridge_launch" in passed_checks and "billing_internal_account_fallback" in passed_checks)
     )
     if not handoff_or_recovery_ok:
         missing.append("billing_external_handoff_or_fail_closed_recovery")
@@ -883,6 +900,7 @@ def _billing_handoff_ready(
     )
     authenticated_external_handoff_usable = bool(authenticated_route_row) and (
         "billing_external_handoff_usable" in authenticated_passed_checks
+        and "billing_no_second_login" in authenticated_passed_checks
     )
     member_token_ready = (
         isinstance(member_token_handoff, dict)
@@ -902,11 +920,20 @@ def _billing_handoff_ready(
         and bridge.get("exchange_checked") is True
         and bridge.get("exchange_usable") is True
     )
-    authenticated_bridge_launch = bool(authenticated_route_row) and "billing_bridge_launch" in authenticated_passed_checks
-    if bridge_session_ready and (authenticated_bridge_launch or authenticated_external_handoff_usable):
-        return True
     if "billing_bridge_guided_login_assist" in authenticated_passed_checks:
         return False
+    authenticated_bridge_launch = bool(authenticated_route_row) and (
+        "billing_bridge_launch" in authenticated_passed_checks
+        and "billing_no_second_login" in authenticated_passed_checks
+    )
+    authenticated_local_account_recovery = bool(authenticated_route_row) and (
+        "billing_bridge_launch" in authenticated_passed_checks
+        and "billing_internal_account_fallback" in authenticated_passed_checks
+    )
+    if bridge_session_ready and (
+        authenticated_bridge_launch or authenticated_external_handoff_usable or authenticated_local_account_recovery
+    ):
+        return True
     return False
 
 
