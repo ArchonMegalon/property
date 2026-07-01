@@ -37,8 +37,8 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/": "PropertyQuarry Search once. See the right homes. Decide faster.",
         "https://propertyquarry.com/security": (
-            'PropertyQuarry Strict rules. Smart ranking. Score guide '
-            'href="/how-it-works/score" Hard filters decide eligibility. '
+            'PropertyQuarry Clear requirements. Calmer search. Fit guide '
+            'href="/how-it-works/score" Must-haves decide what belongs. '
             "You choose what is shared Account data stays editable"
         ),
         "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free First sign-in creates the account automatically. Open account, then activate from billing.",

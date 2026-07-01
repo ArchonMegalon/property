@@ -178,9 +178,9 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             (
                 (
                     "security_route_copy",
-                    "Strict rules. Smart ranking." in text
-                    and "Score guide" in text
-                    and "Hard filters decide eligibility" in text
+                    "Clear requirements. Calmer search." in text
+                    and "Fit guide" in text
+                    and "Must-haves decide what belongs" in text
                     and "/how-it-works/score" in text
                     and "You choose what is shared" in text,
                 ),
