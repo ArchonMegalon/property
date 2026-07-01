@@ -1336,7 +1336,7 @@ def propertyquarry_web_manifest() -> JSONResponse:
                 {
                     "name": "Results",
                     "short_name": "Results",
-                    "description": "Open current ranked homes.",
+                    "description": "Open current matching homes.",
                     "url": "/app/properties",
                     "icons": [{"src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png"}],
                 },
@@ -4109,7 +4109,7 @@ def how_it_works_score_page(
                     f"/v1/integrations/fliplink/documents/score-methodology.pdf?language={urllib.parse.quote(language_code)}"
                     f"&country={urllib.parse.quote(country_code)}"
                 ),
-                "meta_description": "See the exact PropertyQuarry score calculation with hard rules, score deltas, evidence confidence, and preference weights.",
+                "meta_description": "See how PropertyQuarry handles must-haves, preferences, missing details, and fit.",
             },
         ),
     )
@@ -4217,7 +4217,7 @@ def pricing_page(
                         "@context": "https://schema.org",
                         "@type": "Product",
                         "name": "PropertyQuarry",
-                        "description": "Property research and shortlist ranking for renters, buyers, and investors.",
+                        "description": "Property research, matching homes, and review pages for renters, buyers, and investors.",
                         "offers": [
                             {
                                 "@type": "Offer",
@@ -4232,7 +4232,7 @@ def pricing_page(
                         (
                             {
                                 "question": "When should I stay on Free?",
-                                "answer": "Stay on Free when the main question is whether the ranking and property page are useful at all.",
+                                "answer": "Stay on Free when the main question is whether the matching homes and property page are useful at all.",
                             },
                             {
                                 "question": "What does Plus change?",
@@ -5240,9 +5240,9 @@ def property_research_packet(
         requested=bool(int(investment or 0)),
     )
     ooda_summary_rows = [
-        _object_detail_row("Why it ranks", _clean_property_candidate_copy(match_reasons[0]), "Match")
+        _object_detail_row("Why it fits", _clean_property_candidate_copy(match_reasons[0]), "Match")
         if match_reasons
-        else _object_detail_row("Why it ranks", _clean_property_candidate_copy(fit_summary) or "This candidate survived the shortlist ranking.", "Match"),
+        else _object_detail_row("Why it fits", _clean_property_candidate_copy(fit_summary) or "This home matches the current brief.", "Match"),
         _object_detail_row(
             "Best reason to act",
             _clean_property_candidate_copy(str(decision_rows[0].get("detail") or fit_summary).strip())
@@ -6070,7 +6070,7 @@ def propertyquarry_fast_ranked_run_page(
         **_public_context(
             request=request,
             current_nav="product",
-            page_title="PropertyQuarry Ranked Homes",
+            page_title="PropertyQuarry Matching Homes",
             principal_id=context.principal_id,
             status=_anonymous_onboarding_status(),
             access_identity=access_identity,
@@ -6083,7 +6083,7 @@ def propertyquarry_fast_ranked_run_page(
                 "history_href": "/app/agents#search-history",
                 "account_href": "/app/account",
                 "account_nav": _account_nav_context(request=request, context=context),
-                "meta_description": "A fast PropertyQuarry ranked-results view that loads the homes for a completed search without waiting for the full workbench.",
+                "meta_description": "A fast PropertyQuarry results view that loads matching homes for a completed search without waiting for the full workbench.",
                 "canonical_path": f"/app/shortlist/run/{encoded_run_id}",
                 "robots_directive": "noindex, nofollow",
             },
@@ -6541,7 +6541,7 @@ def app_shell(
             )
             if current_nav == "search":
                 payload["title"] = "Search"
-                payload["summary"] = "Build the brief, run the sweep, review the ranking, and open the property that deserves a decision."
+                payload["summary"] = "Build the brief, run the sweep, review the matching homes, and open the property that deserves a decision."
             elif current_nav == "account":
                 payload["title"] = "Account"
                 payload["summary"] = "Saved defaults, notifications, billing, and access."

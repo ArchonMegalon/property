@@ -2574,7 +2574,7 @@ class OnboardingService(AssistantOnboardingService):
         else:
             base = [
                 "One clear search brief",
-                "Ranked homes that match the selected areas and budget",
+                "Matching homes in the selected areas and budget",
                 "Feedback that improves the next shortlist",
             ]
         if "google" in selected_channels:

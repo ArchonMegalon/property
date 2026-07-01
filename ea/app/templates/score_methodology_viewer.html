@@ -118,21 +118,21 @@
 </style>
 
 <main class="pqx-score-viewer-shell">
-  <section class="pqx-score-viewer-card" aria-label="PropertyQuarry score methodology overview">
-    <p class="pqx-score-viewer-kicker">PropertyQuarry score guide</p>
+  <section class="pqx-score-viewer-card" aria-label="PropertyQuarry fit guide overview">
+    <p class="pqx-score-viewer-kicker">PropertyQuarry fit guide</p>
     <div class="pqx-score-viewer-head">
-      <h1>{{ score_methodology.get('pdf_title') or 'PropertyQuarry score methodology' }}</h1>
-      <p>Review the exact weighting behind hard filters, preference deltas, evidence confidence, and shortlist ranking without leaving the branded public surface.</p>
+      <h1>{{ score_methodology.get('pdf_title') or 'PropertyQuarry fit guide' }}</h1>
+      <p>See how must-haves, preferences, missing details, and saved homes are handled.</p>
     </div>
-    <div class="pqx-score-viewer-meta" aria-label="Score methodology metadata">
+    <div class="pqx-score-viewer-meta" aria-label="Fit guide details">
       <span>Language · {{ score_methodology.get('language_code') or 'en' }}</span>
       <span>Country · {{ score_methodology.get('country_code') or 'AT' }}</span>
-      <span>Hard rules first</span>
-      <span>Evidence stays attached</span>
+      <span>Must-haves first</span>
+      <span>Details stay attached</span>
     </div>
   </section>
-  <section class="pqx-score-viewer-frame" aria-label="{{ score_methodology.get('pdf_title') or 'PropertyQuarry score methodology PDF' }}">
-    <iframe src="{{ pdf_url }}" title="{{ score_methodology.get('pdf_title') or 'PropertyQuarry score methodology PDF' }}" loading="eager"></iframe>
+  <section class="pqx-score-viewer-frame" aria-label="{{ score_methodology.get('pdf_title') or 'PropertyQuarry fit guide PDF' }}">
+    <iframe src="{{ pdf_url }}" title="{{ score_methodology.get('pdf_title') or 'PropertyQuarry fit guide PDF' }}" loading="eager"></iframe>
   </section>
 </main>
 {% endblock %}

@@ -95,13 +95,13 @@
         {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
         {% set event_label = 'Checking listings' %}
         {% elif event_step in ['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'] %}
-        {% set event_label = 'Ranking homes' %}
+        {% set event_label = 'Matching homes' %}
         {% elif event_step == 'shortlist_ready' %}
         {% set event_label = 'First shortlist' %}
         {% elif event_step in ['source_review_packet', 'source_review_packet_failed'] %}
         {% set event_label = 'Open property ready' %}
         {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
-        {% set event_label = 'Applying hard rules' %}
+        {% set event_label = 'Checking requirements' %}
         {% elif event_step in ['source_completed', 'completed'] %}
         {% set event_label = 'List finished' %}
         {% elif event_step in ['source_notify'] %}

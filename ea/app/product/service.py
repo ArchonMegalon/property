@@ -42252,7 +42252,7 @@ class ProductService:
                 timing_ms["first_shortlist_ready"] = _run_elapsed_ms()
                 _report(
                     step="shortlist_ready",
-                    message=f"First ranked homes are ready from {source_label}.",
+                    message=f"First matching homes are ready from {source_label}.",
                     status="in_progress",
                     steps_delta=0,
                     summary_updates={

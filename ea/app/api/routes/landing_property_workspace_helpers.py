@@ -753,15 +753,15 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         display_active_total = min(visible_workers, live_worker_total + queued_worker_total)
 
     if display_active_total > 0:
-        headline = f"{display_active_total} provider{'s' if display_active_total != 1 else ''} active"
+        headline = f"{display_active_total} list{'s' if display_active_total != 1 else ''} active"
     elif run_active and not source_rows:
-        headline = "Preparing providers"
+        headline = "Preparing lists"
     elif queued_provider_total > 0:
-        headline = "Preparing providers"
+        headline = "Preparing lists"
     elif checked_provider_total > 0:
-        headline = f"{checked_provider_total} provider{'s' if checked_provider_total != 1 else ''} checked"
+        headline = f"{checked_provider_total} list{'s' if checked_provider_total != 1 else ''} checked"
     else:
-        headline = "Providers ready"
+        headline = "Lists ready"
 
     detail_parts: list[str] = []
     if display_includes_queued_lanes and live_worker_total > 0:
@@ -781,7 +781,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         "detail": detail,
         "workers": worker_rows,
         "upgrade_copy": "",
-        "tooltip": "This shows which sources are running, queued, recovered, or unavailable for this search. Other saved searches keep their own progress.",
+        "tooltip": "This shows which lists are running, queued, restored, or unavailable for this search. Other saved searches keep their own progress.",
     }
 
 
@@ -1392,7 +1392,7 @@ def _property_search_guard_rows(
         rows.append(
             {
                 "title": "Outside-area results suppressed",
-                "detail": f"{outside_total} candidate{' was' if outside_total == 1 else 's were'} rejected before ranking because the provider returned locations outside the selected area.",
+                "detail": f"{outside_total} home{' was' if outside_total == 1 else 's were'} outside the selected area.",
                 "tag": "Suppressed",
             }
         )
@@ -1492,7 +1492,7 @@ def _property_suppression_rows(
     action_map = {
         "Outside selected area": "Add nearby districts first instead of opening the full market.",
         "Property type mismatch": "Allow this property type temporarily if you want mixed options in this round.",
-        "Wrong transaction type": "Keep this strict. Rent and buy are hard rules, so mismatched listings are sent for provider repair.",
+        "Wrong transaction type": "Keep this strict. Rent and buy must stay separate, so mismatched homes are retried separately.",
         "Overview page": "Keep this strict. Overview, news, or competition pages are skipped.",
         "Floorplan still missing": "These homes are still being checked for a floorplan in photos, PDFs, downloads, and 360 media.",
         "Outside area/size rule": "Stretch the size or area rule only if the shortlist feels too thin.",

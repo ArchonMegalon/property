@@ -827,17 +827,17 @@ def settings_usage_detail(
         latest_run_rows = [
             _object_detail_row(
                 f"Run {row['run_id'][:8] or 'latest'}",
-                f"{row['status']} · {row['ranked']} ranked · {row['filtered']} filtered",
+                f"{row['status']} · {row['ranked']} matches · {row['filtered']} hidden",
                 "Search",
                 href=row["href"],
             )
             for row in list(property_usage["latest_rows"])
         ]
         results_items = [
-            _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
-            _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-            _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Sources"),
-            _object_detail_row("Sources used", str(property_usage["source_total"]), "Sources"),
+            _object_detail_row("Matches", str(property_usage["ranked_total"]), "Shortlist"),
+            _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), "Rules"),
+            _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Lists"),
+            _object_detail_row("Lists used", str(property_usage["source_total"]), "Lists"),
         ]
         research_output_items = []
         if int(property_usage["packet_ready_total"] or 0) > 0:
@@ -851,17 +851,17 @@ def settings_usage_detail(
             ]
         )
         reliability_items = [
-            _object_detail_row("Recovery", str(property_usage["repair_status"]), "Repair"),
+            _object_detail_row("Recovery", str(property_usage["repair_status"]), "Retry"),
             _object_detail_row(
-                "Source health",
+                "List health",
                 "Waiting for first search" if int(property_usage["run_total"] or 0) <= 0 else "Derived from recent runs",
-                "Sources",
+                "Lists",
             ),
         ]
         if int(property_usage["failed_source_total"] or 0) > 0:
-            reliability_items.append(_object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"))
+            reliability_items.append(_object_detail_row("List failures", str(property_usage["failed_source_total"]), "Retry"))
         if int(property_usage["repairing_source_total"] or 0) > 0:
-            reliability_items.append(_object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"))
+            reliability_items.append(_object_detail_row("Lists retrying", str(property_usage["repairing_source_total"]), "Retry"))
         usage_sidebar_rows = []
         if int(property_usage["run_total"] or 0) <= 0:
             usage_sidebar_rows.append(
@@ -933,23 +933,23 @@ def settings_usage_detail(
             page_title="PropertyQuarry usage and activation",
             current_nav="settings",
             console_title="Usage and activation",
-            console_summary="Search activation, ranked homes, filtered homes, property pages, and tours stay visible in one account view.",
+            console_summary="Search activation, matches, hidden homes, property pages, and tours stay visible in one account view.",
             object_kind="Property usage",
             object_title=f"{property_usage['run_total']} recent search runs",
             object_summary=(
-                f"{property_usage['ranked_total']} ranked homes · "
-                f"{property_usage['filtered_total']} filtered · "
+                f"{property_usage['ranked_total']} matches · "
+                f"{property_usage['filtered_total']} hidden · "
                 f"{property_usage['repair_status']}"
             ),
             object_meta=[
                 {"label": "Searches opened", "value": str(property_usage["run_total"])},
-                {"label": "Ranked homes", "value": str(property_usage["ranked_total"])},
-                {"label": "Filtered homes", "value": str(property_usage["filtered_total"])},
-                {"label": "Sources used", "value": str(property_usage["source_total"])},
+                {"label": "Matches", "value": str(property_usage["ranked_total"])},
+                {"label": "Hidden homes", "value": str(property_usage["filtered_total"])},
+                {"label": "Lists used", "value": str(property_usage["source_total"])},
                 {"label": "Recovery", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What usage and activation mean here",
-            object_sidebar_copy="Usage and activation are driven by completed searches, ranked homes, and whether repair work is still open.",
+            object_sidebar_copy="Usage and activation are driven by completed searches, matching homes, and whether retry work is still open.",
             object_sidebar_rows=usage_sidebar_rows,
             object_sections=usage_sections,
         )
@@ -986,7 +986,7 @@ def settings_usage_detail(
             _object_detail_row("Time to first value", str(analytics.get("time_to_first_value_seconds") or "pending"), "Analytics"),
             _object_detail_row("Churn risk", str(analytics.get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
             _object_detail_row("Account status", str(readiness.get("detail") or "Status not recorded."), "Account"),
-            _object_detail_row("Source health", str(providers.get("risk_state") or "unknown").replace("_", " "), "Sources"),
+            _object_detail_row("List health", str(providers.get("risk_state") or "unknown").replace("_", " "), "Lists"),
         ],
         object_sections=[
             {
@@ -1083,13 +1083,13 @@ def settings_support_detail(
             object_kind="Support",
             object_title=str(property_usage["repair_status"]),
             object_summary=(
-                f"{property_usage['failed_source_total']} source failures · "
-                f"{property_usage['ranked_total']} ranked homes · "
+                f"{property_usage['failed_source_total']} list failures · "
+                f"{property_usage['ranked_total']} matches · "
                 f"{str(billing.get('support_tier') or 'standard').title()} support"
             ),
             object_meta=[
-                {"label": "Source failures", "value": str(property_usage["failed_source_total"])},
-                {"label": "Sources retrying", "value": str(property_usage["repairing_source_total"])},
+                {"label": "List failures", "value": str(property_usage["failed_source_total"])},
+                {"label": "Lists retrying", "value": str(property_usage["repairing_source_total"])},
                 {"label": "Partial runs", "value": str(property_usage["partial_total"])},
                 {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
             ],
@@ -1101,12 +1101,12 @@ def settings_support_detail(
             ],
             object_sections=[
                 {
-                    "eyebrow": "Repair",
-                    "title": "Repair and run health",
+                    "eyebrow": "Retry",
+                    "title": "Search health",
                     "items": [
                         _object_detail_row("Recovery", str(property_usage["repair_status"]), ""),
-                        _object_detail_row("Source failures", str(property_usage["failed_source_total"]), ""),
-                        _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), ""),
+                        _object_detail_row("List failures", str(property_usage["failed_source_total"]), ""),
+                        _object_detail_row("Lists retrying", str(property_usage["repairing_source_total"]), ""),
                         _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), ""),
                         _object_detail_row("Partial runs", str(property_usage["partial_total"]), ""),
                     ],
@@ -1115,8 +1115,8 @@ def settings_support_detail(
                     "eyebrow": "Usable results",
                     "title": "What is ready while support works",
                     "items": [
-                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), ""),
-                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), ""),
+                        _object_detail_row("Matches", str(property_usage["ranked_total"]), ""),
+                        _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), ""),
                         _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), ""),
                         _object_detail_row("3D tours ready", str(property_usage["tour_ready_total"]), ""),
                     ],
@@ -1179,7 +1179,7 @@ def settings_support_detail(
             _object_detail_row("Plan status", str(billing.get("billing_state") or "unknown").replace("_", " "), "Billing"),
             _object_detail_row("Invoice status", str(billing.get("invoice_status") or "unknown").replace("_", " "), "Billing"),
             _object_detail_row("Churn risk", str(bundle.get("analytics", {}).get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
-            _object_detail_row("Source health", str(providers.get("risk_state") or "unknown").replace("_", " "), "Sources"),
+            _object_detail_row("List health", str(providers.get("risk_state") or "unknown").replace("_", " "), "Lists"),
             _object_detail_row("Latest issue", str(memo_loop.get("last_issue_reason") or "No current blocker"), "Support"),
             _object_detail_row("Search setup", str(journey_gate.get("state") or "missing").replace("_", " "), "Product"),
             _object_detail_row("Support note", str(support_fallout.get("detail") or "No support note."), "Support"),
@@ -1437,28 +1437,28 @@ def settings_outcomes_detail(
             page_title="PropertyQuarry outcomes",
             current_nav="settings",
             console_title="Outcomes",
-            console_summary="Outcomes track whether searches produced usable ranked homes, whether repair work stayed bounded, and what follow-up is ready.",
+            console_summary="Outcomes track whether searches produced matching homes, whether retry work stayed bounded, and what follow-up is ready.",
             object_kind="Outcomes",
-            object_title=f"{property_usage['ranked_total']} ranked homes",
+            object_title=f"{property_usage['ranked_total']} matches",
             object_summary=(
                 f"{property_usage['completed_total']} completed searches · "
                 f"{property_usage['partial_total']} partial · "
                 f"{property_usage['failed_run_total']} failed"
             ),
             object_meta=[
-                {"label": "Ranked homes", "value": str(property_usage["ranked_total"])},
+                {"label": "Matches", "value": str(property_usage["ranked_total"])},
                 {"label": "Completed searches", "value": str(property_usage["completed_total"])},
                 {"label": "Partial searches", "value": str(property_usage["partial_total"])},
                 {"label": "Recovery", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What a healthy search shows",
-            object_sidebar_copy="A healthy PropertyQuarry loop returns ranked homes quickly, keeps hard filters explainable, preserves usable partial results, and keeps open details visible.",
+            object_sidebar_copy="A healthy PropertyQuarry loop returns matching homes quickly, keeps requirements understandable, preserves useful partial results, and keeps open details visible.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
-                _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
-                _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
-                _object_detail_row("Recovery", str(property_usage["repair_status"]), "Repair"),
+                _object_detail_row("Matches", str(property_usage["ranked_total"]), "Shortlist"),
+                _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), "Rules"),
+                _object_detail_row("List failures", str(property_usage["failed_source_total"]), "Retry"),
+                _object_detail_row("Recovery", str(property_usage["repair_status"]), "Retry"),
                 _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Account"),
             ],
             object_sections=[
@@ -1476,10 +1476,10 @@ def settings_outcomes_detail(
                     "eyebrow": "Result quality",
                     "title": "Shortlist and rule pressure",
                     "items": [
-                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
-                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                        _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Sources"),
-                        _object_detail_row("Sources used", str(property_usage["source_total"]), "Sources"),
+                        _object_detail_row("Matches", str(property_usage["ranked_total"]), "Shortlist"),
+                        _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), "Rules"),
+                        _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Lists"),
+                        _object_detail_row("Lists used", str(property_usage["source_total"]), "Lists"),
                     ],
                 },
                 {
@@ -2072,47 +2072,47 @@ def settings_trust_detail(
             object_kind="Reliability",
             object_title=workspace_summary,
             object_summary=(
-                f"{property_usage['ranked_total']} ranked homes · "
+                f"{property_usage['ranked_total']} matches · "
                 f"{property_usage['packet_ready_total']} property pages · "
                 f"{property_usage['repair_status']}"
             ),
             object_meta=[
-                {"label": "Ranked homes", "value": str(property_usage["ranked_total"])},
+                {"label": "Matches", "value": str(property_usage["ranked_total"])},
                 {"label": "Property pages", "value": str(property_usage["packet_ready_total"])},
                 {"label": "3D tours", "value": str(property_usage["tour_ready_total"])},
                 {"label": "Plan", "value": str(billing.get("current_plan_label") or billing.get("current_plan_key") or "Free").replace("_", " ").title()},
             ],
             object_sidebar_title="Why this is reliable",
-            object_sidebar_copy="Reliability comes from visible ranking evidence, provider health, source repair state, and account controls.",
+            object_sidebar_copy="Reliability comes from clear results, list health, retry state, and account controls.",
             object_sidebar_rows=[
                 _object_detail_row("Summary", workspace_summary, "Summary"),
                 _object_detail_row("Account", readiness_detail_label, "Account"),
-                _object_detail_row("Source health", str(property_usage["repair_status"]), "Sources"),
-                _object_detail_row("Recovery", str(property_usage["repair_status"]), "Sources"),
-                _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Sources"),
+                _object_detail_row("List health", str(property_usage["repair_status"]), "Lists"),
+                _object_detail_row("Recovery", str(property_usage["repair_status"]), "Lists"),
+                _object_detail_row("List failures", str(property_usage["failed_source_total"]), "Lists"),
                 _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
                 _object_detail_row("Blocked actions", ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:4]) or "No blocked actions", "Rules"),
             ],
             object_sections=[
                 {
                     "eyebrow": "Status",
-                    "title": "Account and source health",
+                    "title": "Account and list health",
                     "items": [
                         _object_detail_row("Account", readiness_status_label, "Account"),
                         _object_detail_row("Details", readiness_detail_label, "Account"),
-                        _object_detail_row("Source health", str(property_usage.get("repair_status") or "unknown"), "Sources"),
+                        _object_detail_row("List health", str(property_usage.get("repair_status") or "unknown"), "Lists"),
                         _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
-                        _object_detail_row("Recovery", str(property_usage["repair_status"]), "Sources"),
-                        _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Sources"),
+                        _object_detail_row("Recovery", str(property_usage["repair_status"]), "Lists"),
+                        _object_detail_row("List failures", str(property_usage["failed_source_total"]), "Lists"),
                     ],
                 },
                 {
-                    "eyebrow": "Trust controls",
-                    "title": "Evidence, rules, and retention",
+                    "eyebrow": "Controls",
+                    "title": "Rules and retention",
                     "items": [
-                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Evidence"),
-                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                        _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Sources"),
+                        _object_detail_row("Matches", str(property_usage["ranked_total"]), "Summary"),
+                        _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), "Rules"),
+                        _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Lists"),
                         _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
                         _object_detail_row("Export data", "Download your account, searches, saved results, and preference records.", "Data", href="/app/api/property/account/export?download=1", action_href="/app/api/property/account/export?download=1", action_label="Export data", action_method="get"),
                     ],
@@ -2167,12 +2167,12 @@ def settings_trust_detail(
             {"label": "Data retention", "value": str(trust.get("audit_retention") or "standard")},
         ],
         object_sidebar_title="Why this is reliable",
-        object_sidebar_copy="Reliability comes from visible evidence, clear rules, source health, and recent account activity.",
+        object_sidebar_copy="Reliability comes from clear rules, list health, and recent account activity.",
         object_sidebar_rows=[
             _object_detail_row("Summary", workspace_summary if workspace_summary != "Trust" else "No trust summary yet.", "Summary"),
             _object_detail_row("Account", readiness_detail_label, "Account"),
-            _object_detail_row("Source health", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
-            _object_detail_row("Sources", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
+            _object_detail_row("List health", str(provider_posture.get("risk_state") or "unknown"), "Lists"),
+            _object_detail_row("Lists", str(provider_posture.get("risk_state") or "unknown"), "Lists"),
             _object_detail_row("Delivery", str(reliability.get("delivery") or "watch"), "Delivery"),
             _object_detail_row("Access", str(reliability.get("access") or "watch"), "Access"),
             _object_detail_row("Sync", str(reliability.get("sync") or "watch"), "Sync"),
@@ -2180,13 +2180,13 @@ def settings_trust_detail(
             object_sections=[
                 {
                     "eyebrow": "Status",
-                    "title": "Account and source health",
+                    "title": "Account and list health",
                     "items": [
                         _object_detail_row("Account", readiness_status_label, "Account"),
                         _object_detail_row("Details", readiness_detail_label, "Account"),
-                        _object_detail_row("Source health", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
-                        _object_detail_row("Source detail", str(provider_posture.get("risk_detail") or "No source issue recorded."), "Sources"),
-                        _object_detail_row("Fallback sources", str(provider_posture.get("lanes_with_fallback") or 0), "Sources"),
+                        _object_detail_row("List health", str(provider_posture.get("risk_state") or "unknown"), "Lists"),
+                        _object_detail_row("List detail", str(provider_posture.get("risk_detail") or "No list issue recorded."), "Lists"),
+                        _object_detail_row("Fallback lists", str(provider_posture.get("lanes_with_fallback") or 0), "Lists"),
                     ],
                 },
             {

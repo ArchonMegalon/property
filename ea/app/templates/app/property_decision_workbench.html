@@ -59,7 +59,7 @@
           <div class="pqx-suppression-panel" data-pqx-filtered-breakdown data-pqx-suppression-summary>
   <button class="pqx-suppression-trigger" type="button" data-pqx-filtered-open aria-label="Open relaxed search options">
     <span class="pqx-suppression-trigger-copy">
-      <strong>{% if ns.total %}{{ ns.total }} filtered{% else %}Widen this brief{% endif %}</strong>
+      <strong>{% if ns.total %}{{ ns.total }} hidden{% else %}Widen this brief{% endif %}</strong>
       <span class="pqx-note">
         Choose one small change, then rerun.
       </span>
@@ -69,14 +69,14 @@
 {% endif %}
 {%- endmacro %}
 {% macro filtered_recovery_dialog(counterfactual_rows, suppression_rows) -%}
-          <dialog class="pqx-filtered-dialog" data-pqx-filtered-dialog aria-label="Relax filtered homes">
+          <dialog class="pqx-filtered-dialog" data-pqx-filtered-dialog aria-label="Review hidden homes">
               <div class="pqx-filtered-dialog-card">
               <div class="pqx-filtered-dialog-head">
                 <div>
-                  <strong>Adjust one hard rule</strong>
-                  <div class="pqx-note">Search changes stay explicit here. Hard rules remain strict until you change them.</div>
+                  <strong>Widen one requirement</strong>
+                  <div class="pqx-note">Change one thing, then rerun.</div>
                 </div>
-                <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
+                <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close hidden homes">×</button>
               </div>
               <div class="pqx-filtered-dialog-actions">
                 {% if counterfactual_rows %}
@@ -103,7 +103,7 @@
                       data-pqx-filter-max-value="{{ slider.get('max') or slider.get('value') or 0 }}"
                       data-pqx-filter-max="{{ row.get('affected_total') or 0 }}"
                     >
-	                    <span class="pqx-small" data-pqx-filter-estimate>Estimated homes move into the visible ranking on refresh.</span>
+		                    <span class="pqx-small" data-pqx-filter-estimate>Estimated homes that may appear after rerun.</span>
                   </label>
                   {% endif %}
                   <div class="pqx-actions">
@@ -121,8 +121,8 @@
                       <button
                         type="button"
                         class="pqx-tooltip"
-                        title="Estimated homes mostly blocked by this rule. Actual gains can be lower after deduplication and availability changes."
-                        aria-label="Estimated homes mostly blocked by this rule. Actual gains can be lower after deduplication and availability changes."
+	                        title="Estimated homes affected by this setting. Actual gains can be lower after duplicates and availability changes."
+	                        aria-label="Estimated homes affected by this setting. Actual gains can be lower after duplicates and availability changes."
                         aria-expanded="false"
                         data-tooltip-trigger
                       >?</button>
@@ -136,7 +136,7 @@
                 <div class="pqx-filtered-dialog-rule">
                   {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
                   <strong>{{ row.get('title') or 'Homes outside the brief' }}</strong>
-                  <span class="pqx-note">{{ row.get('detail') or 'Some homes stayed outside the shortlist because of the current brief or missing details.' }}</span>
+                  <span class="pqx-note">{{ row.get('detail') or 'Some homes need a wider brief or a missing detail before they can appear.' }}</span>
                   <div class="pqx-actions">
                     <a class="pqx-button primary" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>{{ row.get('action_label') or 'Adjust search' }}</a>
                   </div>
@@ -151,7 +151,7 @@
                 </div>
                 <div class="pqx-filtered-dialog-rule">
                   <strong>Soften one preference</strong>
-                  <span class="pqx-note">Leave must-haves strict; move nice-to-have rules into scoring so good homes can surface.</span>
+                  <span class="pqx-note">Keep must-haves strict. Soften one nice-to-have if the result set is too narrow.</span>
                   <div class="pqx-actions">
                     <a class="pqx-button subtle" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Review what matters</a>
                   </div>
@@ -386,7 +386,7 @@
   {% if worker_state.get('workers') %}
   <div class="pqx-worker-strip" data-pqx-worker-strip>
     <div class="pqx-worker-strip-head">
-      <strong>{{ worker_state.get('headline') or 'Preparing providers' }}</strong>
+      <strong>{{ worker_state.get('headline') or 'Preparing lists' }}</strong>
       <button type="button" class="pqx-tooltip" title="{{ worker_state.get('tooltip') }}" aria-label="{{ worker_state.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>
       {% if worker_state.get('detail') %}<span class="pqx-note">{{ worker_state.get('detail') }}</span>{% endif %}
       {% if worker_state.get('upgrade_copy') %}<span class="pqx-note">{{ worker_state.get('upgrade_copy') }}</span>{% endif %}
@@ -10498,7 +10498,7 @@
           <span class="pqx-run-chip is-muted"><strong data-pqx-run-status>{{ run.get('status_label') or 'No matches yet' }}</strong></span>
           {% endif %}
           {% if has_results %}
-          <span class="pqx-run-chip is-count">{{ results|length }} ranked</span>
+          <span class="pqx-run-chip is-count">{{ results|length }} matches</span>
           {% endif %}
         </div>
         {% endif %}
@@ -11056,7 +11056,7 @@
                 {% elif surface_mode == 'account' %}
                 Saved defaults, notifications, billing, and access stay together.
                 {% else %}
-                Fill only what changes ranking. Everything else stays neutral.
+                Fill only what changes fit. Everything else stays neutral.
                 {% endif %}
               </div>
             </div>
@@ -11809,7 +11809,7 @@
             <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Completed{% endif %}</span>
             <h1>
               {% if run_status == 'failed' %}
-                {{ empty_happened or run_reliability.get('customer_status_message') or 'The search stopped before ranking finished.' }}
+                {{ empty_happened or run_reliability.get('customer_status_message') or 'The search stopped before matching finished.' }}
               {% else %}
                 {{ empty_happened or 'No homes in scope yet.' }}
               {% endif %}
@@ -11818,7 +11818,7 @@
               {% if run_status == 'failed' %}
                 {{ empty_eta_feedback or empty_still_worked or 'The brief was saved. Start a fresh search after adjusting one provider or rule.' }}
               {% elif held_back_ranked_total > 0 %}
-                {{ held_back_ranked_total }} home{% if held_back_ranked_total != 1 %}s{% endif %} appeared during the run but stayed outside the selected area or another hard rule.
+                {{ held_back_ranked_total }} home{% if held_back_ranked_total != 1 %}s{% endif %} appeared during the run but stayed outside the selected area or another requirement.
               {% else %}
                 {{ empty_eta_feedback or empty_still_worked or 'No homes fit the current hard brief yet.' }}
               {% endif %}
@@ -11835,7 +11835,7 @@
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
             <div class="pqx-empty-outcome-next">
               {% if empty_active_rule or run_status == 'failed' %}<span class="pqx-pill">{{ empty_active_rule or 'Next' }}</span>{% endif %}
-              <span class="pqx-small">{{ 'Open the area choices if you want to include those homes; otherwise keep the hard scope.' if held_back_ranked_total > 0 else (empty_next_move or ('Start a fresh search or adjust one provider or rule before retrying.' if run_status == 'failed' else 'Widen one hard rule first, then rerun.')) }}</span>
+              <span class="pqx-small">{{ 'Open the area choices if you want to include those homes; otherwise keep the current area.' if held_back_ranked_total > 0 else (empty_next_move or ('Start a fresh search or adjust one list or requirement before retrying.' if run_status == 'failed' else 'Widen one requirement first, then rerun.')) }}</span>
             </div>
             {% endif %}
 	            <div class="pqx-actions">
@@ -11858,7 +11858,7 @@
             <div class="pqx-empty-next-copy">
                 <span class="pqx-small">Next step</span>
                 <h2>Next move</h2>
-                <div class="pqx-note" data-pqx-run-summary>{{ empty_next_move or 'Adjust one hard rule, then rerun.' }}</div>
+                <div class="pqx-note" data-pqx-run-summary>{{ empty_next_move or 'Widen one requirement, then rerun.' }}</div>
               </div>
             <div class="pqx-empty-next-status">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
@@ -11901,7 +11901,7 @@
                   data-pqx-filter-max-value="{{ slider.get('max') or slider.get('value') or 0 }}"
                   data-pqx-filter-max="{{ row.get('affected_total') or 0 }}"
                 >
-                <span class="pqx-small" data-pqx-filter-estimate>Estimated newly ranked homes updates live.</span>
+                <span class="pqx-small" data-pqx-filter-estimate>Estimated homes update live.</span>
               </label>
               <button
                 class="pqx-suppression-action"
@@ -11932,7 +11932,7 @@
             <button class="pqx-suppression-item pqx-empty-next-more-trigger" type="button" data-pqx-filtered-open aria-label="Show more ways to widen this search">
               <span class="pqx-empty-next-more-copy">
                 <strong>More ways to widen</strong>
-                <span class="pqx-note">Open the remaining area, distance, and provider changes without filling the page.</span>
+                <span class="pqx-note">Open the remaining area, distance, and list changes without filling the page.</span>
               </span>
               <span class="pqx-suppression-action">See {{ more_rule_count }} more</span>
             </button>
@@ -11965,7 +11965,7 @@
                 <div>
                   <div class="pqx-small">{{ hero_kicker or 'Research pages' }}</div>
                   <h2>{{ hero_title or 'Open the strongest homes first.' }}</h2>
-                  <div class="pqx-note">{{ hero_summary or 'Hosted property pages and 3D tours stay primary. Raw portal links remain secondary.' }}</div>
+                  <div class="pqx-note">{{ hero_summary or 'Open the property page first. Listing links stay secondary.' }}</div>
                 </div>
               </div>
               {% if hero_actions %}
@@ -11979,8 +11979,8 @@
             {% endif %}
             <div class="pqx-section-head">
               <div>
-                <h2>{% if surface_mode == 'research' %}Open the strongest property pages first{% else %}Best matches{% endif %}</h2>
-                <div class="pqx-note" data-pqx-run-summary">{% if surface_mode == 'research' %}Hosted property pages and 3D tours stay primary. {{ results|length }} ranked homes are ready for review{% if run_active %} while the rest of the search keeps checking in the background{% endif %}.{% else %}{{ results|length }} homes ranked from the current brief{% if run_active %} · search is still checking the rest in the background{% endif %}{% endif %}</div>
+                <h2>{% if surface_mode == 'research' %}Open the strongest homes first{% else %}Best matches{% endif %}</h2>
+                <div class="pqx-note" data-pqx-run-summary>{% if surface_mode == 'research' %}{{ results|length }} homes are ready{% if run_active %} while the search keeps checking in the background{% endif %}.{% else %}{{ results|length }} homes match the current brief{% if run_active %} · search is still checking the rest in the background{% endif %}{% endif %}</div>
               </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
@@ -11993,7 +11993,7 @@
                   <th>Property</th>
                   <th>Media</th>
                   <th>Fit</th>
-                  <th>Why it ranks</th>
+                  <th>Why it fits</th>
                   <th>Open</th>
                 </tr>
               </thead>
@@ -12016,7 +12016,7 @@
                       </span>
                     </div>
                     <div class="pqx-result-trust">
-                      <span class="pqx-trust-chip">Rank #{{ candidate.get('rank') or loop.index }}</span>
+                      <span class="pqx-trust-chip">#{{ candidate.get('rank') or loop.index }}</span>
                       <span class="pqx-trust-chip">Fit {{ candidate.get('fit_score') or 0 }}/100</span>
                       {% set candidate_facts = candidate.get('property_facts') or {} %}
                       <span class="pqx-trust-chip">Layout {{ 'on file' if candidate.get('has_floorplan') or candidate.get('floorplan_count') or candidate.get('floorplan_urls_json') or candidate_facts.get('has_floorplan') or candidate_facts.get('floorplan_count') or candidate_facts.get('floorplan_urls_json') else 'missing' }}</span>
@@ -12073,8 +12073,8 @@
           <section class="pqx-card pqx-empty-results-note" data-pqx-ranked-candidates>
             <div class="pqx-section-head">
               <div>
-                <h2>{% if run_status == 'failed' %}Repair running{% else %}No ranked homes{% endif %}</h2>
-                <div class="pqx-note" data-pqx-run-summary>{% if run_status == 'failed' %}The search will switch when a usable run is ready.{% else %}Change one hard rule if you want another pass.{% endif %}</div>
+                <h2>{% if run_status == 'failed' %}Retry running{% else %}No homes yet{% endif %}</h2>
+                <div class="pqx-note" data-pqx-run-summary>{% if run_status == 'failed' %}The search will switch when a useful run is ready.{% else %}Change one requirement if you want another pass.{% endif %}</div>
               </div>
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
             </div>
@@ -12099,13 +12099,13 @@
           {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
           {% set event_label = 'Checking listings' %}
           {% elif event_step in ['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'] %}
-          {% set event_label = 'Ranking homes' %}
+          {% set event_label = 'Matching homes' %}
           {% elif event_step == 'shortlist_ready' %}
           {% set event_label = 'First shortlist' %}
           {% elif event_step in ['source_review_packet', 'source_review_packet_failed'] %}
           {% set event_label = 'Open property ready' %}
           {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
-          {% set event_label = 'Applying hard rules' %}
+          {% set event_label = 'Checking requirements' %}
           {% elif event_step in ['source_completed', 'completed'] %}
           {% set event_label = 'List finished' %}
           {% elif event_step in ['source_notify'] %}

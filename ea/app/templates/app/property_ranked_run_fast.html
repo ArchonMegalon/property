@@ -221,8 +221,8 @@
   <header class="pq-fast-top">
     <div>
       <p class="pq-fast-kicker">Search results</p>
-      <h1 id="pq-fast-title">Ranked homes</h1>
-      <p class="pq-fast-subtitle" data-pq-fast-subtitle>Opening the ranked homes for this search.</p>
+      <h1 id="pq-fast-title">Matching homes</h1>
+      <p class="pq-fast-subtitle" data-pq-fast-subtitle>Opening the homes for this search.</p>
     </div>
     <nav class="pq-fast-nav" aria-label="PropertyQuarry navigation">
       <a href="{{ search_href }}">Search</a>
@@ -235,12 +235,12 @@
   <section class="pq-fast-card" aria-live="polite" aria-busy="true" data-pq-fast-status-card>
     <div class="pq-fast-status">
       <span class="pq-fast-spinner" aria-hidden="true"></span>
-      <strong data-pq-fast-status-title>Loading ranked homes</strong>
+      <strong data-pq-fast-status-title>Loading homes</strong>
       <span class="pq-fast-muted" data-pq-fast-status-detail>Usually a few seconds.</span>
     </div>
   </section>
 
-	  <section class="pq-fast-list" data-pq-fast-list aria-label="Ranked homes">
+	  <section class="pq-fast-list" data-pq-fast-list aria-label="Matching homes">
 	    {% for _ in range(3) %}
     <article class="pq-fast-row pq-fast-skeleton" aria-hidden="true">
       <div style="display:grid; gap:10px;">
@@ -257,7 +257,7 @@
   <noscript>
     <section class="pq-fast-card pq-fast-empty">
       <h2>Open the full shortlist</h2>
-      <p>This page loads ranked homes with JavaScript. The full view is still available.</p>
+	      <p>This page loads matching homes with JavaScript. The full view is still available.</p>
       <div class="pq-fast-actions">
         <a class="btn primary" href="{{ full_shortlist_href }}">Open full view</a>
       </div>
@@ -480,11 +480,11 @@
 	    const copy = statusCopy(payload, candidates);
 	    const terminal = isTerminalPayload(payload);
 	    if (!terminal) appendLoadingMore(payload, candidates);
-	    if (statusTitle) statusTitle.textContent = `${candidates.length} ranked ${candidates.length === 1 ? 'home' : 'homes'}`;
+    if (statusTitle) statusTitle.textContent = `${candidates.length} matching ${candidates.length === 1 ? 'home' : 'homes'}`;
 	    if (statusDetail) statusDetail.textContent = terminal ? (copy.detail || copy.status) : 'More homes are still being checked.';
 	    if (subtitle) subtitle.textContent = terminal
 	      ? 'Results are ready. Open a property or switch to the full view when you need the complete workspace.'
-	      : 'The first ranked homes are ready. More can still appear below.';
+      : 'The first homes are ready. More can still appear below.';
 	    if (statusCard) statusCard.setAttribute('aria-busy', terminal ? 'false' : 'true');
 	  };
   const renderEmpty = (payload, retry = false) => {
@@ -492,7 +492,7 @@
     const section = document.createElement('section');
     section.className = 'pq-fast-card pq-fast-empty';
     const title = document.createElement('h2');
-    title.textContent = retry ? 'Still loading results' : 'No ranked homes in this run';
+    title.textContent = retry ? 'Still loading results' : 'No matching homes in this run';
     const paragraph = document.createElement('p');
     paragraph.textContent = retry
       ? 'The run is taking longer than usual. You can keep this page open or open the full view.'
@@ -515,17 +515,17 @@
     section.appendChild(actions);
     list.appendChild(section);
     const status = text(payload && (payload.status || (payload.summary && payload.summary.status)), '');
-    if (statusTitle) statusTitle.textContent = retry ? 'Loading is slow' : 'No ranked homes';
+    if (statusTitle) statusTitle.textContent = retry ? 'Loading is slow' : 'No matching homes';
     if (statusDetail) statusDetail.textContent = status ? status.replace(/_/g, ' ') : 'Open the full view for details.';
     if (statusCard) statusCard.setAttribute('aria-busy', 'false');
   };
 	  const loadOnce = async () => {
 	    if (statusCard) statusCard.setAttribute('aria-busy', 'true');
-	    if (statusTitle && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusTitle.textContent = 'Loading ranked homes';
+	    if (statusTitle && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusTitle.textContent = 'Loading homes';
 	    if (statusDetail && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusDetail.textContent = 'Usually a few seconds.';
 	    const controller = new AbortController();
 	    const slowTimer = window.setTimeout(() => {
-	      if (!settled && statusDetail) statusDetail.textContent = 'Still checking for ranked homes.';
+	      if (!settled && statusDetail) statusDetail.textContent = 'Still checking for matching homes.';
 	    }, 3500);
     const abortTimer = window.setTimeout(() => controller.abort(), 18000);
     try {

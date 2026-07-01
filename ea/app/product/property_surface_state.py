@@ -2508,14 +2508,14 @@ def build_property_empty_outcome_summary(
         )
         history_parts: list[str] = []
         if previous_ranked_total:
-            history_parts.append(f"{previous_ranked_total} ranked")
+            history_parts.append(f"{previous_ranked_total} matches")
         if previous_filtered_total:
-            history_parts.append(f"{previous_filtered_total} filtered")
+            history_parts.append(f"{previous_filtered_total} hidden")
         historical_detail = " · ".join(history_parts) if history_parts else "historical counts are kept with the old run"
         return {
             "happened": "This run used an earlier brief.",
             "still_worked": f"Old snapshot: {historical_detail}.",
-            "next_move": "Start an updated search so counts, rankings, and filter explanations use the current saved brief.",
+            "next_move": "Start an updated search so the counts use the current saved brief.",
             "active_rule": "Old run",
             "eta_feedback": str(run_summary.get("brief_stale_message") or "").strip() or "The current brief has changed since this run finished.",
         }
@@ -2582,8 +2582,8 @@ def build_property_empty_outcome_summary(
         happened = calm_repair_copy or "A replacement search run is checking the saved brief."
         if legacy_ranking_gate_empty:
             stopped_context = (
-                f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still ranked "
-                "in the interrupted pass. This page will move to the replacement run when it has a usable update."
+                f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} still matched "
+                "before the interruption. This page will move to the replacement run when it has a useful update."
             )
         else:
             stopped_context = "This page will move to the replacement run when it has a usable update."
@@ -2592,18 +2592,18 @@ def build_property_empty_outcome_summary(
             happened = safe_failed_message or calm_repair_copy or "The search stopped before a usable shortlist was ready."
             if legacy_ranking_gate_empty:
                 stopped_context = (
-                    f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still ranked "
-                    "for the saved brief before the repair stopped."
+                    f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} still matched "
+                    "the saved brief before the retry stopped."
                 )
             elif source_total or listing_total:
                 listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
                 stopped_context = (
-                    f"The selected providers covered {listing_label}."
+                    f"The selected lists covered {listing_label}."
                     if listing_total > 0
-                    else "The brief and selected providers were saved, but no provider produced a usable shortlist."
+                    else "The brief and selected lists were saved, but no list produced a usable result."
                 )
             else:
-                stopped_context = "The brief and selected providers were saved, but no provider produced a usable shortlist."
+                stopped_context = "The brief and selected lists were saved, but no list produced a usable result."
         elif source_total or listing_total:
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if repair_task_open or repair_step_label or repair_status_label:
@@ -2614,11 +2614,11 @@ def build_property_empty_outcome_summary(
                 stopped_context = "Repair took over before any listing inspection completed."
             elif legacy_ranking_gate_empty:
                 stopped_context = (
-                    f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still ranked "
-                    "for the saved brief before repair took over."
+                    f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} still matched "
+                    "the saved brief before retry took over."
                 )
             else:
-                stopped_context = f"The selected providers covered {listing_label}."
+                stopped_context = f"The selected lists covered {listing_label}."
         else:
             if repair_task_open or repair_step_label or repair_status_label:
                 happened = safe_failed_message or calm_repair_copy or "PropertyQuarry is checking the saved search again."
@@ -2629,13 +2629,13 @@ def build_property_empty_outcome_summary(
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         happened = "Nothing landed in the selected area yet."
         stopped_context = (
-            f"{filtered_total} candidate{'s' if filtered_total != 1 else ''} were held back; "
-            "most conflicted with the selected-area rule or were provider overview pages."
+            f"{filtered_total} home{'s' if filtered_total != 1 else ''} stayed hidden; "
+            "most were outside the selected area or were overview pages."
         )
     elif legacy_ranking_gate_empty:
-        happened = "No ranked homes were saved from this older run."
+        happened = "No homes were saved from this older run."
         stopped_context = (
-            f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still scored in the earlier pass."
+            f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} still matched in the earlier pass."
         )
     elif filtered_total > 0:
         happened = "No homes in scope yet."
@@ -2644,23 +2644,23 @@ def build_property_empty_outcome_summary(
     if status_value == "failed" and replacement_run_id:
         still_worked = (
             f"The brief was saved; {score_demoted_total} home{'s' if score_demoted_total != 1 else ''} "
-            "were still ranked in the interrupted pass while the replacement run is now active."
+            "still matched before interruption while the replacement run is now active."
             if legacy_ranking_gate_empty
             else "The brief was saved; the replacement run is now active."
         )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
-            f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected providers."
+            f"{raw_listing_total or filtered_total} home{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected lists."
         )
     elif legacy_ranking_gate_empty:
         still_worked = (
-            f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} were still ranked for the brief."
+            f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} still matched the brief."
         )
     else:
         still_worked = (
-            f"The selected providers covered {listing_total} listing{'s' if listing_total != 1 else ''}."
+            f"The selected lists covered {listing_total} listing{'s' if listing_total != 1 else ''}."
             if listing_total
-            else "The brief and selected providers were still saved."
+            else "The brief and selected lists were still saved."
         )
     if status_value == "failed" and replacement_run_id:
         next_move = (
@@ -2676,14 +2676,14 @@ def build_property_empty_outcome_summary(
         )
     elif status_value == "failed":
         next_move = (
-            "Start a fresh search to rebuild the full ranking."
+            "Start a fresh search."
             if legacy_ranking_gate_empty
-            else "Start a fresh search or change one provider or rule before retrying the same brief."
+            else "Start a fresh search or change one list or requirement before retrying the same brief."
         )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
     elif legacy_ranking_gate_empty:
-        next_move = "Start a fresh search to rebuild one uninterrupted ranking."
+        next_move = "Start a fresh search."
     else:
         next_move = (
             str(strongest_relax.get("detail") or "").strip()
@@ -2710,7 +2710,7 @@ def build_property_empty_outcome_summary(
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         eta_feedback = stopped_context
     elif legacy_ranking_gate_empty:
-        eta_feedback = "Start a fresh search to rebuild the full ranking on this page."
+        eta_feedback = "Start a fresh search to refresh this page."
     elif source_total:
         eta_feedback = "Change one rule and rerun for a fresh read."
     elif status_value == "failed":

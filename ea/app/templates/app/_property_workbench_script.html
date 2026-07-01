@@ -212,11 +212,11 @@
       );
       const title = status === 'failed' ? 'PropertyQuarry search failed' : 'PropertyQuarry results are ready';
       const body = status === 'failed'
-        ? String(runPayload?.message || 'The search failed before ranking finished.')
+        ? String(runPayload?.message || 'The search failed before matching finished.')
         : (
           status === 'completed_partial'
-            ? String(runPayload?.message || `${count} ranked home${count === 1 ? '' : 's'} ready with partial coverage.`)
-            : `${count} ranked home${count === 1 ? '' : 's'} ready.`
+            ? String(runPayload?.message || `${count} matching home${count === 1 ? '' : 's'} ready with partial coverage.`)
+            : `${count} matching home${count === 1 ? '' : 's'} ready.`
         );
       try {
         const notification = new window.Notification(title, {
@@ -687,8 +687,8 @@
         ...selectedCandidate,
         title,
         property_title: title,
-        summary: `Shareable shortlist from PropertyQuarry with ${shareRows.length} ranked homes.`,
-        fit_summary: String(selectedCandidate.fit_summary || `${shareRows.length} ranked homes ready.`).trim(),
+        summary: `Shareable shortlist from PropertyQuarry with ${shareRows.length} matching homes.`,
+        fit_summary: String(selectedCandidate.fit_summary || `${shareRows.length} matching homes ready.`).trim(),
         comparison_candidates: shareRows,
         comparison_rows: shareRows,
         review_url: absoluteUrl(window.location.href),
@@ -833,8 +833,8 @@
       const remaining = resultsList.querySelectorAll('[data-workbench-row]').length;
       const goal = String(meta.search_goal || data.brief?.search_goal || '').trim().toLowerCase();
       const resultsLabel = shortlistSurface
-        ? (goal === 'investment' ? 'shortlisted opportunities' : 'shortlisted homes')
-        : (goal === 'investment' ? 'ranked opportunities' : 'ranked homes');
+        ? (goal === 'investment' ? 'saved opportunities' : 'saved homes')
+        : (goal === 'investment' ? 'matching opportunities' : 'matching homes');
       rankedLink.innerHTML = `<b>${remaining}</b> ${resultsLabel}`;
     };
     const shortlistEmptyCtaHref = () => '/app/search';
@@ -1913,7 +1913,7 @@
       if (!lowered) return false;
       return (
         lowered.startsWith('no source completed cleanly enough')
-        || lowered.startsWith('search failed before ranking')
+        || lowered.startsWith('search failed before matching')
         || lowered.startsWith('search paused before a stable shortlist was ready')
       );
     };
@@ -2101,10 +2101,10 @@
         if (['source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'].includes(step)) {
           return 'Checking listings';
         }
-        if (['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'].includes(step)) return 'Ranking homes';
+        if (['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'].includes(step)) return 'Matching homes';
         if (step === 'shortlist_ready') return 'First shortlist';
         if (['source_review_packet', 'source_review_packet_failed'].includes(step)) return 'Open property ready';
-        if (['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'].includes(step)) return 'Applying hard rules';
+        if (['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'].includes(step)) return 'Checking requirements';
         if (['source_completed', 'completed'].includes(step)) return 'List finished';
         if (step === 'source_notify') return 'Sending update';
         if (step.startsWith('repair') || ['source_repair_reuse', 'source_failed'].includes(step)) return 'Recovery';
@@ -2275,10 +2275,10 @@
       const rows = limitRowsForPlan(sources, 8);
       if (!rows.length) return '';
       return rows.map((source) => {
-        const label = compactProviderLabel(source?.source_label || source?.platform || 'Provider');
+        const label = compactProviderLabel(source?.source_label || source?.platform || 'List');
         const pushdown = source?.provider_filter_pushdown && typeof source.provider_filter_pushdown === 'object' ? source.provider_filter_pushdown : {};
         const weakFilters = pushdown.filter_strength === 'weak_search_then_post_filter'
-          ? `<span class="pqx-note">This provider returned broad results; PropertyQuarry kept hard rules strict and used optional preferences only for scoring.</span>`
+          ? `<span class="pqx-note">This list returned broad results; must-haves stayed strict and nice-to-haves only adjusted fit.</span>`
           : '';
         const areaMiss = source?.location_mismatch_reason
           ? `<span class="pqx-note">${escapeHtml(source?.location_mismatch_candidate_total || 0)} outside the selected area.</span>`
@@ -2295,7 +2295,7 @@
         const wrongAreaMetric = source?.location_mismatch_reason && locationMismatch
           ? `<span>Wrong area <b>${escapeHtml(locationMismatch)}</b></span>`
           : '';
-        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Checked')}</span><div class="pqx-source-metrics"><span>Checked <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>Ranked <b>${escapeHtml(rankedTotalForSource(source))}</b></span>${wrongAreaMetric}<span>Hard rules <b>${escapeHtml(filtered)}</b></span><span>Missing floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
+        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Checked')}</span><div class="pqx-source-metrics"><span>Seen <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>Shown <b>${escapeHtml(rankedTotalForSource(source))}</b></span>${wrongAreaMetric}<span>Requirements <b>${escapeHtml(filtered)}</b></span><span>Missing floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
       }).join('');
     };
     const renderRouteEvidence = (routes) => {
@@ -2697,7 +2697,7 @@
               ? 'active'
               : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
         const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
-        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing search' : (sourceRows.length ? 'Waiting for providers' : 'Ready when you start')));
+        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing search' : (sourceRows.length ? 'Waiting for lists' : 'Ready when you start')));
         return {
           label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing search' : (sourceRows.length ? 'Waiting' : 'Ready')),
           provider,
@@ -2717,12 +2717,12 @@
       }
       const queuedSourceCount = Math.max(0, sourceVariantTotal - checkedSourceCount - activeProviderCount);
       const workerHeadline = displayActiveProviderCount > 0
-        ? `${displayActiveProviderCount} provider${displayActiveProviderCount === 1 ? '' : 's'} active`
+        ? `${displayActiveProviderCount} list${displayActiveProviderCount === 1 ? '' : 's'} active`
         : ((runActive && !sourceRows.length)
-          ? 'Preparing providers'
+          ? 'Preparing lists'
           : (queuedSourceCount > 0
-            ? 'Preparing providers'
-            : (checkedSourceCount > 0 ? `${checkedSourceCount} provider${checkedSourceCount === 1 ? '' : 's'} checked` : 'Providers ready')));
+            ? 'Preparing lists'
+            : (checkedSourceCount > 0 ? `${checkedSourceCount} list${checkedSourceCount === 1 ? '' : 's'} checked` : 'Lists ready')));
       const workerDetailParts = [];
       if (displayIncludesQueuedLanes && activeProviderCount > 0) {
         workerDetailParts.push(`${activeProviderCount} live`);
@@ -2826,16 +2826,16 @@
         || 0
       );
       const summaryLabel = shortlistSurface
-        ? (investmentSearch ? 'shortlisted opportunities' : 'shortlisted homes')
-        : (investmentSearch ? 'ranked opportunities' : 'ranked homes');
+        ? (investmentSearch ? 'saved opportunities' : 'saved homes')
+        : (investmentSearch ? 'matching opportunities' : 'matching homes');
       const filteredLabel = !shortlistSurface && filteredTotal > 0 ? (
         `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
-        `aria-label="${escapeHtml(filteredTotal)} candidates stayed outside the brief">${escapeHtml(filteredTotal)} ${locationMismatchTotal ? 'outside area' : 'filtered'}</a>`
+        `aria-label="${escapeHtml(filteredTotal)} homes need a wider brief">${escapeHtml(filteredTotal)} ${locationMismatchTotal ? 'outside area' : 'hidden'}</a>`
       ) : '';
       const filteredBreakdown = (!shortlistSurface && filteredTotal > 0) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-            <summary><strong>${locationMismatchTotal ? 'Provider scope' : 'What to widen'}</strong><span class="pqx-note">${locationMismatchTotal ? 'Wrong area returned' : 'Hard filters'}</span></summary>
-            <div class="pqx-note">Relax one hard rule so more homes move into the visible ranking on refresh.</div>
+            <summary><strong>${locationMismatchTotal ? 'Area mismatch' : 'What to widen'}</strong><span class="pqx-note">${locationMismatchTotal ? 'Wrong area returned' : 'Requirements'}</span></summary>
+            <div class="pqx-note">Change one requirement, then rerun.</div>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
       ` : '';
@@ -2854,7 +2854,7 @@
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
               ${shortlistSurface
                 ? shortlistEmptyResultsMarkup()
-                : `<div class="pqx-empty">${escapeHtml(filteredTotal > 0 ? 'No ranked homes are ready yet. Relax one hard rule to rank more homes.' : 'No ranked homes are ready yet.')} ${escapeHtml(locationMismatchTotal ? 'The provider returned homes outside the selected area, so none were ranked.' : 'No in-brief homes were found in this pass.')}</div>`}
+                : `<div class="pqx-empty">${escapeHtml(filteredTotal > 0 ? 'No homes are ready yet. Widen one requirement to show more homes.' : 'No homes are ready yet.')} ${escapeHtml(locationMismatchTotal ? 'The returned homes were outside the selected area.' : 'No in-brief homes were found in this pass.')}</div>`}
             </div>
             ${filteredBreakdown}
           </section>
@@ -2995,7 +2995,7 @@
             <span class="pqx-result-aside">
               <span class="pqx-result-value-row">
                 <strong class="pqx-result-price">${escapeHtml(primaryPrice)}</strong>
-                <span class="pqx-result-fit-score">Score: ${escapeHtml(candidate?.ranking_score || candidate?.investment_score || candidate?.fit_score || 0)}</span>
+                <span class="pqx-result-fit-score">Fit ${escapeHtml(candidate?.ranking_score || candidate?.investment_score || candidate?.fit_score || 0)}</span>
               </span>
               ${secondaryPrice ? `<span class="pqx-result-secondary">${escapeHtml(secondaryPrice)}</span>` : ''}
               <span class="pqx-result-actions">${actions}</span>
@@ -3482,7 +3482,7 @@
           : { label: 'What matters', detail: 'Preferences, family setup, errands, and local-fit rules.' },
         reachability: isInvestment
           ? { label: 'Details', detail: 'How much supporting detail the shortlist needs.' }
-          : { label: 'Reachability', detail: 'Destinations, travel modes, and time limits that change the ranking.' },
+          : { label: 'Reachability', detail: 'Destinations, travel modes, and time limits that change fit.' },
         research: isInvestment
           ? { label: 'Numbers', detail: 'Return, risk, and external data depth.' }
           : { label: 'Research depth', detail: 'Risk, supply, and how much detail each strong match should carry.' },
@@ -6095,7 +6095,7 @@
           const ratio = Math.min(1, Math.max(0.08, (selectedValue - minValue) / span));
           const estimate = Math.max(1, Math.round(maxImpact * ratio));
           if (impactLabel) impactLabel.textContent = `+${estimate}`;
-          if (estimateLabel) estimateLabel.textContent = `${estimate} estimated newly ranked homes after rerun.`;
+          if (estimateLabel) estimateLabel.textContent = `${estimate} homes may appear after rerun.`;
         } else if (estimateLabel) {
           estimateLabel.textContent = 'Rerun to see how many homes recover.';
         }

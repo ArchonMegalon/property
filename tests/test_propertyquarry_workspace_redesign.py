@@ -1697,12 +1697,12 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
 
     assert page.status_code == 200
     assert "Usage" in page.text
-    assert "Search activation, ranked homes, filtered homes" in page.text
+    assert "Search activation, matches, hidden homes" in page.text
     assert "property pages, and tours" in page.text
     assert "Property usage" in page.text
-    assert "Ranked homes" in page.text
-    assert "Sources used" in page.text
-    assert "Source health" in page.text
+    assert "Matches" in page.text
+    assert "Lists used" in page.text
+    assert "List health" in page.text
     assert "Source checks" not in page.text
     forbidden_copy = (
         "Current office loop",
@@ -3963,7 +3963,7 @@ def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint()
     assert 'data-status-url="/app/api/signals/property/search/run/run-fast-42?lightweight=1"' in response.text
     assert "data-pq-fast-initial-payload" in response.text
     assert 'href="/app/shortlist?run_id=run-fast-42&amp;full=1#results-list"' in response.text
-    assert "Loading ranked homes" in response.text
+    assert "Loading homes" in response.text
     assert "Usually a few seconds." in response.text
     assert "Checking more homes" in response.text
     assert "The page remains usable" not in response.text
@@ -9018,10 +9018,10 @@ def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
     labels = [row.get("label") for row in worker_state.get("workers") or []]
     assert labels[:2] == ["DER STANDARD", "immmo"]
     assert worker_state["workers"][0]["shard_count"] == 1
-    assert worker_state["headline"] == "3 providers active"
+    assert worker_state["headline"] == "3 lists active"
     assert worker_state["detail"] == "1 queued"
     assert worker_state["upgrade_copy"] == ""
-    assert worker_state["tooltip"] == "This shows which sources are running, queued, recovered, or unavailable for this search. Other saved searches keep their own progress."
+    assert worker_state["tooltip"] == "This shows which lists are running, queued, restored, or unavailable for this search. Other saved searches keep their own progress."
 
 
 def test_property_search_worker_slots_show_four_real_provider_lanes_for_agent_runs() -> None:
@@ -9042,7 +9042,7 @@ def test_property_search_worker_slots_show_four_real_provider_lanes_for_agent_ru
 
     assert worker_state["visible_workers"] == 4
     assert len(worker_state["workers"]) == 4
-    assert worker_state["headline"] == "4 providers active"
+    assert worker_state["headline"] == "4 lists active"
     assert worker_state["detail"] == "1 live · 3 queued"
 
 
@@ -9063,7 +9063,7 @@ def test_property_search_worker_slots_keep_parallel_preview_sources_visible_as_p
     )
 
     assert worker_state["visible_workers"] == 4
-    assert worker_state["headline"] == "4 providers active"
+    assert worker_state["headline"] == "4 lists active"
     assert [row.get("status_label") for row in worker_state["workers"]] == [
         "Starting",
         "Preparing",
@@ -9089,7 +9089,7 @@ def test_property_search_worker_slots_do_not_collapse_distinct_marketplaces_into
     )
 
     assert worker_state["visible_workers"] == 4
-    assert worker_state["headline"] == "4 providers active"
+    assert worker_state["headline"] == "4 lists active"
     assert [row.get("provider") for row in worker_state["workers"]] == [
         "Willhaben | Austria | Buy | Vienna",
         "immmo | Austria | Buy | Vienna",
@@ -9115,7 +9115,7 @@ def test_property_search_worker_slots_trust_run_worker_cap_when_page_plan_lags()
     )
 
     assert worker_state["visible_workers"] == 4
-    assert worker_state["headline"] == "4 providers active"
+    assert worker_state["headline"] == "4 lists active"
 
 
 def test_property_search_worker_slots_show_four_live_lanes_even_without_worker_metadata() -> None:
@@ -9158,7 +9158,7 @@ def test_property_search_worker_slots_only_show_real_lanes_instead_of_plan_fille
 
     assert worker_state["visible_workers"] == 2
     assert len(worker_state["workers"]) == 2
-    assert worker_state["headline"] == "1 provider active"
+    assert worker_state["headline"] == "1 list active"
     assert worker_state["detail"] == "1 checked"
     assert [row.get("status_label") for row in worker_state["workers"]] == ["Running", "Fetch failed"]
     assert all(row.get("label") != "Preparing sources" for row in worker_state["workers"])
@@ -9193,7 +9193,7 @@ def test_property_search_worker_slots_hide_internal_check_wording() -> None:
     assert "crawl" not in combined.lower()
     assert "provider scan" not in combined.lower()
     assert "Preparing search" in combined
-    assert "Preparing providers" in combined
+    assert "Preparing lists" in combined
 
 
 def test_property_run_live_board_replaces_duplicate_review_message_with_latest_filter_reason() -> None:
@@ -9821,7 +9821,7 @@ def test_propertyquarry_results_template_marks_top_rank_and_watch_out_copy() -> 
     assert "mismatch_reasons" in body
     assert "pqx-progress-button" in body
     assert "walkthrough_tooltip" in body
-    assert "Score:" in body
+    assert "Fit {{ candidate.get('fit_score') or 0 }}" in body
     assert "pqx-thumb-link" in body
     assert "pqx-results-filter-link" in body
 
@@ -10274,7 +10274,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-workbench-row' in search.text
     assert '<a class="pqx-result"' not in search.text
     assert '<article class="pqx-result pqx-card"' in search.text
-    assert "ranked homes" in search.text
+    assert "matching homes" in search.text
     assert "Match" in search.text
     assert "Source" in search.text
     assert "Map" in search.text
@@ -10288,7 +10288,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "280 m" in search.text
     assert 'class="pqx-route-evidence"' in search.text
     assert 'class="pqx-thumb"' in search.text
-    assert "ranked homes" in search.text
+    assert "matching homes" in search.text
     assert "Altbau near U6" in search.text
     assert "Family flat near Tiergarten" in search.text
     assert "3D tour queued" in search.text
@@ -10352,7 +10352,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
 
     shortlist = client.get("/app/shortlist", params={"run_id": "run-42"}, headers=headers)
     assert shortlist.status_code == 200
-    assert "ranked homes" in shortlist.text
+    assert "saved homes" in shortlist.text
     assert "Altbau near U6" in shortlist.text
     assert "Open property" in shortlist.text
     assert "Hosted review" not in shortlist.text
@@ -10369,7 +10369,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
 
     research = client.get("/app/research", params={"run_id": "run-42"}, headers=headers)
     assert research.status_code == 200
-    assert "ranked homes" in research.text
+    assert "matching homes" in research.text
     assert "/app/research/" in research.text
     packet_match = re.search(r'href="(/app/research/[^"?]+)\?run_id=run-42"', research.text)
     assert packet_match is not None
@@ -13558,13 +13558,13 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "const openFilteredDialog = () => {" in body
     assert "Hard filters" in body
     assert "Hard rules and score-only context" not in body
-    assert "homes move into the visible ranking on refresh." in body
+    assert "Estimated homes that may appear after rerun." in body
     assert "refreshCurrentSurface(localStatusNode);" in body
     assert "data-pqx-filter-slider" in body
     assert "data-pqx-filter-field" in body
     assert "adjustments[fieldName]" in body
     assert "document.addEventListener('click', handleFilteredOpenClick);" in body
-    assert "No ranked homes are ready yet. Relax one hard rule to rank more homes." in body
+    assert "No homes are ready yet. Widen one requirement to show more homes." in body
     assert "Best homes first" not in body
 
 
@@ -15104,7 +15104,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert re.search(r"<span>Listings</span><strong>\s*2160\s*</strong>", response.text)
     assert "<span>Providers</span><strong>156</strong>" not in response.text
     assert "<span>Source checks</span>" not in response.text
-    assert "The selected providers covered 2160 listings." in response.text
+    assert "The selected lists covered 2160 listings." in response.text
     assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
@@ -15447,7 +15447,7 @@ def test_propertyquarry_empty_state_hides_removed_ranking_bar_control(monkeypatc
     body = _read_workbench_bundle()
 
     assert page.status_code == 200
-    assert "No ranked homes were saved from this older run." in visible_text
+    assert "No homes were saved from this older run." in visible_text
     assert "Next step" in visible_text
     assert "ranking bar" not in visible_text.lower()
     assert "Show every home in one ranking" not in visible_text
@@ -15570,7 +15570,7 @@ def test_propertyquarry_shortlist_empty_state_hides_removed_ranking_bar_control(
     visible_text = re.sub(r"<script.*?</script>", "", page.text, flags=re.S)
 
     assert page.status_code == 200
-    assert "No ranked homes were saved from this older run." in visible_text
+    assert "No homes were saved from this older run." in visible_text
     assert "ranking bar" not in visible_text.lower()
     assert 'data-pqx-empty-ranking-primary' not in page.text
     assert 'data-pw-shortlist-empty-ranking-primary' not in page.text
@@ -18083,7 +18083,7 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
 
     combined = " ".join(str(value) for value in summary.values())
     assert summary["happened"] == "PropertyQuarry is checking the saved search again."
-    assert "The brief and selected providers were still saved." in combined
+    assert "The brief and selected lists were still saved." in combined
     assert "Repair took over before any listing inspection completed." in combined
     assert "repair receipt" not in combined.lower()
     assert "run receipts" not in combined.lower()
@@ -18360,9 +18360,9 @@ def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     )
 
     assert summary["happened"] == "Nothing landed in the selected area yet."
-    assert "361 candidates returned by the selected providers" in summary["still_worked"]
+    assert "361 homes returned by the selected lists" in summary["still_worked"]
     assert "Widen the selected districts" in summary["next_move"]
-    assert "provider overview pages" in summary["eta_feedback"]
+    assert "overview pages" in summary["eta_feedback"]
     assert "receipts" not in " ".join(summary.values()).lower()
     assert "0/31 source variants" not in " ".join(summary.values())
 
@@ -18385,10 +18385,10 @@ def test_propertyquarry_empty_outcome_explains_soft_only_shortlist_miss() -> Non
         suppression_rows=[],
     )
 
-    assert summary["happened"] == "No ranked homes were saved from this older run."
-    assert "14 homes were still ranked for the brief." in summary["still_worked"]
-    assert summary["next_move"] == "Start a fresh search to rebuild one uninterrupted ranking."
-    assert summary["eta_feedback"] == "Start a fresh search to rebuild the full ranking on this page."
+    assert summary["happened"] == "No homes were saved from this older run."
+    assert "14 homes still matched the brief." in summary["still_worked"]
+    assert summary["next_move"] == "Start a fresh search."
+    assert summary["eta_feedback"] == "Start a fresh search to refresh this page."
 
 
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:

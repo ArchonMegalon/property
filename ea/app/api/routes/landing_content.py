@@ -68,18 +68,18 @@ FEATURE_CARDS = (
     },
     {
         "title": "Learn from each review",
-        "body": "Capture likes, dislikes, and hard rules so later searches get sharper instead of repeating the same weak matches.",
+        "body": "Capture likes, dislikes, and requirements so later searches get sharper instead of repeating the same weak matches.",
     },
 )
 
 HOW_STEPS = (
     {"title": "Create the account", "body": "Use email first, then optional Google identity so return access stays simple and narrow."},
-    {"title": "Set your search brief", "body": "Define market, budget, household needs, and hard rules before the first sweep runs."},
-    {"title": "Review the shortlist", "body": "Keep the first run focused on ranked candidates, property pages, and visible feedback."},
+    {"title": "Set your search brief", "body": "Define market, budget, household needs, and requirements before the first sweep runs."},
+    {"title": "Review the shortlist", "body": "Keep the first run focused on matching homes, property pages, and visible feedback."},
 )
 
 PERSONAS = (
-    {"title": "Private search first", "body": "Start alone, prove the ranking and research quality quickly, and add shared review only if the buying process really needs it."},
+    {"title": "Private search first", "body": "Start alone, see whether the matches are useful quickly, and add shared review only if the buying process really needs it."},
     {"title": "Guided shortlist review", "body": "The first session should end with a useful shortlist and visible fit logic, not with another saved-search graveyard."},
     {"title": "Commercial depth later", "body": "Paid research, broader portal coverage, and heavier agent work should expand only after the first shortlist proves useful."},
 )
@@ -106,11 +106,11 @@ LANDING_FAQS = (
 )
 
 PRODUCT_MODULES = (
-    {"title": "Property brief", "body": "Capture country, search mode, budget, household needs, and hard rules once so every later search starts from the same frame."},
+    {"title": "Property brief", "body": "Capture country, search mode, budget, household needs, and requirements once so every later search starts from the same frame."},
     {"title": "Provider sweep", "body": "Scan the selected portals as one run instead of forcing the user to maintain separate browser rituals for every source."},
     {"title": "Property page", "body": "Attach fit reasons, missing information, distances, and follow-up cues to each strong candidate."},
     {"title": "Shortlist review", "body": "Keep the best candidates in one place with review links, tours, and clear next actions."},
-    {"title": "Learning loop", "body": "Turn likes, dislikes, and hard rules into better ranking on the next run instead of leaving them as forgotten opinions."},
+    {"title": "Learning loop", "body": "Turn likes, dislikes, and requirements into better future matches instead of leaving them as forgotten opinions."},
     {"title": "Preferences", "body": "Keep profile, limits, integrations, and billing visible without dragging the user through unrelated assistant tooling."},
 )
 

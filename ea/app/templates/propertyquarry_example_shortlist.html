@@ -241,7 +241,7 @@
       </div>
       <div>
         <strong>{{ selected_example.get('title') or 'Example home' }}</strong>
-        <span>{{ selected_example.get('area_label') or 'Search area' }} · {{ selected_example.get('layout_label') or 'Ranked example' }}</span>
+        <span>{{ selected_example.get('area_label') or 'Search area' }} · {{ selected_example.get('layout_label') or 'Matching example' }}</span>
       </div>
       <nav class="pq-example-tabs" aria-label="Example rows">
         {% for row in example_rows %}
@@ -251,7 +251,7 @@
     </aside>
   </div>
 
-  <div class="pq-example-grid" aria-label="Sample ranked homes">
+  <div class="pq-example-grid" aria-label="Sample matching homes">
     {% for row in example_rows %}
     {% set scope_preview = row.get('scope_preview') or {} %}
     <article id="{{ row.get('candidate_key') }}" class="pq-example-card{% if selected_example.get('candidate_key') == row.get('candidate_key') %} active{% endif %}">

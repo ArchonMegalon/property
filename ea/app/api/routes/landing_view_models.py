@@ -4287,8 +4287,8 @@ def app_section_payload(
                     {"value": "discovery", "label": "Discovery pass"},
                 ],
                 "tooltip": (
-                    "Strict shortlist keeps your hard preference gates. Discovery pass keeps the same area and provider scope, "
-                    "but turns school, family, and entertainment distance misses into ranking penalties instead of filtering them out."
+                    "Strict shortlist keeps your must-haves. Discovery pass keeps the same area and selected lists, "
+                    "but treats school, family, and entertainment distance misses as fit tradeoffs instead of hiding them."
                 ),
                 "step": "providers",
             },
@@ -5694,13 +5694,13 @@ def app_section_payload(
                 {
                     "eyebrow": "Learning loop",
                     "title": "What the product has learned from feedback",
-                    "body": "Paid research only gets stronger if the system remembers what helped, what failed, and which hard rules should suppress future noise.",
+                    "body": "Paid research only gets stronger if the system remembers what helped, what failed, and which requirements should suppress future noise.",
                     "items": property_learning_rows
                     or property_recent_feedback_rows
                     or [
                         row_item(
                             "Preference memory is still clean",
-                            "Record feedback on packets and shortlists to teach the ranking what to favor, what to suppress, and which rules should stay hard.",
+                            "Record feedback on packets and shortlists to teach future searches what to favor, what to suppress, and which requirements should stay strict.",
                             "Learning",
                         )
                     ],
@@ -5724,7 +5724,7 @@ def app_section_payload(
                 {"label": "Country", "value": property_country_label},
                 {"label": "Providers", "value": str(len(property_selected_platform_labels) or 0)},
                 {
-                    "label": "Sources used",
+                    "label": "Lists used",
                     "value": str(int(property_summary.get("source_variant_total") or property_summary.get("sources_total") or 0)),
                 },
                 {"label": "Listings", "value": str(int(property_summary.get("listing_total") or 0))},

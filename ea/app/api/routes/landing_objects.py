@@ -608,10 +608,10 @@ def handoff_detail(
         mismatch_reasons = [str(item).strip() for item in list(assessment.get("mismatch_reasons_json") or []) if str(item).strip()]
         ooda_rows = [
             _object_detail_row(
-                "Why it ranks",
+                "Why it fits",
                 match_reasons[0]
                 if match_reasons
-                else str(input_json.get("summary") or handoff.summary or "This property survived the ranking pass.").strip(),
+                else str(input_json.get("summary") or handoff.summary or "This home matches the current brief.").strip(),
                 "Match",
             ),
             _object_detail_row(

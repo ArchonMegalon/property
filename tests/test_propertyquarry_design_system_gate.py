@@ -122,6 +122,13 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "freshness pending",
         "key details came from the listing",
         "from listing",
+        ">score:",
+        "score: {{",
+        "score: ${",
+        "ranked homes",
+        "provider scope",
+        "hard rules",
+        "visible ranking",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered
@@ -347,13 +354,16 @@ def test_propertyquarry_clickable_looking_recent_reviews_are_real_links_or_plain
     assert "overflow-wrap: normal;" in body
 
 
-def test_propertyquarry_search_results_explain_suppression_and_provider_quality() -> None:
+def test_propertyquarry_search_results_keep_hidden_homes_copy_minimal() -> None:
     body = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
 
     assert "Search guard" not in body
-    assert "Relax filtered homes" in body
-    assert "Adjust one hard rule" in body
+    assert "Review hidden homes" in body
+    assert "Widen one requirement" in body
     assert "Choose one small change, then rerun." in body
+    assert "provider active" not in body
+    assert "providers active" not in body
+    assert "Preparing providers" not in body
     assert "data-pqx-counterfactual" in body
     assert "Best matches" in body
 
@@ -395,7 +405,7 @@ def test_propertyquarry_customer_surfaces_keep_accessibility_exit_gates() -> Non
     assert 'aria-label="PropertyQuarry view mode"' in workbench
     assert 'aria-label="Search setup"' in workbench
     assert 'aria-label="Account navigation"' in workbench
-    assert 'aria-label="Close filtered rules"' in workbench
+    assert 'aria-label="Close hidden homes"' in workbench
 
 
 def test_propertyquarry_console_shell_uses_new_property_surface_links() -> None:

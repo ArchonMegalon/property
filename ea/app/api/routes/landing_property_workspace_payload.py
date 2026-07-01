@@ -892,7 +892,7 @@ def property_workspace_payload(
         if step in {"source_detail_check", "listing_detail_check", "source_fetch", "source_fetch_page"}:
             return "Checking details"
         if step == "source_shortlist":
-            return "Ranking homes"
+            return "Matching homes"
         if step == "source_review_packet":
             return "Open property ready"
         if step.startswith("repair"):
@@ -1469,7 +1469,7 @@ def property_workspace_payload(
                     {
                         "label": "Priorities",
                         "value": str(len(selected_keywords) or 0),
-                        "detail": ", ".join(selected_keywords[:3]) or "Record what should drive the ranking.",
+                        "detail": ", ".join(selected_keywords[:3]) or "Record what should matter most.",
                         "href": f"/app/search{run_suffix}",
                     },
                     {
@@ -3209,7 +3209,7 @@ def property_workspace_payload(
                 "href": f"/app/properties{run_suffix}",
             },
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": f"/app/properties{run_suffix}"},
-            {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "Record what should drive the ranking.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "Record what should matter most.", "href": f"/app/properties{run_suffix}"},
             {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "The selected portals for the next sweep.", "href": f"/app/properties{run_suffix}"},
         ],
         "shortlist": [
@@ -3912,10 +3912,10 @@ def property_workspace_payload(
         },
         "profile": {
             "title": "Profile Learning",
-            "summary": "Show what the ranking learned, what should be suppressed next time, and which rules remain explicit.",
+            "summary": "Show what the product learned, what should be quieter next time, and which requirements remain explicit.",
             "hero_kicker": "Profile learning",
             "hero_title": "Make the learning loop visible and editable.",
-            "hero_summary": "Likes, dislikes, and hard rules must survive beyond one run. This is where the ranking becomes personal instead of repeating the same weak matches.",
+            "hero_summary": "Likes, dislikes, and requirements must survive beyond one run. This is where future searches become personal instead of repeating the same weak matches.",
             "hero_actions": hero_actions["profile"],
             "hero_highlights": hero_highlights["profile"],
             "primary_cards": [learning_card],
