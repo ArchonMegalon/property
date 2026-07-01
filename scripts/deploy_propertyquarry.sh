@@ -169,6 +169,51 @@ raise SystemExit(0 if importlib.util.find_spec("playwright.sync_api") else 1)
 PY
 }
 
+playwright_browsers_path_has_chromium() {
+  local candidate="$1"
+  if [[ -z "${candidate}" || ! -d "${candidate}" ]]; then
+    return 1
+  fi
+  find "${candidate}" -maxdepth 4 -type f \( -name chrome-headless-shell -o -name chrome \) -print -quit 2>/dev/null | grep -q .
+}
+
+resolve_deploy_playwright_browsers_path() {
+  local explicit candidate sudo_home
+  explicit="$(effective_env_value PLAYWRIGHT_BROWSERS_PATH)"
+  if [[ -n "${explicit}" ]]; then
+    if playwright_browsers_path_has_chromium "${explicit}"; then
+      printf '%s' "${explicit}"
+      return 0
+    fi
+    echo "PLAYWRIGHT_BROWSERS_PATH does not contain a Chromium browser: ${explicit}" >&2
+    exit 2
+  fi
+
+  local candidates=()
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    sudo_home="$(getent passwd "${SUDO_USER}" 2>/dev/null | awk -F: '{print $6}')"
+    if [[ -n "${sudo_home}" ]]; then
+      candidates+=("${sudo_home}/.cache/ms-playwright")
+    fi
+  fi
+  candidates+=("${HOME:-}/.cache/ms-playwright")
+  candidates+=("/ms-playwright")
+
+  local seen=":"
+  for candidate in "${candidates[@]}"; do
+    if [[ -z "${candidate}" || "${seen}" == *":${candidate}:"* ]]; then
+      continue
+    fi
+    seen="${seen}${candidate}:"
+    if playwright_browsers_path_has_chromium "${candidate}"; then
+      printf '%s' "${candidate}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 resolve_deploy_python_bin() {
   local explicit candidate resolved sudo_home
   explicit="$(effective_env_value PROPERTYQUARRY_DEPLOY_PYTHON_BIN)"
@@ -297,6 +342,11 @@ fi
 
 deploy_python_bin="$(resolve_deploy_python_bin)"
 echo "Using deploy Python: ${deploy_python_bin}" >&2
+deploy_playwright_browsers_path="$(resolve_deploy_playwright_browsers_path || true)"
+if [[ -n "${deploy_playwright_browsers_path}" ]]; then
+  export PLAYWRIGHT_BROWSERS_PATH="${deploy_playwright_browsers_path}"
+  echo "Using Playwright browsers: ${PLAYWRIGHT_BROWSERS_PATH}" >&2
+fi
 
 if ! [[ "${host_port}" =~ ^[0-9]+$ ]] || (( host_port < 1 || host_port > 65535 )); then
   echo "EA_HOST_PORT must be a TCP port between 1 and 65535; got ${host_port}." >&2
