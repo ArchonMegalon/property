@@ -475,12 +475,14 @@ container_id_for_service() {
   local service="$1"
   local container_name="$2"
   local cid=""
-  cid="$("${DC[@]}" ps -q "${service}" 2>/dev/null || true)"
-  if [[ -z "${cid}" ]]; then
+  if [[ -n "${container_name}" ]]; then
     cid="$(docker ps -q --filter "name=^/${container_name}$" 2>/dev/null | head -n 1 || true)"
   fi
   if [[ -z "${cid}" && "${container_name}" != "${service}" ]]; then
     cid="$(docker ps -q --filter "name=^/${service}$" 2>/dev/null | head -n 1 || true)"
+  fi
+  if [[ -z "${cid}" ]]; then
+    cid="$("${DC[@]}" ps -q "${service}" 2>/dev/null || true)"
   fi
   printf '%s' "${cid}"
 }
@@ -496,6 +498,29 @@ print_service_logs() {
   "${DC[@]}" logs --tail=80 "${service}" >&2 || true
 }
 
+correct_service_runtime_priority_if_needed() {
+  local service="$1"
+  local container_name="$2"
+  local max_nice="${3:-10}"
+  local cid host_pid nice_value
+  cid="$(container_id_for_service "${service}" "${container_name}")"
+  if [[ -z "${cid}" ]]; then
+    return 0
+  fi
+  host_pid="$(docker inspect -f '{{.State.Pid}}' "${cid}" 2>/dev/null || true)"
+  if [[ -z "${host_pid}" || "${host_pid}" == "0" ]]; then
+    return 0
+  fi
+  nice_value="$(ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+  if [[ -z "${nice_value}" || ! "${nice_value}" =~ ^-?[0-9]+$ ]]; then
+    return 0
+  fi
+  if (( nice_value > max_nice )) && [[ "$(id -u)" == "0" ]]; then
+    echo "${service} started with host nice ${nice_value}; correcting to nice 0." >&2
+    renice -n 0 -p "${host_pid}" >/dev/null
+  fi
+}
+
 wait_for_service_ready() {
   local service="$1"
   local container_name="$2"
@@ -505,6 +530,7 @@ wait_for_service_ready() {
     local cid
     cid="$(container_id_for_service "${service}" "${container_name}")"
     if [[ -n "${cid}" ]]; then
+      correct_service_runtime_priority_if_needed "${service}" "${container_name}" "${max_runtime_nice:-10}"
       last_state="$(container_state_line "${cid}")"
       local status="${last_state%%|*}"
       local health="${last_state##*|}"
