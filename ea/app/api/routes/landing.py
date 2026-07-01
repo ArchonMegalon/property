@@ -985,7 +985,7 @@ def _propertyquarry_backfill_run_cached_preview_candidates(
 
 
 def _propertyquarry_prepare_run_payload(*, product: object, run_payload: dict[str, object]) -> dict[str, object]:
-    normalized_run = _propertyquarry_normalize_run_public_tour_targets(run_payload)
+    normalized_run = normalize_property_search_run_snapshot(_propertyquarry_normalize_run_public_tour_targets(run_payload))
     return _propertyquarry_backfill_run_cached_preview_candidates(product=product, run_payload=normalized_run)
 
 

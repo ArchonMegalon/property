@@ -282,11 +282,11 @@
 {% set source_open_total = source_waiting_total + source_active_total %}
 {% set provider_total = (summary.get('provider_total') or 0)|int %}
 {% set provider_display_total = (run.get('provider_display_total') or provider_total)|int %}
-{% set raw_listing_total = (summary.get('raw_listing_total') or 0)|int %}
+{% set raw_listing_total = (summary.get('found_listing_total') if summary.get('found_listing_total') is not none else (summary.get('raw_listing_total') or 0))|int %}
 {% set listing_total = (summary.get('listing_total') or 0)|int %}
-{% set reviewed_total = ((run.get('summary') or {}).get('reviewed_listing_total') or listing_total)|int %}
+{% set reviewed_total = ((run.get('summary') or {}).get('scanned_listing_total') if (run.get('summary') or {}).get('scanned_listing_total') is not none else ((run.get('summary') or {}).get('reviewed_listing_total') or 0))|int %}
 {% set found_total = raw_listing_total if raw_listing_total > reviewed_total else reviewed_total %}
-{% set to_review_total = (found_total - reviewed_total) if found_total > reviewed_total else 0 %}
+{% set to_review_total = ((run.get('summary') or {}).get('to_review_listing_total') if (run.get('summary') or {}).get('to_review_listing_total') is not none else ((found_total - reviewed_total) if found_total > reviewed_total else 0))|int %}
 {% set review_denominator = found_total %}
 {% set review_denominator = review_denominator if review_denominator > 0 else 1 %}
 {% set found_bar_pct = 100 if found_total > 0 else 0 %}
@@ -316,13 +316,13 @@
 {% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
 {% set progress_message_display_lower = progress_message_display|lower %}
 {% set progress_compact_found_message = found_total|string ~ ' homes found' %}
-{% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ to_review_total|string ~ ' to check' %}
+{% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ to_review_total|string ~ ' to review' %}
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
     {% if source_open_total > 0 %}
-      {% set progress_message_display = found_total ~ ' homes found. ' ~ to_review_total ~ ' to check. ' ~ source_open_total ~ ' lists still open.' %}
+      {% set progress_message_display = found_total ~ ' homes found. ' ~ to_review_total ~ ' to review. ' ~ source_open_total ~ ' lists still open.' %}
     {% else %}
-      {% set progress_message_display = 'Found ' ~ found_total ~ ' homes. ' ~ to_review_total ~ ' to check.' if to_review_total else 'Found ' ~ found_total ~ ' homes. Nothing waiting to check.' %}
+      {% set progress_message_display = 'Found ' ~ found_total ~ ' homes. ' ~ to_review_total ~ ' to review.' if to_review_total else 'Found ' ~ found_total ~ ' homes. Nothing waiting to review.' %}
     {% endif %}
   {% elif provider_display_total > 0 %}
   {% set progress_message_display = 'Preparing lists.' %}
@@ -347,20 +347,20 @@
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
 		      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-				      <span class="pqx-small">{% if source_active_total %}{{ source_active_total }} active{% elif source_waiting_total %}{{ source_waiting_total }} waiting{% elif found_total and to_review_total %}{{ to_review_total }} to check{% elif found_total %}0 to check{% elif source_progress_label %}{{ source_progress_label }}{% elif provider_display_total %}{{ provider_display_total }} lists selected{% else %}Waiting for first listings{% endif %}</span>
+				      <span class="pqx-small">{% if source_active_total %}{{ source_active_total }} active{% elif source_waiting_total %}{{ source_waiting_total }} waiting{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total %}0 to review{% elif source_progress_label %}{{ source_progress_label }}{% elif provider_display_total %}{{ provider_display_total }} lists selected{% else %}Waiting for first listings{% endif %}</span>
 			      {% if source_waiting_total and source_active_total %}<span class="pqx-small">{{ source_waiting_total }} waiting</span>{% endif %}
 				      {% if provider_display_total %}<span class="pqx-small">{{ provider_display_total }} lists</span>{% endif %}
-				      {% if found_total %}<span hidden>{{ to_review_total }} homes to check</span>{% endif %}
+				      {% if found_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
 			    </div>
 			    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first list.' }}</span>
-			    <div class="pqx-live-review-bars" aria-label="Homes found and still to check">
+			    <div class="pqx-live-review-bars" aria-label="Homes found and still to review">
 	      <span>
 	        <b>Found</b>
 	        <i>{{ found_total or 0 }}</i>
 	        <em><u style="--progress: {{ found_bar_pct }}"></u></em>
 	      </span>
 	      <span>
-		        <b>To check</b>
+		        <b>To review</b>
 	        <i>{{ to_review_total or 0 }}</i>
 	        <em><u style="--progress: {{ to_review_bar_pct }}"></u></em>
 	      </span>
@@ -10694,10 +10694,10 @@
           {% set live_source_waiting_raw = live_source_total - live_source_done_total - live_source_counts.active %}
           {% set live_source_waiting_total = live_source_waiting_raw if live_source_waiting_raw > 0 else 0 %}
           {% set live_source_open_total = live_source_waiting_total + live_source_counts.active %}
-          {% set live_reviewed_total = (run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0)|int %}
-          {% set live_raw_found_total = (run_summary.get('raw_listing_total') or 0)|int %}
+          {% set live_reviewed_total = (run_summary.get('scanned_listing_total') if run_summary.get('scanned_listing_total') is not none else (run_summary.get('reviewed_listing_total') or 0))|int %}
+          {% set live_raw_found_total = (run_summary.get('found_listing_total') if run_summary.get('found_listing_total') is not none else (run_summary.get('raw_listing_total') or live_reviewed_total or run_summary.get('listing_total') or 0))|int %}
           {% set live_found_total = live_raw_found_total if live_raw_found_total > live_reviewed_total else live_reviewed_total %}
-          {% set live_to_review_total = (live_found_total - live_reviewed_total) if live_found_total > live_reviewed_total else 0 %}
+          {% set live_to_review_total = (run_summary.get('to_review_listing_total') if run_summary.get('to_review_listing_total') is not none else ((live_found_total - live_reviewed_total) if live_found_total > live_reviewed_total else 0))|int %}
 		            {% set live_provider_label = live_provider_total|string ~ ' lists' if live_provider_total > 0 else 'selected lists' %}
           {% set live_repair_status = (run_summary.get('repair_status') or run_summary.get('repair_status_label') or '')|lower %}
           {% set live_has_repair_copy = run_status == 'failed' or live_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
@@ -10705,13 +10705,13 @@
           {% set live_run_message_display = live_safe_message if live_has_repair_copy and live_safe_message else live_run_message_raw %}
           {% set live_run_message_display_lower = live_run_message_display|lower %}
           {% set live_compact_found_message = live_found_total|string ~ ' homes found' %}
-	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_to_review_total|string ~ ' to check' %}
+	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_to_review_total|string ~ ' to review' %}
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
 		          {% if live_found_total %}
 		            {% if live_source_open_total > 0 %}
-				            {% set live_run_message_display = live_found_total ~ ' homes found. ' ~ live_to_review_total ~ ' to check. ' ~ live_source_open_total ~ ' lists still open.' %}
+				            {% set live_run_message_display = live_found_total ~ ' homes found. ' ~ live_to_review_total ~ ' to review. ' ~ live_source_open_total ~ ' lists still open.' %}
 			            {% else %}
-				            {% set live_run_message_display = 'Found ' ~ live_found_total ~ ' homes. ' ~ live_to_review_total ~ ' to check.' if live_to_review_total else 'Found ' ~ live_found_total ~ ' homes. Nothing waiting to check.' %}
+				            {% set live_run_message_display = 'Found ' ~ live_found_total ~ ' homes. ' ~ live_to_review_total ~ ' to review.' if live_to_review_total else 'Found ' ~ live_found_total ~ ' homes. Nothing waiting to review.' %}
 		            {% endif %}
 		          {% elif live_provider_total > 0 %}
 			          {% set live_run_message_display = 'Preparing lists.' %}
@@ -10732,7 +10732,7 @@
 	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
 	                  <div><strong>Lists</strong><small>{% if live_source_total %}{{ live_source_done_total }} / {{ live_source_total }} checked{% else %}Preparing{% endif %}</small></div>
 	                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
-			                <div><strong>To check</strong><small>{{ live_to_review_total }} homes</small></div>
+			                <div><strong>To review</strong><small>{{ live_to_review_total }} homes</small></div>
 	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
 	              </div>
           {% if live_preview %}
@@ -11829,7 +11829,7 @@
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
               {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_total') or run_sources|length or run_summary.get('sources_total') or 0)|int %}
-	              {% set homes_checked_total = (run_summary.get('listing_total') or run_summary.get('reviewed_listing_total') or run_summary.get('raw_listing_total') or 0)|int %}
+	              {% set homes_checked_total = (run_summary.get('found_listing_total') if run_summary.get('found_listing_total') is not none else (run_summary.get('raw_listing_total') or run_summary.get('scanned_listing_total') or run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0))|int %}
 	              <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
 	              <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
 	              <div class="pqx-fact"><span>Listings</span><strong>{{ homes_checked_total }}</strong></div>

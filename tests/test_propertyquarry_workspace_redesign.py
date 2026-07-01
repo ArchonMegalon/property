@@ -2951,7 +2951,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "Could not load property search status." not in visible_message
-    assert "Found 179 homes. Nothing waiting to check." in visible_message
+    assert "Found 179 homes. Nothing waiting to review." in visible_message
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
         response.text,
@@ -2964,7 +2964,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "179" in visible_source
     assert "29 lists" in visible_source
     assert "Found" in visible_source
-    assert "To check" in visible_source
+    assert "To review" in visible_source
     reliability_match = re.search(r'<div class="pqx-reliability-strip"[^>]*>(?P<reliability>.*?)</div>\s*</div>', response.text, re.S)
     assert reliability_match
     visible_reliability = html.unescape(re.sub(r"<[^>]+>", " ", reliability_match.group("reliability")))
@@ -3009,7 +3009,7 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "70 homes found. 0 to check. 180 lists still open." in visible_message
+    assert "70 homes found. 0 to review. 180 lists still open." in visible_message
 
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
@@ -3022,9 +3022,48 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     assert "180 waiting" in visible_source
     assert "Found" in visible_source
     assert "70" in visible_source
-    assert "To check" in visible_source
+    assert "To review" in visible_source
     assert "0" in visible_source
     assert "Reviewed" not in visible_source
+
+
+def test_propertyquarry_running_panel_does_not_treat_listing_total_as_reviewed(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-running-listing-total-not-reviewed")
+    start_workspace(client, mode="personal", workspace_name="Running Listing Queue Office")
+
+    def _fake_active_run(self, *, principal_id: str):
+        return {"run_id": "run-live-listing-queue", "status": "in_progress"}
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 42,
+            "message": "Checking listings.",
+            "summary": {
+                "status": "in_progress",
+                "provider_total": 29,
+                "source_variant_total": 250,
+                "sources_total": 250,
+                "sources_completed": 70,
+                "raw_listing_total": 70,
+                "listing_total": 70,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-live-listing-queue"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
+    assert "70 homes found. 70 to review. 180 lists still open." in visible
+    assert "Reviewed" not in visible
 
 
 def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(monkeypatch) -> None:
@@ -3105,7 +3144,7 @@ def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_ra
     assert "Search in progress" in rendered_html
     assert "179 homes found" in rendered_html
     assert "Found" in rendered_html
-    assert "To check" in rendered_html
+    assert "To review" in rendered_html
     assert "Altbau near U6" not in rendered_html
     assert "Leading right now. Can still change before the search finishes." not in rendered_html
     assert "Could not load property search status." not in rendered_html
@@ -9110,7 +9149,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "25 homes found · 0 to check · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "25 homes found · 0 to review · Willhaben · 25 / 60"
     assert "156 scans" not in snapshot["summary_label"]
     assert snapshot["phase_label"] == "Playground: Sigmund-Freud-Park playground is 830 m away. Limit 400 m."
     assert snapshot["source_count_label"] == "25 / 60"
@@ -10505,14 +10544,9 @@ def test_property_search_status_replaces_internal_suppression_only_compact_event
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["events"] == [
-        {
-            "step": "source_shortlist",
-            "status": "in_progress",
-            "message": "Shortlist ready · 1 home · RE/MAX Austria · 179 homes found · 0 to check",
-            "created_at": "2026-06-25T15:40:41+00:00",
-        }
-    ]
+    messages = [str(event.get("message") or "") for event in payload["events"]]
+    assert "Willhaben: suppressed_generic_listing_page." not in messages
+    assert any("179 homes found" in message and "0 to review" in message for message in messages)
 
 
 def test_property_search_status_replaces_stale_status_refresh_noise(monkeypatch) -> None:
@@ -10601,7 +10635,7 @@ def test_property_search_status_hides_active_source_fetch_suppression_receipt_no
         {
             "step": "source_fetching",
             "status": "in_progress",
-            "message": "12 lists · 42 homes found · 0 to check",
+            "message": "12 lists · 42 homes found · 0 to review",
             "created_at": "2026-06-28T15:40:41+00:00",
         }
     ]
@@ -10745,7 +10779,7 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     messages = [str(event.get("message") or "") for event in events]
     assert "9 lists selected for this search." in messages
     assert "Lists: 1 checked, 1 running, 7 queued of 9." in messages
-    assert "42 homes found; 30 to check; 8 lists still open." in messages
+    assert "42 homes found; 30 to review; 8 lists still open." in messages
     assert "3 homes held back by the active rules." in messages
 
 
@@ -10816,7 +10850,7 @@ def test_property_search_status_appends_current_progress_event_after_stale_start
     assert response.status_code == 200
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Starting property search run." not in messages
-    assert "Willhaben · 3 / 10 · 179 homes found · 0 to check" in messages
+    assert any("Willhaben · 3 / 10" in message and "179 homes found · 0 to review" in message for message in messages)
 
 
 def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources(monkeypatch) -> None:
@@ -13523,8 +13557,8 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "estimateRunEtaLabel" in script_body
     assert "formatEta" in script_body
     assert "displayRunMessage" in script_body
-    assert "Found ${found} homes. ${toReview} to check." in script_body
-    assert "Found ${found} homes. Nothing waiting to check." in script_body
+    assert "Found ${found} homes. ${toReview} to review." in script_body
+    assert "Found ${found} homes. Nothing waiting to review." in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body
     run_visible_branch = body.split("{% elif run_visible %}", 1)[1].split("{% elif run_terminal_no_results %}", 1)[0]

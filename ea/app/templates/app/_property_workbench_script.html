@@ -1411,9 +1411,9 @@
       let text = String(value || '').trim();
       if (!text) return 'Waiting for the first list.';
       text = text
-        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, 'Found $1 homes. Nothing waiting to check.')
+        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, 'Found $1 homes. Nothing waiting to review.')
         .replace(/\b(\d+)\s+homes?\s+reviewed\b/ig, '$1 homes found')
-        .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 to check')
+        .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 to review')
         .replace(/\b(\d+)\s+providers\b/ig, '$1 lists')
         .replace(/\bprovider update\b/ig, 'list update');
       const candidateMatch = text.match(/(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
@@ -1987,21 +1987,49 @@
       if (providerDisplayTotal > 0) return `${providerDisplayTotal} lists selected`;
       return 'Search warming up';
     };
+    const runListingWorkCounts = (summary = {}) => {
+      const asNumber = (value) => {
+        const parsed = Number(value || 0);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+      };
+      let sourceFound = 0;
+      let sourceScanned = 0;
+      if (Array.isArray(summary.sources)) {
+        summary.sources.forEach((source) => {
+          if (!source || typeof source !== 'object') return;
+          const raw = asNumber(source.raw_listing_total);
+          const scanned = Math.max(asNumber(source.scanned_listing_total), asNumber(source.reviewed_listing_total));
+          sourceFound += Math.max(raw, scanned);
+          sourceScanned += scanned;
+        });
+      }
+      const scanned = Math.max(asNumber(summary.scanned_listing_total), asNumber(summary.reviewed_listing_total), sourceScanned);
+      let found = Math.max(asNumber(summary.found_listing_total), asNumber(summary.raw_listing_total), sourceFound, scanned);
+      if (!(found > 0)) found = asNumber(summary.listing_total);
+      const explicitToReview = summary.to_review_listing_total;
+      const parsedToReview = Number(explicitToReview);
+      const hasExplicitToReview = explicitToReview !== undefined && explicitToReview !== null && explicitToReview !== '' && Number.isFinite(parsedToReview);
+      return {
+        found,
+        scanned: found > 0 ? Math.min(scanned, found) : 0,
+        toReview: hasExplicitToReview ? Math.max(0, parsedToReview) : Math.max(0, found - scanned),
+      };
+    };
     const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '') => {
       if (counts?.active > 0) return `${counts.active} active`;
       if (counts?.waiting > 0) return `${counts.waiting} waiting`;
-      if (found > 0 && toReview > 0) return `${toReview} to check`;
-      if (found > 0) return '0 to check';
+      if (found > 0 && toReview > 0) return `${toReview} to review`;
+      if (found > 0) return '0 to review';
       return fallback || 'Waiting for first listings';
     };
     const runFoundQueueMessage = (found, toReview, sourceWork) => {
       if (!(found > 0)) return '';
       if (sourceWork?.open > 0) {
-        return `${found} homes found. ${toReview} to check. ${sourceWork.open} lists still open.`;
+        return `${found} homes found. ${toReview} to review. ${sourceWork.open} lists still open.`;
       }
       return toReview > 0
-        ? `Found ${found} homes. ${toReview} to check.`
-        : `Found ${found} homes. Nothing waiting to check.`;
+        ? `Found ${found} homes. ${toReview} to review.`
+        : `Found ${found} homes. Nothing waiting to review.`;
     };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
@@ -2033,9 +2061,9 @@
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const sourceWork = runSourceWorkCounts(summary, status);
-      const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
-      const found = Math.max(Number(summary.raw_listing_total || 0), reviewed);
-      const toReview = Math.max(0, found - reviewed);
+      const listingWork = runListingWorkCounts(summary);
+      const found = listingWork.found;
+      const toReview = listingWork.toReview;
       const checkedLabel = found > 0 ? `${found} homes found` : 'checking';
       const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
         ? `${completedSources} of ${sourceVariantTotal} lists checked`
@@ -2113,13 +2141,13 @@
       const calmRepairCopy = calmRepairCustomerCopy(summary, raw);
       const customerStatus = isInternalRepairFailureCopy(rawCustomerStatus) && calmRepairCopy ? calmRepairCopy : rawCustomerStatus;
       const repairReason = calmRepairCopy ? '' : repairCustomerReason(summary, raw);
-      const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
-      const found = Math.max(Number(summary.raw_listing_total || 0), reviewed);
-      const toReview = Math.max(0, found - reviewed);
+      const listingWork = runListingWorkCounts(summary);
+      const found = listingWork.found;
+      const toReview = listingWork.toReview;
       const providers = Number(summary.provider_total || summary.source_variant_total || 0);
       const sourceWork = runSourceWorkCounts(summary, status);
       const compactFoundMessage = `${found} homes found`;
-      const compactQueueMessage = `${found} homes found · ${toReview} to check`;
+      const compactQueueMessage = `${found} homes found · ${toReview} to review`;
       if (replacementRunId) {
         return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
       }
@@ -2505,9 +2533,10 @@
       const completedSources = Number(summary.sources_completed || summary.completed_sources || 0);
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
-      const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
-      const found = Math.max(Number(summary.raw_listing_total || 0), reviewed);
-      const toReview = Math.max(0, found - reviewed);
+      const listingWork = runListingWorkCounts(summary);
+      const found = listingWork.found;
+      const reviewed = listingWork.scanned;
+      const toReview = listingWork.toReview;
       const sourceWork = runSourceWorkCounts(summary, status);
       const checkedLabel = found > 0 ? `${found} homes found` : 'checking';
       const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
@@ -2736,14 +2765,14 @@
 	          </div>
 	          ${liveFraction ? `<span class="pqx-small">${escapeHtml(liveFraction)}</span>` : ''}
 	          <span class="pqx-note">${escapeHtml(phaseMeta)}</span>
-          <div class="pqx-live-review-bars" aria-label="Homes found and still to check">
+          <div class="pqx-live-review-bars" aria-label="Homes found and still to review">
 	            <span>
 	              <b>Found</b>
 	              <i>${escapeHtml(found || 0)}</i>
 	              <em><u style="--progress: ${escapeHtml(foundBarPct)}"></u></em>
 	            </span>
 	            <span>
-              <b>To check</b>
+              <b>To review</b>
 	              <i>${escapeHtml(toReview || 0)}</i>
 	              <em><u style="--progress: ${escapeHtml(toReviewBarPct)}"></u></em>
 	            </span>

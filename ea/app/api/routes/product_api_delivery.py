@@ -65,7 +65,11 @@ from app.api.routes.product_api_contracts import (
 )
 from app.api.routes.landing_property_research import _property_candidate_ref
 from app.container import AppContainer
-from app.product.property_surface_state import property_run_customer_visible_events, property_run_public_eta_label
+from app.product.property_surface_state import (
+    normalize_property_search_run_snapshot,
+    property_run_customer_visible_events,
+    property_run_public_eta_label,
+)
 from app.product.service import build_product_service
 from app.services.property_billing import (
     brilliant_directories_billing_webhook_receipt,
@@ -502,6 +506,9 @@ def _property_search_run_status_payload(
         summary.pop("eta_label", None)
         summary.pop("eta_seconds", None)
         summary.pop("next_useful_update_eta_label", None)
+    normalized["summary"] = summary
+    normalized = normalize_property_search_run_snapshot(normalized)
+    summary = dict(normalized.get("summary") or {}) if isinstance(normalized.get("summary"), dict) else {}
     if lightweight:
         summary = _property_search_compact_source_rows(summary)
     normalized["summary"] = summary

@@ -351,9 +351,77 @@ def _property_summary_ranked_total(summary: dict[str, object]) -> int:
     return explicit_total
 
 
+def _property_run_listing_work_counts(
+    summary: dict[str, object],
+    *,
+    status: str = "",
+) -> dict[str, int]:
+    def as_int(value: object) -> int:
+        return _positive_int(value)
+
+    source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    source_found = 0
+    source_scanned = 0
+    for row in source_rows:
+        raw_total = as_int(row.get("raw_listing_total"))
+        scanned_total = max(
+            as_int(row.get("scanned_listing_total")),
+            as_int(row.get("reviewed_listing_total")),
+        )
+        source_found += max(raw_total, scanned_total)
+        source_scanned += scanned_total
+
+    explicit_scanned = max(
+        as_int(summary.get("scanned_listing_total")),
+        as_int(summary.get("reviewed_listing_total")),
+        source_scanned,
+    )
+    explicit_found = max(
+        as_int(summary.get("found_listing_total")),
+        as_int(summary.get("raw_listing_total")),
+        source_found,
+        explicit_scanned,
+    )
+
+    if explicit_found <= 0:
+        # listing_total is a visible-result count in several paths. Use it only
+        # when there is no stronger raw/scanned signal.
+        explicit_found = as_int(summary.get("listing_total"))
+
+    run_status = str(status or summary.get("status") or "").strip().lower()
+    if (
+        explicit_found > 0
+        and explicit_scanned <= 0
+        and run_status in {"processed", "completed", "completed_partial", "noop", "cancelled"}
+    ):
+        explicit_scanned = explicit_found
+
+    scanned = min(explicit_scanned, explicit_found) if explicit_found > 0 else 0
+    found = max(explicit_found, scanned)
+    return {
+        "found": found,
+        "scanned": scanned,
+        "to_review": max(0, found - scanned),
+    }
+
+
+def _property_run_normalize_listing_work_summary(
+    summary: dict[str, object],
+    *,
+    status: str = "",
+) -> dict[str, object]:
+    normalized = dict(summary or {})
+    counts = _property_run_listing_work_counts(normalized, status=status)
+    normalized["found_listing_total"] = counts["found"]
+    normalized["scanned_listing_total"] = counts["scanned"]
+    normalized["to_review_listing_total"] = counts["to_review"]
+    return normalized
+
+
 def normalize_property_search_run_snapshot(raw_run: dict[str, object]) -> dict[str, object]:
     payload = PropertySearchRunSnapshot.from_dict(dict(raw_run or {})).to_dict()
     summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    status = str(payload.get("status") or summary.get("status") or "").strip().lower()
     sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
     if sources:
         ranked_candidates = _property_summary_ranked_candidates(summary)
@@ -365,6 +433,8 @@ def normalize_property_search_run_snapshot(raw_run: dict[str, object]) -> dict[s
         if held_back_total > 0:
             summary.setdefault("held_back_total", held_back_total)
             summary.setdefault("filtered_total", held_back_total)
+    if summary:
+        summary = _property_run_normalize_listing_work_summary(summary, status=status)
         payload["summary"] = summary
     return payload
 
@@ -699,9 +769,9 @@ def property_run_event_is_internal_noise(event: dict[str, object]) -> bool:
 
 
 def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
-    reviewed = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
-    found = max(_positive_int(summary.get("raw_listing_total")), reviewed)
-    to_review = max(0, found - reviewed)
+    listing_work = _property_run_listing_work_counts(summary)
+    found = listing_work["found"]
+    to_review = listing_work["to_review"]
     source_work = _property_run_source_work_counts(summary)
     provider_total = _positive_int(
         summary.get("provider_total")
@@ -710,10 +780,10 @@ def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
     )
     if found > 0:
         if source_work["open"] > 0:
-            return f"{found} homes found. {to_review} to check. {source_work['open']} lists still open."
+            return f"{found} homes found. {to_review} to review. {source_work['open']} lists still open."
         if to_review > 0:
-            return f"Found {found} homes. {to_review} to check."
-        return f"Found {found} homes. Nothing waiting to check."
+            return f"Found {found} homes. {to_review} to review."
+        return f"Found {found} homes. Nothing waiting to review."
     if provider_total > 0:
         return "Preparing lists."
     return "Preparing lists."
@@ -819,8 +889,9 @@ def _property_run_synthetic_progress_events(
 ) -> list[dict[str, object]]:
     counts = _property_run_source_status_counts(summary)
     provider_total = counts["provider_total"] or counts["total"]
-    reviewed = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
-    raw_found = _positive_int(summary.get("raw_listing_total"))
+    listing_work = _property_run_listing_work_counts(summary, status=status)
+    reviewed = listing_work["scanned"]
+    raw_found = listing_work["found"]
     ranked = _positive_int(
         summary.get("ranked_total")
         or summary.get("shortlist_total")
@@ -865,15 +936,15 @@ def _property_run_synthetic_progress_events(
     elif provider_total > 0:
         add("source_started", "Waiting for the first list.")
 
-    found_total = max(raw_found, reviewed)
-    to_review = max(0, found_total - reviewed)
+    found_total = raw_found
+    to_review = listing_work["to_review"]
     if found_total > 0:
         if source_work["open"] > 0:
-            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; {to_review} to check; {source_work['open']} lists still open.")
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; {to_review} to review; {source_work['open']} lists still open.")
         elif to_review > 0:
-            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; {to_review} to check.")
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; {to_review} to review.")
         else:
-            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; nothing waiting to check.")
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; nothing waiting to review.")
 
     if ranked > 0:
         add("source_shortlist", f"{_property_run_count_label(ranked, 'ranked home')} ready.")
@@ -923,7 +994,7 @@ def _property_run_current_progress_message(
         progress_parts.append(provider_label)
     if fraction_label:
         progress_parts.append(fraction_label)
-    if aggregate_label and aggregate_label.lower() not in {"0 homes found · 0 to review", "0 homes found · 0 to check", "checking"}:
+    if aggregate_label and aggregate_label.lower() not in {"0 homes found · 0 to review", "checking"}:
         progress_parts.append(aggregate_label)
 
     if step in {"source_ranking", "source_shortlist", "source_assessing", "source_low_fit_ranked", "source_discovery_penalty"}:
@@ -1254,7 +1325,9 @@ def build_property_run_reliability_snapshot(
     source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
     source_total = max(0, _positive_int(summary.get("sources_total"), default=len(source_rows)))
     source_checked = len(source_rows)
-    listing_total = max(0, _positive_int(summary.get("listing_total") or summary.get("reviewed_listing_total")))
+    listing_work = _property_run_listing_work_counts(summary, status=status)
+    listing_total = listing_work["found"]
+    to_review_total = listing_work["to_review"]
     filtered_total = max(0, _property_summary_held_back_total(summary))
     failed_total = 0
     for row in source_rows:
@@ -1327,7 +1400,7 @@ def build_property_run_reliability_snapshot(
     if results_total > 0:
         result_label = f"{results_total} ranked result{'s' if results_total != 1 else ''} ready"
     elif listing_total > 0:
-        result_label = f"{listing_total} homes found · 0 to check"
+        result_label = f"{listing_total} homes found · {to_review_total} to review"
     filtered_label = ""
     if filtered_total > 0:
         filtered_label = f"{filtered_total} filtered by active rules"
@@ -1353,12 +1426,12 @@ def _compact_run_message(value: object) -> str:
         return "Waiting for the first list."
     text = re.sub(
         r"^Reviewing homes\.\s+(\d+)\s+checked so far\.?$",
-        r"Found \1 homes. Nothing waiting to check.",
+        r"Found \1 homes. Nothing waiting to review.",
         text,
         flags=re.IGNORECASE,
     )
     text = re.sub(r"\b(\d+)\s+homes?\s+reviewed\b", r"\1 homes found", text, flags=re.IGNORECASE)
-    text = re.sub(r"\b(\d+)\s+reviewed so far\b", r"\1 to check", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(\d+)\s+reviewed so far\b", r"\1 to review", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(\d+)\s+providers\b", r"\1 lists", text, flags=re.IGNORECASE)
     text = re.sub(r"\bprovider update\b", "list update", text, flags=re.IGNORECASE)
     candidate_match = re.search(r"(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
@@ -1794,9 +1867,9 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     provider_display_total = _property_run_provider_display_total(payload, summary)
     source_variant_total = _positive_int(summary.get("source_variant_total"), default=sources_total)
     source_work = _property_run_source_work_counts(summary, status=status)
-    reviewed_total = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
-    found_total = max(_positive_int(summary.get("raw_listing_total")), reviewed_total)
-    to_review_total = max(0, found_total - reviewed_total)
+    listing_work = _property_run_listing_work_counts(summary, status=status)
+    found_total = listing_work["found"]
+    to_review_total = listing_work["to_review"]
     checked_label = (
         f"{found_total} homes found"
         if found_total > 0
@@ -1811,7 +1884,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
         f"{provider_display_total} lists selected" if provider_display_total > 0 else checked_label
     )
     if found_total > 0 and source_work["open"] > 0:
-        scan_label = f"{found_total} homes found. {to_review_total} to check. {source_work['open']} lists still open."
+        scan_label = f"{found_total} homes found. {to_review_total} to review. {source_work['open']} lists still open."
     no_floorplans = _positive_int(summary.get("filtered_floorplan_total"))
     current_step = str(payload.get("current_step") or "").strip().lower()
     packet_prepared = _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total"))
@@ -1839,9 +1912,9 @@ def build_property_run_live_board_snapshot(
     source_total = max(0, _positive_int(summary.get("sources_total")))
     source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
     source_total = max(source_total, _positive_int(summary.get("source_variant_total")), len(source_rows))
-    reviewed_total = max(0, _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total")))
-    found_total = max(0, _positive_int(summary.get("raw_listing_total")), reviewed_total)
-    to_review_total = max(0, found_total - reviewed_total)
+    listing_work = _property_run_listing_work_counts(summary, status=status)
+    found_total = listing_work["found"]
+    to_review_total = listing_work["to_review"]
     waiting_on_floorplans = max(0, _positive_int(summary.get("filtered_floorplan_total")))
     packet_prepared = max(0, _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total")))
     shortlist_ready = _property_summary_ranked_total(summary)
@@ -1852,7 +1925,7 @@ def build_property_run_live_board_snapshot(
     message_text = str(payload.get("message") or "").strip().lower()
 
     aggregate_label = (
-        f"{found_total} homes found · {to_review_total} to check"
+        f"{found_total} homes found · {to_review_total} to review"
         if found_total > 0
         else "checking"
     )
