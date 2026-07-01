@@ -4324,7 +4324,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     landing = owner.get("/")
     assert landing.status_code == 200
     _assert_no_product_drift(landing.text)
-    assert "Search once. Rank the right homes. Decide faster." in landing.text
+    assert "Search once. See the right homes. Decide faster." in landing.text
     assert "Signing you in" in landing.text
     assert "Create account" not in landing.text
     assert "PropertyQuarry" in landing.text

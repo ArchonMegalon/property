@@ -1545,7 +1545,7 @@ def test_propertyquarry_public_and_progress_surfaces_do_not_use_generic_ea_copy(
     public_copy = "\n".join([landing_source, public_home, marketing_home])
     assert "Compare PropertyQuarry plans" not in public_copy
     assert "Compare them clearly" not in public_copy
-    assert "Search once. Rank hard. Research the shortlist." in public_copy
+    assert "Search once. See the strongest homes. Research the shortlist." in public_copy
 
 
 def test_propertyquarry_research_investment_rows_use_listing_currency(monkeypatch) -> None:
@@ -4018,7 +4018,7 @@ def test_propertyquarry_root_redirects_token_authenticated_users_but_keeps_home_
 
     public_home = client.get("/?home=1", headers=headers, follow_redirects=False)
     assert public_home.status_code == 200
-    assert "Search once. Rank the right homes. Decide faster." in public_home.text
+    assert "Search once. See the right homes. Decide faster." in public_home.text
     assert 'href="/?home=1" aria-label="PropertyQuarry home"' in public_home.text
     assert 'href="/app/search"' in public_home.text
     assert 'href="/app/properties"' in public_home.text
@@ -4045,7 +4045,7 @@ def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monke
 
     response = client.get("/?home=1", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     assert response.status_code == 200
-    assert "Search once. Rank the right homes. Decide faster." in response.text
+    assert "Search once. See the right homes. Decide faster." in response.text
     assert 'href="/app/search"' in response.text
     assert 'href="/app/properties"' in response.text
     assert 'href="/sign-in?signing_in=1"' not in response.text
@@ -11867,7 +11867,7 @@ def test_propertyquarry_workspace_session_root_home_override_stays_public() -> N
 
     public_home = client.get("/?home=1", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     assert public_home.status_code == 200
-    assert "Search once. Rank the right homes. Decide faster." in public_home.text
+    assert "Search once. See the right homes. Decide faster." in public_home.text
     assert 'href="/?home=1" aria-label="PropertyQuarry home"' in public_home.text
     assert 'href="/app/search"' in public_home.text
     assert 'action="/app/actions/sign-out"' in public_home.text

@@ -170,7 +170,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             )
         )
     if path == "/":
-        checks.append(("home_has_main_copy", "Search once. Rank the right homes. Decide faster." in text))
+        checks.append(("home_has_main_copy", "Search once. See the right homes. Decide faster." in text))
         checks.append(("home_no_visible_proof_noise", "proof" not in visible_text.lower()))
         checks.append(("home_no_legacy_proof_component", "pq-proof" not in text.lower()))
     elif path == "/security":
@@ -355,7 +355,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                     or "/app/search" in final_url
                     or "/app/properties" in final_url,
                 ),
-                ("not_public_home_leak", "Search once. Rank the right homes. Decide faster." not in text),
+                ("not_public_home_leak", "Search once. See the right homes. Decide faster." not in text),
             )
         )
     return checks

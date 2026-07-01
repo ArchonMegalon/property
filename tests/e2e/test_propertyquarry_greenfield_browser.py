@@ -531,7 +531,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         desktop_page = desktop.new_page()
         response = desktop_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
         assert response is not None and response.ok
-        expect(desktop_page.get_by_role("heading", name="Search once. Rank the right homes. Decide faster.")).to_be_visible()
+        expect(desktop_page.get_by_role("heading", name="Search once. See the right homes. Decide faster.")).to_be_visible()
         expect(desktop_page.get_by_text("Example shortlist")).to_be_visible()
         expect(desktop_page.get_by_text("5 ranked · 22 filtered")).to_be_visible()
         expect(desktop_page.get_by_text("Hard filters stay hard")).to_be_visible()
@@ -553,7 +553,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         mobile_page = mobile.new_page()
         response = mobile_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
         assert response is not None and response.ok
-        expect(mobile_page.get_by_role("heading", name="Search once. Rank the right homes. Decide faster.")).to_be_visible()
+        expect(mobile_page.get_by_role("heading", name="Search once. See the right homes. Decide faster.")).to_be_visible()
         expect(mobile_page.locator(".pq-hero-copy .btn.primary", has_text="Open search")).to_be_visible()
         expect(mobile_page.locator(".topbar .nav")).to_be_hidden()
         expect(mobile_page.locator(".mobile-nav")).to_be_hidden()

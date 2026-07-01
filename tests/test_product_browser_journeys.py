@@ -458,7 +458,7 @@ def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
     landing = client.get("/", headers={"host": "propertyquarry.com"})
     assert landing.status_code == 200
     assert "PropertyQuarry" in landing.text
-    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Search once. See the strongest homes. Research the shortlist." in landing.text
     assert "Executive Assistant" not in landing.text
 
     sign_in = client.get("/sign-in", headers={"host": "propertyquarry.com"})
@@ -481,7 +481,7 @@ def test_propertyquarry_repo_defaults_to_property_brand_without_host_header() ->
     landing = client.get("/")
     assert landing.status_code == 200
     assert "PropertyQuarry" in landing.text
-    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Search once. See the strongest homes. Research the shortlist." in landing.text
     assert "Compare them clearly" not in landing.text
     assert "Executive Assistant" not in landing.text
 

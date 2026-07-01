@@ -23806,7 +23806,7 @@ def test_signed_in_propertyquarry_root_and_landing_handoff_skip_full_onboarding_
 
     public_home = client.get("/?home=1", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     assert public_home.status_code == 200
-    assert "Search once. Rank the right homes. Decide faster." in public_home.text
+    assert "Search once. See the right homes. Decide faster." in public_home.text
 
     handoff = client.get("/app/api/property/landing-handoff", headers={"host": "propertyquarry.com"})
     assert handoff.status_code == 200
