@@ -1519,6 +1519,7 @@ def prewarm_property_search_shell_cache(*, container: AppContainer, principal_id
         access_email="",
         status=status,
         surface_mode="search",
+        defer_run_hydration=True,
     )
     property_context["surface_mode"] = "search"
     payload = _property_workspace_payload(
@@ -6404,7 +6405,7 @@ def app_shell(
                 force_recent_runs=str(full or "").strip().lower() in {"1", "true", "yes"},
                 defer_run_hydration=(
                     not normalized_run_id
-                    and resolved_section in {"properties", "agents", "alerts"}
+                    and resolved_section in {"properties", "search", "agents", "alerts"}
                     and str(full or "").strip().lower() not in {"1", "true", "yes"}
                 ),
             )
