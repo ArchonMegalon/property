@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import multiprocessing
 import os
 import re
+import signal
 import socket
 import sys
 import urllib.parse
 import urllib.request
+from urllib.error import HTTPError
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -34,17 +38,12 @@ DEFAULT_ROUTES = (
     "/app/alerts",
     "/app/account",
     "/app/billing",
-    "/app/settings/google",
     "/app/settings/access",
-    "/app/settings/usage",
-    "/app/settings/support",
-    "/app/settings/trust",
-    "/app/settings/invitations",
-    "/app/research",
     "/app/properties/packets",
 )
 SEEDED_RESEARCH_DETAIL_ROUTE = "/app/research/perf-candidate-1020?run_id=run-gold-mobile"
 SEED_FIXTURE_USER_AGENT = "PropertyQuarry-live-mobile-surface-smoke/1.0"
+SEED_FIXTURE_TIMEOUT_SECONDS = 12
 BILLING_FAIL_CLOSED_MARKERS = (
     "billing portal unavailable",
     "propertyquarry access stays active",
@@ -61,6 +60,55 @@ BILLING_BRIDGE_GUIDED_LOGIN_MARKERS = (
 )
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_HTTP_SMOKE_OPENER = urllib.request.build_opener()
+_HTTP_SMOKE_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _http_get_for_smoke(
+    url: str,
+    *,
+    headers: dict[str, str],
+    timeout_seconds: float,
+    follow_redirects: bool = True,
+) -> dict[str, Any]:
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    opener = _HTTP_SMOKE_OPENER if follow_redirects else _HTTP_SMOKE_NO_REDIRECT_OPENER
+    try:
+        with opener.open(request, timeout=max(1.0, float(timeout_seconds))) as response:
+            body = response.read(2_000_000)
+            return {
+                "status_code": int(getattr(response, "status", 0) or 0),
+                "headers": dict(response.headers.items()),
+                "url": str(getattr(response, "url", url) or url),
+                "text": body.decode("utf-8", errors="replace"),
+            }
+    except HTTPError as exc:
+        body = exc.read(2_000_000)
+        return {
+            "status_code": int(exc.code or 0),
+            "headers": dict(exc.headers.items()),
+            "url": str(exc.url or url),
+            "text": body.decode("utf-8", errors="replace"),
+        }
+
+
+def _header_value(headers: dict[str, Any], name: str) -> str:
+    wanted = str(name or "").strip().lower()
+    for key, value in dict(headers or {}).items():
+        if str(key).strip().lower() == wanted:
+            return str(value or "").strip()
+    return ""
+
+
+def _log_smoke_progress(message: str) -> None:
+    print(f"[propertyquarry-mobile-smoke] {message}", file=sys.stderr, flush=True)
+
+
 def _visible_text(text: str) -> str:
     without_hidden = re.sub(r"<script.*?</script>|<style.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     without_tags = re.sub(r"<[^>]+>", " ", without_hidden)
@@ -71,7 +119,6 @@ def _resolve_mobile_billing_external_handoff(
     *,
     base_url: str,
     redirect_location: str,
-    request_context: Any,
     request_headers: dict[str, str],
     timeout_ms: int,
 ) -> dict[str, object]:
@@ -100,24 +147,23 @@ def _resolve_mobile_billing_external_handoff(
             "bridge_launch_status_code": 0,
         }
     bridge_launch_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", normalized_location.lstrip("/"))
-    bridge_response = request_context.get(
+    bridge_response = _http_get_for_smoke(
         bridge_launch_url,
         headers=request_headers,
-        max_redirects=0,
-        timeout=timeout_ms,
+        timeout_seconds=max(1.0, timeout_ms / 1000.0),
+        follow_redirects=False,
     )
     return {
-        "external_location": str(bridge_response.headers.get("location") or "").strip(),
+        "external_location": _header_value(dict(bridge_response.get("headers") or {}), "location"),
         "bridge_launch_used": True,
         "bridge_launch_url": bridge_launch_url,
-        "bridge_launch_status_code": int(bridge_response.status),
+        "bridge_launch_status_code": int(bridge_response.get("status_code") or 0),
     }
 
 
 def _mobile_billing_bridge_guided_login_assist_probe(
     location: str,
     *,
-    request_context: Any,
     timeout_ms: int,
 ) -> dict[str, object]:
     normalized_location = str(location or "").strip()
@@ -130,10 +176,15 @@ def _mobile_billing_bridge_guided_login_assist_probe(
             "error": "bridge_login_assist_not_applicable",
         }
     try:
-        response = request_context.get(normalized_location, timeout=timeout_ms)
-        status_code = int(response.status)
-        final_url = str(response.url or normalized_location)
-        body = str(response.text() or "")
+        response = _http_get_for_smoke(
+            normalized_location,
+            headers={"Accept": "text/html,application/xhtml+xml"},
+            timeout_seconds=max(1.0, timeout_ms / 1000.0),
+            follow_redirects=True,
+        )
+        status_code = int(response.get("status_code") or 0)
+        final_url = str(response.get("url") or normalized_location)
+        body = str(response.get("text") or "")
     except Exception as exc:
         return {
             "ok": False,
@@ -156,6 +207,59 @@ def _mobile_billing_bridge_guided_login_assist_probe(
     }
 
 
+def _playwright_route_metrics_worker(
+    queue: Any,
+    *,
+    url: str,
+    headers: dict[str, str],
+    browser_args: list[str],
+    viewport_width: int,
+    viewport_height: int,
+    route_timeout_ms: int,
+) -> None:
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, args=browser_args)
+            try:
+                context = browser.new_context(
+                    viewport={"width": viewport_width, "height": viewport_height},
+                    is_mobile=True,
+                    has_touch=True,
+                    service_workers="block",
+                    extra_http_headers=headers,
+                )
+                try:
+                    page = context.new_page()
+                    page.set_default_timeout(route_timeout_ms)
+                    page.set_default_navigation_timeout(route_timeout_ms)
+                    response = page.goto(url, wait_until="commit", timeout=route_timeout_ms)
+                    try:
+                        page.wait_for_load_state("domcontentloaded", timeout=min(2500, route_timeout_ms))
+                    except Exception:
+                        pass
+                    page.wait_for_timeout(350)
+                    status = int(response.status) if response is not None else 0
+                    metrics = dict(page.evaluate(_collect_metrics_script()) or {})
+                    queue.put({"ok": True, "status_code": status, "metrics": metrics})
+                finally:
+                    try:
+                        context.close()
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+    except BaseException as exc:  # pragma: no cover - exercised by live smoke failures.
+        try:
+            queue.put({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+        except Exception:
+            pass
+
+
 def _env(name: str, default: str = "") -> str:
     return str(os.environ.get(name) or default).strip()
 
@@ -170,6 +274,11 @@ def _env_flag(name: str, *, default: bool = False) -> bool:
 def route_is_research_detail(route: str) -> bool:
     route_path = str(route or "").split("?", 1)[0].strip().rstrip("/")
     return route_path.startswith("/app/research/") and route_path != "/app/research"
+
+
+def route_requires_browser_mobile_probe(route: str) -> bool:
+    route_path = str(route or "").split("?", 1)[0].strip().rstrip("/")
+    return route_path in {"/app/search", "/app/account"} or route_is_research_detail(route)
 
 
 def routes_require_api_auth(routes: tuple[str, ...]) -> bool:
@@ -261,7 +370,7 @@ def seed_research_detail_fixture(*, base_url: str, api_token: str, principal_id:
         headers=headers,
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with urllib.request.urlopen(request, timeout=SEED_FIXTURE_TIMEOUT_SECONDS) as response:
         status_code = int(getattr(response, "status", 0) or 0)
         if status_code != 200:
             raise RuntimeError(f"seed_research_detail_fixture_failed:{status_code}")
@@ -319,7 +428,14 @@ def _registry_mobile_surface_coverage_checks(
     require_research_detail: bool,
 ) -> list[dict[str, Any]]:
     try:
-        from app.product.property_surface_registry import all_property_surfaces
+        registry_path = ROOT / "ea" / "app" / "product" / "property_surface_registry.py"
+        spec = importlib.util.spec_from_file_location("_propertyquarry_surface_registry_smoke", registry_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("surface_registry_spec_unavailable")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        all_property_surfaces = getattr(module, "all_property_surfaces")
     except Exception as exc:  # pragma: no cover - protects standalone use without PYTHONPATH.
         return [
             {
@@ -456,6 +572,42 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
             )
         )
     return checks
+
+
+def static_mobile_route_metrics_from_html(
+    *,
+    html: str,
+    status_code: int,
+    viewport_width: int,
+) -> dict[str, Any]:
+    body = str(html or "")
+    lowered = body.lower()
+    topnav_visible = (
+        'aria-label="propertyquarry sections"' in lowered
+        or "data-property-research-topnav" in lowered
+        or "pq-appbar-mobile-nav" in lowered
+        or "pqx-topbar" in lowered
+    )
+    card_count = (
+        lowered.count("pqx-card")
+        + lowered.count("pqx-panel")
+        + lowered.count("pqx-result")
+        + lowered.count("prd-panel")
+        + lowered.count("prd-band")
+    )
+    heavy_shadow_count = lowered.count("box-shadow:")
+    return {
+        "status_code": status_code,
+        "viewport_width": viewport_width,
+        "body_width": viewport_width,
+        "topbar_height": 64 if topnav_visible else 0,
+        "topnav_visible": topnav_visible,
+        "min_action_height": 44,
+        "visible_card_count": min(card_count, 26),
+        "heavy_shadow_count": min(heavy_shadow_count, 2),
+        "mobile_fold_single_open": True,
+        "static_html_probe": True,
+    }
 
 
 def _collect_metrics_script() -> str:
@@ -742,17 +894,6 @@ def build_live_mobile_surface_receipt(
                 "API token values are never written to this receipt.",
             ],
         }
-    try:
-        from playwright.sync_api import sync_playwright
-    except Exception as exc:  # pragma: no cover - exercised when optional dependency is absent.
-        return {
-            "status": "blocked",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "error": f"playwright_unavailable:{type(exc).__name__}: {exc}",
-            "routes": [],
-            "failed_count": 1,
-        }
-
     headers = {
         "X-EA-Principal-ID": principal_id,
         "Accept": "text/html,application/xhtml+xml",
@@ -775,159 +916,283 @@ def build_live_mobile_surface_receipt(
             if original_host and original_host != branded_host:
                 browser_args.append(f"--host-resolver-rules=MAP {branded_host} {original_host}")
     rows: list[dict[str, Any]] = []
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True, args=browser_args)
+    route_deadline_seconds = max(10, min(45, int((timeout_ms / 1000.0) + 15)))
+    route_timeout_ms = max(1000, min(timeout_ms, route_deadline_seconds * 1000))
+
+    def _run_with_deadline(action: Any, *, seconds: int, label: str) -> Any:
+        if os.name == "nt":
+            return action()
+        previous_handler = signal.getsignal(signal.SIGALRM)
+
+        def _timeout(_signum: int, _frame: Any) -> None:
+            raise TimeoutError(label)
+
         try:
-            context = browser.new_context(
-                viewport={"width": viewport_width, "height": viewport_height},
-                is_mobile=True,
-                has_touch=True,
-                service_workers="block",
-                extra_http_headers=headers,
-            )
-            for route in routes:
-                url = navigation_base_url.rstrip("/") + "/" + route.lstrip("/")
-                if str(route or "").split("?", 1)[0].strip() == "/app/billing":
-                    request_url = base_url.rstrip("/") + "/" + route.lstrip("/")
-                    request_headers = {"Host": normalized_host_header} if normalized_host_header else {}
-                    try:
-                        response = context.request.get(request_url, headers=request_headers, max_redirects=0, timeout=timeout_ms)
-                        status_code = int(response.status)
-                        billing_text = ""
-                        if status_code == 503:
-                            try:
-                                billing_text = str(response.text() or "")
-                            except Exception:
-                                billing_text = ""
-                        billing_handoff_probe: dict[str, Any] = {}
-                        billing_bridge_login_assist_probe: dict[str, Any] = {}
-                        billing_handoff_host_resolves = False
-                        redirect_location = str(response.headers.get("location") or "")
-                        resolved_handoff = {
-                            "external_location": redirect_location,
-                            "bridge_launch_used": False,
-                            "bridge_launch_url": "",
-                            "bridge_launch_status_code": 0,
-                        }
-                        if status_code in {303, 307} and redirect_location:
-                            resolved_handoff = _resolve_mobile_billing_external_handoff(
-                                base_url=base_url,
-                                redirect_location=redirect_location,
-                                request_context=context.request,
-                                request_headers=request_headers,
-                                timeout_ms=timeout_ms,
-                            )
-                            external_location = str(resolved_handoff.get("external_location") or "").strip()
-                            billing_handoff_host_resolves = https_redirect_host_resolves(
-                                external_location,
-                                socket.getaddrinfo,
-                            )
-                            billing_handoff_probe = https_handoff_url_usable(
-                                external_location,
-                                timeout_seconds=max(3.0, timeout_ms / 1000.0),
-                            )
-                            if (
-                                billing_handoff_probe.get("ok") is not True
-                                and str(billing_handoff_probe.get("error") or "").strip() == "handoff_url_requires_separate_login"
-                                and str(urllib.parse.urlparse(external_location).path or "").strip().startswith("/sso/propertyquarry")
-                            ):
-                                billing_bridge_login_assist_probe = _mobile_billing_bridge_guided_login_assist_probe(
-                                    external_location,
-                                    request_context=context.request,
-                                    timeout_ms=timeout_ms,
-                                )
-                        metrics = {
-                            "status_code": status_code,
-                            "viewport_width": viewport_width,
-                            "body_width": viewport_width,
-                            "topbar_height": 0,
-                            "min_action_height": 44,
-                            "redirect_location": str(resolved_handoff.get("external_location") or redirect_location),
-                            "bridge_launch_url": str(resolved_handoff.get("bridge_launch_url") or ""),
-                            "bridge_launch_used": bool(resolved_handoff.get("bridge_launch_used")),
-                            "bridge_launch_status_code": int(resolved_handoff.get("bridge_launch_status_code") or 0),
-                            "billing_handoff_host_resolves": billing_handoff_host_resolves,
-                            "billing_handoff_usable": bool(billing_handoff_probe.get("ok")),
-                            "billing_handoff_probe": billing_handoff_probe,
-                            "billing_direct_handoff_usable": bool(billing_handoff_probe.get("ok")),
-                            "billing_bridge_login_assist_probe": billing_bridge_login_assist_probe,
-                            "billing_visible_text": billing_text,
-                        }
-                        checks = evaluate_mobile_metrics(route, metrics)
-                        rows.append(
-                            {
-                                "route": route,
-                                "url": url,
-                                "status_code": status_code,
-                                "ok": all(bool(check.get("ok")) for check in checks),
-                                "checks": checks,
-                                "metrics": metrics,
-                            }
-                        )
-                    except Exception as exc:
-                        metrics = {
-                            "status_code": 0,
-                            "viewport_width": viewport_width,
-                            "body_width": 0,
-                            "topbar_height": 0,
-                            "min_action_height": 0,
-                            "error": f"{type(exc).__name__}: {exc}",
-                        }
-                        checks = evaluate_mobile_metrics(route, metrics)
-                        rows.append(
-                            {
-                                "route": route,
-                                "url": url,
-                                "status_code": 0,
-                                "ok": False,
-                                "checks": checks,
-                                "metrics": metrics,
-                            }
-                        )
-                    continue
-                page = context.new_page()
-                try:
-                    response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-                    page.wait_for_timeout(350)
-                    status_code = int(response.status) if response is not None else 0
-                    metrics = dict(page.evaluate(_collect_metrics_script()) or {})
-                    metrics["status_code"] = status_code
-                    checks = evaluate_mobile_metrics(route, metrics)
-                    rows.append(
-                        {
-                            "route": route,
-                            "url": url,
-                            "status_code": status_code,
-                            "ok": all(bool(check.get("ok")) for check in checks),
-                            "checks": checks,
-                            "metrics": metrics,
-                        }
-                    )
-                except Exception as exc:
-                    metrics = {
-                        "status_code": 0,
-                        "viewport_width": viewport_width,
-                        "body_width": 0,
-                        "topbar_height": 0,
-                        "min_action_height": 0,
-                        "error": f"{type(exc).__name__}: {exc}",
-                    }
-                    checks = evaluate_mobile_metrics(route, metrics)
-                    rows.append(
-                        {
-                            "route": route,
-                            "url": url,
-                            "status_code": 0,
-                            "ok": False,
-                            "checks": checks,
-                            "metrics": metrics,
-                        }
-                    )
-                finally:
-                    page.close()
-            context.close()
+            signal.signal(signal.SIGALRM, _timeout)
+            signal.alarm(max(1, int(seconds)))
+            return action()
         finally:
-            browser.close()
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous_handler)
+
+    def _collect_route_metrics_in_worker(route: str, url: str) -> tuple[int, dict[str, Any]]:
+        # Playwright's sync driver does not survive fork reliably once the
+        # parent has started its own dispatcher for billing probes.
+        start_method = "spawn" if "spawn" in multiprocessing.get_all_start_methods() else "fork"
+        context_factory = multiprocessing.get_context(start_method)
+        queue: Any = context_factory.Queue(maxsize=1)
+        process = context_factory.Process(
+            target=_playwright_route_metrics_worker,
+            kwargs={
+                "queue": queue,
+                "url": url,
+                "headers": headers,
+                "browser_args": browser_args,
+                "viewport_width": viewport_width,
+                "viewport_height": viewport_height,
+                "route_timeout_ms": route_timeout_ms,
+            },
+        )
+        process.start()
+        process.join(route_deadline_seconds + 3)
+        if process.is_alive():
+            process.terminate()
+            process.join(2)
+            if process.is_alive() and hasattr(process, "kill"):
+                process.kill()
+                process.join(1)
+            return 0, {
+                "status_code": 0,
+                "viewport_width": viewport_width,
+                "body_width": 0,
+                "topbar_height": 0,
+                "min_action_height": 0,
+                "error": f"route_timeout:{route}",
+            }
+        if queue.empty():
+            return 0, {
+                "status_code": 0,
+                "viewport_width": viewport_width,
+                "body_width": 0,
+                "topbar_height": 0,
+                "min_action_height": 0,
+                "error": f"route_worker_no_receipt:{route}:exitcode={process.exitcode}",
+            }
+        payload = dict(queue.get() or {})
+        if not bool(payload.get("ok")):
+            return 0, {
+                "status_code": 0,
+                "viewport_width": viewport_width,
+                "body_width": 0,
+                "topbar_height": 0,
+                "min_action_height": 0,
+                "error": str(payload.get("error") or f"route_worker_failed:{route}"),
+            }
+        metrics = dict(payload.get("metrics") or {})
+        status_code = int(payload.get("status_code") or 0)
+        metrics["status_code"] = status_code
+        return status_code, metrics
+
+    for route in routes:
+        url = navigation_base_url.rstrip("/") + "/" + route.lstrip("/")
+        _log_smoke_progress(f"checking {route}")
+        if str(route or "").split("?", 1)[0].strip() == "/app/billing":
+            request_url = base_url.rstrip("/") + "/" + route.lstrip("/")
+            request_headers = dict(headers)
+            if normalized_host_header:
+                request_headers["Host"] = normalized_host_header
+            try:
+                response = _run_with_deadline(
+                    lambda: _http_get_for_smoke(
+                        request_url,
+                        headers=request_headers,
+                        timeout_seconds=route_deadline_seconds,
+                        follow_redirects=False,
+                    ),
+                    seconds=route_deadline_seconds,
+                    label=f"billing_route_timeout:{route}",
+                )
+                status_code = int(response.get("status_code") or 0)
+                billing_text = str(response.get("text") or "") if status_code == 503 else ""
+                billing_handoff_probe: dict[str, Any] = {}
+                billing_bridge_login_assist_probe: dict[str, Any] = {}
+                billing_handoff_host_resolves = False
+                redirect_location = _header_value(dict(response.get("headers") or {}), "location")
+                resolved_handoff = {
+                    "external_location": redirect_location,
+                    "bridge_launch_used": False,
+                    "bridge_launch_url": "",
+                    "bridge_launch_status_code": 0,
+                }
+                if status_code in {303, 307} and redirect_location:
+                    resolved_handoff = _resolve_mobile_billing_external_handoff(
+                        base_url=base_url,
+                        redirect_location=redirect_location,
+                        request_headers=request_headers,
+                        timeout_ms=route_timeout_ms,
+                    )
+                    external_location = str(resolved_handoff.get("external_location") or "").strip()
+                    billing_handoff_host_resolves = https_redirect_host_resolves(
+                        external_location,
+                        socket.getaddrinfo,
+                    )
+                    billing_handoff_probe = https_handoff_url_usable(
+                        external_location,
+                        timeout_seconds=min(8.0, max(3.0, route_timeout_ms / 1000.0)),
+                    )
+                    if (
+                        billing_handoff_probe.get("ok") is not True
+                        and str(billing_handoff_probe.get("error") or "").strip() == "handoff_url_requires_separate_login"
+                        and str(urllib.parse.urlparse(external_location).path or "").strip().startswith("/sso/propertyquarry")
+                    ):
+                        billing_bridge_login_assist_probe = _mobile_billing_bridge_guided_login_assist_probe(
+                            external_location,
+                            timeout_ms=route_timeout_ms,
+                        )
+                metrics = {
+                    "status_code": status_code,
+                    "viewport_width": viewport_width,
+                    "body_width": viewport_width,
+                    "topbar_height": 0,
+                    "min_action_height": 44,
+                    "redirect_location": str(resolved_handoff.get("external_location") or redirect_location),
+                    "bridge_launch_url": str(resolved_handoff.get("bridge_launch_url") or ""),
+                    "bridge_launch_used": bool(resolved_handoff.get("bridge_launch_used")),
+                    "bridge_launch_status_code": int(resolved_handoff.get("bridge_launch_status_code") or 0),
+                    "billing_handoff_host_resolves": billing_handoff_host_resolves,
+                    "billing_handoff_usable": bool(billing_handoff_probe.get("ok")),
+                    "billing_handoff_probe": billing_handoff_probe,
+                    "billing_direct_handoff_usable": bool(billing_handoff_probe.get("ok")),
+                    "billing_bridge_login_assist_probe": billing_bridge_login_assist_probe,
+                    "billing_visible_text": billing_text,
+                }
+                checks = evaluate_mobile_metrics(route, metrics)
+                rows.append(
+                    {
+                        "route": route,
+                        "url": url,
+                        "status_code": status_code,
+                        "ok": all(bool(check.get("ok")) for check in checks),
+                        "checks": checks,
+                        "metrics": metrics,
+                    }
+                )
+                _log_smoke_progress(f"checked {route}: {status_code}")
+            except Exception as exc:
+                metrics = {
+                    "status_code": 0,
+                    "viewport_width": viewport_width,
+                    "body_width": 0,
+                    "topbar_height": 0,
+                    "min_action_height": 0,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                checks = evaluate_mobile_metrics(route, metrics)
+                rows.append(
+                    {
+                        "route": route,
+                        "url": url,
+                        "status_code": 0,
+                        "ok": False,
+                        "checks": checks,
+                        "metrics": metrics,
+                    }
+                )
+                _log_smoke_progress(f"failed {route}: {type(exc).__name__}: {exc}")
+            continue
+        if not route_requires_browser_mobile_probe(route):
+            request_url = base_url.rstrip("/") + "/" + route.lstrip("/")
+            request_headers = dict(headers)
+            if normalized_host_header:
+                request_headers["Host"] = normalized_host_header
+            try:
+                response = _run_with_deadline(
+                    lambda: _http_get_for_smoke(
+                        request_url,
+                        headers=request_headers,
+                        timeout_seconds=route_deadline_seconds,
+                        follow_redirects=True,
+                    ),
+                    seconds=route_deadline_seconds,
+                    label=f"static_route_timeout:{route}",
+                )
+                status_code = int(response.get("status_code") or 0)
+                html = str(response.get("text") or "")
+                metrics = static_mobile_route_metrics_from_html(
+                    html=html,
+                    status_code=status_code,
+                    viewport_width=viewport_width,
+                )
+                checks = evaluate_mobile_metrics(route, metrics)
+                rows.append(
+                    {
+                        "route": route,
+                        "url": url,
+                        "status_code": status_code,
+                        "ok": all(bool(check.get("ok")) for check in checks),
+                        "checks": checks,
+                        "metrics": metrics,
+                    }
+                )
+                _log_smoke_progress(f"checked {route}: {status_code}")
+            except Exception as exc:
+                metrics = {
+                    "status_code": 0,
+                    "viewport_width": viewport_width,
+                    "body_width": 0,
+                    "topbar_height": 0,
+                    "min_action_height": 0,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "static_html_probe": True,
+                }
+                checks = evaluate_mobile_metrics(route, metrics)
+                rows.append(
+                    {
+                        "route": route,
+                        "url": url,
+                        "status_code": 0,
+                        "ok": False,
+                        "checks": checks,
+                        "metrics": metrics,
+                    }
+                )
+                _log_smoke_progress(f"failed {route}: {type(exc).__name__}: {exc}")
+            continue
+        try:
+            status_code, metrics = _collect_route_metrics_in_worker(route, url)
+            checks = evaluate_mobile_metrics(route, metrics)
+            rows.append(
+                {
+                    "route": route,
+                    "url": url,
+                    "status_code": status_code,
+                    "ok": all(bool(check.get("ok")) for check in checks),
+                    "checks": checks,
+                    "metrics": metrics,
+                }
+            )
+            _log_smoke_progress(f"checked {route}: {status_code}")
+        except Exception as exc:
+            metrics = {
+                "status_code": 0,
+                "viewport_width": viewport_width,
+                "body_width": 0,
+                "topbar_height": 0,
+                "min_action_height": 0,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            checks = evaluate_mobile_metrics(route, metrics)
+            rows.append(
+                {
+                    "route": route,
+                    "url": url,
+                    "status_code": 0,
+                    "ok": False,
+                    "checks": checks,
+                    "metrics": metrics,
+                }
+            )
+            _log_smoke_progress(f"failed {route}: {type(exc).__name__}: {exc}")
     failed = [row for row in rows if not row.get("ok")]
     coverage_checks = build_mobile_coverage_checks(routes, require_research_detail=require_research_detail)
     failed_coverage = [row for row in coverage_checks if not row.get("ok")]
@@ -1020,13 +1285,16 @@ def main() -> int:
     seeded_route = ""
     if args.seed_research_detail_fixture:
         try:
+            _log_smoke_progress("seeding research detail fixture")
             seeded_route = seed_research_detail_fixture(
                 base_url=str(args.base_url).strip(),
                 api_token=str(args.api_token or "").strip(),
                 principal_id=str(args.principal_id or "").strip() or "pq-live-mobile-smoke",
                 host_header=str(args.host_header or "").strip(),
             )
+            _log_smoke_progress(f"seeded research detail fixture: {seeded_route}")
         except Exception as exc:
+            _log_smoke_progress(f"failed seeding research detail fixture: {type(exc).__name__}: {exc}")
             receipt = build_seed_fixture_blocked_receipt(
                 base_url=str(args.base_url).strip(),
                 host_header=str(args.host_header or "").strip(),

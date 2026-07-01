@@ -40,7 +40,7 @@ class PropertySurfaceScope:
             wants_run_state=normalized in {"properties", "search", "shortlist", "research", "agents", "alerts"},
             wants_recent_runs=normalized in {"properties", "search", "shortlist", "research"},
             wants_recent_matches=False,
-            wants_preference_profile=normalized in {"account"},
+            wants_preference_profile=False,
             wants_learning_summary=False,
             wants_search_runs=normalized in {"search"},
             wants_agent_views=normalized == "agents",

@@ -6248,7 +6248,7 @@ def test_property_console_context_uses_compact_recent_runs_for_research_index(mo
     assert context["run"]["run_id"] == "run-active"
 
 
-def test_property_console_context_keeps_preference_profile_hydration_on_account(monkeypatch) -> None:
+def test_property_console_context_skips_preference_profile_hydration_on_account(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-account-profile")
     seen = {"profile": 0, "learning": 0}
 
@@ -6270,9 +6270,9 @@ def test_property_console_context_keeps_preference_profile_hydration_on_account(
         surface_mode="account",
     )
 
-    assert seen["profile"] == 1
+    assert seen["profile"] == 0
     assert seen["learning"] == 0
-    assert context["preference_bundle"]["preference_nodes"][0]["node_id"] == "node-1"
+    assert context["preference_bundle"] == {}
     assert context["learning_summary"] == {}
 
 
@@ -12184,6 +12184,33 @@ def test_property_billing_payload_skips_full_preference_manager_build(monkeypatc
         status={"workspace": {"name": "Billing Scope"}, "channels": {}},
         property_state={
             "preferences": {"country_code": "AT", "listing_mode": "buy"},
+            "commercial": {"current_plan_label": "Agent", "current_plan_key": "agent"},
+            "preference_bundle": {
+                "preference_nodes": [
+                    {"node_id": "node-1", "status": "active", "key": "budget_max", "value_json": 900000}
+                ]
+            },
+        },
+    )
+
+    preference_manager = dict(payload.get("preference_manager") or {})
+    assert preference_manager.get("schema") == {}
+    assert preference_manager.get("nodes") == []
+    assert len(list(preference_manager.get("active_nodes") or [])) == 1
+
+
+def test_property_account_payload_skips_full_preference_manager_build(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_view_models,
+        "_property_preference_schema",
+        lambda: (_ for _ in ()).throw(AssertionError("account surface should not build the full preference manager schema")),
+    )
+
+    payload = landing_routes._property_workspace_payload(
+        "account",
+        status={"workspace": {"name": "Account Scope"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "rent"},
             "commercial": {"current_plan_label": "Agent", "current_plan_key": "agent"},
             "preference_bundle": {
                 "preference_nodes": [

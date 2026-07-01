@@ -16,7 +16,8 @@ Deploys the standalone PropertyQuarry runtime with operator preflight checks:
   - in prod, requires EA_SIGNING_SECRET and EA_API_TOKEN or Cloudflare Access
   - rejects EA_ALLOW_LOOPBACK_NO_AUTH=1 in prod
   - checks EA_HOST_PORT for obvious conflicts before rebuilding
-  - starts docker-compose.property.yml and waits for API, scheduler, and DB health
+  - starts docker-compose.property.yml in DB -> API -> scheduler order to avoid startup schema deadlocks
+  - rejects web/scheduler processes that start with background nice priority
   - can add docker-compose.cloudflared.yml only for a dedicated PropertyQuarry tunnel token
   - supports isolated blue/green deploys via configurable Compose project/container names
   - probes /health, /health/ready, /version, public routes, PWA/SEO assets, and /app/properties auth
@@ -60,6 +61,9 @@ Environment:
                                   1|0|auto. When billing.propertyquarry.com is configured, keeps the
                                   Cloudflare billing worker aligned with the current billing host and
                                   bridge path. Default auto.
+  PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE
+                                  Maximum accepted host nice value for API and scheduler processes.
+                                  Default 10; values above this are treated as a failed deploy.
 EOF
 }
 
@@ -323,8 +327,6 @@ if [[ "${PREFLIGHT_ONLY}" == "1" ]]; then
   exit 0
 fi
 
-"${DC[@]}" up -d --build --remove-orphans
-
 container_id_for_service() {
   local service="$1"
   local container_name="$2"
@@ -377,6 +379,51 @@ wait_for_service_ready() {
   print_service_logs "${service}"
   exit 1
 }
+
+assert_service_runtime_priority() {
+  local service="$1"
+  local container_name="$2"
+  local max_nice="${3:-10}"
+  local cid=""
+  local host_pid=""
+  local nice_value=""
+  cid="$(container_id_for_service "${service}" "${container_name}")"
+  if [[ -z "${cid}" ]]; then
+    echo "Could not resolve container for ${service} while checking runtime priority." >&2
+    exit 1
+  fi
+  host_pid="$(docker inspect -f '{{.State.Pid}}' "${cid}" 2>/dev/null || true)"
+  if [[ -z "${host_pid}" || "${host_pid}" == "0" ]]; then
+    echo "Could not resolve host PID for ${service} while checking runtime priority." >&2
+    exit 1
+  fi
+  nice_value="$(ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+  if [[ -z "${nice_value}" || ! "${nice_value}" =~ ^-?[0-9]+$ ]]; then
+    echo "Could not read host nice value for ${service} pid ${host_pid}." >&2
+    exit 1
+  fi
+  if (( nice_value > max_nice )); then
+    echo "${service} started with host nice ${nice_value}, above allowed ${max_nice}." >&2
+    echo "Web runtime would be CPU-starved under load; restart deploy from a normal-priority operator shell." >&2
+    exit 1
+  fi
+}
+
+max_runtime_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE)"
+max_runtime_nice="${max_runtime_nice:-10}"
+
+"${DC[@]}" build "${api_service}"
+"${DC[@]}" up -d --remove-orphans "${db_service}"
+wait_for_service_ready "${db_service}" "${db_container_name}"
+"${DC[@]}" up -d --no-deps --force-recreate "${api_service}"
+wait_for_service_ready "${api_service}" "${api_container_name}"
+"${DC[@]}" up -d --no-deps --force-recreate "${scheduler_service}"
+wait_for_service_ready "${scheduler_service}" "${scheduler_container_name}"
+if (( should_enable_cloudflared )); then
+  "${DC[@]}" up -d --no-deps --force-recreate "${cloudflared_container_name}" 2>/dev/null || "${DC[@]}" up -d --no-deps --force-recreate propertyquarry-cloudflared 2>/dev/null || true
+fi
+assert_service_runtime_priority "${api_service}" "${api_container_name}" "${max_runtime_nice}"
+assert_service_runtime_priority "${scheduler_service}" "${scheduler_container_name}" "${max_runtime_nice}"
 
 wait_for_service_ready "${db_service}" "${db_container_name}"
 wait_for_service_ready "${api_service}" "${api_container_name}"

@@ -5,9 +5,11 @@ import json
 from pathlib import Path
 from urllib.error import HTTPError
 
+import scripts.propertyquarry_live_mobile_surface_smoke as mobile_smoke
 from scripts.propertyquarry_live_mobile_surface_smoke import (
     DEFAULT_ROUTES,
     SEEDED_RESEARCH_DETAIL_ROUTE,
+    SEED_FIXTURE_TIMEOUT_SECONDS,
     SEED_FIXTURE_USER_AGENT,
     _resolve_mobile_billing_external_handoff,
     _seed_research_detail_headers,
@@ -16,10 +18,12 @@ from scripts.propertyquarry_live_mobile_surface_smoke import (
     build_mobile_coverage_checks,
     evaluate_mobile_metrics,
     main,
+    route_requires_browser_mobile_probe,
     route_is_research_detail,
     seed_research_detail_fixture,
     routes_require_api_auth,
     seeded_research_detail_payload,
+    static_mobile_route_metrics_from_html,
 )
 
 
@@ -84,6 +88,26 @@ def _failed_names(route: str, metrics: dict[str, object]) -> set[str]:
 
 def test_live_mobile_smoke_accepts_compact_search_surface_metrics() -> None:
     assert _failed_names("/app/search", _base_metrics()) == set()
+
+
+def test_live_mobile_smoke_limits_browser_probe_to_interactive_routes() -> None:
+    assert route_requires_browser_mobile_probe("/app/search") is True
+    assert route_requires_browser_mobile_probe("/app/account") is True
+    assert route_requires_browser_mobile_probe("/app/research/cand-1?run_id=run-1") is True
+    assert route_requires_browser_mobile_probe("/app/properties") is False
+    assert route_requires_browser_mobile_probe("/app/shortlist") is False
+    assert route_requires_browser_mobile_probe("/app/settings/google") is False
+
+
+def test_live_mobile_smoke_accepts_static_html_probe_for_simple_routes() -> None:
+    metrics = static_mobile_route_metrics_from_html(
+        html='<nav aria-label="PropertyQuarry sections"></nav><main><section class="pqx-card"></section></main>',
+        status_code=200,
+        viewport_width=390,
+    )
+
+    assert _failed_names("/app/properties", metrics) == set()
+    assert metrics["static_html_probe"] is True
 
 
 def test_live_mobile_smoke_accepts_empty_shortlist_with_top_navigation_only() -> None:
@@ -189,24 +213,24 @@ def test_live_mobile_smoke_rejects_billing_handoff_that_requires_second_login() 
     assert _failed_names("/app/billing", metrics) == {"billing_external_handoff_usable"}
 
 
-def test_live_mobile_smoke_resolves_signed_bridge_launch_to_external_billing_host() -> None:
-    class _Response:
-        def __init__(self, location: str) -> None:
-            self.status = 303
-            self.headers = {"location": location}
+def test_live_mobile_smoke_resolves_signed_bridge_launch_to_external_billing_host(monkeypatch) -> None:  # noqa: ANN001
+    def _fake_http_get(url: str, *, headers=None, timeout_seconds=0, follow_redirects=True):  # noqa: ANN001
+        assert url == "http://localhost:8097/app/api/property/billing/bridge-launch"
+        assert headers == {"Host": "propertyquarry.com"}
+        assert timeout_seconds == 5.0
+        assert follow_redirects is False
+        return {
+            "status_code": 303,
+            "headers": {"location": "https://billing.propertyquarry.com/sso/propertyquarry?pq_bridge=token"},
+            "url": url,
+            "text": "",
+        }
 
-    class _RequestContext:
-        def get(self, url: str, *, headers=None, max_redirects=0, timeout=0):  # noqa: ANN001
-            assert url == "http://localhost:8097/app/api/property/billing/bridge-launch"
-            assert headers == {"Host": "propertyquarry.com"}
-            assert max_redirects == 0
-            assert timeout == 5000
-            return _Response("https://billing.propertyquarry.com/sso/propertyquarry?pq_bridge=token")
+    monkeypatch.setattr(mobile_smoke, "_http_get_for_smoke", _fake_http_get)
 
     resolved = _resolve_mobile_billing_external_handoff(
         base_url="http://localhost:8097",
         redirect_location="/app/api/property/billing/bridge-launch",
-        request_context=_RequestContext(),
         request_headers={"Host": "propertyquarry.com"},
         timeout_ms=5000,
     )
@@ -322,16 +346,25 @@ def test_live_mobile_smoke_rejects_walkthrough_provider_chooser_and_legacy_provi
     }
 
 
-def test_live_mobile_smoke_default_routes_cover_settings_surfaces() -> None:
+def test_live_mobile_smoke_default_routes_cover_representative_customer_surfaces() -> None:
     assert {
         "/app/properties",
-        "/app/settings/google",
+        "/app/search",
+        "/app/shortlist",
+        "/app/agents",
+        "/app/alerts",
+        "/app/account",
+        "/app/billing",
         "/app/settings/access",
+        "/app/properties/packets",
+    }.issubset(set(DEFAULT_ROUTES))
+    assert {
+        "/app/settings/google",
         "/app/settings/usage",
         "/app/settings/support",
         "/app/settings/trust",
         "/app/settings/invitations",
-    }.issubset(set(DEFAULT_ROUTES))
+    }.isdisjoint(set(DEFAULT_ROUTES))
 
 
 def test_live_mobile_smoke_blocks_app_routes_without_api_token_before_playwright() -> None:
@@ -473,7 +506,7 @@ def test_live_mobile_smoke_seed_fixture_posts_with_browser_like_headers(monkeypa
     )
 
     assert route == SEEDED_RESEARCH_DETAIL_ROUTE
-    assert captured["timeout"] == 20
+    assert captured["timeout"] == SEED_FIXTURE_TIMEOUT_SECONDS
     assert captured["url"] == "https://propertyquarry.com/v1/onboarding/property-search/preferences"
     assert captured["method"] == "POST"
     assert captured["headers"] == {

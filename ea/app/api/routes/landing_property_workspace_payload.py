@@ -618,7 +618,9 @@ def property_workspace_payload(
     wants_agent_views = surface_scope.wants_agent_views
     wants_credit_digest = surface_scope.wants_credit_digest
     wants_run_views = surface_scope.wants_run_views
-    wants_full_preference_manager = normalized_section == "account"
+    # Account first paint must stay compact. Full preference editing belongs
+    # to the dedicated search/settings flow, not the mobile account surface.
+    wants_full_preference_manager = False
     base = app_section_payload("properties", status, live_feed=(), property_context=property_state)
     cards = list(base.get("cards") or [])
     cards_by_eyebrow = {
