@@ -3186,7 +3186,7 @@ def _property_research_tasks_from_result(
                                 "review_url": str(candidate.get("review_url") or "").strip()[:800],
                                 "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
                                 "display_value": ", ".join(stage.replace("_", " ") for stage in desired_project_stages),
-                                "evidence": "Requested project-stage posture still needs source-backed confirmation.",
+                                "evidence": "Project stage still needs a clear answer.",
                                 "ooda": {},
                                 "next_actions": [
                                     "Check whether the listing is existing stock, under construction, planned, or only a waitlist.",
@@ -30092,10 +30092,10 @@ class ProductService:
                 state["status"] = "completed_partial"
                 state["progress"] = 100
                 state["current_step"] = "repair_resolved"
-                state["message"] = "Repair receipts are recorded and the current shortlist remains available."
+                state["message"] = "The current shortlist remains available while repair continues."
                 summary["repair_status"] = "degraded"
                 summary["repair_status_label"] = "Partial coverage"
-                summary["customer_status_message"] = "Repair receipts are recorded and the current shortlist remains available."
+                summary["customer_status_message"] = "The current shortlist remains available while repair continues."
             state["summary"] = summary
             state["updated_at"] = receipt["at"]
             _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = dict(state)

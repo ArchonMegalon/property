@@ -216,7 +216,7 @@
         : (
           status === 'completed_partial'
             ? String(runPayload?.message || `${count} ranked home${count === 1 ? '' : 's'} ready with partial coverage.`)
-            : `${count} ranked home${count === 1 ? '' : 's'} ready to review.`
+            : `${count} ranked home${count === 1 ? '' : 's'} ready.`
         );
       try {
         const notification = new window.Notification(title, {
@@ -688,7 +688,7 @@
         title,
         property_title: title,
         summary: `Shareable shortlist from PropertyQuarry with ${shareRows.length} ranked homes.`,
-        fit_summary: String(selectedCandidate.fit_summary || `${shareRows.length} ranked homes ready to review.`).trim(),
+        fit_summary: String(selectedCandidate.fit_summary || `${shareRows.length} ranked homes ready.`).trim(),
         comparison_candidates: shareRows,
         comparison_rows: shareRows,
         review_url: absoluteUrl(window.location.href),
@@ -1409,11 +1409,13 @@
     ]);
     const compactRunMessage = (value) => {
       let text = String(value || '').trim();
-      if (!text) return 'Waiting for the first provider update.';
+      if (!text) return 'Waiting for the first list.';
       text = text
-        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, 'Found $1 homes. Review queue is clear.')
+        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, 'Found $1 homes. Nothing waiting to check.')
         .replace(/\b(\d+)\s+homes?\s+reviewed\b/ig, '$1 homes found')
-        .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 to review');
+        .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 to check')
+        .replace(/\b(\d+)\s+providers\b/ig, '$1 lists')
+        .replace(/\bprovider update\b/ig, 'list update');
       const candidateMatch = text.match(/(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
       if (candidateMatch) return `${candidateMatch[1]} / ${candidateMatch[2]}`;
       const shortlistMatch = text.match(/^Built shortlist of\s+\d+\s+listing\(s\)\s+for\s+(.+)\.$/i);
@@ -1430,7 +1432,7 @@
       .trim();
     const parseRunMessageInfo = (value) => {
       const text = String(value || '').trim();
-      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first provider update.' };
+      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first list.' };
       const providerLoadMatch = text.match(/^Loading provider page for\s+(.+?)\.?$/i);
       if (providerLoadMatch) {
         const sourceLabel = canonicalSourceLabel(providerLoadMatch[1] || '');
@@ -1981,25 +1983,25 @@
       };
     };
     const runSourceWorkLabel = (counts, providerDisplayTotal = 0) => {
-      if (counts?.total > 0) return `${counts.done} of ${counts.total} sources checked`;
-      if (providerDisplayTotal > 0) return `${providerDisplayTotal} providers selected`;
+      if (counts?.total > 0) return `${counts.done} of ${counts.total} lists checked`;
+      if (providerDisplayTotal > 0) return `${providerDisplayTotal} lists selected`;
       return 'Search warming up';
     };
     const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '') => {
       if (counts?.active > 0) return `${counts.active} active`;
       if (counts?.waiting > 0) return `${counts.waiting} waiting`;
-      if (found > 0 && toReview > 0) return `${toReview} to review`;
-      if (found > 0) return '0 waiting for review';
+      if (found > 0 && toReview > 0) return `${toReview} to check`;
+      if (found > 0) return '0 to check';
       return fallback || 'Waiting for first listings';
     };
     const runFoundQueueMessage = (found, toReview, sourceWork) => {
       if (!(found > 0)) return '';
       if (sourceWork?.open > 0) {
-        return `${found} homes found so far. ${toReview} waiting for review. ${sourceWork.open} source checks still open.`;
+        return `${found} homes found. ${toReview} to check. ${sourceWork.open} lists still open.`;
       }
       return toReview > 0
-        ? `Found ${found} homes. ${toReview} still to review.`
-        : `Found ${found} homes. Review queue is clear.`;
+        ? `Found ${found} homes. ${toReview} to check.`
+        : `Found ${found} homes. Nothing waiting to check.`;
     };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
@@ -2036,11 +2038,11 @@
       const toReview = Math.max(0, found - reviewed);
       const checkedLabel = found > 0 ? `${found} homes found` : 'checking';
       const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
-        ? `${completedSources} of ${sourceVariantTotal} provider checks`
+        ? `${completedSources} of ${sourceVariantTotal} lists checked`
         : '';
       const scanLabel = found > 0
         ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork) : checkedLabel)
-        : (providerDisplayTotal ? `${providerDisplayTotal} providers selected` : checkedLabel);
+        : (providerDisplayTotal ? `${providerDisplayTotal} lists selected` : checkedLabel);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -2065,7 +2067,7 @@
           return 'Preparing search';
         }
         if (['source_search', 'provider_search', 'search'].includes(step)) {
-          return 'Searching providers';
+          return 'Searching lists';
         }
         if (['source_detail_check', 'listing_detail_check', 'source_fetch', 'source_fetch_page'].includes(step)) {
           return 'Checking details';
@@ -2077,7 +2079,7 @@
         if (step === 'shortlist_ready') return 'First shortlist';
         if (['source_review_packet', 'source_review_packet_failed'].includes(step)) return 'Open property ready';
         if (['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'].includes(step)) return 'Applying hard rules';
-        if (['source_completed', 'completed'].includes(step)) return 'Provider finished';
+        if (['source_completed', 'completed'].includes(step)) return 'List finished';
         if (step === 'source_notify') return 'Sending update';
         if (step.startsWith('repair') || ['source_repair_reuse', 'source_failed'].includes(step)) return 'Recovery';
         return 'Update';
@@ -2117,7 +2119,7 @@
       const providers = Number(summary.provider_total || summary.source_variant_total || 0);
       const sourceWork = runSourceWorkCounts(summary, status);
       const compactFoundMessage = `${found} homes found`;
-      const compactQueueMessage = `${found} homes found · ${toReview} to review`;
+      const compactQueueMessage = `${found} homes found · ${toReview} to check`;
       if (replacementRunId) {
         return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
       }
@@ -2147,9 +2149,9 @@
           return runFoundQueueMessage(found, toReview, sourceWork);
         }
         if (providers > 0) {
-          return 'Preparing providers.';
+          return 'Preparing lists.';
         }
-        return 'Preparing provider checks.';
+        return 'Preparing lists.';
       }
       return raw;
     };
@@ -2509,7 +2511,7 @@
       const sourceWork = runSourceWorkCounts(summary, status);
       const checkedLabel = found > 0 ? `${found} homes found` : 'checking';
       const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
-        ? `${completedSources} of ${sourceVariantTotal} provider checks`
+        ? `${completedSources} of ${sourceVariantTotal} lists checked`
         : '';
       const scanCountLabel = runSourceWorkLabel(sourceWork, providerDisplayTotal);
       const reviewDenominator = Math.max(found, reviewed, 1);
@@ -2535,9 +2537,9 @@
         sourceWork,
         found,
         toReview,
-        sourceProgressLabel || (providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Waiting for first listings'),
+        sourceProgressLabel || (providerDisplayTotal > 0 ? `${providerDisplayTotal} lists selected` : 'Waiting for first listings'),
       );
-      let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first provider update.';
+      let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first list.';
       const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
       const activeSourceLabel = canonicalSourceLabel(liveInfo.sourceLabel || parseRunMessageInfo(runPayload?.message).sourceLabel || '');
       const activeSourceSummary = sourceSummaryForLabel(sourceRows, activeSourceLabel);
@@ -2734,14 +2736,14 @@
 	          </div>
 	          ${liveFraction ? `<span class="pqx-small">${escapeHtml(liveFraction)}</span>` : ''}
 	          <span class="pqx-note">${escapeHtml(phaseMeta)}</span>
-	          <div class="pqx-live-review-bars" aria-label="Homes found and waiting for review">
+          <div class="pqx-live-review-bars" aria-label="Homes found and still to check">
 	            <span>
 	              <b>Found</b>
 	              <i>${escapeHtml(found || 0)}</i>
 	              <em><u style="--progress: ${escapeHtml(foundBarPct)}"></u></em>
 	            </span>
 	            <span>
-	              <b>To review</b>
+              <b>To check</b>
 	              <i>${escapeHtml(toReview || 0)}</i>
 	              <em><u style="--progress: ${escapeHtml(toReviewBarPct)}"></u></em>
 	            </span>
@@ -5754,71 +5756,71 @@
           key: 'environment',
           label: 'Environment',
           state: environmentRows.length ? 'verified' : 'unavailable',
-          title: environmentRows.length ? 'Environmental context available' : 'Environmental layer not indexed',
+          title: environmentRows.length ? 'Environmental context available' : 'Environment not ready',
           summary: environmentRows.length
-            ? 'Official/cached environmental evidence is attached for this micro-location, including local summer-cooling context where available. Treat risk labels as context, not as a neighborhood score.'
-            : 'Air, heat, flood, noise, and local cooling-corridor context must come from cached official/Teable evidence before it can be shown.',
+            ? 'Local air, heat, flood, noise, and summer-cooling context is available where the city data supports it.'
+            : 'Air, heat, flood, noise, and cooling-corridor data is not ready for this address yet.',
           rows: environmentRows,
-          source: sourceChip(environmentRows, 'Teable environmental rollup missing'),
+          source: sourceChip(environmentRows, 'Not available yet'),
           freshness: freshness(environmentRows),
         },
         {
           key: 'mobility',
           label: 'Traffic',
           state: mobilityValues.length ? 'verified' : 'unavailable',
-          title: mobilityValues.length ? 'Mobility facts attached' : 'Traffic density not indexed',
+          title: mobilityValues.length ? 'Traffic context available' : 'Traffic not ready',
           summary: mobilityValues.length
             ? mobilityValues.join(' · ')
-            : 'Traffic density and noise should be read from cached mobility/noise layers, not computed during search.',
+            : 'Traffic density and noise data is not ready for this address yet.',
           rows: [],
-          source: mobilityValues.length ? 'Candidate facts cache' : 'Teable mobility rollup missing',
-          freshness: mobilityValues.length ? 'from listing/search cache' : 'freshness pending',
+          source: mobilityValues.length ? 'Area data' : 'Not available yet',
+          freshness: mobilityValues.length ? 'ready' : 'not ready',
         },
         {
           key: 'schools',
           label: 'Schools',
           state: schoolRows.length || facts.school_atlas_progression_summary ? 'verified' : 'unavailable',
-          title: schoolRows.length || facts.school_atlas_progression_summary ? 'School context available' : 'School flow data not ready',
+          title: schoolRows.length || facts.school_atlas_progression_summary ? 'School context available' : 'School context not ready',
           summary: String(facts.school_atlas_progression_summary || facts.school_context_summary || '').trim()
-            || 'Pupil origin and continuation arrows require a Schulatlas/statistical source before rendering.',
+            || 'School movement data is not ready for this area yet.',
           rows: schoolRows,
-          source: sourceChip(schoolRows, 'Teable school-context rollup missing'),
+          source: sourceChip(schoolRows, 'Not available yet'),
           freshness: freshness(schoolRows),
         },
         {
           key: 'safety',
           label: 'Safety',
           state: safetyRows.length ? 'verified' : 'unavailable',
-          title: safetyRows.length ? 'Official aggregate safety context' : 'Safety layer not indexed',
+          title: safetyRows.length ? 'Safety context available' : 'Safety context not ready',
           summary: safetyRows.length
-            ? 'Aggregate official safety context is available. It is area context only and must not be treated as a person/property score.'
-            : 'Crime/safety context needs official aggregate data and fairness review before display.',
+            ? 'Area-level safety context is available. Treat it as local context, not as a score for a home or person.'
+            : 'Safety context is not ready for this area yet.',
           rows: safetyRows,
-          source: sourceChip(safetyRows, 'Teable safety rollup missing'),
+          source: sourceChip(safetyRows, 'Not available yet'),
           freshness: freshness(safetyRows),
         },
         {
           key: 'media',
           label: 'Media',
           state: mediaRows.length ? 'verified' : 'unavailable',
-          title: mediaRows.length ? 'Local media mentions indexed' : 'No media index for this area',
+          title: mediaRows.length ? 'Local media mentions available' : 'No local media context yet',
           summary: mediaRows.length
-            ? `${mediaRows.length} local article mention${mediaRows.length === 1 ? '' : 's'} in the cached evidence store. Open original pages when available.`
-            : 'Newspaper statistics must come from asynchronous Teable indexing, with original article URLs where terms allow.',
+            ? `${mediaRows.length} local article mention${mediaRows.length === 1 ? '' : 's'}. Open original pages when available.`
+            : 'Local article statistics are not ready for this area yet.',
           rows: mediaRows,
-          source: sourceChip(mediaRows, 'Teable media rollup missing'),
+          source: sourceChip(mediaRows, 'Not available yet'),
           freshness: freshness(mediaRows),
         },
         {
           key: 'fiber',
           label: 'Fiber',
           state: fiberRows.length ? 'verified' : 'unavailable',
-          title: fiberRows.length ? 'Broadband coverage evidence attached' : 'Fiber coverage not ready',
+          title: fiberRows.length ? 'Fiber coverage available' : 'Fiber coverage not ready',
           summary: fiberRows.length
-            ? 'Official broadband/fiber evidence is attached. Provider address checks remain secondary receipts.'
-            : 'Fiber coverage must use official broadband atlas/provider receipts from cache; OSM is only a weak hint.',
+            ? 'Fiber data is available for this area. Address-level availability may still vary.'
+            : 'Fiber coverage is not ready for this address yet.',
           rows: fiberRows,
-          source: sourceChip(fiberRows, 'Teable broadband rollup missing'),
+          source: sourceChip(fiberRows, 'Not available yet'),
           freshness: freshness(fiberRows),
         },
       ];
@@ -5833,8 +5835,8 @@
       const url = firstEvidenceUrl(card.rows || []);
       const stateLabel = evidenceStateLabel(card.state);
       const sourceLink = url
-        ? `<a class="pqx-evidence-source-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open source</a>`
-        : '<span class="pqx-evidence-source-chip">No source link</span>';
+        ? `<a class="pqx-evidence-source-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open detail</a>`
+        : '<span class="pqx-evidence-source-chip">No link</span>';
       return `
         <article class="pqx-evidence-card" data-state="${escapeHtml(card.state)}" data-pqx-evidence-card="${escapeHtml(card.key)}">
           <div class="pqx-evidence-card-head">
@@ -5874,7 +5876,7 @@
       if (evidenceAtlasTitle) evidenceAtlasTitle.textContent = title;
       if (evidenceAtlasCaption) evidenceAtlasCaption.textContent = location || 'Property context';
       if (evidenceMapLabel) evidenceMapLabel.textContent = location || title;
-      if (evidenceMapDetail) evidenceMapDetail.textContent = 'Cached evidence layers only. No newspaper or provider indexing runs during search.';
+      if (evidenceMapDetail) evidenceMapDetail.textContent = 'Prepared area layers. Search stays fast.';
       if (evidenceAtlasStage) evidenceAtlasStage.dataset.hasImage = previewUrl ? 'true' : 'false';
       if (evidenceAtlasImage) {
         evidenceAtlasImage.setAttribute('src', previewUrl);

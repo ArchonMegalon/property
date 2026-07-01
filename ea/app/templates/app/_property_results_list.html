@@ -19,7 +19,7 @@
       {% if is_research_surface %}
       <div class="pqx-title" style="margin-bottom:12px;">
         <span>{{ hero_kicker or 'Research pages' }}</span>
-        <h1>{{ hero_title or 'Inspect the evidence before you open the raw listing.' }}</h1>
+        <h1>{{ hero_title or 'Open the strongest homes first.' }}</h1>
         <p class="pqx-note">{{ hero_summary or 'Hosted property pages and 3D tours stay primary. Raw portal links remain secondary.' }}</p>
       </div>
       {% if hero_actions %}
@@ -155,7 +155,7 @@
               {% endif %}
               {% if candidate.get('recovered_by_filter') %}<span class="pqx-result-fact recovered">Recovered</span>{% endif %}
               {% if candidate.get('listing_fact_confirmation', {}).get('status') == 'confirmed' %}
-              <span class="pqx-result-fact pqx-result-fact-confirmed" title="{{ candidate.get('listing_fact_confirmation', {}).get('summary') or 'Listing facts confirmed automatically from provider evidence.' }}">{{ candidate.get('listing_fact_confirmation', {}).get('label') or 'Facts confirmed' }}</span>
+              <span class="pqx-result-fact pqx-result-fact-confirmed" title="Key details match the listing.">Details match</span>
               {% endif %}
               {% if candidate.get('layout_display') and candidate.get('floorplan_url') %}
               <button

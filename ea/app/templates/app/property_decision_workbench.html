@@ -164,13 +164,13 @@
           </dialog>
 {%- endmacro %}
 {% macro evidence_atlas_dialog() -%}
-          <dialog class="pqx-evidence-atlas" data-pqx-evidence-atlas aria-label="Property evidence atlas">
+          <dialog class="pqx-evidence-atlas" data-pqx-evidence-atlas aria-label="Property context">
             <div class="pqx-evidence-atlas-card" data-pqx-evidence-atlas-card>
               <div class="pqx-evidence-atlas-head">
                 <div class="pqx-evidence-atlas-title">
                   <span class="pqx-small">Area layers</span>
                   <strong data-pqx-evidence-atlas-title>Property context</strong>
-                  <span class="pqx-note" data-pqx-evidence-atlas-caption>Cached evidence layers only. No search-time indexing.</span>
+                  <span class="pqx-note" data-pqx-evidence-atlas-caption>Map, climate, schools, traffic, and local context.</span>
                 </div>
                 <button class="pqx-evidence-atlas-close" type="button" data-pqx-evidence-atlas-close aria-label="Close evidence atlas">×</button>
               </div>
@@ -179,16 +179,16 @@
                 <span class="pqx-evidence-atlas-pin" aria-hidden="true"></span>
                 <div class="pqx-evidence-atlas-map-label">
                   <strong data-pqx-evidence-map-label>Property location context</strong>
-                  <span data-pqx-evidence-map-detail>Open a layer to see source-backed context.</span>
+                  <span data-pqx-evidence-map-detail>Open a layer to see the area.</span>
                 </div>
               </div>
               <aside class="pqx-evidence-atlas-side">
-                <div class="pqx-evidence-layer-rail" data-pqx-evidence-layer-rail aria-label="Evidence layers"></div>
+                <div class="pqx-evidence-layer-rail" data-pqx-evidence-layer-rail aria-label="Area layers"></div>
                 <div class="pqx-evidence-cache-note" data-pqx-evidence-cache-note>
-                  Searches read cached Teable/Postgres evidence rollups. Newspaper and provider indexing run in the background, never inside the search request.
+                  Prepared layers keep searches fast.
                 </div>
                 <div class="pqx-evidence-atlas-cards" data-pqx-evidence-atlas-cards></div>
-                <div class="pqx-note" data-pqx-evidence-atlas-footer>Unavailable means we do not have it for this property yet, not that it counts against the home.</div>
+                <div class="pqx-note" data-pqx-evidence-atlas-footer>Not ready means this layer is not available here yet.</div>
               </aside>
             </div>
           </dialog>
@@ -292,13 +292,13 @@
 {% set found_bar_pct = 100 if found_total > 0 else 0 %}
 {% set to_review_bar_pct = ((to_review_total * 100) // review_denominator) if to_review_total > 0 else 0 %}
 {% set checked_label = (found_total|string ~ ' homes found') if found_total > 0 else 'checking' %}
-{% set source_progress_label = source_done_total|string ~ ' of ' ~ source_variant_total|string ~ ' sources checked' if source_variant_total > 0 and source_done_total > 0 else '' %}
+{% set source_progress_label = source_done_total|string ~ ' of ' ~ source_variant_total|string ~ ' lists checked' if source_variant_total > 0 and source_done_total > 0 else '' %}
 {% if source_variant_total > 0 %}
-{% set scan_count_label = source_done_total|string ~ ' of ' ~ source_variant_total|string ~ ' sources checked' %}
+{% set scan_count_label = source_done_total|string ~ ' of ' ~ source_variant_total|string ~ ' lists checked' %}
 {% elif provider_display_total > 0 %}
-{% set scan_count_label = provider_display_total|string ~ ' providers selected' %}
+{% set scan_count_label = provider_display_total|string ~ ' lists selected' %}
 {% elif source_completed > 0 or source_total > 0 %}
-{% set scan_count_label = 'Checking providers' %}
+{% set scan_count_label = 'Checking lists' %}
 {% else %}
 {% set scan_count_label = 'Search warming up' %}
 {% endif %}
@@ -309,25 +309,25 @@
 {% set worker_state = run.get('worker_state') or summary.get('worker_state') or {} %}
 {% set reliability = run.get('reliability') or {} %}
 {% set progress_message_raw = (run.get('message') or '')|trim %}
-{% set progress_provider_label = provider_display_total|string ~ ' provider checks' if provider_display_total > 0 else 'selected providers' %}
+{% set progress_provider_label = provider_display_total|string ~ ' lists' if provider_display_total > 0 else 'selected lists' %}
 {% set progress_repair_status = ((reliability.get('repair') or {}).get('repair_status') or summary.get('repair_status') or summary.get('repair_status_label') or '')|lower %}
 {% set progress_has_repair_copy = status|lower == 'failed' or progress_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
 {% set progress_customer_message = (reliability.get('customer_status_message') or summary.get('customer_status_message') or '')|trim %}
 {% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
 {% set progress_message_display_lower = progress_message_display|lower %}
 {% set progress_compact_found_message = found_total|string ~ ' homes found' %}
-{% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ to_review_total|string ~ ' to review' %}
+{% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ to_review_total|string ~ ' to check' %}
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
     {% if source_open_total > 0 %}
-      {% set progress_message_display = found_total ~ ' homes found so far. ' ~ to_review_total ~ ' waiting for review. ' ~ source_open_total ~ ' source checks still open.' %}
+      {% set progress_message_display = found_total ~ ' homes found. ' ~ to_review_total ~ ' to check. ' ~ source_open_total ~ ' lists still open.' %}
     {% else %}
-      {% set progress_message_display = 'Found ' ~ found_total ~ ' homes. ' ~ to_review_total ~ ' still to review.' if to_review_total else 'Found ' ~ found_total ~ ' homes. Review queue is clear.' %}
+      {% set progress_message_display = 'Found ' ~ found_total ~ ' homes. ' ~ to_review_total ~ ' to check.' if to_review_total else 'Found ' ~ found_total ~ ' homes. Nothing waiting to check.' %}
     {% endif %}
   {% elif provider_display_total > 0 %}
-  {% set progress_message_display = 'Preparing providers.' %}
+  {% set progress_message_display = 'Preparing lists.' %}
   {% else %}
-  {% set progress_message_display = 'Preparing provider checks.' %}
+  {% set progress_message_display = 'Preparing lists.' %}
   {% endif %}
 {% endif %}
 {% set reliability_message_raw = progress_customer_message if reliability else '' %}
@@ -347,20 +347,20 @@
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
 		      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-			      <span class="pqx-small">{% if source_active_total %}{{ source_active_total }} active{% elif source_waiting_total %}{{ source_waiting_total }} waiting{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total %}0 waiting for review{% elif source_progress_label %}{{ source_progress_label }}{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first listings{% endif %}</span>
+				      <span class="pqx-small">{% if source_active_total %}{{ source_active_total }} active{% elif source_waiting_total %}{{ source_waiting_total }} waiting{% elif found_total and to_review_total %}{{ to_review_total }} to check{% elif found_total %}0 to check{% elif source_progress_label %}{{ source_progress_label }}{% elif provider_display_total %}{{ provider_display_total }} lists selected{% else %}Waiting for first listings{% endif %}</span>
 			      {% if source_waiting_total and source_active_total %}<span class="pqx-small">{{ source_waiting_total }} waiting</span>{% endif %}
-			      {% if provider_display_total %}<span class="pqx-small">{{ provider_display_total }} providers</span>{% endif %}
-			      {% if found_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
-		    </div>
-		    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider update.' }}</span>
-		    <div class="pqx-live-review-bars" aria-label="Homes found and waiting for review">
+				      {% if provider_display_total %}<span class="pqx-small">{{ provider_display_total }} lists</span>{% endif %}
+				      {% if found_total %}<span hidden>{{ to_review_total }} homes to check</span>{% endif %}
+			    </div>
+			    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first list.' }}</span>
+			    <div class="pqx-live-review-bars" aria-label="Homes found and still to check">
 	      <span>
 	        <b>Found</b>
 	        <i>{{ found_total or 0 }}</i>
 	        <em><u style="--progress: {{ found_bar_pct }}"></u></em>
 	      </span>
 	      <span>
-	        <b>To review</b>
+		        <b>To check</b>
 	        <i>{{ to_review_total or 0 }}</i>
 	        <em><u style="--progress: {{ to_review_bar_pct }}"></u></em>
 	      </span>
@@ -10698,25 +10698,25 @@
           {% set live_raw_found_total = (run_summary.get('raw_listing_total') or 0)|int %}
           {% set live_found_total = live_raw_found_total if live_raw_found_total > live_reviewed_total else live_reviewed_total %}
           {% set live_to_review_total = (live_found_total - live_reviewed_total) if live_found_total > live_reviewed_total else 0 %}
-	          {% set live_provider_label = live_provider_total|string ~ ' provider checks' if live_provider_total > 0 else 'selected providers' %}
+		            {% set live_provider_label = live_provider_total|string ~ ' lists' if live_provider_total > 0 else 'selected lists' %}
           {% set live_repair_status = (run_summary.get('repair_status') or run_summary.get('repair_status_label') or '')|lower %}
           {% set live_has_repair_copy = run_status == 'failed' or live_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
           {% set live_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
           {% set live_run_message_display = live_safe_message if live_has_repair_copy and live_safe_message else live_run_message_raw %}
           {% set live_run_message_display_lower = live_run_message_display|lower %}
           {% set live_compact_found_message = live_found_total|string ~ ' homes found' %}
-          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_to_review_total|string ~ ' to review' %}
+	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_to_review_total|string ~ ' to check' %}
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
 		          {% if live_found_total %}
 		            {% if live_source_open_total > 0 %}
-			            {% set live_run_message_display = live_found_total ~ ' homes found so far. ' ~ live_to_review_total ~ ' waiting for review. ' ~ live_source_open_total ~ ' source checks still open.' %}
-		            {% else %}
-			            {% set live_run_message_display = 'Found ' ~ live_found_total ~ ' homes. ' ~ live_to_review_total ~ ' still to review.' if live_to_review_total else 'Found ' ~ live_found_total ~ ' homes. Review queue is clear.' %}
+				            {% set live_run_message_display = live_found_total ~ ' homes found. ' ~ live_to_review_total ~ ' to check. ' ~ live_source_open_total ~ ' lists still open.' %}
+			            {% else %}
+				            {% set live_run_message_display = 'Found ' ~ live_found_total ~ ' homes. ' ~ live_to_review_total ~ ' to check.' if live_to_review_total else 'Found ' ~ live_found_total ~ ' homes. Nothing waiting to check.' %}
 		            {% endif %}
 		          {% elif live_provider_total > 0 %}
-		          {% set live_run_message_display = 'Preparing providers.' %}
-	          {% else %}
-	          {% set live_run_message_display = 'Preparing provider checks.' %}
+			          {% set live_run_message_display = 'Preparing lists.' %}
+		          {% else %}
+		          {% set live_run_message_display = 'Preparing lists.' %}
           {% endif %}
           {% endif %}
           <section class="pqx-card" style="margin-bottom:14px;">
@@ -10730,9 +10730,9 @@
 	            <div class="pqx-pref-list">
 	              <div class="pqx-pref-row">
 	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
-                  <div><strong>Sources</strong><small>{% if live_source_total %}{{ live_source_done_total }} / {{ live_source_total }} checked{% else %}Preparing{% endif %}</small></div>
-                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
-		                <div><strong>To review</strong><small>{{ live_to_review_total }} homes</small></div>
+	                  <div><strong>Lists</strong><small>{% if live_source_total %}{{ live_source_done_total }} / {{ live_source_total }} checked{% else %}Preparing{% endif %}</small></div>
+	                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
+			                <div><strong>To check</strong><small>{{ live_to_review_total }} homes</small></div>
 	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
 	              </div>
           {% if live_preview %}
@@ -10934,16 +10934,16 @@
                   {% if surface_mode == 'shortlist' %}
                   <span
                     class="pqx-filtered-trigger"
-                    title="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits."
-                    aria-label="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits."
+                    title="Some homes stayed outside the shortlist because of your current rules, missing details, or alert limits."
+                    aria-label="Some homes stayed outside the shortlist because of your current rules, missing details, or alert limits."
                     data-tooltip-trigger
                   ><b>{{ previous.get('held_back_total') }}</b> filtered <span aria-hidden="true">?</span></span>
                   {% else %}
                   <button
                     type="button"
                     class="pqx-filtered-trigger"
-                    title="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits. Click to relax the strongest blockers."
-                    aria-label="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits. Click to relax the strongest blockers."
+                    title="Some homes stayed outside the shortlist because of your current rules, missing details, or alert limits. Click to relax the strongest blockers."
+                    aria-label="Some homes stayed outside the shortlist because of your current rules, missing details, or alert limits. Click to relax the strongest blockers."
                     data-tooltip-trigger
                     data-pqx-filtered-open
                   ><b>{{ previous.get('held_back_total') }}</b> filtered <span aria-hidden="true">?</span></button>
@@ -11966,7 +11966,7 @@
               <div class="pqx-section-head">
                 <div>
                   <div class="pqx-small">{{ hero_kicker or 'Research pages' }}</div>
-                  <h2>{{ hero_title or 'Inspect the evidence before you open the raw listing.' }}</h2>
+                  <h2>{{ hero_title or 'Open the strongest homes first.' }}</h2>
                   <div class="pqx-note">{{ hero_summary or 'Hosted property pages and 3D tours stay primary. Raw portal links remain secondary.' }}</div>
                 </div>
               </div>
@@ -12095,7 +12095,7 @@
           {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
           {% set event_label = 'Preparing search' %}
           {% elif event_step in ['source_search', 'provider_search', 'search'] %}
-          {% set event_label = 'Searching providers' %}
+          {% set event_label = 'Searching lists' %}
           {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
           {% set event_label = 'Checking details' %}
           {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
@@ -12109,7 +12109,7 @@
           {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
           {% set event_label = 'Applying hard rules' %}
           {% elif event_step in ['source_completed', 'completed'] %}
-          {% set event_label = 'Provider finished' %}
+          {% set event_label = 'List finished' %}
           {% elif event_step in ['source_notify'] %}
           {% set event_label = 'Sending update' %}
           {% elif event_step.startswith('repair') or event_step in ['source_repair_reuse', 'source_failed'] %}

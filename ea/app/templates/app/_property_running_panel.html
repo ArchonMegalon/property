@@ -10,7 +10,7 @@
         {% set run_to_review_head = (run_found_head - run_reviewed_head) if run_found_head > run_reviewed_head else 0 %}
         {% set run_source_total_head = (run_summary_head.get('source_variant_total') or run_summary_head.get('sources_total') or run_sources|length or 0)|int %}
         {% set run_source_completed_head = (run_summary_head.get('sources_completed') or run_summary_head.get('completed_sources') or 0)|int %}
-        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head %}{{ run_source_completed_head }} / {{ run_source_total_head }} sources · {{ run_found_head }} found · {{ run_to_review_head }} to review{% elif run_found_head %}{{ run_found_head }} found · {{ run_to_review_head }} to review{% else %}Waiting for first listings{% endif %}</div>
+        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head %}{{ run_source_completed_head }} / {{ run_source_total_head }} lists · {{ run_found_head }} found · {{ run_to_review_head }} to check{% elif run_found_head %}{{ run_found_head }} found · {{ run_to_review_head }} to check{% else %}Waiting for first listings{% endif %}</div>
       </div>
       <div class="pqx-inline-actions">
         {% if run_active %}
@@ -48,32 +48,32 @@
     {% set run_source_waiting_total = run_source_waiting_raw if run_source_waiting_raw > 0 else 0 %}
     {% set run_source_open_total = run_source_waiting_total + run_source_counts.active %}
     {% set run_provider_total = run_summary.get('provider_total') or run_summary.get('source_variant_total') or 0 %}
-    {% set run_provider_label = run_provider_total|string ~ ' provider checks' if run_provider_total else 'selected providers' %}
+    {% set run_provider_label = run_provider_total|string ~ ' lists' if run_provider_total else 'selected lists' %}
     {% set run_repair_status = (run_summary.get('repair_status') or run_summary.get('repair_status_label') or '')|lower %}
     {% set run_has_repair_copy = status|lower == 'failed' or run_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
     {% set run_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
     {% set run_message_display = run_safe_message if run_has_repair_copy and run_safe_message else run_message_raw %}
     {% set run_message_display_lower = run_message_display|lower %}
     {% set run_compact_found_message = run_found_total|string ~ ' homes found' %}
-    {% set run_compact_queue_message = run_found_total|string ~ ' homes found · ' ~ run_to_review_total|string ~ ' to review' %}
+    {% set run_compact_queue_message = run_found_total|string ~ ' homes found · ' ~ run_to_review_total|string ~ ' to check' %}
     {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] or (run_found_total and run_message_display == run_compact_found_message) or (run_found_total and run_message_display == run_compact_queue_message) %}
       {% if run_found_total %}
         {% if run_source_open_total > 0 %}
-          {% set run_message_display = run_found_total ~ ' homes found so far. ' ~ run_to_review_total ~ ' waiting for review. ' ~ run_source_open_total ~ ' source checks still open.' %}
+          {% set run_message_display = run_found_total ~ ' homes found. ' ~ run_to_review_total ~ ' to check. ' ~ run_source_open_total ~ ' lists still open.' %}
         {% else %}
-          {% set run_message_display = 'Found ' ~ run_found_total ~ ' homes. ' ~ run_to_review_total ~ ' still to review.' if run_to_review_total else 'Found ' ~ run_found_total ~ ' homes. Review queue is clear.' %}
+          {% set run_message_display = 'Found ' ~ run_found_total ~ ' homes. ' ~ run_to_review_total ~ ' to check.' if run_to_review_total else 'Found ' ~ run_found_total ~ ' homes. Nothing waiting to check.' %}
         {% endif %}
       {% elif run_provider_total %}
-      {% set run_message_display = 'Preparing providers.' %}
+      {% set run_message_display = 'Preparing lists.' %}
       {% else %}
-      {% set run_message_display = 'Preparing provider checks.' %}
+      {% set run_message_display = 'Preparing lists.' %}
       {% endif %}
     {% endif %}
     <div class="pqx-note" data-pqx-run-message>{{ run_message_display or 'The search is queued.' }}</div>
     {{ progress_board(run, run_sources, research_task_counts) }}
     {% include "app/_property_recent_run_strip.html" %}
     <details class="pqx-card" data-pqx-running-details>
-      <summary><strong>Search history</strong><span class="pqx-note">Latest 10 useful updates</span></summary>
+      <summary><strong>Recent updates</strong><span class="pqx-note">Latest 10</span></summary>
       {% if (research_task_counts.get('open') or 0) %}
       <div class="pqx-note" style="margin:12px 0 0;">{{ research_task_counts.get('open') or 0 }} missing details are still being checked in the background.</div>
       {% endif %}
@@ -88,7 +88,7 @@
         {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
         {% set event_label = 'Preparing search' %}
         {% elif event_step in ['source_search', 'provider_search', 'search'] %}
-        {% set event_label = 'Searching providers' %}
+        {% set event_label = 'Searching lists' %}
         {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
         {% set event_label = 'Checking details' %}
         {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
@@ -102,7 +102,7 @@
         {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
         {% set event_label = 'Applying hard rules' %}
         {% elif event_step in ['source_completed', 'completed'] %}
-        {% set event_label = 'Provider finished' %}
+        {% set event_label = 'List finished' %}
         {% elif event_step in ['source_notify'] %}
         {% set event_label = 'Sending update' %}
         {% elif event_step.startswith('repair') or event_step in ['source_repair_reuse', 'source_failed'] %}
