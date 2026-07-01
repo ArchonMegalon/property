@@ -99,6 +99,7 @@ class PropertyDecisionWorkbenchContract:
     counterfactual_rows: list[object] = field(default_factory=list)
     recent_packets: list[object] = field(default_factory=list)
     previous_search_runs: list[object] = field(default_factory=list)
+    current_scope_preview: dict[str, object] = field(default_factory=dict)
     search_agents: list[object] = field(default_factory=list)
     search_agent: dict[str, object] = field(default_factory=dict)
     results: list[object] = field(default_factory=list)

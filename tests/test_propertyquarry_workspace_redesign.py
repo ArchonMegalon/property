@@ -2888,7 +2888,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "Could not load property search status." not in visible_message
-    assert "Reviewing homes. 179 checked so far." in visible_message
+    assert "Found 179 homes. Review queue is clear." in visible_message
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
         response.text,
@@ -2897,15 +2897,15 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
     assert "Could not load property search status." not in visible_source
-    assert "179 homes reviewed" in visible_source
+    assert "179 homes found" in visible_source
     assert "29 providers" in visible_source
     assert "Found" in visible_source
-    assert "Reviewed" in visible_source
+    assert "To review" in visible_source
     reliability_match = re.search(r'<div class="pqx-reliability-strip"[^>]*>(?P<reliability>.*?)</div>\s*</div>', response.text, re.S)
     assert reliability_match
     visible_reliability = html.unescape(re.sub(r"<[^>]+>", " ", reliability_match.group("reliability")))
     assert "Could not load property search status." not in visible_reliability
-    assert "179 homes reviewed" in visible_reliability
+    assert "179 homes found" in visible_reliability
 
 
 def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(monkeypatch) -> None:
@@ -2940,7 +2940,7 @@ def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "Now: RE/MAX Austria · 1 / 1 · 102 homes reviewed" in visible_message
+    assert "Now: RE/MAX Austria · 1 / 1 · 102 homes found" in visible_message
 
 
 def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_raw_status_noise(monkeypatch) -> None:
@@ -2984,10 +2984,9 @@ def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_ra
     assert response.status_code == 200
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
     assert "Search in progress" in rendered_html
-    assert "homes checked so far" in rendered_html
-    assert "179 homes reviewed" in rendered_html
+    assert "179 homes found" in rendered_html
     assert "Found" in rendered_html
-    assert "Reviewed" in rendered_html
+    assert "To review" in rendered_html
     assert "Altbau near U6" not in rendered_html
     assert "Leading right now. Can still change before the search finishes." not in rendered_html
     assert "Could not load property search status." not in rendered_html
@@ -4878,10 +4877,10 @@ def test_property_workspace_payload_running_properties_highlight_uses_homes_chec
     )
 
     hero_highlights = list(payload["hero_highlights"])
-    homes_checked = next(row for row in hero_highlights if row["label"] == "Homes checked")
+    homes_checked = next(row for row in hero_highlights if row["label"] == "Homes found")
 
     assert homes_checked["value"] == "87"
-    assert homes_checked["detail"] == "Homes checked so far."
+    assert homes_checked["detail"] == "Homes found so far."
     assert not any(row["label"] == "Listings" for row in hero_highlights)
 
 
@@ -5032,8 +5031,8 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     )
 
     assert snapshot["status_label"] == "Running"
-    assert snapshot["status_note"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes reviewed"
-    assert snapshot["message"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes reviewed"
+    assert snapshot["status_note"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes found"
+    assert snapshot["message"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes found"
 
 
 def test_property_surface_state_builds_filtered_total_from_summary_components() -> None:
@@ -8969,7 +8968,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "25 homes reviewed · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "25 homes found · 0 to review · Willhaben · 25 / 60"
     assert "156 scans" not in snapshot["summary_label"]
     assert snapshot["phase_label"] == "Playground: Sigmund-Freud-Park playground is 830 m away. Limit 400 m."
     assert snapshot["source_count_label"] == "25 / 60"
@@ -9299,7 +9298,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Operating costs are missing for candidate 12 of 60 and need verification.",
-            "Reviewing homes",
+            "Checking homes",
         ),
         (
             "Postal code mismatch outside selected scope for candidate 13 of 60.",
@@ -9319,7 +9318,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Energy certificate is missing for candidate 17 of 60.",
-            "Reviewing homes",
+            "Checking homes",
         ),
         (
             "School distance is within the selected preference for candidate 18 of 60.",
@@ -9339,7 +9338,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Supermarket and pharmacy are farther than preferred for candidate 21 of 60.",
-            "Reviewing homes",
+            "Checking homes",
         ),
         (
             "No balcony or terrace found for candidate 22 of 60.",
@@ -10368,7 +10367,7 @@ def test_property_search_status_replaces_internal_suppression_only_compact_event
         {
             "step": "source_shortlist",
             "status": "in_progress",
-            "message": "Shortlist ready · 1 home · RE/MAX Austria · 179 homes reviewed",
+            "message": "Shortlist ready · 1 home · RE/MAX Austria · 179 homes found · 0 to review",
             "created_at": "2026-06-25T15:40:41+00:00",
         }
     ]
@@ -10460,7 +10459,7 @@ def test_property_search_status_hides_active_source_fetch_suppression_receipt_no
         {
             "step": "source_fetching",
             "status": "in_progress",
-            "message": "12 providers · 42 homes reviewed",
+            "message": "12 providers · 42 homes found · 0 to review",
             "created_at": "2026-06-28T15:40:41+00:00",
         }
     ]
@@ -10604,7 +10603,7 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     messages = [str(event.get("message") or "") for event in events]
     assert "9 providers selected for this search." in messages
     assert "Provider checks: 1 checked, 1 running, 7 queued of 9." in messages
-    assert "42 homes found; 12 reviewed so far." in messages
+    assert "42 homes found; 30 to review." in messages
     assert "3 homes held back by the active rules." in messages
 
 
@@ -10675,7 +10674,7 @@ def test_property_search_status_appends_current_progress_event_after_stale_start
     assert response.status_code == 200
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Starting property search run." not in messages
-    assert "Willhaben · 3 / 10 · 179 homes reviewed" in messages
+    assert "Willhaben · 3 / 10 · 179 homes found · 0 to review" in messages
 
 
 def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources(monkeypatch) -> None:
@@ -12562,6 +12561,58 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert 'contain-intrinsic-size: 120px;' in template
 
 
+def test_property_search_first_paint_keeps_current_scope_map_preview_without_history(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-search-current-scope-preview")
+    start_workspace(client, mode="personal", workspace_name="Search Current Scope Preview")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna, 1200 Vienna",
+            "adjacent_area_radius_m": 850,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    calls: list[tuple[str, str, str, int]] = []
+
+    def _map_scope_preview(
+        country_code: str,
+        region_code: str,
+        location_query: str,
+        *,
+        adjacent_area_radius_m: int = 0,
+    ) -> dict[str, object]:
+        calls.append((country_code, region_code, location_query, adjacent_area_radius_m))
+        return {
+            "image_url": "/app/api/property/map-previews/3333333333333333333333333333333333333333.png",
+            "alt": f"Search area preview for {location_query}",
+            "summary": location_query,
+            "market_label": "Vienna · AT",
+            "preview_kind": "osm_district_overlay",
+            "has_district_overlay": True,
+        }
+
+    monkeypatch.setattr(landing_view_models, "_property_scope_preview_map_only", _map_scope_preview)
+    monkeypatch.setattr(
+        ProductService,
+        "list_property_search_runs",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("search first paint should not hydrate run history")
+        ),
+    )
+
+    page = client.get("/app/search", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert calls == [("AT", "vienna", "1020 Vienna, 1200 Vienna", 850)]
+    assert 'data-pqx-current-scope-preview' in page.text
+    assert "/app/api/property/map-previews/3333333333333333333333333333333333333333.png" in page.text
+    assert 'data-pqx-scope-open' in page.text
+
+
 def test_property_agents_surface_uses_map_only_scope_preview_for_cards_and_history(monkeypatch) -> None:
     principal_id = "pq-agent-map-thumbnail"
     client = build_property_client(principal_id=principal_id)
@@ -13303,8 +13354,8 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "estimateRunEtaLabel" in script_body
     assert "formatEta" in script_body
     assert "displayRunMessage" in script_body
-    assert "Found ${found} homes. Reviews are starting." in script_body
-    assert "Reviewing homes. ${reviewed} checked so far." in script_body
+    assert "Found ${found} homes. ${toReview} still to review." in script_body
+    assert "Found ${found} homes. Review queue is clear." in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body
     run_visible_branch = body.split("{% elif run_visible %}", 1)[1].split("{% elif run_terminal_no_results %}", 1)[0]
@@ -13904,7 +13955,7 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'data-pqx-progress-eta' in live.text
     assert "42% · about 6 min" in live.text
     assert "20 of 117 provider checks" in live.text
-    assert "179 homes reviewed" in live.text
+    assert "179 homes found" in live.text
     assert "29 providers" in live.text
     assert 'class="pqx-live-review-bars"' in live.text
     assert "searches running" not in live.text

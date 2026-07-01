@@ -700,18 +700,17 @@ def property_run_event_is_internal_noise(event: dict[str, object]) -> bool:
 
 def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
     reviewed = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
-    found = _positive_int(summary.get("raw_listing_total"))
+    found = max(_positive_int(summary.get("raw_listing_total")), reviewed)
+    to_review = max(0, found - reviewed)
     provider_total = _positive_int(
         summary.get("provider_total")
         or summary.get("source_variant_total")
         or summary.get("sources_total")
     )
-    if found > 0 and reviewed > 0 and found != reviewed:
-        return f"Found {found} homes; {reviewed} reviewed so far."
-    if reviewed > 0:
-        return f"Reviewing homes. {reviewed} checked so far."
     if found > 0:
-        return f"Found {found} homes. Reviews are starting."
+        if to_review > 0:
+            return f"Found {found} homes. {to_review} still to review."
+        return f"Found {found} homes. Review queue is clear."
     if provider_total > 0:
         return "Preparing providers."
     return "Preparing provider checks."
@@ -822,12 +821,13 @@ def _property_run_synthetic_progress_events(
     elif provider_total > 0:
         add("source_started", "Waiting for the first provider response.")
 
-    if raw_found > 0 and reviewed > 0 and raw_found != reviewed:
-        add("source_fetch", f"{_property_run_count_label(raw_found, 'home')} found; {reviewed} reviewed so far.")
-    elif reviewed > 0:
-        add("source_fetch", f"{_property_run_count_label(reviewed, 'home')} reviewed so far.")
-    elif raw_found > 0:
-        add("source_fetch", f"{_property_run_count_label(raw_found, 'home')} found; reviews are starting.")
+    found_total = max(raw_found, reviewed)
+    to_review = max(0, found_total - reviewed)
+    if found_total > 0:
+        if to_review > 0:
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; {to_review} to review.")
+        else:
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; review queue is clear.")
 
     if ranked > 0:
         add("source_shortlist", f"{_property_run_count_label(ranked, 'ranked home')} ready.")
@@ -874,7 +874,7 @@ def _property_run_current_progress_message(
         progress_parts.append(provider_label)
     if fraction_label:
         progress_parts.append(fraction_label)
-    if aggregate_label and aggregate_label.lower() not in {"0 homes reviewed", "checking"}:
+    if aggregate_label and aggregate_label.lower() not in {"0 homes found · 0 to review", "checking"}:
         progress_parts.append(aggregate_label)
 
     if step in {"source_ranking", "source_shortlist", "source_assessing", "source_low_fit_ranked", "source_discovery_penalty"}:
@@ -1278,7 +1278,7 @@ def build_property_run_reliability_snapshot(
     if results_total > 0:
         result_label = f"{results_total} ranked result{'s' if results_total != 1 else ''} ready"
     elif listing_total > 0:
-        result_label = f"{listing_total} homes reviewed"
+        result_label = f"{listing_total} homes found · 0 to review"
     filtered_label = ""
     if filtered_total > 0:
         filtered_label = f"{filtered_total} filtered by active rules"
@@ -1302,6 +1302,14 @@ def _compact_run_message(value: object) -> str:
     text = str(value or "").strip()
     if not text:
         return "Waiting for the first provider update."
+    text = re.sub(
+        r"^Reviewing homes\.\s+(\d+)\s+checked so far\.?$",
+        r"Found \1 homes. Review queue is clear.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\b(\d+)\s+homes?\s+reviewed\b", r"\1 homes found", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(\d+)\s+reviewed so far\b", r"\1 to review", text, flags=re.IGNORECASE)
     candidate_match = re.search(r"(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
     if candidate_match:
         return f"{candidate_match.group(1)} / {candidate_match.group(2)}"
@@ -1364,7 +1372,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
         if not fraction_match:
             continue
         prefix_text = " ".join(segments[:-2]).lower()
-        if not any(token in prefix_text for token in ("provider", "homes reviewed", "checking")):
+        if not any(token in prefix_text for token in ("provider", "homes found", "homes reviewed", "to review", "checking")):
             continue
         return {
             "raw": text,
@@ -1385,7 +1393,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
     if candidate_match:
         verb = str(candidate_match.group(1) or "").strip().lower()
         phase_label = (
-            "Reviewing homes"
+            "Checking homes"
             if verb.startswith("review")
             else ("Scoring homes" if verb.startswith("scor") else "Updating shortlist")
         )
@@ -1735,18 +1743,19 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     provider_display_total = _property_run_provider_display_total(payload, summary)
     source_variant_total = _positive_int(summary.get("source_variant_total"), default=sources_total)
     reviewed_total = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
-    found_total = _positive_int(summary.get("raw_listing_total"))
+    found_total = max(_positive_int(summary.get("raw_listing_total")), reviewed_total)
+    to_review_total = max(0, found_total - reviewed_total)
     checked_label = (
-        f"{reviewed_total} homes reviewed"
-        if reviewed_total > 0
-        else (f"{found_total} homes found" if found_total > 0 else "checking")
+        f"{found_total} homes found"
+        if found_total > 0
+        else "checking"
     )
     source_progress_label = (
         f"{completed_sources} of {source_variant_total} provider checks"
         if source_variant_total > provider_display_total and completed_sources > 0
         else ""
     )
-    scan_label = checked_label if reviewed_total > 0 or found_total > 0 else (
+    scan_label = checked_label if found_total > 0 else (
         f"{provider_display_total} providers selected" if provider_display_total > 0 else checked_label
     )
     no_floorplans = _positive_int(summary.get("filtered_floorplan_total"))
@@ -1777,7 +1786,8 @@ def build_property_run_live_board_snapshot(
     source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
     source_total = max(source_total, _positive_int(summary.get("source_variant_total")), len(source_rows))
     reviewed_total = max(0, _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total")))
-    found_total = max(0, _positive_int(summary.get("raw_listing_total")))
+    found_total = max(0, _positive_int(summary.get("raw_listing_total")), reviewed_total)
+    to_review_total = max(0, found_total - reviewed_total)
     waiting_on_floorplans = max(0, _positive_int(summary.get("filtered_floorplan_total")))
     packet_prepared = max(0, _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total")))
     shortlist_ready = _property_summary_ranked_total(summary)
@@ -1788,13 +1798,9 @@ def build_property_run_live_board_snapshot(
     message_text = str(payload.get("message") or "").strip().lower()
 
     aggregate_label = (
-        f"{found_total} homes found; {reviewed_total} reviewed"
-        if found_total > 0 and reviewed_total > 0 and found_total != reviewed_total
-        else (
-            f"{reviewed_total} homes reviewed"
-            if reviewed_total > 0
-            else (f"{found_total} homes found" if found_total > 0 else "checking")
-        )
+        f"{found_total} homes found · {to_review_total} to review"
+        if found_total > 0
+        else "checking"
     )
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} still waiting on floorplans"

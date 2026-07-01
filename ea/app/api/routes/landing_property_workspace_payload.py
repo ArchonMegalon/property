@@ -1114,6 +1114,41 @@ def property_workspace_payload(
         if property_is_investment_search
         else ""
     )
+
+    def _adjacent_radius_m_for_preview() -> int:
+        raw_radius_m = property_preferences.get("adjacent_area_radius_m")
+        try:
+            radius_m = int(float(str(raw_radius_m or "").strip()))
+        except Exception:
+            radius_m = 0
+        raw_radius_value = property_preferences.get("adjacent_area_radius_value")
+        if raw_radius_value not in (None, ""):
+            try:
+                radius_value = float(str(raw_radius_value or "").strip())
+            except Exception:
+                radius_value = 0.0
+            radius_unit = str(property_preferences.get("adjacent_area_radius_unit") or "m").strip().lower()
+            if radius_value > 0:
+                radius_m = int(round(radius_value * 1000.0)) if radius_unit == "km" else int(round(radius_value))
+        return max(0, min(radius_m, 20_000))
+
+    current_scope_preview: dict[str, object] = {}
+    if normalized_section == "search":
+        preview_location_query = ", ".join(selected_locations) or str(property_preferences.get("location_query") or "").strip()
+        if not preview_location_query and bool(property_preferences.get("full_region_scope")):
+            preview_location_query = str(property_preferences.get("region_code") or property_state.get("region_label") or "").strip()
+        try:
+            current_scope_preview = dict(
+                _property_scope_preview_map_only(
+                    str(property_preferences.get("country_code") or "AT").strip().upper() or "AT",
+                    str(property_preferences.get("region_code") or "").strip().lower(),
+                    preview_location_query,
+                    adjacent_area_radius_m=_adjacent_radius_m_for_preview(),
+                )
+                or {}
+            )
+        except Exception:
+            current_scope_preview = {}
     available_platform_values = {
         str(option.get("value") or "").strip().lower()
         for option in provider_options
@@ -1383,6 +1418,7 @@ def property_workspace_payload(
             counterfactual_rows=counterfactual_rows,
             recent_packets=[],
             previous_search_runs=previous_search_runs,
+            current_scope_preview=current_scope_preview,
             search_agents=(
                 property_search_agents
                 if include_search_agent_payload
@@ -4376,6 +4412,7 @@ def property_workspace_payload(
             if isinstance(item, dict)
         ],
         previous_search_runs=previous_search_runs,
+        current_scope_preview=current_scope_preview,
         search_agents=(
             property_search_agents
             if include_search_agent_payload
