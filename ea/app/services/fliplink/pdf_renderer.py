@@ -1438,7 +1438,7 @@ def _visual_pdf(
             _draw_wrapped(ops, row.get("detail"), x=x + 8, y=662, width_chars=18, size=7.4, leading=8.4)
         _draw_rect(ops, MARGIN_X, 528, 208, 100, fill=(1.0, 0.995, 0.97))
         _draw_rect(ops, MARGIN_X, 528, 6, 100, fill=(0.15, 0.38, 0.30))
-        _draw_text(ops, str(score_methodology.get("candidate_title") or "Current candidate score read"), x=MARGIN_X + 16, y=606, size=10.4, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, str(score_methodology.get("candidate_title") or "Fit read"), x=MARGIN_X + 16, y=606, size=10.4, font="F2", fill=(0.15, 0.38, 0.30))
         score_line = f"{candidate_score}/100"
         band_label = str(candidate_application.get("band_label") or "").strip()
         if band_label:
@@ -1447,7 +1447,7 @@ def _visual_pdf(
         _draw_wrapped(ops, str(score_methodology.get("neutral_note") or ""), x=MARGIN_X + 16, y=550, width_chars=32, size=8.2, leading=9.8)
         _draw_rect(ops, MARGIN_X + 228, 528, CARD_WIDTH - 228, 100, fill=(1.0, 0.995, 0.97))
         _draw_rect(ops, MARGIN_X + 228, 528, 6, 100, fill=(0.74, 0.55, 0.18))
-        _draw_text(ops, str(score_methodology.get("positive_label") or "Best signals"), x=MARGIN_X + 244, y=606, size=9.6, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, str(score_methodology.get("positive_label") or "Best points"), x=MARGIN_X + 244, y=606, size=9.6, font="F2", fill=(0.15, 0.38, 0.30))
         py = 588
         for row in positive_signals[:2]:
             py = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 244, y=py, width_chars=40, size=8.1, leading=9.6)
@@ -1772,7 +1772,7 @@ def _visual_pdf(
         _draw_wrapped(ops, str(score_methodology.get("neutral_note") or ""), x=MARGIN_X + 18, y=454, width_chars=32, size=8.8, leading=10.8)
         _draw_rect(ops, MARGIN_X + 268, 406, CARD_WIDTH - 268, 128, fill=(1.0, 0.995, 0.97))
         _draw_rect(ops, MARGIN_X + 268, 406, 7, 128, fill=(0.74, 0.55, 0.18))
-        _draw_text(ops, str(score_methodology.get("positive_label") or "Best signals"), x=MARGIN_X + 286, y=510, size=10.4, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, str(score_methodology.get("positive_label") or "Best points"), x=MARGIN_X + 286, y=510, size=10.4, font="F2", fill=(0.15, 0.38, 0.30))
         py = 490
         for row in positive_signals[:3]:
             py = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 286, y=py, width_chars=38, size=8.8, leading=10.8)

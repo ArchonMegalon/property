@@ -2739,10 +2739,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         ranking_read_panel = (
             '<section class="panel">'
             '<div class="eyebrow">Quick read</div>'
-            '<h2>Why this property ranks here</h2>'
+            '<h2>Quick take</h2>'
             '<div class="summary-grid" style="margin-top:0;">'
-            '<div class="summary-card"><h3>Best signals</h3><ul>'
-            f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_positive) or "<li>No best signal saved yet.</li>"}'
+            '<div class="summary-card"><h3>Best points</h3><ul>'
+            f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_positive) or "<li>No best point saved yet.</li>"}'
             '</ul></div>'
             '<div class="summary-card"><h3>Main caution</h3><ul>'
             f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_conflicts) or "<li>No main caution saved yet.</li>"}'

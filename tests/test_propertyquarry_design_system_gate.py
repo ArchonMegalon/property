@@ -129,6 +129,13 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "provider scope",
         "hard rules",
         "visible ranking",
+        "how ranking works",
+        "how each home is scored",
+        "how fit works",
+        "score at a glance",
+        "best signals",
+        "no strong signal attached yet",
+        "no caution attached yet",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

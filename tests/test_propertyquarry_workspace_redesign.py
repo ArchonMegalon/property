@@ -13566,7 +13566,12 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
 def test_property_shortlist_results_stay_minimal_in_template_and_rehydration_bundle() -> None:
     body = _read_workbench_bundle()
 
-    assert "score_methodology and not is_shortlist_surface" in body
+    assert "How ranking works" not in body
+    assert "How fit works" not in body
+    assert "Score at a glance" not in body
+    assert "Best signals" not in body
+    assert "No strong signal attached yet." not in body
+    assert "No caution attached yet." not in body
     assert "filtered_total and not is_shortlist_surface" in body
     assert "const shortlistSurface = initialSurface === 'shortlist';" in body
     assert "!shortlistSurface && filteredTotal > 0" in body

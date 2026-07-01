@@ -613,7 +613,7 @@
             if (row.kind === 'document' && row.document_id) {
               const actions = document.createElement('div');
               actions.className = 'pqx-actions';
-              [['uploaded', 'Uploaded'], ['verified', 'Verified']].forEach(([status, label]) => {
+              [['uploaded', 'Uploaded'], ['verified', 'Checked']].forEach(([status, label]) => {
                 const button = document.createElement('button');
                 button.className = 'pqx-button';
                 button.type = 'button';

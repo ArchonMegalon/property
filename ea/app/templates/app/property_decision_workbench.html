@@ -48,8 +48,8 @@
 {% macro pqx_display_tag(value) -%}
   {%- set label = (value or '')|string|trim -%}
   {%- set lowered = label|lower -%}
-  {%- if lowered in ['verified', 'evidence'] -%}Available
-  {%- elif 'proof' in lowered -%}Source
+  {%- if lowered in ['verified', 'evidence'] -%}Ready
+  {%- elif 'proof' in lowered -%}Note
   {%- else -%}{{ label }}
   {%- endif -%}
 {%- endmacro %}
@@ -11989,7 +11989,7 @@
                       </span>
                       <span>
                         {{ candidate.get('title') or 'Property candidate' }}<br>
-                        <span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Source' }}</span>
+                        <span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Listing' }}</span>
                       </span>
                     </div>
                     <div class="pqx-result-trust">
@@ -12261,24 +12261,6 @@
             {% if selected_visual_status %}
             <div class="pqx-decision-status">{{ selected_visual_status }}</div>
             {% endif %}
-          </details>
-          {% endif %}
-          {% if score_methodology %}
-          {% set score_application = score_methodology.get('candidate_application') or {} %}
-          {% set negative_label = score_methodology.get('negative_label') or 'Main caution' %}
-          {% if negative_label == 'What still needs checking' %}{% set negative_label = 'Main caution' %}{% endif %}
-          {% set mobile_score_preview = (score_application.get('fit_score') or selected.get('fit_score')) %}
-          <details class="pqx-card pqx-mobile-review-more pqx-mobile-fold">
-            <summary>
-              <span class="pqx-mobile-review-copy">
-                <strong>{{ score_methodology.get('candidate_title') or 'Score at a glance' }}</strong>
-                <span class="pqx-mobile-review-preview">{% if mobile_score_preview %}{{ mobile_score_preview }}/100{% if score_application.get('band_label') %} · {{ score_application.get('band_label') }}{% endif %}{% else %}Not scored yet{% endif %}</span>
-              </span>
-            </summary>
-            <div class="pqx-event-list">
-              <div class="pqx-event-card"><strong>{{ score_methodology.get('positive_label') or 'Best signals' }}</strong><span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['No strong signal attached yet.'])[:2]|join(' · ') }}</span></div>
-              <div class="pqx-event-card"><strong>{{ negative_label }}</strong><span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['No caution attached yet.'])[:2]|join(' · ') }}</span></div>
-            </div>
           </details>
           {% endif %}
         </section>

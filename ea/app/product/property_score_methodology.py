@@ -109,7 +109,7 @@ _PREFERENCE_TERM_REPLACEMENTS: dict[str, dict[str, str]] = {
 
 _LOCALIZED_COPY: dict[str, dict[str, object]] = {
     "en": {
-        "title": "How fit works",
+        "title": "How homes are ordered",
         "subtitle": "How PropertyQuarry decides which homes deserve your attention first.",
         "summary": "Fit is personal. It combines must-haves, listing details, preferences, routes, neighbourhood context, missing details, and your saved feedback.",
         "principles": [
@@ -140,7 +140,7 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
         "calculation_title": "Example: why this property is a good fit",
         "steps_label": "How it works",
         "examples_label": "Examples",
-        "positive_label": "Best signals",
+        "positive_label": "Best points",
         "negative_label": "Main caution",
         "neutral_note": "Exact weights can vary by market and search mode, but must-haves, detail quality, preferences, and feedback stay separate.",
         "calculation_rows": [
@@ -1088,7 +1088,7 @@ def build_property_score_methodology(
         "language_code": str(copy.get("language_code") or "en"),
         "country_code": str(country_code or "").strip().upper(),
         "language_label": str(copy.get("language_label") or "English"),
-        "title": str(copy.get("title") or "How fit works"),
+        "title": str(copy.get("title") or "How homes are ordered"),
         "subtitle": str(copy.get("subtitle") or ""),
         "summary": str(copy.get("summary") or ""),
         "principles": list(copy.get("principles") or []),

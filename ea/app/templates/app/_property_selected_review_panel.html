@@ -2,8 +2,8 @@
   {% macro pqx_tag_label(value) -%}
     {%- set label = (value or '')|string|trim -%}
     {%- set lowered = label|lower -%}
-    {%- if lowered in ['verified', 'evidence'] -%}Available
-    {%- elif 'proof' in lowered -%}Source
+    {%- if lowered in ['verified', 'evidence'] -%}Ready
+    {%- elif 'proof' in lowered -%}Note
     {%- else -%}{{ label }}
     {%- endif -%}
   {%- endmacro %}
@@ -119,7 +119,9 @@
       <div class="pqx-section-head pqx-reading-section-head">
         <div>
           <h2>Quick take</h2>
-          <span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span>
+          {% if selected.get('risk', {}).get('level') and selected.get('risk', {}).get('level') != 'unknown' %}
+          <span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') }}</span>
+          {% endif %}
         </div>
       </div>
       <div class="pqx-reading-board">
@@ -152,10 +154,6 @@
           <article class="pqx-reading-card">
             <span class="pqx-small">Market data</span>
             <strong data-pw-feed-status>{{ selected.get('investment', {}).get('feed_status_label') or 'Using current listing and shortlist data until rent, costs, and financing are complete.' }}{% if selected.get('investment', {}).get('feed_status_detail') %} · {{ selected.get('investment', {}).get('feed_status_detail') }}{% endif %}{% if selected.get('investment', {}).get('dscr_display') %} · {{ selected.get('investment', {}).get('dscr_display') }}{% endif %}</strong>
-          </article>
-          <article class="pqx-reading-card">
-            <strong>Confidence</strong>
-            <span class="pqx-note">{{ 'Enough detail to screen.' if selected.get('investment', {}).get('confidence_label') else 'Still partial until all numbers are available.' }}</span>
           </article>
           {% endif %}
           {% if selected.get('review_page_neuronwriter', {}).get('questions') %}
@@ -253,30 +251,9 @@
           {% for reason in selected.get('match_reasons') or [] %}
           <div class="pqx-event-card"><strong>Fit</strong><span class="pqx-note">{{ reason }}</span></div>
           {% endfor %}
-          {% if not selected.get('match_reasons') %}<div class="pqx-note">No match notes yet.</div>{% endif %}
+          {% if not selected.get('match_reasons') %}<div class="pqx-note">No notes yet.</div>{% endif %}
         </div>
       </section>
-      {% if score_methodology %}
-      {% set score_application = score_methodology.get('candidate_application') or {} %}
-      {% set negative_label = score_methodology.get('negative_label') or 'Main caution' %}
-      {% if negative_label == 'What still needs checking' %}{% set negative_label = 'Main caution' %}{% endif %}
-      <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
-        <div class="pqx-section-head">
-          <h2>{{ score_methodology.get('candidate_title') or 'Score at a glance' }}</h2>
-          <span class="pqx-pill">{{ score_application.get('fit_score') or selected.get('fit_score') or 0 }}/100{% if score_application.get('band_label') %} · {{ score_application.get('band_label') }}{% endif %}</span>
-        </div>
-        <div class="pqx-event-list">
-          <div class="pqx-event-card">
-            <strong>{{ score_methodology.get('positive_label') or 'Best signals' }}</strong>
-            <span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['No strong signal attached yet.'])[:2]|join(' · ') }}</span>
-          </div>
-          <div class="pqx-event-card">
-            <strong>{{ negative_label }}</strong>
-            <span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['No caution attached yet.'])[:2]|join(' · ') }}</span>
-          </div>
-        </div>
-      </section>
-      {% endif %}
       {% if selected.get('location_text') %}
       <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
         <div class="pqx-section-head"><h2>Location & area</h2></div>
@@ -301,13 +278,13 @@
       {% endif %}
       <div class="pqx-event-list" data-pw-official-posture>
         {% for row in selected.get('official_posture_rows') or [] %}
-        <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ pqx_tag_label(row.get('tag')) }}</span></div>
+        <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
         {% endfor %}
         {% for row in selected.get('official_evidence_rows') or [] %}
-        <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ pqx_tag_label(row.get('tag')) }}</span></div>
+        <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
         {% endfor %}
         {% for row in selected.get('followup_rows') or [] %}
-        <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span><span class="pqx-small">{{ pqx_tag_label(row.get('tag')) }}</span></div>
+        <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
         {% endfor %}
         {% for row in selected.get('timeline_rows') or [] %}
         <div class="pqx-event-card"><strong>{{ row.get('title') }}</strong><span class="pqx-note">{{ row.get('detail') }}</span></div>
