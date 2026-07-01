@@ -263,12 +263,16 @@
 {% set raw_listing_total = (summary.get('raw_listing_total') or 0)|int %}
 {% set listing_total = (summary.get('listing_total') or 0)|int %}
 {% set reviewed_total = ((run.get('summary') or {}).get('reviewed_listing_total') or listing_total)|int %}
+{% set review_denominator = raw_listing_total if raw_listing_total > reviewed_total else reviewed_total %}
+{% set review_denominator = review_denominator if review_denominator > 0 else 1 %}
+{% set found_bar_pct = 100 if raw_listing_total > 0 or reviewed_total > 0 else 0 %}
+{% set reviewed_bar_pct = ((reviewed_total * 100) // review_denominator) if reviewed_total > 0 else 0 %}
 {% set checked_label = (reviewed_total|string ~ ' homes reviewed') if reviewed_total > 0 else (raw_listing_total|string ~ ' homes found' if raw_listing_total > 0 else 'checking') %}
 {% set source_progress_label = source_completed|string ~ ' of ' ~ source_variant_total|string ~ ' provider checks' if source_variant_total > provider_display_total and source_completed > 0 else '' %}
-{% if provider_display_total > 0 %}
-{% set scan_count_label = checked_label ~ ' · ' ~ provider_display_total|string ~ ' providers' %}
-{% elif listing_total > 0 %}
+{% if reviewed_total > 0 or raw_listing_total > 0 %}
 {% set scan_count_label = checked_label %}
+{% elif provider_display_total > 0 %}
+{% set scan_count_label = provider_display_total|string ~ ' providers selected' %}
 {% elif source_completed > 0 or source_total > 0 %}
 {% set scan_count_label = 'Checking providers' %}
 {% else %}
@@ -289,9 +293,9 @@
 {% set progress_message_display_lower = progress_message_display|lower %}
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] %}
   {% if reviewed_total %}
-  {% set progress_message_display = 'Checking ' ~ progress_provider_label ~ ' · ' ~ reviewed_total ~ ' homes reviewed.' %}
+  {% set progress_message_display = 'Reviewing homes. ' ~ reviewed_total ~ ' checked so far.' %}
   {% elif provider_display_total > 0 %}
-  {% set progress_message_display = 'Preparing ' ~ progress_provider_label ~ '.' %}
+  {% set progress_message_display = 'Preparing providers.' %}
   {% else %}
   {% set progress_message_display = 'Preparing provider checks.' %}
   {% endif %}
@@ -312,11 +316,23 @@
   </div>
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
-      <strong data-pqx-radar-count>{{ source_progress_label or scan_count_label }}</strong>
-	      <span class="pqx-small">{% if reviewed_total and provider_display_total %}{{ reviewed_total }} homes reviewed · {{ provider_display_total }} providers{% elif reviewed_total %}{{ reviewed_total }} homes reviewed{% elif raw_listing_total %}Reviewing {{ raw_listing_total }} found homes{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first checks{% endif %}</span>
+	      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
+		      <span class="pqx-small">{% if reviewed_total and source_progress_label %}{{ source_progress_label }}{% elif reviewed_total and provider_display_total %}{{ provider_display_total }} providers{% elif reviewed_total %}Homes checked so far{% elif source_progress_label %}{{ source_progress_label }}{% elif raw_listing_total %}Reviewing {{ raw_listing_total }} found homes{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first checks{% endif %}</span>
 	      {% if reviewed_total %}<span hidden>homes checked so far</span>{% endif %}
     </div>
     <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider update.' }}</span>
+    <div class="pqx-live-review-bars" aria-label="Homes found and reviewed">
+      <span>
+        <b>Found</b>
+        <i>{{ raw_listing_total or reviewed_total or 0 }}</i>
+        <em><u style="--progress: {{ found_bar_pct }}"></u></em>
+      </span>
+      <span>
+        <b>Reviewed</b>
+        <i>{{ reviewed_total or 0 }}</i>
+        <em><u style="--progress: {{ reviewed_bar_pct }}"></u></em>
+      </span>
+    </div>
     <div class="pqx-progress-meter under-source" aria-hidden="true">
       <i class="pqx-progress-meter-fill" style="--progress: {{ run_progress if run_progress > 0 else (100 if status in ['processed', 'completed', 'completed_partial'] else 4) }}"></i>
     </div>
@@ -6003,16 +6019,68 @@
       gap: 10px;
       flex-wrap: wrap;
     }
-    .pqx-source-progress .pqx-small {
-      color: var(--pq-muted);
-      font-size: 11px;
-      letter-spacing: .02em;
-      text-transform: uppercase;
-    }
-    .pqx-reliability-strip {
-      display: grid;
-      gap: 8px;
-      padding: 10px;
+	    .pqx-source-progress .pqx-small {
+	      color: var(--pq-muted);
+	      font-size: 11px;
+	      letter-spacing: .02em;
+	      text-transform: uppercase;
+	    }
+	    .pqx-live-review-bars {
+	      display: grid;
+	      grid-template-columns: repeat(2, minmax(0, 1fr));
+	      gap: 8px;
+	      margin-top: 2px;
+	    }
+	    .pqx-live-review-bars span {
+	      display: grid;
+	      grid-template-columns: auto auto;
+	      gap: 5px 8px;
+	      align-items: baseline;
+	      min-width: 0;
+	      padding: 7px 8px;
+	      border: 1px solid color-mix(in srgb, var(--pq-blue) 14%, var(--pq-line));
+	      border-radius: 8px;
+	      background: rgba(255, 255, 255, 0.58);
+	    }
+	    .pqx-live-review-bars b,
+	    .pqx-live-review-bars i {
+	      font-size: 11px;
+	      line-height: 1;
+	    }
+	    .pqx-live-review-bars b {
+	      color: var(--pq-muted);
+	      font-weight: 760;
+	      text-transform: uppercase;
+	      letter-spacing: .04em;
+	    }
+	    .pqx-live-review-bars i {
+	      justify-self: end;
+	      color: var(--pq-ink);
+	      font-style: normal;
+	      font-weight: 850;
+	    }
+	    .pqx-live-review-bars em {
+	      grid-column: 1 / -1;
+	      display: block;
+	      height: 7px;
+	      overflow: hidden;
+	      border-radius: 999px;
+	      background: color-mix(in srgb, var(--pq-blue) 10%, white);
+	    }
+	    .pqx-live-review-bars u {
+	      display: block;
+	      width: calc(var(--progress, 0) * 1%);
+	      min-width: 0;
+	      height: 100%;
+	      border-radius: inherit;
+	      background: linear-gradient(90deg, var(--pq-green), color-mix(in srgb, var(--pq-gold) 28%, var(--pq-green)));
+	      text-decoration: none;
+	      transition: width .45s ease;
+	    }
+	    .pqx-reliability-strip {
+	      display: grid;
+	      gap: 8px;
+	      padding: 10px;
       border: 1px solid color-mix(in srgb, var(--pq-gold) 18%, var(--pq-line));
       border-radius: 8px;
       background: rgba(255, 253, 248, 0.9);
@@ -6214,18 +6282,99 @@
       color: #eadfcc;
       font-size: 11px;
     }
-    .pqx-result-media {
-      display: grid;
-      grid-template-columns: 128px minmax(0, 1fr);
-      gap: 14px;
-      align-items: start;
-    }
-    .pqx-result-media.no-thumb {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .pqx-thumb {
-      position: relative;
-      width: 128px;
+	    .pqx-result-media {
+	      display: grid;
+	      grid-template-columns: 128px minmax(0, 1fr);
+	      gap: 14px;
+	      align-items: start;
+	    }
+	    .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-media.has-diorama {
+	      grid-template-columns: 148px minmax(0, 1fr);
+	      gap: 12px;
+	      align-items: stretch;
+	    }
+	    .pqx-result-media.no-thumb {
+	      grid-template-columns: minmax(0, 1fr);
+	    }
+	    .pqx-result-diorama {
+	      position: relative;
+	      width: 148px;
+	      min-height: 104px;
+	      overflow: hidden;
+	      border: 1px solid color-mix(in srgb, var(--pq-gold) 24%, var(--pq-line));
+	      border-radius: 14px;
+	      background:
+	        radial-gradient(circle at 26% 24%, rgba(255,255,255,0.72), transparent 28%),
+	        linear-gradient(135deg, #efe2c8, #f8f4e8 48%, #d9e7dc);
+	      box-shadow: inset 0 1px 0 rgba(255,255,255,0.58);
+	    }
+	    .pqx-result-diorama img {
+	      width: 100%;
+	      height: 100%;
+	      min-height: 104px;
+	      display: block;
+	      object-fit: cover;
+	      object-position: center;
+	    }
+	    .pqx-result-diorama::after {
+	      content: "";
+	      position: absolute;
+	      inset: 0;
+	      background:
+	        linear-gradient(180deg, transparent 48%, rgba(22, 26, 24, 0.22)),
+	        linear-gradient(45deg, rgba(255,255,255,0.16), transparent 48%);
+	      pointer-events: none;
+	    }
+	    .pqx-result-diorama-label {
+	      position: absolute;
+	      left: 8px;
+	      bottom: 8px;
+	      z-index: 2;
+	      min-height: 24px;
+	      display: inline-flex;
+	      align-items: center;
+	      padding: 0 9px;
+	      border-radius: 999px;
+	      background: rgba(22, 26, 24, 0.72);
+	      color: #fff8f1;
+	      font-size: 10px;
+	      font-weight: 820;
+	      letter-spacing: 0.03em;
+	      text-transform: uppercase;
+	      backdrop-filter: blur(8px);
+	    }
+	    .pqx-result-diorama-room {
+	      position: absolute;
+	      display: block;
+	      border: 1px solid rgba(110, 85, 43, 0.26);
+	      border-radius: 8px;
+	      background: rgba(255, 253, 248, 0.72);
+	      box-shadow: 0 8px 18px rgba(74, 56, 24, 0.08);
+	    }
+	    .pqx-result-diorama-room.room-main {
+	      left: 18%;
+	      top: 24%;
+	      width: 54%;
+	      height: 48%;
+	      transform: skewY(-7deg);
+	    }
+	    .pqx-result-diorama-room.room-side {
+	      right: 12%;
+	      top: 34%;
+	      width: 27%;
+	      height: 33%;
+	      transform: skewY(10deg);
+	    }
+	    .pqx-result-diorama-room.room-terrace {
+	      left: 26%;
+	      bottom: 14%;
+	      width: 46%;
+	      height: 13%;
+	      background: rgba(66, 115, 91, 0.2);
+	    }
+	    .pqx-thumb {
+	      position: relative;
+	      width: 128px;
       aspect-ratio: 4 / 3;
       overflow: hidden;
       border: 1px solid var(--pq-line);
@@ -7191,9 +7340,11 @@
     html[data-pq-theme="dark"] .pqx-results-summary-link,
     html[data-pq-theme="dark"] .pqx-run-chip,
     html[data-pq-theme="dark"] .pqx-account-menu summary,
-    html[data-pq-theme="dark"] .pqx-source-progress,
-    html[data-pq-theme="dark"] .pqx-reliability-strip,
-    html[data-pq-theme="dark"] .pqx-worker-strip,
+	    html[data-pq-theme="dark"] .pqx-source-progress,
+	    html[data-pq-theme="dark"] .pqx-live-review-bars span,
+	    html[data-pq-theme="dark"] .pqx-live-review-bars em,
+	    html[data-pq-theme="dark"] .pqx-reliability-strip,
+	    html[data-pq-theme="dark"] .pqx-worker-strip,
     html[data-pq-theme="dark"] .pqx-worker-lane,
     html[data-pq-theme="dark"] .pqx-worker-popover,
     html[data-pq-theme="dark"] .pqx-source-chip,
@@ -7279,11 +7430,20 @@
     html[data-pq-theme="dark"] .pqx-thumb-pin::after {
       background: var(--pq-panel);
     }
-    html[data-pq-theme="dark"] .pqx-thumb {
-      background: linear-gradient(135deg, color-mix(in srgb, var(--pq-paper) 88%, #26332f), var(--pq-panel));
-      color: var(--pq-muted);
-      border-color: var(--pq-line);
-    }
+	    html[data-pq-theme="dark"] .pqx-thumb {
+	      background: linear-gradient(135deg, color-mix(in srgb, var(--pq-paper) 88%, #26332f), var(--pq-panel));
+	      color: var(--pq-muted);
+	      border-color: var(--pq-line);
+	    }
+	    html[data-pq-theme="dark"] .pqx-result-diorama {
+	      background:
+	        radial-gradient(circle at 26% 24%, rgba(255,255,255,0.08), transparent 28%),
+	        linear-gradient(135deg, color-mix(in srgb, var(--pq-paper) 86%, #3a2f1d), color-mix(in srgb, var(--pq-panel) 82%, #1f302a));
+	      border-color: color-mix(in srgb, var(--pq-gold) 24%, var(--pq-line));
+	    }
+	    html[data-pq-theme="dark"] .pqx-live-review-bars u {
+	      background: linear-gradient(90deg, color-mix(in srgb, var(--pq-green) 72%, #f5e5bd), var(--pq-gold));
+	    }
     html[data-pq-theme="dark"] .pqx-evidence-atlas-card,
     html[data-pq-theme="dark"] .pqx-evidence-atlas-stage,
     html[data-pq-theme="dark"] .pqx-evidence-layer-chip,
@@ -9358,12 +9518,22 @@
       .pqx-thumb {
         aspect-ratio: 16 / 10;
       }
-      .pqx-thumb {
-        width: 100%;
-      }
-      .pqx-thumb img {
-        width: 100%;
-        height: 100%;
+	      .pqx-thumb {
+	        width: 100%;
+	      }
+	      .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-media.has-diorama {
+	        grid-template-columns: minmax(0, 1fr);
+	      }
+	      .pqx-result-diorama {
+	        width: 100%;
+	        min-height: 128px;
+	      }
+	      .pqx-result-diorama img {
+	        min-height: 128px;
+	      }
+	      .pqx-thumb img {
+	        width: 100%;
+	        height: 100%;
         object-fit: cover;
       }
       .pqx-range-head {
@@ -9594,10 +9764,20 @@
         grid-template-columns: 88px minmax(0, 1fr);
         gap: 8px;
       }
-      .pqx-result-media:not(.no-thumb) .pqx-thumb {
-        width: 88px;
-        aspect-ratio: 1 / 1;
-      }
+	      .pqx-result-media:not(.no-thumb) .pqx-thumb {
+	        width: 88px;
+	        aspect-ratio: 1 / 1;
+	      }
+	      .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-media.has-diorama {
+	        grid-template-columns: minmax(0, 1fr);
+	      }
+	      .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-media.has-diorama .pqx-result-diorama {
+	        width: 100%;
+	        min-height: 112px;
+	      }
+	      .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-media.has-diorama .pqx-result-diorama img {
+	        min-height: 112px;
+	      }
       .pqx-result-title {
         -webkit-line-clamp: 2;
       }
@@ -10458,9 +10638,9 @@
           {% set live_run_message_display_lower = live_run_message_display|lower %}
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] %}
           {% if live_reviewed_total %}
-          {% set live_run_message_display = 'Checking ' ~ live_provider_label ~ ' · ' ~ live_reviewed_total ~ ' homes reviewed.' %}
+	          {% set live_run_message_display = 'Reviewing homes. ' ~ live_reviewed_total ~ ' checked so far.' %}
           {% elif live_provider_total > 0 %}
-          {% set live_run_message_display = 'Preparing ' ~ live_provider_label ~ '.' %}
+	          {% set live_run_message_display = 'Preparing providers.' %}
           {% else %}
           {% set live_run_message_display = 'Preparing provider checks.' %}
           {% endif %}

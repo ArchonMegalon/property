@@ -1968,14 +1968,15 @@
       const completedSources = Number(summary.sources_completed || summary.completed_sources || 0);
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
+      const found = Number(summary.raw_listing_total || 0);
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
-      const checkedLabel = reviewed > 0 ? `${reviewed} homes reviewed` : 'checking';
+      const checkedLabel = reviewed > 0 ? `${reviewed} homes reviewed` : (found > 0 ? `${found} homes found` : 'checking');
       const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
         ? `${completedSources} of ${sourceVariantTotal} provider checks`
         : '';
-      const scanLabel = sourceProgressLabel || (providerDisplayTotal
-        ? `${providerDisplayTotal} providers · ${checkedLabel}`
-        : checkedLabel);
+      const scanLabel = reviewed > 0 || found > 0
+        ? checkedLabel
+        : (providerDisplayTotal ? `${providerDisplayTotal} providers selected` : checkedLabel);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -2070,14 +2071,17 @@
         || lowered.includes('starting property search run')
         || lowered === 'checking'
       ) {
+        const found = Number(summary.raw_listing_total || 0);
         const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
         const providers = Number(summary.provider_total || summary.source_variant_total || 0);
-        const providerLabel = providers > 0 ? `${providers} provider checks` : 'selected providers';
         if (reviewed > 0) {
-          return `Checking ${providerLabel} · ${reviewed} homes reviewed.`;
+          return `Reviewing homes. ${reviewed} checked so far.`;
+        }
+        if (found > 0) {
+          return `Found ${found} homes. Reviews are starting.`;
         }
         if (providers > 0) {
-          return `Preparing ${providerLabel}.`;
+          return 'Preparing providers.';
         }
         return 'Preparing provider checks.';
       }
@@ -2433,14 +2437,22 @@
       const completedSources = Number(summary.sources_completed || summary.completed_sources || 0);
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
-      const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
+      const found = Number(summary.raw_listing_total || 0);
+      const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const checkedLabel = reviewed > 0 ? `${reviewed} homes checked` : 'checking';
       const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
         ? `${completedSources} of ${sourceVariantTotal} provider checks`
         : '';
-      const scanCountLabel = sourceProgressLabel || (providerDisplayTotal
-        ? `${providerDisplayTotal} providers · ${checkedLabel}`
-        : (reviewed > 0 ? checkedLabel : (completedSources > 0 || sourceVariantTotal > 0 ? 'Checking providers' : 'Search warming up')));
+      const scanCountLabel = reviewed > 0
+        ? checkedLabel
+        : (found > 0
+          ? `${found} homes found`
+          : (providerDisplayTotal
+            ? `${providerDisplayTotal} providers selected`
+            : (completedSources > 0 || sourceVariantTotal > 0 ? 'Checking providers' : 'Search warming up')));
+      const reviewDenominator = Math.max(found, reviewed, 1);
+      const foundBarPct = (found > 0 || reviewed > 0) ? 100 : 0;
+      const reviewedBarPct = reviewed > 0 ? Math.round((reviewed / reviewDenominator) * 100) : 0;
       const layout = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -2458,8 +2470,8 @@
       const configuredWorkers = Math.max(0, Number(summary?.provider_workers?.worker_concurrency || 0));
       const workerTooltip = 'This shows which sources are running, queued, recovered, or unavailable for this search. Other saved searches keep their own progress.';
       const sourceMeta = reviewed > 0
-        ? `${reviewed} homes reviewed`
-        : (providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Waiting for first checks');
+        ? (sourceProgressLabel || (providerDisplayTotal > 0 ? `${providerDisplayTotal} providers` : 'Homes checked so far'))
+        : (found > 0 ? `Reviewing ${found} found homes` : (sourceProgressLabel || (providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Waiting for first checks')));
       let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first provider update.';
       const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
       const activeSourceLabel = canonicalSourceLabel(liveInfo.sourceLabel || parseRunMessageInfo(runPayload?.message).sourceLabel || '');
@@ -2656,6 +2668,18 @@
           </div>
           <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
           <span class="pqx-note">${escapeHtml(phaseMeta)}</span>
+          <div class="pqx-live-review-bars" aria-label="Homes found and reviewed">
+            <span>
+              <b>Found</b>
+              <i>${escapeHtml(found || reviewed || 0)}</i>
+              <em><u style="--progress: ${escapeHtml(foundBarPct)}"></u></em>
+            </span>
+            <span>
+              <b>Reviewed</b>
+              <i>${escapeHtml(reviewed || 0)}</i>
+              <em><u style="--progress: ${escapeHtml(reviewedBarPct)}"></u></em>
+            </span>
+          </div>
           <div class="pqx-progress-meter under-source" aria-hidden="true"><i class="pqx-progress-meter-fill" style="--progress: ${escapeHtml(progressFill)}"></i></div>
         </div>
         <div class="pqx-worker-strip" data-pqx-worker-strip>
@@ -2744,12 +2768,14 @@
       const body = rows.map((candidate, index) => {
         const title = safeCandidateTitle(candidate?.title);
         const location = String(candidate?.location_label || '').trim();
-        const previewUrl = String(
-          candidate?.preview_image_url
-          || candidate?.orientation_preview?.thumb_image_url
-          || candidate?.orientation_preview?.image_url
-          || ''
-        ).trim();
+	        const previewUrl = String(
+	          candidate?.preview_image_url
+	          || candidate?.orientation_preview?.thumb_image_url
+	          || candidate?.orientation_preview?.image_url
+	          || ''
+	        ).trim();
+	        const dioramaPreviewUrl = String(candidate?.diorama_preview_url || candidate?.diorama_scene?.image_url || '').trim();
+	        const shortlistPreviewUrl = dioramaPreviewUrl || previewUrl;
         const candidateRef = String(
           candidate?.candidate_ref
           || candidate?.listing_id
@@ -2799,9 +2825,11 @@
           || (Array.isArray(candidate?.match_reasons) ? candidate.match_reasons[0] : '')
           || 'Open the property page for more context.'
         ).trim();
-        const thumb = previewUrl
-          ? `<span class="pqx-thumb"><button class="pqx-thumb-link pqx-thumb-atlas-button" type="button" data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"><span class="pqx-thumb-atlas-label">Map</span></button></span>`
-          : '';
+	        const thumb = shortlistSurface
+	          ? `<span class="pqx-result-diorama${shortlistPreviewUrl ? '' : ' is-placeholder'}" data-pqx-shortlist-diorama>${shortlistPreviewUrl ? `<img src="${escapeHtml(shortlistPreviewUrl)}" alt="" loading="${index === 0 ? 'eager' : 'lazy'}" decoding="async" fetchpriority="${index === 0 ? 'high' : 'low'}">` : '<span class="pqx-result-diorama-room room-main"></span><span class="pqx-result-diorama-room room-side"></span><span class="pqx-result-diorama-room room-terrace"></span>'}<span class="pqx-result-diorama-label">Preview</span></span>`
+	          : (previewUrl
+	            ? `<span class="pqx-thumb"><button class="pqx-thumb-link pqx-thumb-atlas-button" type="button" data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"><span class="pqx-thumb-atlas-label">Map</span></button></span>`
+	            : '');
         const tour = (candidate?.tour && typeof candidate.tour === 'object') ? candidate.tour : {};
         const tourUrl = directHostedTourUrl(tour.url, candidate?.tour_url, tour.embed_url, tour.provider_url, candidate?.vendor_tour_url, candidate?.source_virtual_tour_url);
         const tourStatus = String(tour.status || candidate?.tour_status || '').trim().toLowerCase();
@@ -2859,7 +2887,7 @@
         return `
           <article class="pqx-result pqx-card${index === 0 ? ' is-top-ranked' : ''}" role="button" tabindex="0" aria-selected="${index === 0 ? 'true' : 'false'}" data-candidate-ref="${escapeHtml(candidateRef)}" data-candidate-packet-url="${escapeHtml(packetUrl)}" data-candidate-listing-url="${escapeHtml(propertyUrl)}" data-workbench-row>
             <span class="pqx-result-main">
-              <span class="pqx-result-media${previewUrl ? '' : ' no-thumb'}">
+	              <span class="pqx-result-media${shortlistSurface ? ' has-diorama' : (previewUrl ? '' : ' no-thumb')}">
                 ${thumb}
                 <span class="pqx-result-summary">
                   <span class="pqx-result-kicker"><span class="pqx-rank">#${escapeHtml(candidate?.rank || index + 1)}</span>${location ? `<span>${escapeHtml(location)}</span>` : ''}</span>

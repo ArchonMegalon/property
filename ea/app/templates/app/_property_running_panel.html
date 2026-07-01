@@ -35,11 +35,11 @@
     {% set run_message_display_lower = run_message_display|lower %}
     {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] %}
       {% if run_reviewed_total %}
-      {% set run_message_display = 'Checking ' ~ run_provider_label ~ ' · ' ~ run_reviewed_total ~ ' homes reviewed.' %}
+      {% set run_message_display = 'Reviewing homes. ' ~ run_reviewed_total ~ ' checked so far.' %}
       {% elif run_found_total %}
       {% set run_message_display = 'Found ' ~ run_found_total ~ ' homes. Reviews are starting.' %}
       {% elif run_provider_total %}
-      {% set run_message_display = 'Preparing ' ~ run_provider_label ~ '.' %}
+      {% set run_message_display = 'Preparing providers.' %}
       {% else %}
       {% set run_message_display = 'Preparing provider checks.' %}
       {% endif %}

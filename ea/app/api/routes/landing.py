@@ -5954,6 +5954,7 @@ def propertyquarry_workbench_style_asset(
 def propertyquarry_fast_ranked_run_page(
     run_id: str,
     request: Request,
+    container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
@@ -5966,6 +5967,37 @@ def propertyquarry_fast_ranked_run_page(
     encoded_run_id = urllib.parse.quote(normalized_run_id, safe="")
     status_url = f"/app/api/signals/property/search/run/{encoded_run_id}?lightweight=1"
     full_href = _propertyquarry_fast_ranked_run_href(normalized_run_id, full=True)
+    initial_run_payload: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        product = build_product_service(container)
+        try:
+            initial_run_payload = dict(
+                product.get_property_search_run_status(
+                    principal_id=context.principal_id,
+                    run_id=normalized_run_id,
+                    lightweight=True,
+                    account_email=str(context.access_email or "").strip(),
+                )
+                or {}
+            )
+        except TypeError:
+            try:
+                initial_run_payload = dict(
+                    product.get_property_search_run_status(
+                        principal_id=context.principal_id,
+                        run_id=normalized_run_id,
+                        lightweight=True,
+                    )
+                    or {}
+                )
+            except TypeError:
+                initial_run_payload = dict(
+                    product.get_property_search_run_status(
+                        principal_id=context.principal_id,
+                        run_id=normalized_run_id,
+                    )
+                    or {}
+                )
     return _render_public_template(
         request,
         "app/property_ranked_run_fast.html",
@@ -5979,6 +6011,7 @@ def propertyquarry_fast_ranked_run_page(
             extra={
                 "run_id": normalized_run_id,
                 "run_status_url": status_url,
+                "initial_run_payload": initial_run_payload,
                 "full_shortlist_href": full_href,
                 "search_href": "/app/search",
                 "history_href": "/app/agents#search-history",

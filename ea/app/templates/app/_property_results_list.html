@@ -82,7 +82,9 @@
 	    {% for candidate in results %}
     <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}{% if loop.first %} is-top-ranked{% endif %}" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-candidate-listing-url="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
       {% set orientation_preview = candidate.get('orientation_preview') or {} %}
-	      {% set primary_preview_url = candidate.get('preview_image_url') or orientation_preview.get('thumb_image_url') or orientation_preview.get('image_url') or '' %}
+		      {% set diorama_scene = candidate.get('diorama_scene') or {} %}
+		      {% set diorama_preview_url = candidate.get('diorama_preview_url') or diorama_scene.get('image_url') or '' %}
+		      {% set primary_preview_url = candidate.get('preview_image_url') or orientation_preview.get('thumb_image_url') or orientation_preview.get('image_url') or '' %}
 	      {% set candidate_facts = candidate.get('property_facts') or {} %}
 	      {% set provisional_facts = candidate.get('provisional_facts') or candidate.get('facts') or {} %}
 	      {% set candidate_price_text = candidate.get('price_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('costs_display') or candidate.get('rent_display') or candidate_facts.get('price_display') or candidate_facts.get('rent_display') or candidate_facts.get('price') or candidate_facts.get('rent') or provisional_facts.get('price_display') or provisional_facts.get('rent_display') or provisional_facts.get('price') or provisional_facts.get('rent') or '') %}
@@ -118,8 +120,19 @@
       {% set visual_delivery_note = walkthrough.get('status_detail') %}
       {% endif %}
       <span class="pqx-result-main">
-        <span class="pqx-result-media{% if not primary_preview_url %} no-thumb{% endif %}">
-          {% if primary_preview_url %}
+        <span class="pqx-result-media{% if not primary_preview_url and not is_shortlist_surface %} no-thumb{% endif %}{% if is_shortlist_surface %} has-diorama{% endif %}">
+          {% if is_shortlist_surface %}
+          <span class="pqx-result-diorama{% if not (diorama_preview_url or primary_preview_url) %} is-placeholder{% endif %}" data-pqx-shortlist-diorama>
+            {% if diorama_preview_url or primary_preview_url %}
+            <img src="{{ diorama_preview_url or primary_preview_url }}" alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async" fetchpriority="{{ 'high' if loop.first else 'low' }}">
+            {% else %}
+            <span class="pqx-result-diorama-room room-main"></span>
+            <span class="pqx-result-diorama-room room-side"></span>
+            <span class="pqx-result-diorama-room room-terrace"></span>
+            {% endif %}
+            <span class="pqx-result-diorama-label">Preview</span>
+          </span>
+          {% elif primary_preview_url %}
           <span class="pqx-thumb">
             <button
               class="pqx-thumb-link pqx-thumb-atlas-button"

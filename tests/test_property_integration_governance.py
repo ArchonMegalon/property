@@ -25,6 +25,7 @@ def test_property_integration_governance_covers_recommended_ltd_lanes(monkeypatc
         "approvethis",
         "unmixr",
         "brilliant_directories",
+        "sendr",
         "deftform",
     } <= set(lanes)
     assert lanes["metasurvey"].priority == 1
@@ -47,6 +48,8 @@ def test_property_integration_governance_keeps_propertyquarry_canonical() -> Non
     assert "not live storage" in forbidden_text
     assert "cannot replace propertyquarry policy" in forbidden_text
     assert "cannot own property facts" in forbidden_text
+    assert "cannot own listing truth" in forbidden_text
+    assert "direct send" in forbidden_text
 
 
 def test_property_integration_governance_privacy_defaults_fail_closed() -> None:
@@ -59,6 +62,9 @@ def test_property_integration_governance_privacy_defaults_fail_closed() -> None:
     assert all("raw_provider_payload" in lane.forbidden_inputs for lane in lanes)
     assert "unredacted_private_document" in set(next(lane for lane in lanes if lane.provider_key == "paperguide").forbidden_inputs)
     assert "unencrypted_database_dump" in set(next(lane for lane in lanes if lane.provider_key == "internxt").forbidden_inputs)
+    sendr = next(lane for lane in lanes if lane.provider_key == "sendr")
+    assert "private_user_profile" in set(sendr.forbidden_inputs)
+    assert "human_review" in set(sendr.verification_required)
 
 
 def test_property_integration_governance_rows_are_sorted_by_priority(monkeypatch) -> None:

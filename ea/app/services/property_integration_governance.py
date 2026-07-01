@@ -255,6 +255,73 @@ def property_integration_governance_lanes() -> tuple[PropertyIntegrationLane, ..
             fail_closed_rule="Directory output remains unpublished until public-field rights and human approval are recorded.",
         ),
         PropertyIntegrationLane(
+            provider_key="sendr",
+            title="Sendr",
+            priority=6,
+            product_lane="governed_outbound_growth_and_partner_development",
+            rollout_state="outreach_lane_disabled",
+            allowed_use=(
+                "Approved B2B outreach, relocation-partner pilots, buyer-scout demos, city-guide promotion, "
+                "and partner-development sequences after PropertyQuarry campaign packets pass policy and human review."
+            ),
+            forbidden_use=(
+                "Cannot own listing truth, ranking truth, market-price truth, investment suitability, legal conclusions, "
+                "neighbourhood truth, tour truth, billing entitlement, user preference truth, private user profile data, "
+                "publication approval, direct send, auto-reply, or WhatsApp outreach by default."
+            ),
+            source_of_truth=(
+                "PropertyQuarry owns listing snapshots, ranking, research packets, pricing, campaign policy, "
+                "recipient-basis checks, suppression state, and human review."
+            ),
+            allowed_inputs=(
+                "approved_product_brief",
+                "approved_demo_packet",
+                "synthetic_property_dossier",
+                "public_business_contact",
+                "prior_relationship_contact",
+                "inbound_lead",
+                "opt_in_contact",
+            ),
+            forbidden_inputs=_COMMON_FORBIDDEN_INPUTS
+            + (
+                "private_user_profile",
+                "private_saved_search",
+                "private_commute_destination",
+                "ranking_truth",
+                "investment_recommendation",
+                "legal_conclusion",
+                "protected_class_targeting",
+                "direct_publish",
+                "auto_reply",
+            ),
+            allowed_data_classes=(
+                "campaign_packet",
+                "campaign_receipt",
+                "engagement_event",
+                "suppression_event",
+                "draft_reply_candidate",
+            ),
+            exact_address_allowed=False,
+            private_documents_allowed=False,
+            enabled_env=("PROPERTYQUARRY_SENDR_ENABLED", "PROPERTYQUARRY_SENDR_API_ENABLED"),
+            kill_switch_env=("PROPERTYQUARRY_SENDR_DISABLED",),
+            verification_required=(
+                "provider_verification",
+                "campaign_packet",
+                "recipient_basis",
+                "suppression_sync",
+                "claim_validation",
+                "fair_housing_boundary",
+                "financial_legal_boundary",
+                "human_review",
+                "reply_ingest",
+            ),
+            fail_closed_rule=(
+                "Sendr may draft and sequence only approved campaign-safe projections; no send, reply action, "
+                "or PropertyQuarry mutation is allowed without local policy receipts and human approval."
+            ),
+        ),
+        PropertyIntegrationLane(
             provider_key="deftform",
             title="Deftform",
             priority=6,

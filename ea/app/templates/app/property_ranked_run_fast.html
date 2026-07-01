@@ -75,15 +75,25 @@
     background: rgba(39, 107, 83, 0.1);
     color: var(--good);
   }
-  .pq-fast-status {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-  }
-  .pq-fast-spinner {
-    width: 16px;
-    height: 16px;
+	  .pq-fast-status {
+	    display: flex;
+	    flex-wrap: wrap;
+	    gap: 8px;
+	    align-items: center;
+	  }
+	  .pq-fast-loading-more {
+	    display: flex;
+	    align-items: center;
+	    gap: 10px;
+	    padding: 14px;
+	  }
+	  .pq-fast-loading-more strong {
+	    display: block;
+	    line-height: 1.2;
+	  }
+	  .pq-fast-spinner {
+	    width: 16px;
+	    height: 16px;
     border: 2px solid rgba(95, 103, 97, 0.22);
     border-top-color: var(--text);
     border-radius: 999px;
@@ -230,8 +240,8 @@
     </div>
   </section>
 
-  <section class="pq-fast-list" data-pq-fast-list aria-label="Ranked homes">
-    {% for _ in range(3) %}
+	  <section class="pq-fast-list" data-pq-fast-list aria-label="Ranked homes">
+	    {% for _ in range(3) %}
     <article class="pq-fast-row pq-fast-skeleton" aria-hidden="true">
       <div style="display:grid; gap:10px;">
         <div class="pq-fast-skeleton-line long"></div>
@@ -241,7 +251,8 @@
       <div class="pq-fast-skeleton-line short" style="width:48px;"></div>
     </article>
     {% endfor %}
-  </section>
+	  </section>
+	  <script type="application/json" data-pq-fast-initial-payload>{{ (initial_run_payload or {})|tojson }}</script>
 
   <noscript>
     <section class="pq-fast-card pq-fast-empty">
@@ -264,8 +275,9 @@
   const statusCard = root.querySelector('[data-pq-fast-status-card]');
   const statusTitle = root.querySelector('[data-pq-fast-status-title]');
   const statusDetail = root.querySelector('[data-pq-fast-status-detail]');
-  const subtitle = root.querySelector('[data-pq-fast-subtitle]');
-  if (!statusUrl || !list) return;
+	  const subtitle = root.querySelector('[data-pq-fast-subtitle]');
+	  const initialPayloadNode = root.querySelector('[data-pq-fast-initial-payload]');
+	  if (!statusUrl || !list) return;
 
   const terminalStatuses = new Set(['processed', 'completed', 'completed_partial', 'failed', 'noop', 'cancelled']);
   let settled = false;
@@ -379,9 +391,33 @@
     if (listings) parts.push(`${listings} checked`);
     return { status, detail: parts.join(' · ') };
   };
-  const renderCandidates = (payload, candidates) => {
-    clear(list);
-    candidates.forEach((candidate, index) => {
+	  const isTerminalPayload = (payload) => {
+	    const summary = payload && typeof payload.summary === 'object' && payload.summary ? payload.summary : {};
+	    return terminalStatuses.has(text(payload && (payload.status || summary.status), '').toLowerCase());
+	  };
+	  const appendLoadingMore = (payload, candidates) => {
+	    const copy = statusCopy(payload, candidates);
+	    const section = document.createElement('section');
+	    section.className = 'pq-fast-card pq-fast-loading-more';
+	    section.setAttribute('aria-live', 'polite');
+	    const spinner = document.createElement('span');
+	    spinner.className = 'pq-fast-spinner';
+	    spinner.setAttribute('aria-hidden', 'true');
+	    const message = document.createElement('div');
+	    const title = document.createElement('strong');
+	    title.textContent = 'Checking more homes';
+	    const detail = document.createElement('span');
+	    detail.className = 'pq-fast-muted';
+	    detail.textContent = copy.detail || 'More results may appear here.';
+	    message.appendChild(title);
+	    message.appendChild(detail);
+	    section.appendChild(spinner);
+	    section.appendChild(message);
+	    list.appendChild(section);
+	  };
+	  const renderCandidates = (payload, candidates) => {
+	    clear(list);
+	    candidates.forEach((candidate, index) => {
       const article = document.createElement('article');
       article.className = 'pq-fast-row';
 
@@ -439,14 +475,18 @@
 
       article.appendChild(copy);
       article.appendChild(score);
-      list.appendChild(article);
-    });
-    const copy = statusCopy(payload, candidates);
-    if (statusTitle) statusTitle.textContent = `${candidates.length} ranked ${candidates.length === 1 ? 'home' : 'homes'}`;
-    if (statusDetail) statusDetail.textContent = copy.detail || copy.status;
-    if (subtitle) subtitle.textContent = 'Results are ready. Open a property or switch to the full view when you need the complete workspace.';
-    if (statusCard) statusCard.setAttribute('aria-busy', 'false');
-  };
+	      list.appendChild(article);
+	    });
+	    const copy = statusCopy(payload, candidates);
+	    const terminal = isTerminalPayload(payload);
+	    if (!terminal) appendLoadingMore(payload, candidates);
+	    if (statusTitle) statusTitle.textContent = `${candidates.length} ranked ${candidates.length === 1 ? 'home' : 'homes'}`;
+	    if (statusDetail) statusDetail.textContent = terminal ? (copy.detail || copy.status) : 'More homes are still being checked.';
+	    if (subtitle) subtitle.textContent = terminal
+	      ? 'Results are ready. Open a property or switch to the full view when you need the complete workspace.'
+	      : 'The first ranked homes are ready. More can still appear below.';
+	    if (statusCard) statusCard.setAttribute('aria-busy', terminal ? 'false' : 'true');
+	  };
   const renderEmpty = (payload, retry = false) => {
     clear(list);
     const section = document.createElement('section');
@@ -479,14 +519,14 @@
     if (statusDetail) statusDetail.textContent = status ? status.replace(/_/g, ' ') : 'Open the full view for details.';
     if (statusCard) statusCard.setAttribute('aria-busy', 'false');
   };
-  const loadOnce = async () => {
-    if (statusCard) statusCard.setAttribute('aria-busy', 'true');
-    if (statusTitle) statusTitle.textContent = 'Loading ranked homes';
-    if (statusDetail) statusDetail.textContent = 'Usually a few seconds.';
-    const controller = new AbortController();
-    const slowTimer = window.setTimeout(() => {
-      if (!settled && statusDetail) statusDetail.textContent = 'Still loading. The page remains usable.';
-    }, 3500);
+	  const loadOnce = async () => {
+	    if (statusCard) statusCard.setAttribute('aria-busy', 'true');
+	    if (statusTitle && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusTitle.textContent = 'Loading ranked homes';
+	    if (statusDetail && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusDetail.textContent = 'Usually a few seconds.';
+	    const controller = new AbortController();
+	    const slowTimer = window.setTimeout(() => {
+	      if (!settled && statusDetail) statusDetail.textContent = 'Still checking for ranked homes.';
+	    }, 3500);
     const abortTimer = window.setTimeout(() => controller.abort(), 18000);
     try {
       const response = await fetch(statusUrl, {
@@ -501,10 +541,14 @@
       settled = true;
       window.clearTimeout(slowTimer);
       window.clearTimeout(abortTimer);
-      if (candidates.length) {
-        renderCandidates(payload, candidates);
-        return;
-      }
+	      if (candidates.length) {
+	        renderCandidates(payload, candidates);
+	        if (!isTerminalPayload(payload) && pollCount < 12) {
+	          pollCount += 1;
+	          window.setTimeout(loadOnce, 5000);
+	        }
+	        return;
+	      }
       const status = text(payload.status || (payload.summary && payload.summary.status), '');
       if (status && !terminalStatuses.has(status) && pollCount < 12) {
         pollCount += 1;
@@ -520,9 +564,19 @@
       window.clearTimeout(abortTimer);
       renderEmpty(null, true);
     }
-  };
+	  };
 
-  loadOnce();
-})();
+	  try {
+	    const initialPayload = initialPayloadNode ? JSON.parse(initialPayloadNode.textContent || '{}') : {};
+	    const initialCandidates = collectRanked(initialPayload);
+	    if (initialCandidates.length) {
+	      settled = true;
+	      renderCandidates(initialPayload, initialCandidates);
+	    }
+	  } catch (_error) {
+	    // Keep the skeleton and fall through to the normal status request.
+	  }
+	  loadOnce();
+	})();
 </script>
 {% endblock %}

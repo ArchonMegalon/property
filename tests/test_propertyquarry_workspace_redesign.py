@@ -2888,7 +2888,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "Could not load property search status." not in visible_message
-    assert "29 providers · 179 homes reviewed" in visible_message
+    assert "Reviewing homes. 179 checked so far." in visible_message
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
         response.text,
@@ -2897,12 +2897,15 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
     assert "Could not load property search status." not in visible_source
-    assert "29 providers · 179 homes reviewed" in visible_source
+    assert "179 homes reviewed" in visible_source
+    assert "29 providers" in visible_source
+    assert "Found" in visible_source
+    assert "Reviewed" in visible_source
     reliability_match = re.search(r'<div class="pqx-reliability-strip"[^>]*>(?P<reliability>.*?)</div>\s*</div>', response.text, re.S)
     assert reliability_match
     visible_reliability = html.unescape(re.sub(r"<[^>]+>", " ", reliability_match.group("reliability")))
     assert "Could not load property search status." not in visible_reliability
-    assert "29 providers · 179 homes reviewed" in visible_reliability
+    assert "179 homes reviewed" in visible_reliability
 
 
 def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(monkeypatch) -> None:
@@ -2937,7 +2940,7 @@ def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "Now: RE/MAX Austria · 1 / 1 · 29 providers · 102 homes reviewed" in visible_message
+    assert "Now: RE/MAX Austria · 1 / 1 · 102 homes reviewed" in visible_message
 
 
 def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_raw_status_noise(monkeypatch) -> None:
@@ -2983,6 +2986,8 @@ def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_ra
     assert "Search in progress" in rendered_html
     assert "homes checked so far" in rendered_html
     assert "179 homes reviewed" in rendered_html
+    assert "Found" in rendered_html
+    assert "Reviewed" in rendered_html
     assert "Altbau near U6" not in rendered_html
     assert "Leading right now. Can still change before the search finishes." not in rendered_html
     assert "Could not load property search status." not in rendered_html
@@ -3714,9 +3719,12 @@ def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint()
     assert response.status_code == 200
     assert 'data-pq-fast-ranked-run' in response.text
     assert 'data-status-url="/app/api/signals/property/search/run/run-fast-42?lightweight=1"' in response.text
+    assert "data-pq-fast-initial-payload" in response.text
     assert 'href="/app/shortlist?run_id=run-fast-42&amp;full=1#results-list"' in response.text
     assert "Loading ranked homes" in response.text
     assert "Usually a few seconds." in response.text
+    assert "Checking more homes" in response.text
+    assert "The page remains usable" not in response.text
     assert "property_decision_workbench" not in response.text
     assert "data-property-decision-workbench" not in response.text
 
@@ -5024,8 +5032,8 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     )
 
     assert snapshot["status_label"] == "Running"
-    assert snapshot["status_note"] == "Now: RE/MAX Austria · 1 / 1 · 29 providers · 102 homes reviewed"
-    assert snapshot["message"] == "Now: RE/MAX Austria · 1 / 1 · 29 providers · 102 homes reviewed"
+    assert snapshot["status_note"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes reviewed"
+    assert snapshot["message"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes reviewed"
 
 
 def test_property_surface_state_builds_filtered_total_from_summary_components() -> None:
@@ -8961,7 +8969,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "28 providers · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "25 homes reviewed · Willhaben · 25 / 60"
     assert "156 scans" not in snapshot["summary_label"]
     assert snapshot["phase_label"] == "Playground: Sigmund-Freud-Park playground is 830 m away. Limit 400 m."
     assert snapshot["source_count_label"] == "25 / 60"
@@ -13295,7 +13303,8 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "estimateRunEtaLabel" in script_body
     assert "formatEta" in script_body
     assert "displayRunMessage" in script_body
-    assert "providerLabel = providers > 0 ? `${providers} provider checks` : 'selected providers'" in script_body
+    assert "Found ${found} homes. Reviews are starting." in script_body
+    assert "Reviewing homes. ${reviewed} checked so far." in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body
     run_visible_branch = body.split("{% elif run_visible %}", 1)[1].split("{% elif run_terminal_no_results %}", 1)[0]
@@ -13895,7 +13904,9 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'data-pqx-progress-eta' in live.text
     assert "42% · about 6 min" in live.text
     assert "20 of 117 provider checks" in live.text
-    assert "179 homes reviewed · 29 providers" in live.text
+    assert "179 homes reviewed" in live.text
+    assert "29 providers" in live.text
+    assert 'class="pqx-live-review-bars"' in live.text
     assert "searches running" not in live.text
     assert 'class="pqx-source-progress"' in live.text
     assert 'class="pqx-source-list"' in live.text

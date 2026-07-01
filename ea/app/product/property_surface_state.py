@@ -700,20 +700,20 @@ def property_run_event_is_internal_noise(event: dict[str, object]) -> bool:
 
 def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
     reviewed = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
+    found = _positive_int(summary.get("raw_listing_total"))
     provider_total = _positive_int(
         summary.get("provider_total")
         or summary.get("source_variant_total")
         or summary.get("sources_total")
     )
-    provider_label = (
-        f"{provider_total} provider check{'s' if provider_total != 1 else ''}"
-        if provider_total > 0
-        else "provider checks"
-    )
+    if found > 0 and reviewed > 0 and found != reviewed:
+        return f"Found {found} homes; {reviewed} reviewed so far."
     if reviewed > 0:
-        return f"Checking {provider_label} · {reviewed} homes reviewed."
+        return f"Reviewing homes. {reviewed} checked so far."
+    if found > 0:
+        return f"Found {found} homes. Reviews are starting."
     if provider_total > 0:
-        return f"Preparing {provider_label}."
+        return "Preparing providers."
     return "Preparing provider checks."
 
 
@@ -1735,13 +1735,20 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     provider_display_total = _property_run_provider_display_total(payload, summary)
     source_variant_total = _positive_int(summary.get("source_variant_total"), default=sources_total)
     reviewed_total = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
-    checked_label = f"{reviewed_total} homes reviewed" if reviewed_total > 0 else "checking"
+    found_total = _positive_int(summary.get("raw_listing_total"))
+    checked_label = (
+        f"{reviewed_total} homes reviewed"
+        if reviewed_total > 0
+        else (f"{found_total} homes found" if found_total > 0 else "checking")
+    )
     source_progress_label = (
         f"{completed_sources} of {source_variant_total} provider checks"
         if source_variant_total > provider_display_total and completed_sources > 0
         else ""
     )
-    scan_label = source_progress_label or (f"{provider_display_total} providers · {checked_label}" if provider_display_total > 0 else checked_label)
+    scan_label = checked_label if reviewed_total > 0 or found_total > 0 else (
+        f"{provider_display_total} providers selected" if provider_display_total > 0 else checked_label
+    )
     no_floorplans = _positive_int(summary.get("filtered_floorplan_total"))
     current_step = str(payload.get("current_step") or "").strip().lower()
     packet_prepared = _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total"))
@@ -1781,9 +1788,13 @@ def build_property_run_live_board_snapshot(
     message_text = str(payload.get("message") or "").strip().lower()
 
     aggregate_label = (
-        f"{reviewed_total} homes reviewed"
-        if reviewed_total > 0
-        else (f"{found_total} homes found" if found_total > 0 else "checking")
+        f"{found_total} homes found; {reviewed_total} reviewed"
+        if found_total > 0 and reviewed_total > 0 and found_total != reviewed_total
+        else (
+            f"{reviewed_total} homes reviewed"
+            if reviewed_total > 0
+            else (f"{found_total} homes found" if found_total > 0 else "checking")
+        )
     )
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} still waiting on floorplans"
@@ -1948,9 +1959,9 @@ def build_property_run_live_board_snapshot(
     else:
         source_count_label = live_info.get("fraction_label") or ("waiting for provider checks" if source_total == 0 else f"0/{source_total} provider checks")
     summary_label = (
-        f"{scan_total_label} · {provider_label} · {live_info.get('fraction_label')}"
-        if scan_total_label and provider_full_label and live_info.get("fraction_label")
-        else (f"{scan_total_label} · {aggregate_label}" if scan_total_label else aggregate_label)
+        f"{aggregate_label} · {provider_label} · {live_info.get('fraction_label')}"
+        if aggregate_label != "checking" and provider_full_label and live_info.get("fraction_label")
+        else (aggregate_label if aggregate_label != "checking" else (scan_total_label or aggregate_label))
     )
     return PropertyRunLiveBoardSnapshot(
         provider_label=provider_label,

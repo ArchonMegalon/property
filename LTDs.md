@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-06-29
+Updated: 2026-07-01
 
 ## Workspace Integration Tier Guide
 
@@ -73,6 +73,7 @@ Updated: 2026-06-29
 | `Prompt Architects` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | `PROMPTING_SYSTEMS_API_KEY` in local `.env`; governed Prompt Foundry Accelerator is integrated for template seed/operator assist | AppSumo Tier 4 capture is confirmed for 20 team members, 20,000 prompts/month, unlimited prompt history/context, JSON/image/video prompt support, Chrome/sidebar/hotkeys, template tags, refine/shorten modes, and claimed MCP. Runtime GM assist remains disabled until API/MCP automation, export semantics, retention, and tenant isolation are verified. |
 | `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for newsroom thumbnail, poster, and contact-sheet adapter work when wired. |
 | `Signitic` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 4 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
+| `Sendr` | `License Tier 4` | `1 lifetime license` | `Owned / activated` |  | `Tier 4` | PropertyQuarry governed outbound-growth lane, campaign-packet policy, local receipts, and disabled-by-default env contract | Acquired for governed PropertyQuarry B2B and lead-development outreach: relocation-partner outreach, buyer-agent/scout outreach, demo booking, city-guide promotion, premium-research pilot invitations, partner campaigns, personalized landing pages, and approved video/audio intros. Sendr may enrich and sequence approved business outreach only. It must not own listing truth, ranking truth, market-price truth, investment suitability, legal conclusions, neighbourhood truth, tour truth, billing entitlement, user preference truth, or publication approval. Raw provider payloads, portal credentials, private user profiles, saved searches, payment data, seller/private agent details, and sensitive personal data are forbidden. Direct send, WhatsApp, auto-reply, and high-volume enrollment remain disabled until recipient-basis, suppression, fair-housing, financial/legal-language, message-copy, and human-approval receipts pass. |
 | `Subscribr` | `License Tier 7 / Scale 3` | `1 lifetime license` | `Owned / activated` |  | `Tier 4` | PropertyQuarry source-packet, validation, local receipt, disabled-by-default API, and webhook contracts | Acquired as PropertyQuarry governed video-script and content pre-production infrastructure. Tier 7 is allocated to product tutorials, renter/buyer education, cited city and relocation guides, approved listing-dossier summaries, tour narration, viewing-question scripts, titles, descriptions, shot lists, and thumbnail candidates. Subscribr must not own listing truth, ranking truth, research truth, market-price truth, investment suitability, legal conclusions, tour truth, billing, entitlement, publication approval, or direct publishing. Raw provider payloads, portal credentials, private preference profiles, private feedback, payment data, and seller contact details are forbidden. Promote only after live provider/API verification, channel mapping, signed webhook proof, Markdown export receipt, listing-freshness validation, privacy/fair-housing gates, media-rights checks, and human approval enforcement pass. |
 | `Syllabbles` | `Max tier` | `1 account` | `Activated` |  | `Tier 2` | Local `.env` credentials plus dispatch-draft adapter, template, and dry-run tests | Use as a Black Ledger Dispatch draft workbench only. Drafts stay non-authoritative until Chummer gates and publishes them. |
 | `blipai.app` | `Max tier` | `1 account` | `Owned` |  | `Tier 2` | Local `.env` credentials/token plus operator-capture packet transform and tests | Use for operator voice capture, prompt capture, and audit-note capture. Never publish directly from this lane. |
@@ -82,7 +83,7 @@ Updated: 2026-06-29
 
 ## Summary
 
-- `56` total LTD products tracked
+- `57` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -143,6 +144,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Rafter` | `<account-email-redacted>` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Highest tier / License Tier 3 was reported by the user. Fleet provider verification and security/proof gate now pass; see `fleet/_completion/rafter/RAFTER_PROVIDER_VERIFICATION.generated.json` and `fleet/_completion/rafter/RAFTER_SECURITY_GOLD_GATE.generated.json`. |
 | `PeekShot` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `Signitic` | `<account-email-redacted>` | `manual_seeded` | `local_env` | 2026-04-20T00:00:00Z | Tier 4 and account email were seeded manually; local credentials now exist and structured verification is still pending. |
+| `Sendr` |  | `manual_seeded` | `user_report + local_contract` | 2026-07-01T00:00:00Z | Tier 4 reported. PropertyQuarry now has a disabled-by-default outbound-governance lane, campaign-packet validation, receipt materialization, and release-gate tests. API/login verification, suppression-sync proof, and first limited-pilot receipt remain pending. |
 | `Syllabbles` | `<account-email-redacted>` | `manual_seeded` | `local_env` | 2026-05-14T00:00:00Z | Tier 3 and shared credentials were seeded manually for the Black Ledger dispatch draft lane; structured verification and any BrowserAct capture are still pending. |
 | `blipai.app` | `<account-email-redacted>` | `manual_seeded` | `local_env` | 2026-05-14T00:00:00Z | Shared credentials are now seeded locally; plan/tier and structured verification are still pending. |
 | `Teable` | <account-email-redacted> | `complete` | `browseract_live` | 2026-03-07T00:01:00Z | Plan/Tier: License Tier 4; Status: activated |
