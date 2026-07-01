@@ -2439,7 +2439,7 @@
         const distance = Number(facts[distanceKey] || 0);
         if (!Number.isFinite(distance) || distance <= 0) return;
         const rawName = String(facts[nameKey] || '').trim();
-        const placeName = rawName || `Nearest confirmed ${String(label || 'place').toLowerCase()}`;
+        const placeName = rawName || `Nearest ${String(label || 'place').toLowerCase()}`;
         previews.push({
           label,
           title: placeName,

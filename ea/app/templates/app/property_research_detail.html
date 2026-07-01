@@ -3320,14 +3320,14 @@
       <details class="prd-band prd-mobile-secondary" open data-prd-mobile-secondary="confirmed">
         <summary>
           <span class="prd-mobile-secondary-toggle">
-            <span class="prd-kicker">Confirmed facts</span>
-            <strong>What we confirmed</strong>
+            <span class="prd-kicker">Listing facts</span>
+            <strong>What the listing says</strong>
           </span>
           <span class="prd-tag">{{ research_score_rows[:5]|length }} item{% if research_score_rows[:5]|length != 1 %}s{% endif %}</span>
         </summary>
         <div class="prd-collapse-body">
-          <div class="prd-kicker">Confirmed facts</div>
-          <h2 class="prd-section-title">What we confirmed</h2>
+          <div class="prd-kicker">Listing facts</div>
+          <h2 class="prd-section-title">What the listing says</h2>
           <div class="object-list">
             {% for row in research_score_rows[:5] %}
             <div class="prd-row">

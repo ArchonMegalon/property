@@ -898,7 +898,7 @@ def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str,
         if raw_value in (None, "", []):
             continue
         if isinstance(raw_value, bool):
-            value = "Confirmed" if raw_value else "Not confirmed"
+            value = "Yes" if raw_value else "No"
         elif isinstance(raw_value, (int, float)) and key.endswith("_m"):
             value = f"{int(raw_value)} m"
         else:
@@ -1007,8 +1007,8 @@ def _property_packet_evidence_overlay_rows(
         article_url = str(overlay.get("article_url") or "").strip()
         rows.append(
             _object_detail_row(
-                str(overlay.get("title") or "Area evidence").strip(),
-                str(overlay.get("detail") or "No cached evidence overlay is available yet.").strip(),
+                str(overlay.get("title") or "Area layer").strip(),
+                str(overlay.get("detail") or "No area layer is available yet.").strip(),
                 str(overlay.get("tag") or "Unavailable").strip(),
                 href=article_url or source_url,
             )
@@ -1034,7 +1034,7 @@ def _property_packet_score_rows(
             _object_detail_row(
                 "Location fit",
                 fact_address,
-                "Confirmed" if "location" in confirmed_fields else ("Strong" if fits_location else "Check"),
+                "Listed" if "location" in confirmed_fields else ("Strong" if fits_location else "Check"),
             )
         )
     price_value = str(
@@ -1045,7 +1045,7 @@ def _property_packet_score_rows(
         or ""
     ).strip()
     if price_value:
-        rows.append(_object_detail_row("Budget signal", price_value, "Confirmed" if "price" in confirmed_fields else "Budget"))
+        rows.append(_object_detail_row("Budget signal", price_value, "Listed" if "price" in confirmed_fields else "Budget"))
     area_value = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
     rooms_value = _property_rooms_display(facts)
     if area_value or rooms_value:
@@ -1055,13 +1055,13 @@ def _property_packet_score_rows(
                 f"{area_value} m2" if area_value else "",
             ) if part
         )
-        rows.append(_object_detail_row("Layout signal", detail, "Confirmed" if {"area", "rooms"} & confirmed_fields else "Layout"))
+        rows.append(_object_detail_row("Layout signal", detail, "Listed" if {"area", "rooms"} & confirmed_fields else "Layout"))
     if confirmed_fields:
         rows.append(
             _object_detail_row(
-                str(confirmation.get("label") or "Listing facts confirmed"),
-                str(confirmation.get("summary") or "Provider facts confirmed the displayed details automatically."),
-                "Confirmed",
+                str(confirmation.get("label") or "Listing facts"),
+                str(confirmation.get("summary") or "Core details were read from the listing automatically."),
+                "Listed",
             )
         )
     if match_reasons:
@@ -1087,27 +1087,27 @@ def _property_packet_missing_rows(
     def _open_check_detail(*, title: str, primary_key: str) -> str:
         normalized_key = str(primary_key or "").strip().lower()
         explicit = {
-            "address": "No exact address confirmed yet.",
+            "address": "Exact address is still missing.",
             "heating_type": "Heating type still missing.",
             "has_lift": "Lift status still missing.",
-            "nearest_supermarket_m": "No confirmed supermarket distance yet.",
-            "distance_supermarket_m": "No confirmed supermarket distance yet.",
-            "nearest_playground_m": "No confirmed playground distance yet.",
-            "distance_playground_m": "No confirmed playground distance yet.",
-            "nearest_library_m": "No confirmed library distance yet.",
-            "nearest_zoo_m": "No confirmed zoo distance yet.",
-            "nearest_pharmacy_m": "No confirmed pharmacy distance yet.",
-            "distance_pharmacy_m": "No confirmed pharmacy distance yet.",
-            "nearest_medical_care_m": "No confirmed doctor or hospital distance yet.",
-            "nearest_market_m": "No confirmed market distance yet.",
-            "nearest_hardware_store_m": "No confirmed Baumarkt distance yet.",
-            "nearest_shopping_center_m": "No confirmed shopping-center distance yet.",
-            "nearest_shopping_street_m": "No confirmed promenade distance yet.",
-            "nearest_theatre_m": "No confirmed theatre distance yet.",
-            "nearest_public_pool_m": "No confirmed public-pool distance yet.",
-            "nearest_subway_m": "No confirmed underground distance yet.",
-            "nearest_transit_m": "No confirmed underground distance yet.",
-            "distance_underground_m": "No confirmed underground distance yet.",
+            "nearest_supermarket_m": "Supermarket distance still missing.",
+            "distance_supermarket_m": "Supermarket distance still missing.",
+            "nearest_playground_m": "Playground distance still missing.",
+            "distance_playground_m": "Playground distance still missing.",
+            "nearest_library_m": "Library distance still missing.",
+            "nearest_zoo_m": "Zoo distance still missing.",
+            "nearest_pharmacy_m": "Pharmacy distance still missing.",
+            "distance_pharmacy_m": "Pharmacy distance still missing.",
+            "nearest_medical_care_m": "Doctor or hospital distance still missing.",
+            "nearest_market_m": "Market distance still missing.",
+            "nearest_hardware_store_m": "Baumarkt distance still missing.",
+            "nearest_shopping_center_m": "Shopping-center distance still missing.",
+            "nearest_shopping_street_m": "Shopping-street distance still missing.",
+            "nearest_theatre_m": "Theatre distance still missing.",
+            "nearest_public_pool_m": "Public-pool distance still missing.",
+            "nearest_subway_m": "Underground distance still missing.",
+            "nearest_transit_m": "Transit distance still missing.",
+            "distance_underground_m": "Underground distance still missing.",
             "air_quality_risk": "Air-quality read still missing.",
             "crime_risk": "Safety read still missing.",
             "parking_pressure_risk": "Parking-pressure read still missing.",
@@ -1120,8 +1120,8 @@ def _property_packet_missing_rows(
             return explicit[normalized_key]
         normalized_title = str(title or "").strip().lower()
         if not normalized_title:
-            return "No confirmed evidence yet."
-        return f"No confirmed {normalized_title} yet."
+            return "Details still missing."
+        return f"{normalized_title.title()} still missing."
 
     def _has_any_fact_value(keys: str | tuple[str, ...]) -> bool:
         key_group = (keys,) if isinstance(keys, str) else tuple(keys)
@@ -1317,7 +1317,7 @@ def _property_research_distance_detail(
         return ""
     name = next((str(facts.get(key) or "").strip() for key in name_keys if str(facts.get(key) or "").strip()), "")
     source = next((str(facts.get(key) or "").strip() for key in source_keys if str(facts.get(key) or "").strip()), "")
-    subject = name or "nearest confirmed option"
+    subject = name or "nearest option"
     parts = [f"{subject}: {meters} m away"]
     if source:
         parts.append(f"source: {source}")
@@ -1856,30 +1856,30 @@ def _property_packet_risk_fit_rows(
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for flag, title, detail in (
-        ("air_quality_risk", "Air quality", "Pollution burden or respiratory comfort still need explicit validation."),
-        ("crime_risk", "Crime burden", "Quarter-level safety pattern still needs explicit validation."),
-        ("parking_pressure_risk", "Parking pressure", "Street-parking burden still needs explicit validation when no garage is included."),
-        ("drinking_water_risk", "Water quality", "Water source and groundwater burden still need explicit validation."),
-        ("cesspit_risk", "Senkgrube or septic", "Recurring cost, maintenance, and smell burden still need explicit validation."),
-        ("winter_access_risk", "Winter access", "Snow, slope, and seasonal driveability still need explicit validation."),
-        ("flood_risk", "Flood exposure", "Historic flooding, runoff, or zone risk still need explicit validation."),
+        ("air_quality_risk", "Air quality", "Pollution and respiratory comfort need a closer look."),
+        ("crime_risk", "Safety", "The local safety pattern needs a closer look."),
+        ("parking_pressure_risk", "Parking pressure", "Street parking needs a closer look when no garage is included."),
+        ("drinking_water_risk", "Water quality", "Water source and groundwater context need a closer look."),
+        ("cesspit_risk", "Senkgrube or septic", "Recurring cost, maintenance, and smell burden need a closer look."),
+        ("winter_access_risk", "Winter access", "Snow, slope, and seasonal driveability need a closer look."),
+        ("flood_risk", "Flood exposure", "Historic flooding, runoff, or zone risk need a closer look."),
     ):
         if bool(facts.get(flag)):
             rows.append(_object_detail_row(title, detail, "Risk"))
     if bool(preferences.get("prefer_good_air_quality")) and not bool(facts.get("air_quality_risk")):
-        rows.append(_object_detail_row("Air-quality check", "The brief explicitly asks for good air quality, so deep research should still verify the local burden.", "Research"))
+        rows.append(_object_detail_row("Air-quality check", "The brief asks for good air quality, so the local burden still needs a closer look.", "Research"))
     if bool(preferences.get("prefer_low_crime_area")) and not bool(facts.get("crime_risk")):
-        rows.append(_object_detail_row("Safety check", "The brief explicitly asks for a lower-crime area, so deep research should still verify the quarter pattern.", "Research"))
+        rows.append(_object_detail_row("Safety check", "The brief asks for a lower-crime area, so the quarter pattern still needs a closer look.", "Research"))
     if bool(preferences.get("require_parking_pressure_check")) and not bool(facts.get("garage")) and not bool(facts.get("parking_pressure_risk")):
-        rows.append(_object_detail_row("Parking check", "No garage is confirmed, so deep research should still verify evening street-parking reality.", "Research"))
+        rows.append(_object_detail_row("Parking check", "No garage is listed, so evening street parking still needs a closer look.", "Research"))
     if bool(preferences.get("require_drinking_water_quality_research")) and not bool(facts.get("drinking_water_risk")):
-        rows.append(_object_detail_row("Water-source check", "The brief explicitly asks for water-source and groundwater validation.", "Research"))
+        rows.append(_object_detail_row("Water-source check", "The brief asks for water-source and groundwater context.", "Research"))
     if bool(preferences.get("avoid_cesspit_or_septic_risk")) and not bool(facts.get("cesspit_risk")):
-        rows.append(_object_detail_row("Senkgrube check", "The brief explicitly asks to avoid Senkgrube or septic burden, so the infrastructure should be checked.", "Research"))
+        rows.append(_object_detail_row("Senkgrube check", "The brief asks to avoid Senkgrube or septic burden, so the infrastructure should be checked.", "Research"))
     if bool(preferences.get("require_winter_access_research")) and not bool(facts.get("winter_access_risk")):
-        rows.append(_object_detail_row("Winter-access check", "The brief explicitly asks for snow and slope driveability validation.", "Research"))
+        rows.append(_object_detail_row("Winter-access check", "The brief asks for snow and slope driveability context.", "Research"))
     if bool(preferences.get("avoid_flood_risk_area")) and not bool(facts.get("flood_risk")):
-        rows.append(_object_detail_row("Flood check", "The brief explicitly asks to avoid flood exposure, so runoff and flood-zone history should be checked.", "Research"))
+        rows.append(_object_detail_row("Flood check", "The brief asks to avoid flood exposure, so runoff and flood-zone history should be checked.", "Research"))
     return rows
 
 

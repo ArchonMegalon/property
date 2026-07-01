@@ -59,7 +59,7 @@
   {% if request.query_params.get('sync_status') == 'completed' %}
     {% set google_status_note = 'Google status refreshed.' %}
   {% elif request.query_params.get('verify_status') == 'completed' %}
-    {% set google_status_note = 'Google return path verified.' %}
+    {% set google_status_note = 'Google sign-in is ready.' %}
   {% elif request.query_params.get('email_link_status') == 'sent' %}
     {% set google_status_note = 'Google link sent.' %}
   {% elif request.query_params.get('account_status') %}

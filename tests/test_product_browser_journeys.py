@@ -280,7 +280,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
 
     research = client.get("/app/research", params={"run_id": "run-42"}, headers=property_headers)
     assert research.status_code == 200
-    assert "Inspect the evidence before you open the raw listing." in research.text
+    assert "Open the strongest property pages first." in research.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in research.text
     assert "https://propertyquarry.com/tours/auhofstrasse-14997053" in research.text
     research_listing_links = re.findall(r'href="([^"]+)"[^>]*>\s*Open listing\s*</a>', research.text)

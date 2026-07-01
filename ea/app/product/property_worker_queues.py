@@ -30,7 +30,7 @@ PROPERTY_WORKER_QUEUES: tuple[PropertyWorkerQueueSpec, ...] = (
     ),
     PropertyWorkerQueueSpec(
         key="official-evidence",
-        label="Official evidence",
+        label="Local context",
         purpose="Collect official/public evidence snapshots used by research and scoring.",
         max_attempts=2,
         timeout_seconds=180,

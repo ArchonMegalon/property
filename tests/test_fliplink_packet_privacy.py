@@ -428,7 +428,7 @@ def test_fliplink_pdf_appendix_mode_renders_compact_telegram_appendix(tmp_path: 
                 {
                     "section_key": "risk_register",
                     "title": "Risk Register",
-                    "body_markdown": "Operating-cost history is not yet available. Heating source is not confirmed in the current evidence set.",
+                    "body_markdown": "Operating-cost history is not yet available. Heating source is still missing.",
                     "bullets": ["Ask the agent for the last 24 months of operating-cost statements."],
                     "cta": "Ask the agent for the last 24 months of operating-cost statements.",
                     "claims_used": ["risk.operating_cost_history_missing", "risk.heating_source_unclear"],

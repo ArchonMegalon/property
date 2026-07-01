@@ -1863,14 +1863,14 @@ def property_workspace_payload(
                 }
             )
         for risk_key, label, detail in (
-            ("air_quality_risk", "Risk", "Air quality needs explicit verification for this micro-location."),
-            ("crime_risk", "Risk", "Crime and safety burden need explicit verification for this quarter."),
+            ("air_quality_risk", "Risk", "Air quality needs a closer look for this micro-location."),
+            ("crime_risk", "Risk", "Safety patterns need a closer look for this quarter."),
             ("parking_pressure_risk", "Risk", "Parking pressure still needs clarification if no garage is included."),
-            ("heat_resilience_risk", "Check", "Summer heat resilience needs verification for this home, including shade, cooling, and local cooling-corridor context."),
-            ("drinking_water_risk", "Risk", "Water source and groundwater burden still need verification."),
-            ("cesspit_risk", "Risk", "Senkgrube or septic burden still needs verification."),
-            ("winter_access_risk", "Risk", "Winter driving access still needs verification."),
-            ("flood_risk", "Risk", "Flood and runoff exposure still need verification."),
+            ("heat_resilience_risk", "Check", "Summer heat resilience needs a closer look for this home, including shade, cooling, and local cooling corridors."),
+            ("drinking_water_risk", "Risk", "Water source and groundwater burden need a closer look."),
+            ("cesspit_risk", "Risk", "Senkgrube or septic burden needs a closer look."),
+            ("winter_access_risk", "Risk", "Winter driving access needs a closer look."),
+            ("flood_risk", "Risk", "Flood and runoff exposure need a closer look."),
         ):
             if bool(facts.get(risk_key)):
                 rows.append({"label": label, "value": risk_key.replace("_", " ").title(), "detail": detail})
@@ -1909,13 +1909,13 @@ def property_workspace_payload(
                 }
             )
         for risk_key, title, detail in (
-            ("air_quality_risk", "Air quality", "Location-risk research should verify pollution burden and recurring exposure."),
-            ("crime_risk", "Crime burden", "Quarter-level safety pattern still needs verification."),
-            ("parking_pressure_risk", "Parking pressure", "Street-parking burden still needs verification where no garage is included."),
-            ("heat_resilience_risk", "Summer heat", "Check whether the home can stay cooler through longer heat periods using climate, floor, orientation, cooling, shade, facade-shading, and local cooling-corridor evidence."),
-            ("drinking_water_risk", "Water quality", "Drinking-water source and groundwater burden still need verification."),
-            ("cesspit_risk", "Senkgrube or septic", "Recurring cost, smell, or maintenance burden still need verification."),
-            ("winter_access_risk", "Winter access", "Snow, slope, and seasonal driveability still need verification."),
+            ("air_quality_risk", "Air quality", "Pollution burden and recurring exposure need a closer look."),
+            ("crime_risk", "Safety", "The quarter-level safety pattern needs a closer look."),
+            ("parking_pressure_risk", "Parking pressure", "Street-parking burden needs a closer look where no garage is included."),
+            ("heat_resilience_risk", "Summer heat", "Check whether the home can stay cooler through longer heat periods using climate, floor, orientation, cooling, shade, facade shading, and local cooling corridors."),
+            ("drinking_water_risk", "Water quality", "Drinking-water source and groundwater burden need a closer look."),
+            ("cesspit_risk", "Senkgrube or septic", "Recurring cost, smell, or maintenance burden need a closer look."),
+            ("winter_access_risk", "Winter access", "Snow, slope, and seasonal driveability need a closer look."),
             ("flood_risk", "Flood exposure", "Historic flooding and runoff exposure still need verification."),
         ):
             if bool(facts.get(risk_key)):
@@ -2933,7 +2933,7 @@ def property_workspace_payload(
         detail_sections = _candidate_detail_sections(facts)
         candidate_investment = dict(candidate.get("investment") or {}) if isinstance(candidate.get("investment"), dict) else {}
         investment_headline_fallback = (
-            "Underwriting is still building from the confirmed listing facts."
+            "Numbers are still being built from the listing."
             if effective_listing_mode == "buy"
             else ""
         )
@@ -3024,7 +3024,7 @@ def property_workspace_payload(
                 recent_change_rows=_candidate_recent_change_rows(candidate),
                 official_evidence_rows=[
                     {
-                        "title": str(row.get("label") or row.get("risk_key") or "Official evidence").strip(),
+                        "title": str(row.get("label") or row.get("risk_key") or "Local context").strip(),
                         "detail": " | ".join(
                             part
                             for part in (
@@ -3741,7 +3741,7 @@ def property_workspace_payload(
         research_rows.append(
             {
                 "title": title,
-                "detail": " | ".join(part for part in detail_parts if part) or "Open the property page to inspect the fit and missing evidence.",
+                "detail": " | ".join(part for part in detail_parts if part) or "Open the property page to review fit and open questions.",
                 "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Packet").strip() or "Packet",
                 "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
                 "action_method": "get",
@@ -3891,10 +3891,10 @@ def property_workspace_payload(
         },
         "research": {
             "title": "Research",
-            "summary": "Turn ranked candidates into property dossiers with evidence, property pages, and hosted follow-ups.",
+            "summary": "Turn ranked candidates into clean property pages with maps, 3D tours, and follow-ups.",
             "hero_kicker": "Research pages",
-            "hero_title": "Inspect the evidence before you open the raw listing.",
-            "hero_summary": "This page should feel like a property dossier: fit reasons, open details, property pages, and live tours where they exist.",
+            "hero_title": "Open the strongest property pages first.",
+            "hero_summary": "Fit, open details, maps, and tours where they exist.",
             "hero_actions": hero_actions["research"],
             "hero_highlights": hero_highlights["research"],
             "primary_cards": [

@@ -493,8 +493,8 @@ def _synthetic_candidate(*, saved_from_run_id: str = "") -> dict[str, object]:
             "operating_costs_status": "missing",
             "listing_fact_confirmation": {
                 "status": "confirmed",
-                "label": "Facts confirmed",
-                "summary": "4 listing facts confirmed automatically from provider evidence.",
+                "label": "Listing facts",
+                "summary": "4 listing facts read automatically from the listing.",
                 "fields": ["area", "location", "price", "rooms"],
                 "sources": {
                     "area": "provider_structured_fact",
@@ -771,8 +771,8 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "research_visual_cards_present", "ok": 'data-prd-visual-card="tour"' in body and 'data-prd-visual-card="walkthrough"' in body},
                 {"name": "research_visual_requests_honest", "ok": 'data-pw-visual-request="tour"' in body and 'data-pw-visual-request="flythrough"' in body and 'data-pw-visual-state="idle"' in body},
                 {"name": "research_no_fake_visual_ready", "ok": not unevidenced_visual_ready},
-                {"name": "research_confirmed_listing_facts", "ok": "Facts confirmed" in body and "confirmed automatically from provider evidence" in body},
-                {"name": "research_confirmed_price_signal", "ok": "Budget signal" in body and "EUR 1,290" in body},
+                {"name": "research_listing_facts", "ok": "Listing facts" in body and "read automatically from the listing" in body},
+                {"name": "research_listed_price_signal", "ok": "Budget signal" in body and "EUR 1,290" in body},
                 {
                     "name": "research_ranking_only_no_compare_cards",
                     "ok": "Performance smoke apartment in 1020 Vienna" in body and not compare_hits,

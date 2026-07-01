@@ -2233,23 +2233,23 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         if isinstance(parking_monthly, (int, float)) and parking_monthly > 0:
             rows.append(f"The garage space is optional but adds about {_money(parking_monthly, currency_code=display_currency_code)} per month.")
         if _fact_bool("air_quality_risk"):
-            rows.append("Air quality still needs explicit validation for pollution burden and respiratory comfort.")
+            rows.append("Air quality needs a closer look for pollution burden and respiratory comfort.")
         if _fact_bool("crime_risk"):
-            rows.append("Crime and safety burden still need explicit validation for this micro-location.")
+            rows.append("Safety patterns need a closer look for this micro-location.")
         if _fact_bool("parking_pressure_risk"):
-            rows.append("Parking pressure still needs clarification because no reliable garage fallback is confirmed.")
+            rows.append("Parking pressure needs a closer look because no garage fallback is listed.")
         if _fact_bool("drinking_water_risk"):
-            rows.append("Drinking-water source and groundwater burden still need explicit validation.")
+            rows.append("Drinking-water source and groundwater burden need a closer look.")
         if _fact_bool("cesspit_risk"):
-            rows.append("Senkgrube or septic dependence still needs explicit validation for cost and smell burden.")
+            rows.append("Senkgrube or septic dependence needs a closer look for cost and smell burden.")
         if _fact_bool("winter_access_risk"):
-            rows.append("Winter snow or slope access still needs explicit validation.")
+            rows.append("Winter snow or slope access needs a closer look.")
         if _fact_bool("flood_risk"):
-            rows.append("Flood and runoff exposure still need explicit validation.")
+            rows.append("Flood and runoff exposure need a closer look.")
         if not _fact_bool("has_floorplan") and not rows:
             rows.append("No floor plan is stored yet.")
         if not _fact_bool("lift") and not rows:
-            rows.append("Lift access is not confirmed.")
+            rows.append("Lift access is not listed.")
         return rows[:4]
 
     def _personalized_priority_rows() -> tuple[list[str], list[str], list[str]]:
@@ -2287,7 +2287,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 elif heating_value and avoided:
                     positive.append(f"{heating_value} avoids your excluded heating types.")
                 elif avoided:
-                    open_questions.append("The heating type should be confirmed against your exclusions.")
+                    open_questions.append("The heating type should be checked against your exclusions.")
             elif key in {"require_floorplan", "requires_floorplan_for_remote_review"}:
                 if has_floorplan:
                     positive.append("A floor plan is available, which supports your remote review workflow.")
@@ -2300,12 +2300,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 if has_lift:
                     positive.append("Lift access matches your stated preference.")
                 else:
-                    caution.append("Lift access is not confirmed, although you prefer it.")
+                    caution.append("Lift access is not listed, although you prefer it.")
             elif key == "prefer_balcony":
                 if has_balcony:
                     positive.append("Outdoor space is available, which matches your balcony or terrace preference.")
                 else:
-                    caution.append("Balcony or terrace space is not confirmed.")
+                    caution.append("Outdoor space is not listed.")
             elif "playground" in key:
                 if isinstance(nearest_playground, (int, float)) and nearest_playground > 0:
                     positive.append(f"The nearest playground is about {int(nearest_playground):d} m away.")
@@ -2371,7 +2371,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         if _fact_bool("lift"):
             rows.append(("Access", "Lift available"))
         elif "lift" in facts:
-            rows.append(("Access", "Lift not confirmed"))
+            rows.append(("Access", "Lift not listed"))
         return rows[:6]
 
     scene_data = []
@@ -2632,9 +2632,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             elif key in {"require_floorplan", "requires_floorplan_for_remote_review"}:
                 requirement_rows.append(("Floor plan", "Available" if has_floorplan else "Missing", "Match" if has_floorplan else "Unknown", "Remote layout review depends on this."))
             elif key == "prefer_lift":
-                requirement_rows.append(("Lift", "Present" if has_lift else "Not confirmed", "Match" if has_lift else "Unknown", "Building access preference."))
+                requirement_rows.append(("Lift", "Present" if has_lift else "Not listed", "Match" if has_lift else "Unknown", "Building access preference."))
             elif key == "prefer_balcony":
-                requirement_rows.append(("Outdoor space", "Present" if has_balcony else "Not confirmed", "Match" if has_balcony else "Unknown", "Balcony or terrace preference."))
+                requirement_rows.append(("Outdoor space", "Present" if has_balcony else "Not listed", "Match" if has_balcony else "Unknown", "Balcony or terrace preference."))
             elif "playground" in key:
                 playground_value = f"{int(nearest_playground):d} m" if isinstance(nearest_playground, (int, float)) and nearest_playground > 0 else "Unknown"
                 requirement_rows.append(("Playground access", playground_value, "Match" if playground_value != "Unknown" else "Unknown", "Family-fit proximity check."))
@@ -2643,7 +2643,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 [
                     ("Heating", _fact_text("heating", "heating_type") or "Unknown", "Conflict" if "gas" in _fact_text("heating", "heating_type").lower() else "Check", "Operating-cost and preference fit."),
                     ("Floor plan", "Available" if has_floorplan else "Missing", "Match" if has_floorplan else "Unknown", "Layout validation."),
-                    ("Lift", "Present" if has_lift else "Not confirmed", "Match" if has_lift else "Unknown", "Access convenience."),
+                    ("Lift", "Present" if has_lift else "Not listed", "Match" if has_lift else "Unknown", "Access convenience."),
                 ]
             )
         requirement_table = "".join(
@@ -2694,7 +2694,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             if _fact_value_is_weak(raw_value):
                 continue
             if isinstance(raw_value, bool):
-                value = "Confirmed" if raw_value else "Not confirmed"
+                value = "Yes" if raw_value else "No"
             elif isinstance(raw_value, (int, float)) and key.endswith("_m"):
                 value = f"about {int(raw_value)} m"
             else:
@@ -3347,7 +3347,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           <section id="tour" class="live-shell">
             <div class="eyebrow">{brand_html} <span>•</span> 3D tour</div>
             <h2>Inspect layout, light, and finish quality</h2>
-            <p class="sub">Use the original interactive 360 experience as evidence after reviewing the decision brief, not as the decision brief itself.</p>
+            <p class="sub">Use the original interactive 360 experience after the quick read, not instead of it.</p>
             {provider_actions_block}
             <div class="live-frame-wrap">
               <iframe
@@ -3370,14 +3370,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           {shortlist_panel}
           {ranking_read_panel}
           <section id="research" class="panel">
-            <div class="eyebrow">Research Log</div>
-            <h2>Confirmed, inferred, and open</h2>
+            <div class="eyebrow">Local context</div>
+            <h2>What we know and what is open</h2>
             <details class="research-card" open>
               <summary>Completed checks</summary>
               <p class="sub">{html.escape(completed_research_line) if completed_research_line else 'No completed enrichment checks are stored yet.'}</p>
             </details>
             <details class="research-card">
-              <summary>Facts and sources</summary>
+              <summary>Details</summary>
               <div class="evidence-stack" style="margin-top:12px;">{evidence_html}</div>
             </details>
             <details class="research-card">
@@ -5263,7 +5263,7 @@ def _tour_control_provider_layers(
             "label": "As listed",
             "src": str(default_src or "").strip(),
             "provider": "3D tour",
-            "disclosure": "Source tour. This is the evidence-grade visual baseline.",
+            "disclosure": "Original tour. This is the visual baseline.",
         }
     ]
     seen = {layers[0]["src"]}
@@ -5367,7 +5367,7 @@ def _tour_control_external_iframe_html(
         provider_badge = "3D Tour"
         video_provider = _tour_control_video_provider(payload)
         video_is_magicfit = video_provider == "magicfit"
-        video_label = "Walkthrough" if video_is_magicfit else "Video evidence"
+        video_label = "Walkthrough" if video_is_magicfit else "Video"
         video_provider_attr = html.escape(video_provider or "attached_media")
         video_walkthrough_attr = "true" if video_is_magicfit else "false"
         video_html = (
@@ -5398,7 +5398,7 @@ def _tour_control_external_iframe_html(
           </div>
           <div id="thumbs" class="thumbs"></div>"""
             if scene_data
-            else """<p class="empty">No local floorplan or photo evidence is attached to this provider control yet.</p>"""
+            else """<p class="empty">No local floorplan or photos are attached to this provider control yet.</p>"""
         )
         return f"""<!doctype html>
 <html lang="de">
@@ -5491,7 +5491,7 @@ def _tour_control_external_iframe_html(
           </div>
           <iframe src="{html.escape(iframe_src)}" class="provider-frame" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
         </section>
-        <aside class="panel evidence" aria-label="Visual evidence">
+        <aside class="panel evidence" aria-label="Tour details">
           <div>
             <h2>Tour details</h2>
             <p class="hint">3D tour, floorplan, and walkthrough stay together so the spatial check does not split across tabs.</p>

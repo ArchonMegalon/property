@@ -2379,7 +2379,7 @@ def _public_context(
     if not meta_description:
         meta_description = (
             "PropertyQuarry helps renters, buyers, and investors define a brief, rank the strongest homes, "
-            "open the dossier, and decide with evidence."
+            "open the property page, and decide with context."
         )
     og_title = str((extra or {}).get("og_title") or "").strip() or page_title
     og_description = str((extra or {}).get("og_description") or "").strip() or meta_description
@@ -3694,7 +3694,7 @@ def landing(
                 "doc_links": DOC_LINKS,
                 "plan_catalog": tuple(commercial.get("plan_catalog") or ()),
                 "example_shortlist": example_shortlist,
-                "meta_description": "PropertyQuarry helps renters, buyers, and investors define a brief, rank the strongest homes, open the dossier, and decide with evidence.",
+                "meta_description": "PropertyQuarry helps renters, buyers, and investors define a brief, rank the strongest homes, open the property page, and decide with context.",
                 "structured_data_json": [
                     {
                         "@context": "https://schema.org",
@@ -5251,7 +5251,7 @@ def property_research_packet(
         ),
         _object_detail_row("Main concern", _clean_property_candidate_copy(mismatch_reasons[0]), "Risk")
         if mismatch_reasons
-        else _object_detail_row("Main concern", "Some evidence is still missing, so this packet should be treated as a research view, not final diligence.", "Risk"),
+        else _object_detail_row("Main concern", "Some details are still missing, so treat this as a review page, not final diligence.", "Risk"),
         _object_detail_row("Next step", str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate", "Decision"),
     ]
     for item in _property_missing_fact_items(facts):
@@ -5631,8 +5631,8 @@ def property_research_packet(
     if packet_score_rows:
         research_sections.append(
             {
-                "eyebrow": "Confirmed facts",
-                "title": "What PropertyQuarry confirmed automatically",
+                "eyebrow": "Listing facts",
+                "title": "What the listing already tells us",
                 "items": packet_score_rows[:5],
             }
         )
@@ -5676,10 +5676,10 @@ def property_research_packet(
                 "items": decision_rows,
             },
             {
-                "eyebrow": "Evidence added",
-                "title": "What PropertyQuarry researched beyond the listing",
+                "eyebrow": "Local context",
+                "title": "Local details beyond the listing",
                 "items": (official_evidence_rows[:4] + official_posture_rows[:3] + future_research_rows[:3] + provenance_rows[:3])
-                or [_object_detail_row("No external evidence attached yet", "Broader research has not attached external datasets to this property yet.", "Pending")],
+                or [_object_detail_row("No local context attached yet", "Broader neighbourhood and public-data context is not attached to this property yet.", "Pending")],
             },
             {
                 "eyebrow": "Ask next",

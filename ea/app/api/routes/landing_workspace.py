@@ -1452,7 +1452,7 @@ def settings_outcomes_detail(
                 {"label": "Recovery", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What a healthy search shows",
-            object_sidebar_copy="A healthy PropertyQuarry loop returns ranked homes quickly, keeps hard filters explainable, preserves usable partial results, and makes missing evidence visible.",
+            object_sidebar_copy="A healthy PropertyQuarry loop returns ranked homes quickly, keeps hard filters explainable, preserves usable partial results, and keeps open details visible.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),

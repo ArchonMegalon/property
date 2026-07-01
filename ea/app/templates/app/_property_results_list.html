@@ -155,7 +155,7 @@
               {% endif %}
               {% if candidate.get('recovered_by_filter') %}<span class="pqx-result-fact recovered">Recovered</span>{% endif %}
               {% if candidate.get('listing_fact_confirmation', {}).get('status') == 'confirmed' %}
-              <span class="pqx-result-fact pqx-result-fact-confirmed" title="Key details match the listing.">Details match</span>
+              <span class="pqx-result-fact pqx-result-fact-confirmed" title="Key details came from the listing.">From listing</span>
               {% endif %}
               {% if candidate.get('layout_display') and candidate.get('floorplan_url') %}
               <button

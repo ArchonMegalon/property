@@ -318,8 +318,8 @@ def seeded_research_detail_payload() -> dict[str, Any]:
             "operating_costs_status": "missing",
             "listing_fact_confirmation": {
                 "status": "confirmed",
-                "label": "Facts confirmed",
-                "summary": "4 listing facts confirmed automatically from provider evidence.",
+                "label": "Listing facts",
+                "summary": "4 listing facts read automatically from the listing.",
                 "fields": ["area", "location", "price", "rooms"],
                 "requires_manual_confirmation": False,
             },

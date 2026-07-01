@@ -856,7 +856,7 @@ def test_propertyquarry_listing_fact_confirmation_marks_core_provider_facts_conf
 
     confirmation = facts["listing_fact_confirmation"]
     assert confirmation["status"] == "confirmed"
-    assert confirmation["label"] == "Facts confirmed"
+    assert confirmation["label"] == "Listing facts"
     assert set(confirmation["fields"]) >= {"price", "area", "rooms", "location"}
     assert "needs confirmation" not in json.dumps(confirmation).lower()
 
@@ -869,8 +869,8 @@ def test_propertyquarry_research_rows_use_auto_confirmed_listing_facts() -> None
         "rooms": 3,
         "listing_fact_confirmation": {
             "status": "confirmed",
-            "label": "Facts confirmed",
-            "summary": "4 listing facts confirmed automatically from provider evidence.",
+            "label": "Listing facts",
+            "summary": "4 listing facts read automatically from the listing.",
             "fields": ["price", "area", "rooms", "location"],
         },
     }
@@ -883,10 +883,10 @@ def test_propertyquarry_research_rows_use_auto_confirmed_listing_facts() -> None
     )
 
     tags_by_title = {row["title"]: row["tag"] for row in rows}
-    assert tags_by_title["Location fit"] == "Confirmed"
-    assert tags_by_title["Budget signal"] == "Confirmed"
-    assert tags_by_title["Layout signal"] == "Confirmed"
-    assert tags_by_title["Facts confirmed"] == "Confirmed"
+    assert tags_by_title["Location fit"] == "Listed"
+    assert tags_by_title["Budget signal"] == "Listed"
+    assert tags_by_title["Layout signal"] == "Listed"
+    assert tags_by_title["Listing facts"] == "Listed"
 
 
 def test_propertyquarry_research_everyday_fit_rows_use_named_confirmed_distances() -> None:
@@ -931,11 +931,11 @@ def test_propertyquarry_route_previews_require_values_and_name_unnamed_distances
 
     assert rows == [
         {
-            "title": "Nearest confirmed supermarket",
+            "title": "Nearest supermarket",
             "label": "Supermarket",
             "detail": "420 m from the property",
             "mode_label": "Walk",
-            "map_url": "https://www.google.com/maps/dir/?api=1&origin=Unnamed%20daily-life%20evidence&destination=Nearest%20confirmed%20supermarket&travelmode=walking",
+            "map_url": "https://www.google.com/maps/dir/?api=1&origin=Unnamed%20daily-life%20evidence&destination=Nearest%20supermarket&travelmode=walking",
             "preview_path": "M 12.0 56.0 C 42.0 48.0, 96.0 24.0, 132.0 18.0",
         }
     ]
@@ -946,7 +946,7 @@ def test_propertyquarry_route_previews_require_values_and_name_unnamed_distances
 def test_propertyquarry_browser_route_preview_uses_confirmed_distance_fallback_copy() -> None:
     body = _read_workbench_bundle()
 
-    assert "Nearest confirmed ${String(label || 'place').toLowerCase()}" in body
+    assert "Nearest ${String(label || 'place').toLowerCase()}" in body
     assert "const distance = Number(facts[distanceKey] || 0);" in body
     assert "if (!Number.isFinite(distance) || distance <= 0) return;" in body
 
@@ -983,9 +983,9 @@ def test_propertyquarry_research_missing_rows_use_concrete_open_check_copy() -> 
 
     details_by_title = {row["title"]: row["detail"] for row in rows}
     assert details_by_title["Lift status"] == "Lift status still missing."
-    assert details_by_title["Supermarket distance"] == "No confirmed supermarket distance yet."
-    assert details_by_title["Playground distance"] == "No confirmed playground distance yet."
-    assert details_by_title["Underground distance"] == "No confirmed underground distance yet."
+    assert details_by_title["Supermarket distance"] == "Supermarket distance still missing."
+    assert details_by_title["Playground distance"] == "Playground distance still missing."
+    assert details_by_title["Underground distance"] == "Underground distance still missing."
     assert details_by_title["Air-quality risk"] == "Air-quality read still missing."
     assert "Needed to" not in json.dumps(details_by_title)
 
@@ -5721,7 +5721,7 @@ def test_property_workbench_candidate_snapshot_carries_detail_state() -> None:
         map_url="https://maps.example.com",
         source_url="https://example.com/listing",
         property_facts={"postal_name": "Vienna"},
-        listing_fact_confirmation={"status": "confirmed", "fields": ["price"], "label": "Facts confirmed"},
+        listing_fact_confirmation={"status": "confirmed", "fields": ["price"], "label": "Listing facts"},
         assessment={"fit_score": 86},
         objection_rows=[{"title": "Risk", "detail": "Minor"}],
         timeline_rows=[{"title": "Ranked", "detail": "Now"}],
@@ -6557,7 +6557,7 @@ def test_property_research_packet_snapshot_normalizes_route_payload() -> None:
         sections=[{"eyebrow": "At a glance", "title": "Why this stayed"}],
         match_reasons=["Transit"],
         mismatch_reasons=["Kitchen refresh"],
-        score_rows=[{"title": "Facts confirmed", "detail": "4 facts", "tag": "Confirmed"}],
+        score_rows=[{"title": "Listing facts", "detail": "4 facts", "tag": "Listed"}],
         listing_rows=[{"label": "Rooms", "value": "3"}],
         cost_rows=[{"label": "Costs", "value": "320"}],
         feature_values=[{"label": "Balcony", "value": "Yes"}],
@@ -6587,7 +6587,7 @@ def test_property_research_packet_snapshot_normalizes_route_payload() -> None:
     assert snapshot["research_candidate_ref"] == "cand-1"
     assert snapshot["research_preview_image"] == "https://img.example.com/1.jpg"
     assert snapshot["research_gallery_items"][0]["kind"] == "image"
-    assert snapshot["research_score_rows"][0]["title"] == "Facts confirmed"
+    assert snapshot["research_score_rows"][0]["title"] == "Listing facts"
     assert snapshot["research_feedback"]["save_endpoint"] == "/app/api/property-feedback"
     assert snapshot["research_official_evidence_rows"][0]["title"] == "Cadastre"
     assert snapshot["research_evidence_overlay_rows"][0]["title"] == "Summer heat"
@@ -13749,7 +13749,7 @@ def test_property_current_best_omits_unknown_fact_placeholders() -> None:
     generated_copy = "\n".join([workspace_payload, research_payload, product_service])
     assert "current listing evidence" not in generated_copy
     assert "Provider listing evidence confirmed" not in generated_copy
-    assert "confirmed listing facts" in generated_copy
+    assert "listing facts" in generated_copy
 
 
 def test_propertyquarry_user_facing_copy_avoids_hosted_review_jargon() -> None:
@@ -15016,8 +15016,8 @@ def test_propertyquarry_results_surface_keeps_recent_search_history_visible(monk
                             "price_display": "EUR 1,280",
                             "listing_fact_confirmation": {
                                 "status": "confirmed",
-                                "label": "Facts confirmed",
-                                "summary": "4 listing facts confirmed automatically from provider evidence.",
+                                "label": "Listing facts",
+                                "summary": "4 listing facts read automatically from the listing.",
                             },
                         },
                     }

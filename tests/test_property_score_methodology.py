@@ -140,7 +140,7 @@ def test_score_methodology_english_copy_avoids_verification_jargon() -> None:
     )
 
     assert "verified listing facts" not in payload["summary"]
-    assert "confirmed listing facts" in payload["summary"]
+    assert "listing facts" in payload["summary"]
     assert "verified 360 source" not in examples_blob
     assert "real 360 source" in examples_blob
     assert "verification rules" not in source_sections_blob.lower()

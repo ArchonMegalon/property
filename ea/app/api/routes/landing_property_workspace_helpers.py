@@ -501,8 +501,8 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
         confirmed_fields = sorted(direct_fact_sources)
         merged["listing_fact_confirmation"] = {
             "status": "confirmed",
-            "label": "Facts confirmed",
-            "summary": f"{len(confirmed_fields)} listing fact{'s' if len(confirmed_fields) != 1 else ''} confirmed automatically from provider evidence.",
+            "label": "Listing facts",
+            "summary": f"{len(confirmed_fields)} listing fact{'s' if len(confirmed_fields) != 1 else ''} read automatically from the listing.",
             "fields": confirmed_fields,
             "sources": direct_fact_sources,
             "requires_manual_confirmation": False,
@@ -885,7 +885,7 @@ def _property_candidate_route_evidence(
         except Exception:
             continue
         raw_place_name = str(facts.get(name_key) or "").strip()
-        place_name = raw_place_name or f"Nearest confirmed {label.lower()}"
+        place_name = raw_place_name or f"Nearest {label.lower()}"
         row = {
             "icon": icon,
             "label": label,
@@ -1017,7 +1017,7 @@ def _property_progress_route_preview_rows(
         except Exception:
             continue
         raw_place_name = str(facts.get(name_key) or "").strip()
-        place_name = raw_place_name or f"Nearest confirmed {label.lower()}"
+        place_name = raw_place_name or f"Nearest {label.lower()}"
         rows.append(
             {
                 "title": place_name,
@@ -1807,7 +1807,7 @@ def _property_counterfactual_rows(
         rows.append(
             {
                 "title": "Include homes while floorplans are still being checked",
-                "detail": f"{filtered_floorplan_total} listing(s) are being held back until a floorplan is verified. Use this only for a wider look, then turn the rule back on.",
+                "detail": f"{filtered_floorplan_total} listing(s) are being held back while we look for a floorplan. Use this only for a wider look, then turn the rule back on.",
                 "tag": "Research",
                 "action_label": "Show held-back homes",
                 "adjustments": {"require_floorplan": False},

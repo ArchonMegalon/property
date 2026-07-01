@@ -72,7 +72,7 @@ def claims_from_deep_research(result: Mapping[str, object]) -> list[DossierEvide
             _claim(
                 "risk.heating_source_unclear",
                 "risk_register",
-                "Heating source is not confirmed in the current evidence set.",
+                "Heating source is still missing.",
                 "missing_fact",
                 confidence="medium",
                 next_action="Ask the agent to confirm heating source and billing treatment.",

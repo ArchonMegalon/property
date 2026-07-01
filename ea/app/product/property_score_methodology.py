@@ -111,21 +111,21 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
     "en": {
         "title": "Behind the score",
         "subtitle": "How PropertyQuarry turns a listing into a personal fit score.",
-        "summary": "The score is not portal popularity. It is a 0-100 personal fit estimate built from hard eligibility, confirmed listing facts, soft preferences, route and neighbourhood evidence, missing facts, and your saved feedback.",
+        "summary": "The score is not portal popularity. It is a 0-100 personal fit estimate built from hard eligibility, listing facts, soft preferences, routes, neighbourhood context, missing facts, and your saved feedback.",
         "principles": [
             "Hard rules remove a listing before scoring: country, selected districts, listing mode, property type, budget, and explicit must-have rules.",
             "Soft preferences only move the score. A missing nice-to-have balcony should not hide a home; it should explain why it ranks lower.",
-            "Evidence quality matters. Floorplans, real 360 tours, operating costs, energy data, and official location evidence raise confidence.",
+            "Data quality matters. Floorplans, real 360 tours, operating costs, energy data, and local context raise confidence.",
             "Missing facts are not treated as false. They lower confidence and become questions for the viewing or agent.",
-            "Saved feedback changes future ranking, but the dossier keeps the current evidence visible.",
+            "Saved feedback changes future ranking, while the property page keeps the current read visible.",
         ],
         "steps": [
             ("1. Eligibility gate", "The engine first checks hard constraints: market, area, transaction type, property class, budget, minimum rooms or area, and explicit must-have preferences."),
-            ("2. Fact extraction", "Provider pages, structured data, titles, snippets, floorplans, costs, media, and official evidence are normalized into comparable facts."),
+            ("2. Fact extraction", "Provider pages, structured data, titles, snippets, floorplans, costs, media, and public data are normalized into comparable facts."),
             ("3. Personal fit", "The listing is compared with What matters: commute, daily life, school and childcare context, accessibility, outdoor space, parking, internet, risks, and household feedback."),
             ("4. Soft scoring", "Nice-to-have, strong wish, avoid, and distance preferences move the score up or down. They do not exclude unless the user marked them as a hard rule."),
-            ("5. Confidence and unknowns", "Missing costs, unclear heating, no floorplan, weak location evidence, or stale provider data reduce confidence and create follow-up questions."),
-            ("6. Ranking and repair", "The final rank combines personal fit, evidence confidence, freshness, duplicate handling, and repair status. Failed provider lanes are retried separately."),
+            ("5. Confidence and unknowns", "Missing costs, unclear heating, no floorplan, weak location data, or stale provider data reduce confidence and create follow-up questions."),
+            ("6. Ranking and repair", "The final rank combines personal fit, data confidence, freshness, duplicate handling, and repair status. Failed provider lanes are retried separately."),
         ],
         "examples": [
             ("District mismatch", "A listing in 1220 is excluded when only 1010 is selected. This is a hard rule, not a score penalty."),
@@ -142,14 +142,14 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
         "examples_label": "Examples",
         "positive_label": "Best signals",
         "negative_label": "Main caution",
-        "neutral_note": "Exact weights can vary by market and search mode, but hard rules, evidence quality, soft preferences, and feedback are always separated.",
+        "neutral_note": "Exact weights can vary by market and search mode, but hard rules, data quality, soft preferences, and feedback are always separated.",
         "calculation_rows": [
             ("Start", "+50", "A candidate starts neutral once it has passed the hard gate."),
             ("Hard gate passed", "+8", "Country, rent/buy mode, property type, budget, rooms and size do not conflict. Selected area is checked as eligibility only."),
-            ("Evidence quality", "+10", "Floorplan, costs and a real 360/tour source make the listing easier to verify remotely."),
+            ("Data quality", "+10", "Floorplan, costs and a real 360/tour source make the listing easier to screen remotely."),
             ("Soft preferences", "+6", "Daily-life, commute and family preferences fit well enough to lift rank."),
-            ("Location checked", "+0", "The selected district is an eligibility check, not a reward. Central, edge, or border position inside an allowed district does not add points; only missing or contradictory location evidence hurts the score."),
-            ("Missing heating detail", "-8", "Heating is still unknown, so confidence drops until it is confirmed."),
+            ("Location checked", "+0", "The selected district is an eligibility check, not a reward. Central, edge, or border position inside an allowed district does not add points; only missing or contradictory location data hurts the score."),
+            ("Missing heating detail", "-8", "Heating is still unknown, so confidence drops until it is checked."),
             ("One soft wish missing", "-3", "A missing nice-to-have lowers rank but does not filter the home."),
             ("Open questions", "-5", "Remaining unknowns are kept as viewing questions."),
             ("Final score", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. The rows below explain every delta and show how neutral, nice-to-have, strong wish, must-have, and avoid settings change the movement."),
@@ -562,7 +562,7 @@ _LOCALIZED_PDF_EXAMPLE_COPY: dict[str, dict[str, tuple[str, ...] | str]] = {
         "recommendation": "Strong fit",
         "match_reasons": (
             "Selected area is respected.",
-            "Confirmed costs, floorplan, and 360 evidence raise confidence.",
+            "Costs, floorplan, and a real 360 tour raise confidence.",
             "Commute and daily-life preferences score well.",
         ),
         "mismatch_reasons": (
@@ -571,7 +571,7 @@ _LOCALIZED_PDF_EXAMPLE_COPY: dict[str, dict[str, tuple[str, ...] | str]] = {
         ),
         "viewing_questions": (
             "Check the remaining gap with the agent.",
-            "Compare the route and noise evidence during an actual viewing.",
+            "Compare the route and noise context during an actual viewing.",
         ),
         "postal_name": "Demo market",
         "price_display": "Example budget",
@@ -734,7 +734,7 @@ _LOCALIZED_PDF_EXAMPLE_COPY: dict[str, dict[str, tuple[str, ...] | str]] = {
 _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
     "en": {
         "calculation_detail_title": "Where each number comes from",
-        "calculation_detail_note": "The example uses the same scoring ladder as the search engine: hard rules gate first, then evidence and soft preferences move the visible rank.",
+        "calculation_detail_note": "The example uses the same scoring ladder as the search engine: hard rules gate first, then data quality and soft preferences move the visible rank.",
         "weight_ladder_title": "How preference strength changes a delta",
         "weight_ladder_note": "A stronger preference changes the size of the score move. It does not become a filter unless the user marks it as a must-have or explicit hard rule.",
         "weight_ladder_rows": [
@@ -747,19 +747,19 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
         "source_sections_label": "Where the information comes from",
         "source_sections": [
             ("Listing pages", "Provider pages, structured data, titles, snippets, photos, floorplans, costs, availability, and source 360 links are extracted and normalized. Unsupported claims stay open questions."),
-            ("Official geo data", "Official sources such as data.gv.at, climate maps, air-quality, noise, flood, broadband, school, childcare, and other public datasets are attached as evidence lanes when they cover the location."),
+            ("Official geo data", "Official sources such as data.gv.at, climate maps, air-quality, noise, flood, broadband, school, childcare, and other public datasets are attached as context layers when they cover the location."),
             ("Maps and routes", "OpenStreetMap/Overpass, route checks, and distance calculations turn errands, transit, schools, parks, shade, and services into comparable proximity facts."),
             ("User preferences", "What Matters settings and saved feedback decide whether a fact is neutral, a wish, a strong wish, a must-have, or an avoid signal."),
-            ("How facts are checked", "Prices, costs, energy data, tours, floorplans, and location facts are promoted only when source evidence supports them. Missing evidence lowers confidence instead of being invented."),
+            ("How facts are checked", "Prices, costs, energy data, tours, floorplans, and location facts are promoted only when source data supports them. Missing data lowers confidence instead of being invented."),
         ],
         "calculation_detail_rows": [
-            ("Start", "+50", "Neutral baseline after hard-gate eligibility.", "Every reviewable candidate starts from 50 so positive and negative evidence can both move it.", "Preference strength does not change the baseline."),
+            ("Start", "+50", "Neutral baseline after hard-gate eligibility.", "Every reviewable candidate starts from 50 so positive and negative signals can both move it.", "Preference strength does not change the baseline."),
             ("Hard gate passed", "+8", "Country, transaction type, home type, budget, rooms and area do not conflict; selected district is only a pass/fail gate.", "This is an eligibility confidence lift, not a soft preference or district reward.", "If a selected district, buy/rent mode, budget, rooms or hard type fails, the candidate is excluded instead of scored."),
-            ("Evidence quality", "+10", "Floorplan, operating costs and real 360/tour evidence are available in the example.", "More confirmed facts make the remote decision safer, so confidence rises.", "Floorplan only would be closer to +4; floorplan plus costs closer to +7; full evidence earns the +10 example."),
+            ("Data quality", "+10", "Floorplan, operating costs and a real 360/tour source are available in the example.", "More listing detail makes remote screening safer, so confidence rises.", "Floorplan only would be closer to +4; floorplan plus costs closer to +7; full detail earns the +10 example."),
             ("Soft preferences", "+6", "Commute, daily-life and family preferences match at nice-to-have strength.", "Soft matches raise rank but never hide other homes by themselves.", "Neutral would be +0; nice-to-have gives about +6 here; strong wish would be about +12; a must-have contradiction would gate or cap."),
-            ("Location checked", "+0", "The listing has candidate-level postal or district evidence, not only provider search-scope text.", "Specific location evidence checks eligibility and nearby context. Being central, at the edge, or on a border inside an allowed district is not rewarded.", "Coarse evidence stays neutral; a contradicted postal code such as 1220 during a hard 1010 search excludes."),
-            ("Missing heating detail", "-8", "Heating is relevant but unknown in the reviewed source.", "Missing facts are not invented; important unknowns reduce confidence until they are confirmed.", "If heating detail were neutral it might be -2 or 0; as a strong wish it can be -8 to -12; as a hard must-have it can cap or exclude."),
-            ("One soft wish missing", "-3", "A non-critical desired feature is absent or unproven.", "A soft miss lowers rank only.", "Neutral would be 0; nice-to-have is about -3; strong wish about -6; must-have missing would gate or cap."),
+            ("Location checked", "+0", "The listing has candidate-level postal or district data, not only provider search-scope text.", "Specific location data checks eligibility and nearby context. Being central, at the edge, or on a border inside an allowed district is not rewarded.", "Coarse data stays neutral; a contradicted postal code such as 1220 during a hard 1010 search excludes."),
+            ("Missing heating detail", "-8", "Heating is relevant but unknown in the reviewed source.", "Missing facts are not invented; important unknowns reduce confidence until they are checked.", "If heating detail were neutral it might be -2 or 0; as a strong wish it can be -8 to -12; as a hard must-have it can cap or exclude."),
+            ("One soft wish missing", "-3", "A non-critical desired feature is absent or still open.", "A soft miss lowers rank only.", "Neutral would be 0; nice-to-have is about -3; strong wish about -6; must-have missing would gate or cap."),
             ("Open questions", "-5", "There are still unresolved viewing or agent questions.", "The score keeps uncertainty visible instead of pretending the listing is complete.", "Minor risk would be about -2; unresolved important risk about -5; high risk can cap below the strong-fit band."),
         ],
     },
@@ -1074,7 +1074,7 @@ def build_property_score_methodology(
     negative = _text_items(candidate_payload.get("mismatch_reasons"), limit=4)
     if not positive:
         positive = [
-            "Confirmed facts make the match easier to trust.",
+            "Listing facts make the match easier to trust.",
             "Good matches in What matters move the score upward.",
         ]
     if not negative:

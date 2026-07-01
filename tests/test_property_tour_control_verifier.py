@@ -123,7 +123,7 @@ def test_public_tour_control_labels_manual_video_as_video_evidence_not_walkthrou
 
     assert 'data-video-provider="manual_upload"' in html_body
     assert 'data-provider-backed-walkthrough="false"' in html_body
-    assert "Video evidence" in html_body
+    assert '<div class="card-label">Video</div>' in html_body
     assert "MagicFit walkthrough" not in html_body
     assert '<div class="card-label">Walkthrough</div>' not in html_body
 
@@ -143,7 +143,8 @@ def test_public_tour_control_labels_magicfit_video_as_magicfit_walkthrough() -> 
 
     assert 'data-video-provider="magicfit"' in html_body
     assert 'data-provider-backed-walkthrough="true"' in html_body
-    assert "MagicFit walkthrough" in html_body
+    assert '<div class="card-label">Walkthrough</div>' in html_body
+    assert "MagicFit walkthrough" not in html_body
     assert "Video evidence" not in html_body
 
 
