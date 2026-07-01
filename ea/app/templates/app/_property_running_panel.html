@@ -37,7 +37,9 @@
     {% set run_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
     {% set run_message_display = run_safe_message if run_has_repair_copy and run_safe_message else run_message_raw %}
     {% set run_message_display_lower = run_message_display|lower %}
-    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] %}
+    {% set run_compact_found_message = run_found_total|string ~ ' homes found' %}
+    {% set run_compact_queue_message = run_found_total|string ~ ' homes found · ' ~ run_to_review_total|string ~ ' to review' %}
+    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] or (run_found_total and run_message_display == run_compact_found_message) or (run_found_total and run_message_display == run_compact_queue_message) %}
       {% if run_found_total %}
       {% set run_message_display = 'Found ' ~ run_found_total ~ ' homes. ' ~ run_to_review_total ~ ' still to review.' if run_to_review_total else 'Found ' ~ run_found_total ~ ' homes. Review queue is clear.' %}
       {% elif run_provider_total %}

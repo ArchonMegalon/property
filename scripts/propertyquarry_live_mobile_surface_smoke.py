@@ -43,7 +43,10 @@ DEFAULT_ROUTES = (
 )
 SEEDED_RESEARCH_DETAIL_ROUTE = "/app/research/perf-candidate-1020?run_id=run-gold-mobile"
 SEED_FIXTURE_USER_AGENT = "PropertyQuarry-live-mobile-surface-smoke/1.0"
-SEED_FIXTURE_TIMEOUT_SECONDS = 12
+SEED_FIXTURE_TIMEOUT_SECONDS = max(
+    1,
+    int(os.environ.get("PROPERTYQUARRY_LIVE_MOBILE_SEED_TIMEOUT_SECONDS", "30") or "30"),
+)
 BILLING_FAIL_CLOSED_MARKERS = (
     "billing portal unavailable",
     "propertyquarry access stays active",
@@ -239,7 +242,7 @@ def _playwright_route_metrics_worker(
                         page.wait_for_load_state("domcontentloaded", timeout=min(2500, route_timeout_ms))
                     except Exception:
                         pass
-                    page.wait_for_timeout(350)
+                    page.wait_for_timeout(1200)
                     status = int(response.status) if response is not None else 0
                     metrics = dict(page.evaluate(_collect_metrics_script()) or {})
                     queue.put({"ok": True, "status_code": status, "metrics": metrics})

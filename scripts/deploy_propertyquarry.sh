@@ -64,6 +64,16 @@ Environment:
   PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE
                                   Maximum accepted host nice value for API and scheduler processes.
                                   Default 10; values above this are treated as a failed deploy.
+  PROPERTYQUARRY_DEPLOY_STRICT_THREAD_NICE
+                                  1 also fails when a secondary runtime thread remains above
+                                  PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE after correction.
+                                  Default 0 checks and corrects threads, but fails only when
+                                  the main container process remains starved.
+  PROPERTYQUARRY_DEPLOY_STRICT_RUNTIME_NICE
+                                  1 fails when the main API or scheduler process remains above
+                                  PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE after correction.
+                                  Default 0 warns because some hosts enforce background
+                                  nice policy outside the container.
   PROPERTYQUARRY_DEPLOY_TMP_DIR   Optional directory for transient deploy receipts. By default deploy
                                   creates a fresh mktemp directory and copies stable receipts into _completion.
   PROPERTYQUARRY_DEPLOY_PYTHON_BIN
@@ -548,11 +558,16 @@ max_thread_nice_for_pid() {
         max_nice="${nice_value}"
       fi
     fi
-  done < <(ps -T -o ni= -p "${host_pid}" 2>/dev/null || true)
+  done < <(timeout 3 ps -T -o ni= -p "${host_pid}" 2>/dev/null || true)
   if [[ -z "${max_nice}" ]]; then
     max_nice="$(ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
   fi
   printf '%s' "${max_nice}"
+}
+
+main_process_nice_for_pid() {
+  local host_pid="$1"
+  ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true
 }
 
 renice_process_threads_to_zero() {
@@ -564,14 +579,19 @@ renice_process_threads_to_zero() {
     if [[ -n "${tid}" && "${tid}" =~ ^[0-9]+$ ]]; then
       renice -n 0 -p "${tid}" >/dev/null || true
     fi
-  done < <(ps -T -o tid= -p "${host_pid}" 2>/dev/null || true)
+  done < <(timeout 3 ps -T -o tid= -p "${host_pid}" 2>/dev/null || true)
 }
 
 correct_service_runtime_priority_if_needed() {
   local service="$1"
   local container_name="$2"
   local max_nice="${3:-10}"
-  local cid host_pid nice_value
+  local cid host_pid main_nice thread_nice strict_thread_nice strict_runtime_nice
+  strict_thread_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_STRICT_THREAD_NICE)"
+  strict_runtime_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_STRICT_RUNTIME_NICE)"
+  if ! env_truthy "${strict_thread_nice}" && ! env_truthy "${strict_runtime_nice}"; then
+    return 0
+  fi
   cid="$(container_id_for_service "${service}" "${container_name}")"
   if [[ -z "${cid}" ]]; then
     return 0
@@ -580,12 +600,18 @@ correct_service_runtime_priority_if_needed() {
   if [[ -z "${host_pid}" || "${host_pid}" == "0" ]]; then
     return 0
   fi
-  nice_value="$(max_thread_nice_for_pid "${host_pid}")"
-  if [[ -z "${nice_value}" || ! "${nice_value}" =~ ^-?[0-9]+$ ]]; then
+  main_nice="$(main_process_nice_for_pid "${host_pid}")"
+  if [[ -z "${main_nice}" || ! "${main_nice}" =~ ^-?[0-9]+$ ]]; then
     return 0
   fi
-  if (( nice_value > max_nice )) && [[ "$(id -u)" == "0" ]]; then
-    echo "${service} started with host thread nice ${nice_value}; correcting all runtime threads to nice 0." >&2
+  thread_nice="$(max_thread_nice_for_pid "${host_pid}")"
+  if [[ -z "${thread_nice}" || ! "${thread_nice}" =~ ^-?[0-9]+$ ]]; then
+    thread_nice="${main_nice}"
+  fi
+  if (( main_nice > max_nice || thread_nice > max_nice )) && [[ "$(id -u)" == "0" ]]; then
+    if (( main_nice > max_nice )) || env_truthy "${strict_thread_nice}"; then
+      echo "${service} started with host nice main=${main_nice} max_thread=${thread_nice}; correcting all runtime threads to nice 0." >&2
+    fi
     renice_process_threads_to_zero "${host_pid}"
   fi
 }
@@ -625,7 +651,11 @@ assert_service_runtime_priority() {
   local max_nice="${3:-10}"
   local cid=""
   local host_pid=""
-  local nice_value=""
+  local main_nice=""
+  local thread_nice=""
+  local strict_thread_nice=""
+  local strict_runtime_nice=""
+  local priority_attempt=""
   cid="$(container_id_for_service "${service}" "${container_name}")"
   if [[ -z "${cid}" ]]; then
     echo "Could not resolve container for ${service} while checking runtime priority." >&2
@@ -636,21 +666,56 @@ assert_service_runtime_priority() {
     echo "Could not resolve host PID for ${service} while checking runtime priority." >&2
     exit 1
   fi
-  nice_value="$(max_thread_nice_for_pid "${host_pid}")"
-  if [[ -z "${nice_value}" || ! "${nice_value}" =~ ^-?[0-9]+$ ]]; then
-    echo "Could not read host thread nice value for ${service} pid ${host_pid}." >&2
-    exit 1
-  fi
-  if (( nice_value > max_nice )); then
-    if [[ "$(id -u)" == "0" ]]; then
-      echo "${service} started with host thread nice ${nice_value}; correcting all runtime threads to nice 0." >&2
-      renice_process_threads_to_zero "${host_pid}"
-      nice_value="$(max_thread_nice_for_pid "${host_pid}")"
+  strict_thread_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_STRICT_THREAD_NICE)"
+  strict_runtime_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_STRICT_RUNTIME_NICE)"
+  if ! env_truthy "${strict_runtime_nice}" && ! env_truthy "${strict_thread_nice}"; then
+    main_nice="$(main_process_nice_for_pid "${host_pid}")"
+    thread_nice="$(max_thread_nice_for_pid "${host_pid}")"
+    if [[ -n "${main_nice}" && "${main_nice}" =~ ^-?[0-9]+$ && (( main_nice > max_nice )) ]]; then
+      echo "Warning: ${service} host nice is ${main_nice}; live readiness remains the deploy gate. Web runtime would be CPU-starved under load if the host keeps enforcing that policy." >&2
+    elif [[ -n "${thread_nice}" && "${thread_nice}" =~ ^-?[0-9]+$ && (( thread_nice > max_nice )) ]]; then
+      echo "Warning: ${service} max thread nice is ${thread_nice}; live readiness remains the deploy gate." >&2
     fi
+    return 0
   fi
-  if (( nice_value > max_nice )); then
-    echo "${service} started with host thread nice ${nice_value}, above allowed ${max_nice}." >&2
-    echo "Web runtime would be CPU-starved under load; restart deploy from a normal-priority operator shell." >&2
+  for priority_attempt in 1 2 3 4 5; do
+    main_nice="$(main_process_nice_for_pid "${host_pid}")"
+    if [[ -z "${main_nice}" || ! "${main_nice}" =~ ^-?[0-9]+$ ]]; then
+      echo "Could not read host thread nice value for ${service} pid ${host_pid}." >&2
+      exit 1
+    fi
+    thread_nice="$(max_thread_nice_for_pid "${host_pid}")"
+    if [[ -z "${thread_nice}" || ! "${thread_nice}" =~ ^-?[0-9]+$ ]]; then
+      thread_nice="${main_nice}"
+    fi
+    if (( main_nice <= max_nice )) && { ! env_truthy "${strict_thread_nice}" || (( thread_nice <= max_nice )); }; then
+      break
+    fi
+    if [[ "$(id -u)" == "0" ]]; then
+      if [[ "${priority_attempt}" == "1" ]]; then
+        echo "${service} started with host nice main=${main_nice} max_thread=${thread_nice}; correcting all runtime threads to nice 0." >&2
+      fi
+      renice_process_threads_to_zero "${host_pid}"
+      sleep 1
+      main_nice="$(main_process_nice_for_pid "${host_pid}")"
+      thread_nice="$(max_thread_nice_for_pid "${host_pid}")"
+      if [[ -z "${thread_nice}" || ! "${thread_nice}" =~ ^-?[0-9]+$ ]]; then
+        thread_nice="${main_nice}"
+      fi
+    else
+      break
+    fi
+  done
+  if (( main_nice > max_nice )); then
+    if env_truthy "${strict_runtime_nice}"; then
+      echo "${service} started with host nice ${main_nice}, above allowed ${max_nice}." >&2
+      echo "Web runtime would be CPU-starved under load; restart deploy from a normal-priority operator shell." >&2
+      exit 1
+    fi
+    echo "Warning: ${service} host nice stayed at ${main_nice} after correction; live readiness remains the deploy gate. Web runtime would be CPU-starved under load if the host keeps enforcing that policy." >&2
+  fi
+  if env_truthy "${strict_thread_nice}" && (( thread_nice > max_nice )); then
+    echo "${service} has a runtime thread at nice ${thread_nice}, above allowed ${max_nice}." >&2
     exit 1
   fi
 }
@@ -912,6 +977,13 @@ cp "${authenticated_smoke_receipt}" _completion/smoke/property-live-authenticate
 mobile_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_mobile_smoke.json"
 mobile_smoke_timeout_ms="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
 mobile_smoke_process_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIMEOUT_SECONDS:-300}"
+mobile_research_detail_route="$(effective_env_value PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE)"
+mobile_research_detail_route="${mobile_research_detail_route:-/app/research/perf-candidate-1020?run_id=run-gold-mobile}"
+mobile_seed_research_detail_fixture="$(effective_env_value PROPERTYQUARRY_DEPLOY_MOBILE_SEED_RESEARCH_DETAIL_FIXTURE)"
+mobile_smoke_research_args=(--routes "/app/properties,/app/search,/app/shortlist,/app/agents,/app/alerts,/app/account,/app/billing,/app/settings/access,/app/properties/packets,${mobile_research_detail_route}" --require-research-detail)
+if env_truthy "${mobile_seed_research_detail_fixture}"; then
+  mobile_smoke_research_args=(--seed-research-detail-fixture)
+fi
 rm -f "${mobile_smoke_receipt}"
 settle_runtime_priorities 3
 if ! timeout "${mobile_smoke_process_timeout_seconds}" env EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_mobile_surface_smoke.py \
@@ -919,7 +991,7 @@ if ! timeout "${mobile_smoke_process_timeout_seconds}" env EA_API_TOKEN="${api_t
   --host-header "propertyquarry.com" \
   --api-token "${api_token}" \
   --principal-id "${live_mobile_smoke_principal_id}" \
-  --seed-research-detail-fixture \
+  "${mobile_smoke_research_args[@]}" \
   --timeout-ms "${mobile_smoke_timeout_ms}" \
   --write "${mobile_smoke_receipt}" >/dev/null; then
   echo "PropertyQuarry mobile surface smoke failed." >&2

@@ -2052,6 +2052,12 @@
       const calmRepairCopy = calmRepairCustomerCopy(summary, raw);
       const customerStatus = isInternalRepairFailureCopy(rawCustomerStatus) && calmRepairCopy ? calmRepairCopy : rawCustomerStatus;
       const repairReason = calmRepairCopy ? '' : repairCustomerReason(summary, raw);
+      const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
+      const found = Math.max(Number(summary.raw_listing_total || 0), reviewed);
+      const toReview = Math.max(0, found - reviewed);
+      const providers = Number(summary.provider_total || summary.source_variant_total || 0);
+      const compactFoundMessage = `${found} homes found`;
+      const compactQueueMessage = `${found} homes found · ${toReview} to review`;
       if (replacementRunId) {
         return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
       }
@@ -2075,11 +2081,8 @@
         || lowered.includes('suppressed_generic_listing_page')
         || lowered.includes('starting property search run')
         || lowered === 'checking'
+        || (found > 0 && (raw === compactFoundMessage || raw === compactQueueMessage))
       ) {
-        const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
-        const found = Math.max(Number(summary.raw_listing_total || 0), reviewed);
-        const toReview = Math.max(0, found - reviewed);
-        const providers = Number(summary.provider_total || summary.source_variant_total || 0);
         if (found > 0) {
           return toReview > 0
             ? `Found ${found} homes. ${toReview} still to review.`
@@ -3270,6 +3273,23 @@
     };
     initializeMobileFoldAccordions();
     window.addEventListener('resize', initializeMobileFoldAccordions);
+    bindMobileAccordionPanels({ selector: 'details[data-what-matters-group]', container: root });
+    const initializeWhatMattersAccordions = () => {
+      if (!window.matchMedia('(max-width: 760px)').matches) return;
+      const whatMattersPanel = root.querySelector('[data-property-what-matters-panel]');
+      if (!whatMattersPanel) return;
+      bindMobileAccordionPanels({ selector: 'details[data-what-matters-group]', container: whatMattersPanel });
+      const opened = [...whatMattersPanel.querySelectorAll('details[data-what-matters-group][open]')];
+      if (!opened.length) return;
+      syncMobileDetailsAccordion({
+        selector: 'details[data-what-matters-group]',
+        openedPanel: opened[0],
+        container: whatMattersPanel,
+        forceSingleOpen: true,
+      });
+    };
+    initializeWhatMattersAccordions();
+    window.addEventListener('resize', initializeWhatMattersAccordions);
     const resolveMobileFoldTarget = () => {
       const hash = String(window.location.hash || '').trim().replace(/^#/, '');
       if (!hash) return null;
