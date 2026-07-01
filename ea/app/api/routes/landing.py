@@ -984,8 +984,15 @@ def _propertyquarry_backfill_run_cached_preview_candidates(
     return normalized_run
 
 
-def _propertyquarry_prepare_run_payload(*, product: object, run_payload: dict[str, object]) -> dict[str, object]:
+def _propertyquarry_prepare_run_payload(
+    *,
+    product: object,
+    run_payload: dict[str, object],
+    backfill_cached_previews: bool = True,
+) -> dict[str, object]:
     normalized_run = normalize_property_search_run_snapshot(_propertyquarry_normalize_run_public_tour_targets(run_payload))
+    if not backfill_cached_previews:
+        return normalized_run
     return _propertyquarry_backfill_run_cached_preview_candidates(product=product, run_payload=normalized_run)
 
 
@@ -1051,8 +1058,6 @@ def _propertyquarry_refresh_candidate_preview_if_needed(
     if not isinstance(candidate, dict):
         return candidate
     candidate_row = dict(candidate)
-    if not _propertyquarry_candidate_needs_detailed_preview(candidate_row):
-        return candidate_row
     property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
     if not property_url:
         return candidate_row
@@ -1080,6 +1085,9 @@ def _propertyquarry_refresh_candidate_preview_if_needed(
         )
         if not _propertyquarry_candidate_needs_detailed_preview(candidate_row):
             return candidate_row
+
+    if not _propertyquarry_candidate_needs_detailed_preview(candidate_row):
+        return candidate_row
 
     if not allow_network:
         return candidate_row
@@ -3388,7 +3396,11 @@ def _property_console_context(
                     )
                 )
             country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
-    run_payload = _propertyquarry_prepare_run_payload(product=product, run_payload=run_payload)
+    run_payload = _propertyquarry_prepare_run_payload(
+        product=product,
+        run_payload=run_payload,
+        backfill_cached_previews=surface_scope.section != "research",
+    )
     if selected_candidate_ref and surface_scope.section in {"properties", "shortlist"}:
         run_payload = _propertyquarry_refresh_run_candidate_preview_if_needed(
             product=product,
@@ -5075,6 +5087,7 @@ def property_research_packet(
                         )
                         or {}
                     ),
+                    backfill_cached_previews=False,
                 )
             except TypeError:
                 with contextlib.suppress(Exception):
@@ -5087,6 +5100,7 @@ def property_research_packet(
                             )
                             or {}
                         ),
+                        backfill_cached_previews=False,
                     )
             except Exception:
                 pass
@@ -5111,6 +5125,7 @@ def property_research_packet(
                         )
                         or {}
                     ),
+                    backfill_cached_previews=False,
                 )
             except TypeError:
                 with contextlib.suppress(Exception):
@@ -5123,6 +5138,7 @@ def property_research_packet(
                             )
                             or {}
                         ),
+                        backfill_cached_previews=False,
                     )
             except Exception:
                 pass

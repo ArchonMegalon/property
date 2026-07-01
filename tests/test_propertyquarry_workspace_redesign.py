@@ -2721,6 +2721,91 @@ def test_propertyquarry_research_detail_first_paint_does_not_fetch_provider_prev
     assert preview_calls == []
 
 
+def test_propertyquarry_research_detail_first_paint_does_not_scan_sibling_preview_cache(monkeypatch) -> None:
+    principal_id = "pq-research-first-paint-selected-cache-only"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    headers = {"host": "propertyquarry.com"}
+
+    selected_url = "https://immobilien.derstandard.at/detail/selected-slow-provider"
+    sibling_url = "https://immobilien.derstandard.at/detail/sibling-slow-provider"
+    selected_floorplan_url = "https://cdn.example.com/selected-floorplan.avif"
+    preview_lookup_calls: list[str] = []
+    preview_fetch_calls: list[str] = []
+
+    def _candidate(candidate_ref: str, property_url: str) -> dict[str, object]:
+        return {
+            "candidate_ref": candidate_ref,
+            "property_url": property_url,
+            "title": property_url,
+            "summary": "",
+            "fit_score": 81 if candidate_ref == "selected" else 72,
+            "fit_summary": "Stored run data is enough for first paint.",
+            "source_label": "DER STANDARD Immobilien | Austria | Rent | 1180 Vienna",
+            "property_facts": {"has_floorplan": False, "media_count": 20},
+        }
+
+    def _fake_run_status(self, **kwargs):
+        assert kwargs.get("principal_id") == principal_id
+        selected = _candidate("selected", selected_url)
+        sibling = _candidate("sibling", sibling_url)
+        return {
+            "run_id": str(kwargs.get("run_id") or "run-preview"),
+            "principal_id": principal_id,
+            "status": "completed_partial",
+            "summary": {
+                "status": "completed_partial",
+                "ranked_candidates": [dict(selected), dict(sibling)],
+                "sources": [{"source_label": "DER STANDARD", "top_candidates": [dict(selected), dict(sibling)]}],
+            },
+        }
+
+    def _fake_preview_cache_index(self):
+        return {
+            selected_url: {
+                "property_url": selected_url,
+                "title": "Selected cached title",
+                "summary": "Selected cached summary.",
+                "property_facts_json": {"has_floorplan": True, "floorplan_count": 1, "media_count": 20},
+                "floorplan_urls_json": [selected_floorplan_url],
+            },
+            sibling_url: {
+                "property_url": sibling_url,
+                "title": "Sibling cached title",
+                "summary": "Sibling cached summary.",
+                "property_facts_json": {"has_floorplan": True, "floorplan_count": 1, "media_count": 20},
+                "floorplan_urls_json": ["https://cdn.example.com/sibling-floorplan.avif"],
+            },
+        }
+
+    def _fake_preview_cache_lookup(self, *, cache_index: dict[str, dict[str, object]], property_url: str):
+        preview_lookup_calls.append(property_url)
+        return dict(cache_index.get(property_url) or {})
+
+    def _fake_preview_cache_store(self, *, cache_index: dict[str, dict[str, object]], property_url: str, preview: dict[str, object] | None):
+        return dict(preview or {})
+
+    def _forbidden_provider_preview(property_url_value: str, *, prefer_fast: bool = False):
+        preview_fetch_calls.append(property_url_value)
+        raise AssertionError("research detail first paint must not fetch provider pages synchronously")
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(ProductService, "_property_public_preview_cache_index", _fake_preview_cache_index)
+    monkeypatch.setattr(ProductService, "_property_public_preview_cache_lookup", _fake_preview_cache_lookup)
+    monkeypatch.setattr(ProductService, "_property_public_preview_cache_store", _fake_preview_cache_store)
+    monkeypatch.setattr(landing_routes, "_property_scout_page_preview_with_timeout", _forbidden_provider_preview)
+
+    research_detail = client.get("/app/research/selected", params={"run_id": "run-preview"}, headers=headers)
+
+    assert research_detail.status_code == 200
+    assert "Selected cached title" in research_detail.text
+    assert selected_floorplan_url in research_detail.text
+    assert "Sibling cached title" not in research_detail.text
+    assert set(preview_lookup_calls) == {selected_url}
+    assert sibling_url not in preview_lookup_calls
+    assert preview_fetch_calls == []
+
+
 def test_property_suppression_rows_synthesizes_generic_breakdown_from_aggregate_filtered_total() -> None:
     rows = landing_property_workspace_helpers._property_suppression_rows(
         run_summary={"filtered_total": 58, "held_back_total": 58},
@@ -14514,7 +14599,7 @@ def test_property_research_packet_prefers_saved_shortlist_before_cross_run_scan(
         "_property_lookup_candidate_across_runs",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("cross-run scan should not run")),
     )
-    monkeypatch.setattr(landing_routes, "_propertyquarry_refresh_candidate_preview_if_needed", lambda product, candidate: dict(candidate))
+    monkeypatch.setattr(landing_routes, "_propertyquarry_refresh_candidate_preview_if_needed", lambda product, candidate, **kwargs: dict(candidate))
     monkeypatch.setattr(landing_routes, "_property_candidate_orientation_preview", lambda candidate: {})
     monkeypatch.setattr(landing_routes, "_property_candidate_preview_image", lambda candidate: "")
     monkeypatch.setattr(landing_routes, "_property_research_gallery_items", lambda **kwargs: [])
