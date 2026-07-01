@@ -5,6 +5,7 @@ services:
       dockerfile: ea/Dockerfile.property-web
     image: propertyquarry-web-runtime:latest
     container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"
+    cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
     restart: unless-stopped
     env_file:
       - .env
@@ -76,6 +77,7 @@ services:
   propertyquarry-scheduler:
     image: propertyquarry-web-runtime:latest
     container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"
+    cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
     restart: unless-stopped
     env_file:
       - .env
@@ -151,6 +153,7 @@ services:
       dockerfile: ea/Dockerfile.property
     image: propertyquarry-render-runtime:latest
     container_name: "${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"
+    cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
     restart: "no"
     env_file:
       - .env
@@ -185,6 +188,7 @@ services:
   propertyquarry-db:
     image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
     container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db-live}"
+    cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
     restart: unless-stopped
     cpu_shares: ${PROPERTYQUARRY_DB_CPU_SHARES:-512}
     cpus: ${PROPERTYQUARRY_DB_CPUS:-1.0}

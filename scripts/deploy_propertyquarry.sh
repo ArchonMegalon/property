@@ -70,10 +70,14 @@ Environment:
                                   Default 0 checks and corrects threads, but fails only when
                                   the main container process remains starved.
   PROPERTYQUARRY_DEPLOY_STRICT_RUNTIME_NICE
-                                  1 fails when the main API or scheduler process remains above
+                                  Deprecated compatibility switch. Deploy now fails when the
+                                  main API or scheduler process remains above
                                   PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE after correction.
-                                  Default 0 warns because some hosts enforce background
-                                  nice policy outside the container.
+  PROPERTYQUARRY_RUNTIME_CGROUP_PARENT
+                                  Compose cgroup parent for PropertyQuarry runtime containers.
+                                  Defaults to system.slice so deploys launched from a low-priority
+                                  operator shell do not place production containers into a
+                                  host-background low-priority cgroup.
   PROPERTYQUARRY_DEPLOY_TMP_DIR   Optional directory for transient deploy receipts. By default deploy
                                   creates a fresh mktemp directory and copies stable receipts into _completion.
   PROPERTYQUARRY_DEPLOY_PYTHON_BIN
@@ -570,6 +574,11 @@ main_process_nice_for_pid() {
   ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true
 }
 
+process_cgroup_for_pid() {
+  local host_pid="$1"
+  cat "/proc/${host_pid}/cgroup" 2>/dev/null || true
+}
+
 renice_process_threads_to_zero() {
   local host_pid="$1"
   local tid
@@ -650,8 +659,7 @@ assert_service_runtime_priority() {
   local host_pid=""
   local main_nice=""
   local thread_nice=""
-  local strict_thread_nice=""
-  local strict_runtime_nice=""
+  local cgroup_line=""
   local priority_attempt=""
   cid="$(container_id_for_service "${service}" "${container_name}")"
   if [[ -z "${cid}" ]]; then
@@ -663,17 +671,12 @@ assert_service_runtime_priority() {
     echo "Could not resolve host PID for ${service} while checking runtime priority." >&2
     exit 1
   fi
-  strict_thread_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_STRICT_THREAD_NICE)"
-  strict_runtime_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_STRICT_RUNTIME_NICE)"
-  if ! env_truthy "${strict_runtime_nice}" && ! env_truthy "${strict_thread_nice}"; then
-    main_nice="$(main_process_nice_for_pid "${host_pid}")"
-    thread_nice="$(max_thread_nice_for_pid "${host_pid}")"
-    if [[ -n "${main_nice}" && "${main_nice}" =~ ^-?[0-9]+$ && (( main_nice > max_nice )) ]]; then
-      echo "Warning: ${service} host nice is ${main_nice}; live readiness remains the deploy gate. Web runtime would be CPU-starved under load if the host keeps enforcing that policy." >&2
-    elif [[ -n "${thread_nice}" && "${thread_nice}" =~ ^-?[0-9]+$ && (( thread_nice > max_nice )) ]]; then
-      echo "Warning: ${service} max thread nice is ${thread_nice}; live readiness remains the deploy gate." >&2
-    fi
-    return 0
+  cgroup_line="$(process_cgroup_for_pid "${host_pid}")"
+  if printf '%s\n' "${cgroup_line}" | grep -Eiq 'lowprio|background'; then
+    echo "${service} is running in a low-priority host cgroup:" >&2
+    printf '%s\n' "${cgroup_line}" >&2
+    echo "Set PROPERTYQUARRY_RUNTIME_CGROUP_PARENT=system.slice or another normal-priority slice before deploy." >&2
+    exit 1
   fi
   for priority_attempt in 1 2 3 4 5; do
     main_nice="$(main_process_nice_for_pid "${host_pid}")"
@@ -685,7 +688,7 @@ assert_service_runtime_priority() {
     if [[ -z "${thread_nice}" || ! "${thread_nice}" =~ ^-?[0-9]+$ ]]; then
       thread_nice="${main_nice}"
     fi
-    if (( main_nice <= max_nice )) && { ! env_truthy "${strict_thread_nice}" || (( thread_nice <= max_nice )); }; then
+    if (( main_nice <= max_nice && thread_nice <= max_nice )); then
       break
     fi
     if [[ "$(id -u)" == "0" ]]; then
@@ -704,15 +707,12 @@ assert_service_runtime_priority() {
     fi
   done
   if (( main_nice > max_nice )); then
-    if env_truthy "${strict_runtime_nice}"; then
-      echo "${service} started with host nice ${main_nice}, above allowed ${max_nice}." >&2
-      echo "Web runtime would be CPU-starved under load; restart deploy from a normal-priority operator shell." >&2
-      exit 1
-    fi
-    echo "Warning: ${service} host nice stayed at ${main_nice} after correction; live readiness remains the deploy gate. Web runtime would be CPU-starved under load if the host keeps enforcing that policy." >&2
+    echo "${service} host nice stayed at ${main_nice}, above allowed ${max_nice}, after correction." >&2
+    echo "Web runtime would be CPU-starved under load; deploy is not production-clean." >&2
+    exit 1
   fi
-  if env_truthy "${strict_thread_nice}" && (( thread_nice > max_nice )); then
-    echo "${service} has a runtime thread at nice ${thread_nice}, above allowed ${max_nice}." >&2
+  if (( thread_nice > max_nice )); then
+    echo "${service} has a runtime thread at nice ${thread_nice}, above allowed ${max_nice}, after correction." >&2
     exit 1
   fi
 }
