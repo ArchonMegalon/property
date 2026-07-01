@@ -23,7 +23,7 @@
       <div class="pqx-dossier-head">
         <div class="pqx-dossier-title">
           <h1 data-pw-title>{{ selected.get('title') or 'Property details' }}</h1>
-          <span data-pw-source>{{ selected.get('source_label') or 'Open one ranked home when you want the full review.' }}{% if selected.get('location_label') %} · {{ selected.get('location_label') }}{% endif %}</span>
+          <span data-pw-source>{{ selected.get('source_label') or 'Open one matching home when you want the full review.' }}{% if selected.get('location_label') %} · {{ selected.get('location_label') }}{% endif %}</span>
         </div>
         <div class="pqx-dossier-summary" data-pw-summary-facts>
           {% if selected.get('price_display') %}<span class="pqx-result-fact"><strong>{{ selected.get('price_display') }}</strong></span>{% endif %}

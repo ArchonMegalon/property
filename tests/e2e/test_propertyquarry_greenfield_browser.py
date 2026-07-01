@@ -1577,8 +1577,6 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
         ".pqx-result-fact",
         ".pqx-progress-button",
         ".pqx-reliability-strip",
-        ".pqx-worker-strip",
-        ".pqx-worker-lane",
         ".pqx-source-progress",
         ".pqx-empty",
         ".pq-pack-shell",

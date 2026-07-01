@@ -60,6 +60,8 @@ _INTERNAL_RUN_STATUS_NOISE_TOKENS = (
     "checking run status",
     "suppressed_generic_listing_page",
     "starting property search run",
+    "scoring enriched candidate",
+    "ranking homes",
 )
 
 _RAW_PROVIDER_FAILURE_TOKENS = (
@@ -780,7 +782,7 @@ def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
     )
     if found > 0:
         if source_work["open"] > 0:
-            return f"{found} homes found · {to_review} to review · {source_work['open']} lists open"
+            return f"{found} homes found · {to_review} to review · {source_work['open']} lists left"
         return f"{found} homes found · {to_review} to review"
     if provider_total > 0:
         return "Preparing lists."
@@ -938,14 +940,14 @@ def _property_run_synthetic_progress_events(
     to_review = listing_work["to_review"]
     if found_total > 0:
         if source_work["open"] > 0:
-            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} to review · {source_work['open']} lists open.")
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} to review · {source_work['open']} lists left.")
         else:
             add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} to review.")
 
     if ranked > 0:
-        add("source_shortlist", f"{_property_run_count_label(ranked, 'ranked home')} ready.")
+        add("source_shortlist", f"{_property_run_count_label(ranked, 'matching home')} ready.")
     elif held_back > 0:
-        add("source_area_filter", f"{_property_run_count_label(held_back, 'home')} held back by the active rules.")
+        add("source_area_filter", f"{_property_run_count_label(held_back, 'home')} outside the current brief.")
 
     current_message = _property_run_current_progress_message(payload, summary=summary, status=status)
     add(current_step, current_message)
@@ -1394,12 +1396,12 @@ def build_property_run_reliability_snapshot(
             coverage_label += f" · {pending_total} still running"
     result_label = ""
     if results_total > 0:
-        result_label = f"{results_total} ranked result{'s' if results_total != 1 else ''} ready"
+        result_label = f"{results_total} matching result{'s' if results_total != 1 else ''} ready"
     elif listing_total > 0:
         result_label = f"{listing_total} homes found · {to_review_total} to review"
     filtered_label = ""
     if filtered_total > 0:
-        filtered_label = f"{filtered_total} filtered by active rules"
+        filtered_label = f"{filtered_total} outside the current brief"
     final_eta_label = property_run_public_eta_label(payload.get("eta_label") or summary.get("eta_label"))
     return PropertyRunReliabilitySnapshot(
         health_label=health_label,
@@ -1871,28 +1873,20 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
         if found_total > 0
         else "checking"
     )
-    source_progress_label = (
-        f"{completed_sources} of {source_variant_total} lists checked"
-        if source_variant_total > provider_display_total and completed_sources > 0
-        else ""
-    )
     scan_label = checked_label if found_total > 0 else (
         f"{provider_display_total} lists selected" if provider_display_total > 0 else checked_label
     )
     if found_total > 0 and source_work["open"] > 0:
-        scan_label = f"{found_total} homes found · {to_review_total} to review · {source_work['open']} lists open"
+        scan_label = f"{found_total} homes found · {to_review_total} to review · {source_work['open']} lists left"
     no_floorplans = _positive_int(summary.get("filtered_floorplan_total"))
     current_step = str(payload.get("current_step") or "").strip().lower()
     packet_prepared = _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total"))
     shortlist_ready = _property_summary_ranked_total(summary)
-    live_info = _latest_property_run_fraction_info(payload)
-    if live_info.get("source_label") and live_info.get("fraction_label"):
-        return f"Now: {_compact_property_provider_label(live_info.get('source_label'))} · {live_info.get('fraction_label')} · {scan_label}"
     if current_step == "source_review_packet" and packet_prepared > 0:
         return f"{scan_label} · {packet_prepared} property pages prepared"
     if current_step == "source_shortlist" and shortlist_ready > 0:
         suffix = "" if shortlist_ready == 1 else "s"
-        return f"{scan_label} · {shortlist_ready} ranked home{suffix} ready"
+        return f"{scan_label} · {shortlist_ready} matching home{suffix} ready"
     return f"{scan_label}{f' · {no_floorplans} floorplans pending' if no_floorplans > 0 else ''}"
 
 
@@ -1948,7 +1942,7 @@ def build_property_run_live_board_snapshot(
             or phase_label.lower().startswith("shortlist ready")
         )
     ):
-        phase_label = f"{shortlist_ready} ranked home{'s' if shortlist_ready != 1 else ''} ready"
+        phase_label = f"{shortlist_ready} matching home{'s' if shortlist_ready != 1 else ''} ready"
 
     normalized_rows: list[dict[str, object]] = []
     for source in source_rows:

@@ -3046,16 +3046,12 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
     assert "Could not load property search status." not in visible_source
-    assert "Found" in visible_source
+    assert "Homes found" in visible_source
     assert "179" in visible_source
     assert "29 lists" in visible_source
-    assert "Found" in visible_source
+    assert "Homes found" in visible_source
     assert "To review" in visible_source
-    reliability_match = re.search(r'<div class="pqx-reliability-strip"[^>]*>(?P<reliability>.*?)</div>\s*</div>', response.text, re.S)
-    assert reliability_match
-    visible_reliability = html.unescape(re.sub(r"<[^>]+>", " ", reliability_match.group("reliability")))
-    assert "Could not load property search status." not in visible_reliability
-    assert "179 homes found" in visible_reliability
+    assert 'data-pqx-run-reliability' not in response.text
 
 
 def test_propertyquarry_running_panel_separates_source_work_from_found_queue(monkeypatch) -> None:
@@ -3095,7 +3091,7 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "70 homes found · 0 to review · 180 lists open" in visible_message
+    assert "70 homes found · 0 to review · 180 lists left" in visible_message
 
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
@@ -3104,9 +3100,9 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     )
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
-    assert "70 of 250 lists checked" in visible_source
-    assert "180 waiting" in visible_source
-    assert "Found" in visible_source
+    assert "180 lists left" in visible_source
+    assert "70 / 250 checked" in visible_source
+    assert "Homes found" in visible_source
     assert "70" in visible_source
     assert "To review" in visible_source
     assert "0" in visible_source
@@ -3148,7 +3144,7 @@ def test_propertyquarry_running_panel_does_not_treat_listing_total_as_reviewed(m
 
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
-    assert "70 homes found · 70 to review · 180 lists open" in visible
+    assert "70 homes found · 70 to review · 180 lists left" in visible
     assert "Reviewed" not in visible
 
 
@@ -3184,7 +3180,8 @@ def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "Now: RE/MAX Austria · 1 / 1 · 102 homes found · 0 to review" in visible_message
+    assert "102 homes found · 0 to review" in visible_message
+    assert "Now: RE/MAX Austria" not in visible_message
 
 
 def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_raw_status_noise(monkeypatch) -> None:
@@ -3229,7 +3226,7 @@ def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_ra
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
     assert "Search in progress" in rendered_html
     assert "179 homes found" in rendered_html
-    assert "Found" in rendered_html
+    assert "Homes found" in rendered_html
     assert "To review" in rendered_html
     assert "Altbau near U6" not in rendered_html
     assert "Leading right now. Can still change before the search finishes." not in rendered_html
@@ -3785,9 +3782,6 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
         'html[data-pq-theme="dark"] .pqx-account-menu summary',
         'html[data-pq-theme="dark"] .pqx-source-progress',
         'html[data-pq-theme="dark"] .pqx-reliability-strip',
-        'html[data-pq-theme="dark"] .pqx-worker-strip',
-        'html[data-pq-theme="dark"] .pqx-worker-lane',
-        'html[data-pq-theme="dark"] .pqx-worker-popover',
         'html[data-pq-theme="dark"] .pqx-source-chip',
         'html[data-pq-theme="dark"] .pqx-automation-thumbnail-action',
         'html[data-pq-theme="dark"] textarea',
@@ -5275,8 +5269,8 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     )
 
     assert snapshot["status_label"] == "Running"
-    assert snapshot["status_note"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes found · 0 to review"
-    assert snapshot["message"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes found · 0 to review"
+    assert snapshot["status_note"] == "102 homes found · 0 to review"
+    assert snapshot["message"] == "102 homes found · 0 to review"
 
 
 def test_property_surface_state_builds_filtered_total_from_summary_components() -> None:
@@ -9555,7 +9549,7 @@ def test_property_run_live_board_prefers_ranked_candidates_when_high_fit_total_i
         plan_key="agent",
     )
 
-    assert snapshot["phase_label"] == "2 ranked homes ready"
+    assert snapshot["phase_label"] == "2 matching homes ready"
 
 
 def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
@@ -9704,7 +9698,7 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
     assert "selected source" not in reliability["repair_step_label"].lower()
     assert "selected sources" not in reliability["customer_status_message"].lower()
     assert reliability["result_label"] == "3 ranked results ready"
-    assert reliability["filtered_label"] == "7 filtered by active rules"
+    assert reliability["filtered_label"] == "7 outside the current brief"
     assert reliability["repair"]["repair_status"] == "repairing"
     assert reliability["repair"]["can_auto_repair"] is True
 
@@ -10866,8 +10860,8 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     messages = [str(event.get("message") or "") for event in events]
     assert "9 lists selected for this search." in messages
     assert "Lists: 1 checked, 1 running, 7 queued of 9." in messages
-    assert "42 homes found · 30 to review · 8 lists open." in messages
-    assert "3 homes held back by the active rules." in messages
+    assert "42 homes found · 30 to review · 8 lists left." in messages
+    assert "3 homes outside the current brief." in messages
 
 
 def test_property_run_customer_visible_events_keeps_latest_ten_useful_updates() -> None:
@@ -13655,8 +13649,8 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert running_body.count("{{ progress_board(run, run_sources, research_task_counts) }}") == 1
     assert 'data-pqx-running-details' in running_body
     assert "Search history" in running_body
-    assert "Latest 10 useful updates" in running_body
-    assert "<summary><strong>Search history</strong><span class=\"pqx-note\">Latest 10 useful updates</span></summary>" in running_body
+    assert "Last 10 updates" in running_body
+    assert "<summary><strong>Search history</strong><span class=\"pqx-note\">Last 10 updates</span></summary>" in running_body
     assert "visible_event_count.value < 10" in running_body
     assert "suppressed_generic_listing_page" in running_body
     assert "could not load property search status" in running_body
@@ -13665,10 +13659,10 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "event_label = 'Preparing search'" in running_body
     assert "event_label = 'Checking details'" in running_body
     assert "event_label = 'Checking listings'" in running_body
-    assert "event_label = 'Ranking homes'" in running_body
+    assert "event_label = 'Matching homes'" in running_body
     assert "event_label = 'First shortlist'" in running_body
     assert "event_label = 'Open property ready'" in running_body
-    assert "event_label = 'Applying hard rules'" in running_body
+    assert "event_label = 'Checking requirements'" in running_body
     assert "event_label = 'List finished'" in running_body
     assert "event_label = 'Recovery'" in running_body
     assert "progress_message_display" in body
@@ -13681,10 +13675,10 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "return 'Preparing search';" in script_body
     assert "return 'Checking details';" in script_body
     assert "return 'Checking listings';" in script_body
-    assert "return 'Ranking homes';" in script_body
+    assert "return 'Matching homes';" in script_body
     assert "return 'First shortlist';" in script_body
     assert "return 'Open property ready';" in script_body
-    assert "return 'Applying hard rules';" in script_body
+    assert "return 'Checking requirements';" in script_body
     assert "return 'List finished';" in script_body
     assert "return 'Recovery';" in script_body
     assert "message.includes('suppressed_generic_listing_page')" in script_body
@@ -14264,16 +14258,15 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert "Search in progress" in live.text
     assert 'data-pqx-progress-board' in live.text
     assert 'data-pqx-progress-eta' in live.text
-    assert "42% · about 6 min" in live.text
-    assert "20 of 117 lists checked" in live.text
+    assert "97 lists left" in live.text
+    assert "20 / 117 checked" in live.text
     assert "179 homes found" in live.text
-    assert "29 lists" in live.text
     assert 'class="pqx-live-review-bars"' in live.text
     assert "searches running" not in live.text
     assert 'class="pqx-source-progress"' in live.text
-    assert 'class="pqx-source-list"' in live.text
     assert 'class="pqx-route-preview-strip"' in live.text
-    assert "Scoring enriched candidate 2 of 4" in live.text
+    rendered_live = re.sub(r"<script\b[^>]*>.*?</script>", " ", live.text, flags=re.IGNORECASE | re.DOTALL)
+    assert "Scoring enriched candidate 2 of 4" not in rendered_live
     assert re.search(r"<button[^>]+data-property-start-top[^>]*>\\s*Launch search\\s*</button>", live.text) is None
     assert ">Save defaults</button>" not in live.text
     assert "Test a wider budget ceiling" not in live.text

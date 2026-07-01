@@ -7,10 +7,11 @@
         {% set run_reviewed_head = run_summary_head.get('scanned_listing_total') if run_summary_head.get('scanned_listing_total') is not none else (run_summary_head.get('reviewed_listing_total') or 0) %}
         {% set run_raw_found_head = run_summary_head.get('found_listing_total') if run_summary_head.get('found_listing_total') is not none else (run_summary_head.get('raw_listing_total') or run_reviewed_head or run_summary_head.get('listing_total') or 0) %}
         {% set run_found_head = run_raw_found_head if run_raw_found_head > run_reviewed_head else run_reviewed_head %}
-        {% set run_to_review_head = run_summary_head.get('to_review_listing_total') if run_summary_head.get('to_review_listing_total') is not none else ((run_found_head - run_reviewed_head) if run_found_head > run_reviewed_head else 0) %}
-        {% set run_source_total_head = (run_summary_head.get('source_variant_total') or run_summary_head.get('sources_total') or run_sources|length or 0)|int %}
-        {% set run_source_completed_head = (run_summary_head.get('sources_completed') or run_summary_head.get('completed_sources') or 0)|int %}
-        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head %}{{ run_source_completed_head }} / {{ run_source_total_head }} lists · {{ run_found_head }} found · {{ run_to_review_head }} to review{% elif run_found_head %}{{ run_found_head }} found · {{ run_to_review_head }} to review{% else %}Waiting for first listings{% endif %}</div>
+	        {% set run_to_review_head = run_summary_head.get('to_review_listing_total') if run_summary_head.get('to_review_listing_total') is not none else ((run_found_head - run_reviewed_head) if run_found_head > run_reviewed_head else 0) %}
+	        {% set run_source_total_head = (run_summary_head.get('source_variant_total') or run_summary_head.get('sources_total') or run_sources|length or 0)|int %}
+	        {% set run_source_completed_head = (run_summary_head.get('sources_completed') or run_summary_head.get('completed_sources') or 0)|int %}
+	        {% set run_source_left_head = run_source_total_head - run_source_completed_head if run_source_total_head > run_source_completed_head else 0 %}
+	        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head %}{{ run_found_head }} found · {{ run_to_review_head }} to review · {{ run_source_left_head }} lists left{% elif run_found_head %}{{ run_found_head }} found · {{ run_to_review_head }} to review{% else %}Waiting for first listings{% endif %}</div>
       </div>
       <div class="pqx-inline-actions">
         {% if run_active %}
@@ -56,13 +57,13 @@
     {% set run_message_display_lower = run_message_display|lower %}
     {% set run_compact_found_message = run_found_total|string ~ ' homes found' %}
     {% set run_compact_queue_message = run_found_total|string ~ ' homes found · ' ~ run_to_review_total|string ~ ' to review' %}
-    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] or (run_found_total and run_message_display == run_compact_found_message) or (run_found_total and run_message_display == run_compact_queue_message) %}
-      {% if run_found_total %}
-        {% if run_source_open_total > 0 %}
-          {% set run_message_display = run_found_total ~ ' homes found · ' ~ run_to_review_total ~ ' to review · ' ~ run_source_open_total ~ ' lists open' %}
-        {% else %}
-          {% set run_message_display = run_found_total ~ ' homes found · ' ~ run_to_review_total ~ ' to review' %}
-        {% endif %}
+	    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or 'scoring enriched candidate' in run_message_display_lower or 'ranking homes' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] or (run_found_total and run_message_display == run_compact_found_message) or (run_found_total and run_message_display == run_compact_queue_message) %}
+	      {% if run_found_total %}
+	        {% if run_source_open_total > 0 %}
+	          {% set run_message_display = run_found_total ~ ' homes found · ' ~ run_to_review_total ~ ' to review · ' ~ run_source_open_total ~ ' lists left' %}
+	        {% else %}
+	          {% set run_message_display = run_found_total ~ ' homes found · ' ~ run_to_review_total ~ ' to review' %}
+	        {% endif %}
       {% elif run_provider_total %}
       {% set run_message_display = 'Preparing lists.' %}
       {% else %}
@@ -71,9 +72,9 @@
     {% endif %}
     <div class="pqx-note" data-pqx-run-message>{{ run_message_display or 'The search is queued.' }}</div>
     {{ progress_board(run, run_sources, research_task_counts) }}
-    {% include "app/_property_recent_run_strip.html" %}
-    <details class="pqx-card" data-pqx-running-details>
-      <summary><strong>Search history</strong><span class="pqx-note">Latest 10 useful updates</span></summary>
+	    {% include "app/_property_recent_run_strip.html" %}
+	    <details class="pqx-card" data-pqx-running-details>
+	      <summary><strong>Search history</strong><span class="pqx-note">Last 10 updates</span></summary>
       {% if (research_task_counts.get('open') or 0) %}
       <div class="pqx-note" style="margin:12px 0 0;">{{ research_task_counts.get('open') or 0 }} missing details are still being checked in the background.</div>
       {% endif %}
@@ -113,7 +114,7 @@
         {% endif %}
         <div class="pqx-event-card">
           <strong>{{ event_label }}</strong>
-          <span class="pqx-note">{{ event_message_display or 'Search is still running.' }}</span>
+          <span class="pqx-note">{% if event_label in ['Matching homes', 'Checking requirements'] %}{{ event_label }}.{% else %}{{ event_message_display or 'Search is still running.' }}{% endif %}</span>
         </div>
         {% endif %}
         {% endfor %}

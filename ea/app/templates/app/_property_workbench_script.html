@@ -1981,12 +1981,12 @@
         open: active + waiting,
         failed,
       };
-    };
-    const runSourceWorkLabel = (counts, providerDisplayTotal = 0) => {
-      if (counts?.total > 0) return `${counts.done} of ${counts.total} lists checked`;
-      if (providerDisplayTotal > 0) return `${providerDisplayTotal} lists selected`;
-      return 'Search warming up';
-    };
+	    };
+	    const runSourceWorkLabel = (counts, providerDisplayTotal = 0) => {
+	      if (counts?.total > 0) return `${Math.max(0, Number(counts.open || 0))} lists left`;
+	      if (providerDisplayTotal > 0) return `${providerDisplayTotal} lists selected`;
+	      return 'Search warming up';
+	    };
     const runListingWorkCounts = (summary = {}) => {
       const asNumber = (value) => {
         const parsed = Number(value || 0);
@@ -2015,20 +2015,19 @@
         toReview: hasExplicitToReview ? Math.max(0, parsedToReview) : Math.max(0, found - scanned),
       };
     };
-    const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '') => {
-      if (counts?.active > 0) return `${counts.active} active`;
-      if (counts?.waiting > 0) return `${counts.waiting} waiting`;
-      if (found > 0 && toReview > 0) return `${toReview} to review`;
-      if (found > 0) return '0 to review';
-      return fallback || 'Waiting for first listings';
+	    const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '') => {
+	      if (counts?.total > 0) return `${counts.done} / ${counts.total} checked`;
+	      if (found > 0 && toReview > 0) return `${toReview} to review`;
+	      if (found > 0) return '0 to review';
+	      return fallback || 'Waiting for first listings';
     };
-    const runFoundQueueMessage = (found, toReview, sourceWork) => {
-      if (!(found > 0)) return '';
-      if (sourceWork?.open > 0) {
-        return `${found} homes found · ${toReview} to review · ${sourceWork.open} lists open`;
-      }
-      return `${found} homes found · ${toReview} to review`;
-    };
+	    const runFoundQueueMessage = (found, toReview, sourceWork) => {
+	      if (!(found > 0)) return '';
+	      if (sourceWork?.open > 0) {
+	        return `${found} homes found · ${toReview} to review · ${sourceWork.open} lists left`;
+	      }
+	      return `${found} homes found · ${toReview} to review`;
+	    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
       const status = String(runPayload?.status || summary?.status || '').trim().toLowerCase();
@@ -2063,9 +2062,9 @@
       const found = listingWork.found;
       const toReview = listingWork.toReview;
       const checkedLabel = found > 0 ? `${found} homes found · ${toReview} to review` : 'checking';
-      const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
-        ? `${completedSources} of ${sourceVariantTotal} lists checked`
-        : '';
+	      const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
+	        ? `${completedSources} / ${sourceVariantTotal} checked`
+	        : '';
       const scanLabel = found > 0
         ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork) : checkedLabel)
         : (providerDisplayTotal ? `${providerDisplayTotal} lists selected` : checkedLabel);
@@ -2073,15 +2072,11 @@
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
       const shortlistReady = rankedTotalFromSummary(summary);
-      const liveInfo = latestFractionInfo(runPayload);
-      if (liveInfo.sourceLabel && liveInfo.fraction) {
-        return `Now: ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction} · ${scanLabel}`;
-      }
       if (currentStep === 'source_review_packet' && packetPrepared > 0) {
         return `${scanLabel} · ${packetPrepared} property pages prepared`;
       }
       if (currentStep === 'source_shortlist' && shortlistReady > 0) {
-        return `${scanLabel} · ${shortlistReady} ranked home${shortlistReady === 1 ? '' : 's'} ready`;
+        return `${scanLabel} · ${shortlistReady} matching home${shortlistReady === 1 ? '' : 's'} ready`;
       }
       return `${scanLabel}${noPlan > 0 ? ` · ${noPlan} floorplans pending` : ''}`;
     };
@@ -2123,10 +2118,13 @@
       };
       const hasRealEvents = rawRows.some(isUsefulRunEvent);
       const rows = rawRows.filter(isUsefulRunEvent).reverse().slice(0, 10);
-      return rows.map((event) => {
-        const label = labelRunEvent(event);
-        return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'Search is still running.')}</span></div>`;
-      }).join('') || '<div class="pqx-empty">Waiting for the next useful update.</div>';
+	      return rows.map((event) => {
+	        const label = labelRunEvent(event);
+	        const message = ['Matching homes', 'Checking requirements'].includes(label)
+	          ? `${label}.`
+	          : compactRunMessage(event?.message || 'Search is still running.');
+	        return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(message)}</span></div>`;
+	      }).join('') || '<div class="pqx-empty">Waiting for the next useful update.</div>';
     };
     const displayRunMessage = (runPayload) => {
       const raw = String(runPayload?.message || '').trim();
@@ -2165,10 +2163,12 @@
       if (
         !raw
         || lowered.includes('could not load property search status')
-        || lowered.includes('checking run status')
-        || lowered.includes('suppressed_generic_listing_page')
-        || lowered.includes('starting property search run')
-        || lowered === 'checking'
+	        || lowered.includes('checking run status')
+	        || lowered.includes('suppressed_generic_listing_page')
+	        || lowered.includes('starting property search run')
+	        || lowered.includes('scoring enriched candidate')
+	        || lowered.includes('ranking homes')
+	        || lowered === 'checking'
         || (found > 0 && (raw === compactFoundMessage || raw === compactQueueMessage))
       ) {
         if (found > 0) {
@@ -2537,257 +2537,62 @@
       const toReview = listingWork.toReview;
       const sourceWork = runSourceWorkCounts(summary, status);
       const checkedLabel = found > 0 ? `${found} homes found` : 'checking';
-      const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
-        ? `${completedSources} of ${sourceVariantTotal} lists checked`
-        : '';
+	      const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
+	        ? `${completedSources} / ${sourceVariantTotal} checked`
+	        : '';
       const scanCountLabel = runSourceWorkLabel(sourceWork, providerDisplayTotal);
       const reviewDenominator = Math.max(found, reviewed, 1);
       const foundBarPct = (found > 0 || reviewed > 0) ? 100 : 0;
       const toReviewBarPct = toReview > 0 ? Math.round((toReview / reviewDenominator) * 100) : 0;
       const layout = Number(summary.filtered_floorplan_total || 0);
-      const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
-      const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
-      const shortlistReady = rankedTotalFromSummary(summary);
       const title = status === 'processed' || status === 'completed' || status === 'completed_partial'
         ? 'Results are ready'
         : (status === 'failed' ? 'Search interrupted' : 'Search in progress');
       const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
       const progressFill = status === 'processed' || status === 'completed' || status === 'completed_partial' ? 100 : (progress > 0 ? progress : 4);
-      const liveInfo = latestFractionInfo(runPayload);
-      const liveFraction = liveInfo.fraction;
-      const planKey = currentPlanKey();
-      const planCap = isAgentPlanKey(planKey) ? 4 : (planKey === 'plus' ? 2 : 1);
-      const configuredWorkers = Math.max(0, Number(summary?.provider_workers?.worker_concurrency || 0));
-      const workerTooltip = 'This shows which sources are running, queued, recovered, or unavailable for this search. Other saved searches keep their own progress.';
       const sourceMeta = runSourceMetaLabel(
         sourceWork,
         found,
         toReview,
         sourceProgressLabel || (providerDisplayTotal > 0 ? `${providerDisplayTotal} lists selected` : 'Waiting for first listings'),
       );
-      let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first list.';
-      const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
-      const activeSourceLabel = canonicalSourceLabel(liveInfo.sourceLabel || parseRunMessageInfo(runPayload?.message).sourceLabel || '');
-      const activeSourceSummary = sourceSummaryForLabel(sourceRows, activeSourceLabel);
-      const nearMissPhase = sourceNearMissPhaseLabel(activeSourceSummary);
-      const latestReason = latestCandidateReasonLabel(runPayload);
-      if (liveInfo.fraction && nearMissPhase) {
-        phaseMeta = nearMissPhase;
-      } else if (liveInfo.fraction && latestReason) {
-        phaseMeta = latestReason;
-      }
-      if (!liveInfo.phaseLabel && currentStep === 'source_review_packet' && packetPrepared > 0) {
-        phaseMeta = `${packetPrepared} property pages prepared`;
-      } else if (currentStep === 'source_shortlist' && shortlistReady > 0 && (!liveInfo.phaseLabel || /^shortlist ready$/i.test(String(liveInfo.phaseLabel || '').trim()))) {
-        phaseMeta = `${shortlistReady} ranked home${shortlistReady === 1 ? '' : 's'} ready`;
-      }
-      const runState = String(runPayload?.status || '').trim().toLowerCase();
-      const sourceProviderGroup = (source) => {
-        const explicitKeys = [
-          'provider_source_key',
-          'source_provider_key',
-          'provider_key',
-          'platform',
-          'provider_group',
-          'provider_channel',
-          'provider_family',
-        ];
-        for (const key of explicitKeys) {
-          const value = String(source?.[key] || '').trim().toLowerCase();
-          if (value) return value;
-        }
-        const label = String(source?.source_label || source?.label || '').trim();
-        return (label.split('|')[0] || label).trim().toLowerCase() || 'provider';
-      };
-      const normalizedSourceRows = sourceRows.map((source) => {
-        const row = { ...(source || {}) };
-        const rawStatus = String(row.status || row.state || '').trim().toLowerCase();
-        const rowLabel = canonicalSourceLabel(row.source_label || row.label || '');
-        const repairTasks = Array.isArray(row.provider_repair_tasks) ? row.provider_repair_tasks.filter((task) => task && typeof task === 'object') : [];
-        const repairTask = repairTasks[0] || null;
-        const repairStatus = String(repairTask?.status || row.repair_status || '').trim().toLowerCase();
-        if (rawStatus === 'repaired' || repairStatus === 'returned') {
-          row.status = 'repaired';
-        } else if (rawStatus === 'repairing' || ['pending', 'assigned'].includes(repairStatus)) {
-          row.status = 'repairing';
-        }
-        if (!rawStatus) {
-          row.status = row.error ? 'failed' : 'completed';
-        }
-        const terminalRow = ['repaired', 'completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(String(row.status || row.state || '').trim().toLowerCase());
-        if (
-          activeSourceLabel
-          && rowLabel === activeSourceLabel
-          && !terminalRow
-          && !String(runPayload?.message || '').trim().toLowerCase().startsWith('completed scanning ')
-        ) {
-          row.status = row.error ? 'failed' : 'running';
-        }
-        return row;
-      });
-      const syntheticActiveSource = activeSourceLabel && !normalizedSourceRows.some((source) => canonicalSourceLabel(source?.source_label || source?.label || '') === activeSourceLabel)
-        ? [{ source_label: activeSourceLabel, label: activeSourceLabel, status: 'running' }]
-        : [];
-      const laneSourceRows = [...syntheticActiveSource, ...normalizedSourceRows];
-      const activeSources = laneSourceRows.filter((source) => ['running', 'processing', 'in_progress', 'working', 'warming', 'queued', 'pending', 'starting', 'repairing'].includes(String(source?.status || source?.state || '').toLowerCase()));
-      const failedSources = laneSourceRows.filter((source) => ['failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()) || (source?.error && !Array.isArray(source?.provider_repair_tasks)));
-      const completedPool = laneSourceRows.filter((source) => ['completed', 'processed', 'done', 'success', 'repaired'].includes(String(source?.status || source?.state || '').toLowerCase()));
-      const rawWorkerQueue = [...activeSources, ...failedSources, ...completedPool];
-      const seenWorkerGroups = new Set();
-      const workerQueue = [];
-      rawWorkerQueue.forEach((source) => {
-        const key = sourceProviderGroup(source);
-        if (seenWorkerGroups.has(key)) return;
-        seenWorkerGroups.add(key);
-        workerQueue.push(source);
-      });
-      rawWorkerQueue.forEach((source) => {
-        if (workerQueue.includes(source)) return;
-        workerQueue.push(source);
-      });
-      const sourceLead = compactProviderLabel(liveInfo.sourceLabel || workerQueue[0]?.source_label || workerQueue[0]?.label || '');
-      const runActive = progress > 0 || ['queued', 'in_progress', 'running', 'processing', 'starting'].includes(runState);
-      const effectiveWorkerCap = Math.max(1, Math.min(4, Math.max(configuredWorkers || planCap, runActive ? workerQueue.length : 0)));
-      const actualWorkerCount = Math.min(effectiveWorkerCap, workerQueue.length);
-      const workerCount = actualWorkerCount > 0 ? actualWorkerCount : (runActive ? 1 : 0);
-      const workers = Array.from({ length: workerCount }, (_, index) => {
-        const source = workerQueue[index] || null;
-        const groupKey = sourceProviderGroup(source);
-        const rawStatus = String(source?.status || source?.state || '').toLowerCase();
-        const repairTasks = Array.isArray(source?.provider_repair_tasks) ? source.provider_repair_tasks.filter((task) => task && typeof task === 'object') : [];
-        const repairTask = repairTasks[0] || null;
-        const repairStatus = String(repairTask?.status || source?.repair_status || '').toLowerCase();
-        let progressPct = Number(source?.progress || 0);
-        if (!(progressPct > 0)) {
-          if (rawStatus === 'repaired' || repairStatus === 'returned') progressPct = 100;
-          else if (rawStatus === 'repairing' || ['pending', 'assigned'].includes(repairStatus)) progressPct = 72;
-          else if (['completed', 'processed', 'done', 'success', 'failed', 'error', 'skipped'].includes(rawStatus)) progressPct = 100;
-          else if (rawStatus === 'starting') progressPct = 26;
-          else if (rawStatus === 'warming') progressPct = 42;
-          else if (['running', 'processing', 'in_progress', 'working'].includes(rawStatus)) progressPct = 58;
-          else if (['queued', 'pending'].includes(rawStatus)) progressPct = 18;
-          else progressPct = 0;
-        }
-        let statusLabel = 'Idle';
-        if (!source) {
-          statusLabel = (progress > 0 || ['queued', 'in_progress', 'running', 'processing', 'starting'].includes(runState)) ? 'Starting' : 'Idle';
-        } else if (rawStatus === 'repaired' || repairStatus === 'returned') {
-          statusLabel = 'Repaired';
-        } else if (rawStatus === 'repairing' || ['pending', 'assigned'].includes(repairStatus)) {
-          statusLabel = 'Repairing';
-        } else if (['completed', 'processed', 'done', 'success'].includes(rawStatus)) {
-          statusLabel = 'Done';
-        } else if (['failed', 'error'].includes(rawStatus) || source?.error) {
-          statusLabel = 'Fetch failed';
-        } else if (rawStatus === 'starting') {
-          statusLabel = 'Starting';
-        } else if (rawStatus === 'warming') {
-          statusLabel = 'Preparing';
-        } else if (['running', 'processing', 'in_progress', 'working'].includes(rawStatus)) {
-          statusLabel = 'Running';
-        } else {
-          statusLabel = 'Up next';
-        }
-        const tone = !source
-          ? (statusLabel === 'Starting' ? 'active' : 'idle')
-          : (progressPct >= 100 && ['Done', 'Repaired'].includes(statusLabel)
-            ? 'done'
-            : ((statusLabel === 'Running' || statusLabel === 'Starting' || statusLabel === 'Preparing' || statusLabel === 'Repairing')
-              ? 'active'
-              : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
-        const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
-        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing search' : (sourceRows.length ? 'Waiting for lists' : 'Ready when you start')));
-        return {
-          label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing search' : (sourceRows.length ? 'Waiting' : 'Ready')),
-          provider,
-          shardCount,
-          statusLabel,
-          progressPct: source ? progressPct : (statusLabel === 'Starting' ? Math.max(3, Math.min(progress || 3, 6)) : progressPct),
-          tone,
-        };
-      });
-      const checkedSourceCount = sourceRows.filter((source) => ['completed', 'processed', 'done', 'success', 'repaired', 'failed', 'error', 'skipped'].includes(String(source?.status || source?.state || '').toLowerCase()) || source?.error).length;
-      const activeProviderCount = workers.filter((worker) => ['Running', 'Starting', 'Preparing', 'Repairing'].includes(String(worker?.statusLabel || ''))).length;
-      const queuedWorkerCount = workers.filter((worker) => String(worker?.statusLabel || '') === 'Up next').length;
-      let displayActiveProviderCount = activeProviderCount;
-      const displayIncludesQueuedLanes = runActive && activeProviderCount <= 1 && queuedWorkerCount > 0;
-      if (displayIncludesQueuedLanes) {
-        displayActiveProviderCount = Math.min(workerCount, activeProviderCount + queuedWorkerCount);
-      }
-      const queuedSourceCount = Math.max(0, sourceVariantTotal - checkedSourceCount - activeProviderCount);
-      const workerHeadline = displayActiveProviderCount > 0
-        ? `${displayActiveProviderCount} list${displayActiveProviderCount === 1 ? '' : 's'} active`
-        : ((runActive && !sourceRows.length)
-          ? 'Preparing lists'
-          : (queuedSourceCount > 0
-            ? 'Preparing lists'
-            : (checkedSourceCount > 0 ? `${checkedSourceCount} list${checkedSourceCount === 1 ? '' : 's'} checked` : 'Lists ready')));
-      const workerDetailParts = [];
-      if (displayIncludesQueuedLanes && activeProviderCount > 0) {
-        workerDetailParts.push(`${activeProviderCount} live`);
-      }
-      if (queuedSourceCount > 0) workerDetailParts.push(`${queuedSourceCount} queued`);
-      if (checkedSourceCount > 0 && displayActiveProviderCount > 0) workerDetailParts.push(`${checkedSourceCount} checked`);
-      const workerDetail = workerDetailParts.join(' · ');
-      const upgradeCopy = '';
-      const workerHtml = workers.map((worker) => `
-        <div class="pqx-worker-lane tone-${escapeHtml(worker.tone)}">
-          <div class="pqx-worker-lane-head">
-            <strong>${escapeHtml(worker.label)}</strong>
-            <span class="pqx-small">${escapeHtml(worker.statusLabel)}</span>
-          </div>
-          <div class="pqx-worker-progress" aria-hidden="true"><i style="--progress: ${escapeHtml(worker.progressPct)}"></i></div>
-          ${planKey === 'free' ? '' : `
-            <div class="pqx-worker-popover">
-              <strong>${escapeHtml(worker.provider)}${worker.shardCount ? ` · +${escapeHtml(worker.shardCount)} related search${worker.shardCount === 1 ? '' : 'es'}` : ''}</strong>
-              <span class="pqx-note">${escapeHtml(worker.statusLabel)}</span>
-              <div class="pqx-worker-progress detailed" aria-hidden="true"><i style="--progress: ${escapeHtml(worker.progressPct)}"></i></div>
-            </div>
-          `}
-        </div>
-      `).join('');
-      return `
-        <div class="pqx-concierge-pulse">
-          <div class="pqx-progress-headline">
+	      const listLeftPct = sourceWork.total > 0 && sourceWork.open > 0 ? Math.round((sourceWork.open / sourceWork.total) * 100) : 0;
+	      return `
+	        <div class="pqx-concierge-pulse">
+	          <div class="pqx-progress-headline">
             <strong data-pqx-progress-board-title>${escapeHtml(title)}</strong>
             <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>${escapeHtml(etaLabel)}</span>
           </div>
           <div class="pqx-pulse-line" aria-hidden="true"></div>
         </div>
-        <div class="pqx-source-progress" data-pqx-source-progress>
-	          <div class="pqx-source-progress-head">
-		            <strong data-pqx-radar-count>${escapeHtml(scanCountLabel)}</strong>
-		            <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
-		            ${sourceWork.waiting > 0 && sourceWork.active > 0 ? `<span class="pqx-small">${escapeHtml(sourceWork.waiting)} waiting</span>` : ''}
-	          </div>
-	          ${liveFraction ? `<span class="pqx-small">${escapeHtml(liveFraction)}</span>` : ''}
-	          <span class="pqx-note">${escapeHtml(phaseMeta)}</span>
-          <div class="pqx-live-review-bars" aria-label="Homes found and still to review">
-	            <span>
-	              <b>Found</b>
-	              <i>${escapeHtml(found || 0)}</i>
-	              <em><u style="--progress: ${escapeHtml(foundBarPct)}"></u></em>
-	            </span>
+	        <div class="pqx-source-progress" data-pqx-source-progress>
+		          <div class="pqx-source-progress-head">
+			            <strong data-pqx-radar-count>${escapeHtml(scanCountLabel)}</strong>
+			            <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
+		          </div>
+		          <span class="pqx-note">${escapeHtml(runFoundQueueMessage(found, toReview, sourceWork) || 'Waiting for homes.')}</span>
+	          <div class="pqx-live-review-bars" aria-label="Live search totals">
+		            <span>
+		              <b>Homes found</b>
+		              <i>${escapeHtml(found || 0)}</i>
+		              <em><u style="--progress: ${escapeHtml(foundBarPct)}"></u></em>
+		            </span>
 	            <span>
               <b>To review</b>
-	              <i>${escapeHtml(toReview || 0)}</i>
-	              <em><u style="--progress: ${escapeHtml(toReviewBarPct)}"></u></em>
-	            </span>
-          </div>
-          <div class="pqx-progress-meter under-source" aria-hidden="true"><i class="pqx-progress-meter-fill" style="--progress: ${escapeHtml(progressFill)}"></i></div>
-        </div>
-        <div class="pqx-worker-strip" data-pqx-worker-strip>
-          <div class="pqx-worker-strip-head">
-            <strong>${escapeHtml(workerHeadline)}</strong>
-            <button type="button" class="pqx-tooltip" title="${escapeHtml(workerTooltip)}" aria-label="${escapeHtml(workerTooltip)}" aria-expanded="false" data-tooltip-trigger>?</button>
-            ${workerDetail ? `<span class="pqx-note">${escapeHtml(workerDetail)}</span>` : ''}
-            ${upgradeCopy ? `<span class="pqx-note">${escapeHtml(upgradeCopy)}</span>` : ''}
-          </div>
-          <div class="pqx-worker-lanes">${workerHtml}</div>
-        </div>
-        ${renderRoutePreviewStrip(runPayload)}
-      `;
+		              <i>${escapeHtml(toReview || 0)}</i>
+		              <em><u style="--progress: ${escapeHtml(toReviewBarPct)}"></u></em>
+		            </span>
+		            <span>
+	              <b>Lists left</b>
+		              <i>${escapeHtml(sourceWork.open || 0)}</i>
+		              <em><u style="--progress: ${escapeHtml(listLeftPct)}"></u></em>
+		            </span>
+	          </div>
+	          <div class="pqx-progress-meter under-source" aria-hidden="true"><i class="pqx-progress-meter-fill" style="--progress: ${escapeHtml(progressFill)}"></i></div>
+	        </div>
+	        ${renderRoutePreviewStrip(runPayload)}
+	      `;
     };
     const updateProgressBoards = (runPayload) => {
       root.querySelectorAll('[data-pqx-progress-board]').forEach((board) => {
