@@ -11,9 +11,11 @@ def configure_schema_timeouts(
     lock_timeout_ms: int = DEFAULT_SCHEMA_LOCK_TIMEOUT_MS,
     statement_timeout_ms: int = DEFAULT_SCHEMA_STATEMENT_TIMEOUT_MS,
 ) -> None:
+    lock_ms = max(1, int(lock_timeout_ms))
+    statement_ms = max(1, int(statement_timeout_ms))
     with conn.cursor() as cur:
-        cur.execute("SET lock_timeout = %s", (f"{max(1, int(lock_timeout_ms))}ms",))
-        cur.execute("SET statement_timeout = %s", (f"{max(1, int(statement_timeout_ms))}ms",))
+        cur.execute(f"SET lock_timeout = '{lock_ms}ms'")
+        cur.execute(f"SET statement_timeout = '{statement_ms}ms'")
 
 
 def column_exists(cur, table_name: str, column_name: str, *, schema_name: str = "public") -> bool:  # type: ignore[no-untyped-def]
