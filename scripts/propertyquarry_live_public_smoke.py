@@ -35,6 +35,11 @@ DEFAULT_ROUTES = (
     "/app/properties",
 )
 
+DEFAULT_BILLING_WORKER_ROUTES = (
+    ("/", "https://propertyquarry.com/", "hero-redirect"),
+    ("/account/upgrade", "https://propertyquarry.com/pricing", "pricing-redirect"),
+)
+
 
 def _compact_snippet(text: str, *, limit: int = 180) -> str:
     return re.sub(r"\s+", " ", str(text or "")[:limit]).strip()
@@ -386,6 +391,68 @@ def _oauth_redirect_row(
     }
 
 
+def _billing_worker_row(
+    *,
+    billing_base_url: str,
+    path: str,
+    expected_location: str,
+    expected_branch: str,
+    timeout_seconds: float,
+    redirect_fetcher: Callable[[str, float], dict[str, object]],
+) -> dict[str, object]:
+    normalized_billing_base = str(billing_base_url or "").strip().rstrip("/")
+    normalized_path = "/" + str(path or "").strip().lstrip("/")
+    url = f"{normalized_billing_base}{normalized_path}"
+    result = redirect_fetcher(url, timeout_seconds)
+    status_code = int(result.get("status_code") or 0)
+    headers = dict(result.get("headers") or {})
+    location = _redirect_location(result)
+    worker = _header_value(headers, "X-PQ-Billing-Worker")
+    branch = _header_value(headers, "X-PQ-Billing-Worker-Branch")
+    robots = _header_value(headers, "X-Robots-Tag")
+    checks = [
+        ("billing_worker_redirect_status", status_code in {301, 302, 303, 307, 308}),
+        ("billing_worker_location", location.rstrip("/") == str(expected_location or "").strip().rstrip("/")),
+        ("billing_worker_header", worker == "propertyquarry-billing-handoff"),
+        ("billing_worker_branch", branch == expected_branch),
+        ("billing_worker_noindex", "noindex" in robots.lower() and "nofollow" in robots.lower()),
+    ]
+    return {
+        "path": f"billing:{normalized_path}",
+        "status_code": status_code,
+        "final_url": str(result.get("final_url") or url),
+        "duration_ms": int(result.get("duration_ms") or 0),
+        "content_type": str(headers.get("Content-Type") or ""),
+        "x_robots_tag": robots,
+        "ok": all(value for _, value in checks),
+        "checks": [{"name": name, "ok": value} for name, value in checks],
+        "error": str(result.get("error") or ""),
+        "snippet": _compact_snippet(location or _decode_body(result.get("body") if isinstance(result.get("body"), bytes) else b"")),
+    }
+
+
+def _billing_worker_rows(
+    *,
+    billing_base_url: str,
+    timeout_seconds: float,
+    redirect_fetcher: Callable[[str, float], dict[str, object]],
+) -> list[dict[str, object]]:
+    normalized_billing_base = str(billing_base_url or "").strip().rstrip("/")
+    if not normalized_billing_base or normalized_billing_base.lower() in {"0", "false", "off", "none", "skip"}:
+        return []
+    return [
+        _billing_worker_row(
+            billing_base_url=normalized_billing_base,
+            path=path,
+            expected_location=expected_location,
+            expected_branch=expected_branch,
+            timeout_seconds=timeout_seconds,
+            redirect_fetcher=redirect_fetcher,
+        )
+        for path, expected_location, expected_branch in DEFAULT_BILLING_WORKER_ROUTES
+    ]
+
+
 def _sign_in_provider_redirect_checks(
     *,
     normalized_base: str,
@@ -461,6 +528,7 @@ def build_live_public_smoke_receipt(
     *,
     base_url: str = "https://propertyquarry.com",
     routes: tuple[str, ...] = DEFAULT_ROUTES,
+    billing_base_url: str = "",
     timeout_seconds: float = 12.0,
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
 ) -> dict[str, object]:
@@ -507,6 +575,13 @@ def build_live_public_smoke_receipt(
                 redirect_fetcher=redirect_fetch,
             )
         )
+    checks.extend(
+        _billing_worker_rows(
+            billing_base_url=billing_base_url,
+            timeout_seconds=timeout_seconds,
+            redirect_fetcher=redirect_fetch,
+        )
+    )
     failed = [row for row in checks if not bool(row.get("ok"))]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -517,7 +592,7 @@ def build_live_public_smoke_receipt(
         "checks": checks,
         "notes": [
             "This smoke is public and non-mutating.",
-            "It verifies Cloudflare/origin availability, PropertyQuarry public copy, PWA assets, SEO files, and the app auth boundary.",
+            "It verifies Cloudflare/origin availability, PropertyQuarry public copy, PWA assets, SEO files, the app auth boundary, and the public billing worker handoff.",
         ],
     }
 
@@ -532,6 +607,11 @@ def main() -> int:
         return 0
     parser = argparse.ArgumentParser(description="Smoke the public PropertyQuarry deployment without mutating data.")
     parser.add_argument("--base-url", default="https://propertyquarry.com")
+    parser.add_argument(
+        "--billing-base-url",
+        default=os.getenv("PROPERTYQUARRY_PUBLIC_BILLING_BASE_URL", "https://billing.propertyquarry.com"),
+        help="Billing worker base URL to smoke with GET redirect checks. Use 'skip' to disable.",
+    )
     parser.add_argument("--route", action="append", default=[], help="Route to smoke. Defaults to core public routes.")
     parser.add_argument("--timeout-seconds", type=float, default=12.0)
     parser.add_argument("--write", default="", help="Optional JSON receipt output path.")
@@ -539,6 +619,7 @@ def main() -> int:
     receipt = build_live_public_smoke_receipt(
         base_url=args.base_url,
         routes=tuple(args.route or DEFAULT_ROUTES),
+        billing_base_url=args.billing_base_url,
         timeout_seconds=args.timeout_seconds,
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)

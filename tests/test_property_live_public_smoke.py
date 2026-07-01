@@ -98,6 +98,70 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
     assert receipt["failed_count"] == 0
 
 
+def test_live_public_smoke_checks_billing_worker_redirects_without_network() -> None:
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url == "https://billing.propertyquarry.com/":
+            return _fake_response(
+                "",
+                status_code=302,
+                final_url=url,
+                headers={
+                    "Location": "https://propertyquarry.com/",
+                    "X-PQ-Billing-Worker": "propertyquarry-billing-handoff",
+                    "X-PQ-Billing-Worker-Branch": "hero-redirect",
+                    "X-Robots-Tag": "noindex, nofollow",
+                },
+            )
+        if url == "https://billing.propertyquarry.com/account/upgrade":
+            return _fake_response(
+                "",
+                status_code=302,
+                final_url=url,
+                headers={
+                    "Location": "https://propertyquarry.com/pricing",
+                    "X-PQ-Billing-Worker": "propertyquarry-billing-handoff",
+                    "X-PQ-Billing-Worker-Branch": "pricing-redirect",
+                    "X-Robots-Tag": "noindex, nofollow",
+                },
+            )
+        return _fake_response(
+            "PropertyQuarry Search once. Rank the right homes. Decide faster.",
+            final_url=url,
+        )
+
+    receipt = build_live_public_smoke_receipt(
+        routes=(),
+        billing_base_url="https://billing.propertyquarry.com",
+        fetcher=fetcher,
+    )
+
+    assert receipt["status"] == "pass"
+    rows = {row["path"]: row for row in receipt["checks"]}
+    assert rows["billing:/"]["ok"] is True
+    assert rows["billing:/account/upgrade"]["ok"] is True
+    assert any(check["name"] == "billing_worker_branch" and check["ok"] is True for check in rows["billing:/"]["checks"])
+
+
+def test_live_public_smoke_rejects_billing_worker_fake_landing_without_network() -> None:
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.startswith("https://billing.propertyquarry.com"):
+            return _fake_response("Open houses Find an agent", status_code=200, final_url=url)
+        return _fake_response(
+            "PropertyQuarry Search once. Rank the right homes. Decide faster.",
+            final_url=url,
+        )
+
+    receipt = build_live_public_smoke_receipt(
+        routes=(),
+        billing_base_url="https://billing.propertyquarry.com",
+        fetcher=fetcher,
+    )
+
+    assert receipt["status"] == "fail"
+    row = next(row for row in receipt["checks"] if row["path"] == "billing:/")
+    assert any(check["name"] == "billing_worker_redirect_status" and check["ok"] is False for check in row["checks"])
+
+
 def test_live_public_smoke_fails_cloudflare_502_and_legacy_origin_without_network() -> None:
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/pricing"):
