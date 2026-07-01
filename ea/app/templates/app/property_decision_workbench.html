@@ -136,7 +136,7 @@
                 <div class="pqx-filtered-dialog-rule">
                   {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
                   <strong>{{ row.get('title') or 'Homes outside the brief' }}</strong>
-                  <span class="pqx-note">{{ row.get('detail') or 'Some candidates stayed outside the shortlist because of the current brief or missing evidence.' }}</span>
+                  <span class="pqx-note">{{ row.get('detail') or 'Some homes stayed outside the shortlist because of the current brief or missing details.' }}</span>
                   <div class="pqx-actions">
                     <a class="pqx-button primary" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>{{ row.get('action_label') or 'Adjust search' }}</a>
                   </div>
@@ -172,7 +172,7 @@
                   <strong data-pqx-evidence-atlas-title>Property context</strong>
                   <span class="pqx-note" data-pqx-evidence-atlas-caption>Map, climate, schools, traffic, and local context.</span>
                 </div>
-                <button class="pqx-evidence-atlas-close" type="button" data-pqx-evidence-atlas-close aria-label="Close evidence atlas">×</button>
+                <button class="pqx-evidence-atlas-close" type="button" data-pqx-evidence-atlas-close aria-label="Close area layers">×</button>
               </div>
               <div class="pqx-evidence-atlas-stage" data-pqx-evidence-atlas-stage data-has-image="false">
                 <img class="pqx-evidence-atlas-image" data-pqx-evidence-atlas-image src="" alt="" loading="lazy" decoding="async">
@@ -375,7 +375,7 @@
       <span class="pqx-pill {{ reliability.get('health_tone') }}">{{ reliability.get('health_label') or 'Working' }}</span>
       {% if reliability.get('repair_step_label') %}<strong>{{ reliability.get('repair_step_label') }}</strong>{% endif %}
       {% if reliability.get('next_useful_update_eta_label') %}<span class="pqx-small">Next useful update: {{ reliability.get('next_useful_update_eta_label') }}</span>{% endif %}
-      {% if reliability.get('final_eta_label') %}<span class="pqx-small">Finish: {{ reliability.get('final_eta_label') }} · {{ reliability.get('eta_confidence_label') }} confidence</span>{% endif %}
+      {% if reliability.get('final_eta_label') %}<span class="pqx-small">Finish: {{ reliability.get('final_eta_label') }}</span>{% endif %}
     </div>
     <div class="pqx-reliability-metrics">
       {% if reliability.get('coverage_label') %}<span>{{ reliability.get('coverage_label') }}</span>{% endif %}
@@ -11820,7 +11820,7 @@
               {% if run_status == 'failed' %}
                 {{ empty_eta_feedback or empty_still_worked or 'The brief was saved. Start a fresh search after adjusting one provider or rule.' }}
               {% elif held_back_ranked_total > 0 %}
-                {{ held_back_ranked_total }} reviewed home{% if held_back_ranked_total != 1 %}s{% endif %} appeared during the run but stayed outside the selected area or another hard scope rule.
+                {{ held_back_ranked_total }} home{% if held_back_ranked_total != 1 %}s{% endif %} appeared during the run but stayed outside the selected area or another hard rule.
               {% else %}
                 {{ empty_eta_feedback or empty_still_worked or 'No homes fit the current hard brief yet.' }}
               {% endif %}

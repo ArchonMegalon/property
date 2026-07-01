@@ -3742,41 +3742,45 @@ def propertyquarry_landing_handoff(
         return {"target": "/app/search", "signed_in": False}
     product = build_product_service(container)
     active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
-    status = container.onboarding.status(principal_id=principal_id)
-    raw_property_preferences = dict(status.get("property_search_preferences") or {})
-    saved_preferences = _property_customer_scoped_preferences(
-        normalize_property_search_preferences(
-            dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences)
-        )
-    )
-    saved_country = normalize_country_code(saved_preferences.get("country_code"))
-    saved_platforms = {
-        str(value or "").strip().lower()
-        for value in list(saved_preferences.get("selected_platforms") or [])
-        if str(value or "").strip()
-    }
-    saved_platforms = set(
-        property_filter_selectable_property_platforms(
-            saved_platforms,
-            country_code=saved_country,
-            listing_mode=normalize_listing_mode(saved_preferences.get("listing_mode")),
-            include_distressed_sale_signals=saved_preferences.get("include_distressed_sale_signals"),
-        )[0]
-    )
-    if not saved_platforms:
-        saved_platforms = set(
-            default_platforms_for_country_listing_mode(
-                saved_country,
-                saved_preferences.get("listing_mode"),
-                property_type=saved_preferences.get("property_type"),
+    if active_run:
+        try:
+            status = container.onboarding.status(principal_id=principal_id)
+            raw_property_preferences = dict(status.get("property_search_preferences") or {})
+            saved_preferences = _property_customer_scoped_preferences(
+                normalize_property_search_preferences(
+                    dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences)
+                )
             )
-        )
-    if active_run and not _property_run_matches_saved_brief(
-        active_run,
-        preferences=saved_preferences,
-        selected_platforms=saved_platforms,
-    ):
-        active_run = {}
+            saved_country = normalize_country_code(saved_preferences.get("country_code"))
+            saved_platforms = {
+                str(value or "").strip().lower()
+                for value in list(saved_preferences.get("selected_platforms") or [])
+                if str(value or "").strip()
+            }
+            saved_platforms = set(
+                property_filter_selectable_property_platforms(
+                    saved_platforms,
+                    country_code=saved_country,
+                    listing_mode=normalize_listing_mode(saved_preferences.get("listing_mode")),
+                    include_distressed_sale_signals=saved_preferences.get("include_distressed_sale_signals"),
+                )[0]
+            )
+            if not saved_platforms:
+                saved_platforms = set(
+                    default_platforms_for_country_listing_mode(
+                        saved_country,
+                        saved_preferences.get("listing_mode"),
+                        property_type=saved_preferences.get("property_type"),
+                    )
+                )
+            if not _property_run_matches_saved_brief(
+                active_run,
+                preferences=saved_preferences,
+                selected_platforms=saved_platforms,
+            ):
+                active_run = {}
+        except Exception:
+            active_run = {}
     candidate_run_id = str(active_run.get("run_id") or "").strip()
     if candidate_run_id:
         return {
@@ -6405,7 +6409,7 @@ def app_shell(
                 force_recent_runs=str(full or "").strip().lower() in {"1", "true", "yes"},
                 defer_run_hydration=(
                     not normalized_run_id
-                    and resolved_section in {"properties", "search", "shortlist", "agents", "alerts", "account", "billing", "settings"}
+                    and resolved_section in {"properties", "shortlist", "agents", "alerts", "account", "billing", "settings"}
                     and str(full or "").strip().lower() not in {"1", "true", "yes"}
                 ),
             )

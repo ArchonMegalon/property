@@ -99,7 +99,7 @@ def build_property_source_rows(*, property_summary: dict[str, object]) -> list[d
                 for part in (
                     f"{int(source.get('listing_total') or 0)} listings",
                     f"{_source_ranked_total(source)} ranked",
-                    f"{int(source.get('filtered_floorplan_total') or 0)} still waiting on floorplans"
+                    f"{int(source.get('filtered_floorplan_total') or 0)} floorplans pending"
                     if int(source.get('filtered_floorplan_total') or 0)
                     else "",
                     f"{int(source.get('tour_created_total') or 0)} 3D tours",

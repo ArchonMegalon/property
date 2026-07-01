@@ -1527,20 +1527,20 @@ def _property_run_candidate_reason_label(value: object) -> str:
     ):
         return f"Outdoor space was missing for candidate {ordinal} (score impact only)"
     positive_signals = (
-        (("balcony", "terrace", "outdoor"), "Outdoor space evidence found"),
-        (("lift", "elevator", "barrier-free", "barrier free", "accessible"), "Access evidence improved the score"),
-        (("operating cost", "monthly cost", "total cost", "betriebskosten"), "Cost evidence improved the score"),
-        (("heating", "heizung"), "Heating evidence improved the score"),
-        (("energy", "energy certificate", "energieausweis"), "Energy evidence improved the score"),
-        (("internet", "broadband", "fiber", "fibre", "high-speed"), "Internet evidence improved the score"),
-        (("floorplan", "layout"), "Layout evidence improved the score"),
-        (("360", "matterport", "3dvista", "virtual tour", "live tour"), "Remote-view evidence improved the score"),
-        (("garage", "parking"), "Parking evidence improved the score"),
-        (("commute", "transit", "subway", "u-bahn", "underground", "train"), "Transit evidence improved the score"),
+        (("balcony", "terrace", "outdoor"), "Outdoor space found"),
+        (("lift", "elevator", "barrier-free", "barrier free", "accessible"), "Access detail improved the score"),
+        (("operating cost", "monthly cost", "total cost", "betriebskosten"), "Cost detail improved the score"),
+        (("heating", "heizung"), "Heating detail improved the score"),
+        (("energy", "energy certificate", "energieausweis"), "Energy detail improved the score"),
+        (("internet", "broadband", "fiber", "fibre", "high-speed"), "Internet detail improved the score"),
+        (("floorplan", "layout"), "Layout detail improved the score"),
+        (("360", "matterport", "3dvista", "virtual tour", "live tour"), "Remote-view detail improved the score"),
+        (("garage", "parking"), "Parking detail improved the score"),
+        (("commute", "transit", "subway", "u-bahn", "underground", "train"), "Transit detail improved the score"),
         (("school", "volksschule"), "School fit improved the score"),
         (("kindergarten", "childcare"), "Childcare fit improved the score"),
         (("supermarket", "pharmacy", "bakery", "market", "errand"), "Daily errands improved the score"),
-        (("sunlight", "bright", "orientation", "south-facing"), "Light and orientation evidence improved the score"),
+        (("sunlight", "bright", "orientation", "south-facing"), "Light and orientation detail improved the score"),
     )
     for tokens, label in positive_signals:
         if any(token in normalized for token in tokens) and any(token in normalized for token in ("found", "confirmed", "available", "evidence", "clear", "ready")):
@@ -1620,14 +1620,14 @@ def _property_run_candidate_reason_label(value: object) -> str:
             return f"Noise context reduced the score for candidate {ordinal} (score impact only)"
     if any(token in normalized for token in ("flood", "water", "groundwater")):
         if any(token in normalized for token in ("clear", "low", "outside", "not in")):
-            return f"Water-risk evidence looked clear for candidate {ordinal} (score upgraded)"
+            return f"Water risk looked clear for candidate {ordinal}"
         if any(token in normalized for token in ("risk", "burden", "inside", "unclear")):
-            return f"Water-risk evidence needs review for candidate {ordinal} (score impact only)"
+            return f"Water risk still needs a look for candidate {ordinal}"
     if any(token in normalized for token in ("document", "energy certificate", "operating-cost statement", "betriebskosten statement")):
         if any(token in normalized for token in ("found", "available", "attached", "confirmed")):
-            return f"Document evidence improved confidence for candidate {ordinal}"
+            return f"Documents improved the read for candidate {ordinal}"
         if any(token in normalized for token in ("missing", "not attached", "unavailable")):
-            return f"Document evidence is still missing for candidate {ordinal} (score impact only)"
+            return f"Documents are still missing for candidate {ordinal}"
     if ("school" in normalized or "kindergarten" in normalized) and any(
         token in normalized for token in ("close enough", "within", "near", "nearby", "fit", "matches", "matched")
     ):
@@ -1824,7 +1824,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     if current_step == "source_shortlist" and shortlist_ready > 0:
         suffix = "" if shortlist_ready == 1 else "s"
         return f"{scan_label} · {shortlist_ready} ranked home{suffix} ready"
-    return f"{scan_label}{f' · {no_floorplans} still waiting on floorplans' if no_floorplans > 0 else ''}"
+    return f"{scan_label}{f' · {no_floorplans} floorplans pending' if no_floorplans > 0 else ''}"
 
 
 def build_property_run_live_board_snapshot(
@@ -1857,7 +1857,7 @@ def build_property_run_live_board_snapshot(
         else "checking"
     )
     if waiting_on_floorplans > 0:
-        aggregate_label += f" · {waiting_on_floorplans} still waiting on floorplans"
+        aggregate_label += f" · {waiting_on_floorplans} floorplans pending"
     phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first list."
     if phase_label == "Waiting for the first provider update.":
         phase_label = "Waiting for the first list."

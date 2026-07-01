@@ -330,9 +330,9 @@
       evidence.forEach((row) => {
         appendEventCard(
           clippyAnswerNode,
-          row?.title || 'Evidence',
+          row?.title || 'Detail',
           row?.detail || '',
-          row?.confidence || row?.source || '',
+          row?.source || '',
         );
       });
       if (actions.length) {
@@ -928,8 +928,8 @@
         renderEventCards(
           officialEvidenceNode,
           candidate.official_evidence_rows,
-          'Official evidence',
-          'No authoritative risk-evidence row is attached yet for the selected property.',
+          'Official data',
+          'No official local-data row is attached yet for the selected property.',
         );
       }
       if (followupsNode) {
@@ -985,9 +985,8 @@
       if (underwritingSummary) {
         const summaryParts = [];
         if (candidate.investment?.score_display) summaryParts.push(String(candidate.investment.score_display));
-        if (candidate.investment?.confidence_label) summaryParts.push(String(candidate.investment.confidence_label));
         if (candidate.investment?.underwriting_summary) summaryParts.push(String(candidate.investment.underwriting_summary));
-        underwritingSummary.textContent = summaryParts.join(' · ') || 'Scoring will appear once rent, cost, and market evidence are firm enough.';
+        underwritingSummary.textContent = summaryParts.join(' · ') || 'Numbers appear once rent, costs, and market context are complete.';
       }
       const underwritingFacts = root.querySelector('[data-pw-underwriting-facts]');
       if (underwritingFacts) {
@@ -1000,7 +999,7 @@
         if (candidate.investment?.feed_status_label) summaryParts.push(String(candidate.investment.feed_status_label));
         if (candidate.investment?.feed_status_detail) summaryParts.push(String(candidate.investment.feed_status_detail));
         if (candidate.investment?.dscr_display) summaryParts.push(String(candidate.investment.dscr_display));
-        feedStatus.textContent = summaryParts.join(' · ') || 'Using listing and shortlist evidence until external rent, cost, and financing reads arrive.';
+        feedStatus.textContent = summaryParts.join(' · ') || 'Using current listing and shortlist data until rent, costs, and financing are complete.';
       }
       root.querySelectorAll('[data-pw-actions]').forEach((node) => {
         if (node.matches('[data-pw-actions]')) renderPropertyActions(node, candidate);

@@ -3833,7 +3833,7 @@ def test_propertyquarry_root_redirects_token_authenticated_users_but_keeps_home_
 
     public_home = client.get("/?home=1", headers=headers, follow_redirects=False)
     assert public_home.status_code == 200
-    assert "Search once. Rank the right homes. Decide with evidence." in public_home.text
+    assert "Search once. Rank the right homes. Decide faster." in public_home.text
     assert 'href="/?home=1" aria-label="PropertyQuarry home"' in public_home.text
     assert 'href="/app/search"' in public_home.text
     assert 'href="/app/properties"' in public_home.text
@@ -3860,7 +3860,7 @@ def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monke
 
     response = client.get("/?home=1", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     assert response.status_code == 200
-    assert "Search once. Rank the right homes. Decide with evidence." in response.text
+    assert "Search once. Rank the right homes. Decide faster." in response.text
     assert 'href="/app/search"' in response.text
     assert 'href="/app/properties"' in response.text
     assert 'href="/sign-in?signing_in=1"' not in response.text
@@ -8380,7 +8380,7 @@ def test_property_research_route_uses_research_surface_contract(monkeypatch) -> 
     assert 'data-pqx-surface="research"' in research.text
     assert '<span class="is-active" aria-current="page">Research</span>' in research.text
     assert 'data-property-decision-workbench' in research.text
-    assert "Open the strongest homes first." in research.text
+    assert "Open the strongest homes first." not in research.text
     assert "Open the strongest property pages first" in research.text
     assert "PropertyQuarry Shortlist" not in research.text
 
@@ -8484,7 +8484,7 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert ready_payload["primary_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
     assert ready_payload["primary_label"] == "Open 3D tour"
     assert ready_payload["status_label"] == "3D tour ready"
-    assert ready_payload["status_detail"] == "3D tour is ready on this page and should be reviewed before the raw listing."
+    assert ready_payload["status_detail"] == "3D tour is ready on this page. Open it before leaving for the listing."
     assert ready_payload["walkthrough_status_detail"] == "Walkthrough is ready on this page."
 
 
@@ -8511,7 +8511,7 @@ def test_property_research_media_uses_generic_label_for_verified_controls(monkey
     assert payload["provider_label"] == "3D tour"
     assert payload["primary_label"] == "Open 3D tour"
     assert payload["status_label"] == "3D tour ready"
-    assert payload["status_detail"] == "3D tour is ready on this page and should be reviewed before the raw listing."
+    assert payload["status_detail"] == "3D tour is ready on this page. Open it before leaving for the listing."
 
 
 def test_property_research_media_treats_krpano_only_bundle_as_needing_rebuild(monkeypatch) -> None:
@@ -9375,7 +9375,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
     cases = [
         (
             "Balcony evidence confirmed for candidate 11 of 60.",
-            "Outdoor space evidence found for candidate 11/60 (score upgraded)",
+            "Outdoor space found for candidate 11/60 (score upgraded)",
         ),
         (
             "Operating costs are missing for candidate 12 of 60 and need verification.",
@@ -9391,11 +9391,11 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Matterport tour available for candidate 15 of 60.",
-            "Remote-view evidence improved the score for candidate 15/60 (score upgraded)",
+            "Remote-view detail improved the score for candidate 15/60 (score upgraded)",
         ),
         (
             "High-speed internet evidence confirmed for candidate 16 of 60.",
-            "Internet evidence improved the score for candidate 16/60 (score upgraded)",
+            "Internet detail improved the score for candidate 16/60 (score upgraded)",
         ),
         (
             "Energy certificate is missing for candidate 17 of 60.",
@@ -9427,7 +9427,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "South-facing orientation evidence confirmed for candidate 23 of 60.",
-            "Light and orientation evidence improved the score for candidate 23/60 (score upgraded)",
+            "Light and orientation detail improved the score for candidate 23/60 (score upgraded)",
         ),
         (
             "Duplicate candidate 24 of 60 already seen on another provider.",
@@ -9471,11 +9471,11 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Flood and groundwater evidence is clear for candidate 34 of 60.",
-            "Water-risk evidence looked clear for candidate 34/60 (score upgraded)",
+            "Water risk looked clear for candidate 34/60",
         ),
         (
             "Operating-cost statement is missing for candidate 35 of 60.",
-            "Document evidence is still missing for candidate 35/60 (score impact only)",
+            "Documents are still missing for candidate 35/60",
         ),
     ]
     for message, expected in cases:
@@ -10097,7 +10097,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Berlin Hauptbahnhof" in search.text
     assert "Berlin Hauptbahnhof" in search.text
     assert "https://www.google.com/maps/dir/?api=1" in search.text
-    assert "Evidence" in search.text
+    assert "Official data" in search.text or "Supermarket" in search.text
     assert "Supermarket" in search.text
     assert "280 m" in search.text
     assert 'class="pqx-route-evidence"' in search.text
@@ -10111,12 +10111,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-tour-eta="about 12 min"' in search.text
     assert 'href="/app/properties/packets?run_id=run-42"' in search.text
     assert 'href="/app/search?run_id=run-42" data-pqx-loading-link>Edit search</a>' in search.text
-    assert "still waiting on floorplans" in search.text
+    assert "floorplans pending" in search.text
     assert "not scheduled yet" not in search.text
     assert "3D tour" in search.text
     assert "Match" in search.text
     assert "EUR 420,000" in search.text
-    assert "still waiting on floorplans" in search.text
+    assert "floorplans pending" in search.text
     assert "Pending layout proof" not in search.text
     assert "These homes are still being checked for a floorplan" in search.text
     assert 'data-pqx-progress-board' in search.text
@@ -10136,12 +10136,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-candidate-packet-url="/app/research/' in search.text
     assert 'data-candidate-listing-url="https://www.immobilienscout24.de/expose/altbau-u6"' in search.text
     assert "Filtered" in search.text
-    assert "Missing floorplan evidence" in search.text
+    assert "Floorplan still missing" in search.text
     assert "Floorplan gate" not in search.text
-    assert "still waiting on floorplans" in search.text
+    assert "floorplans pending" in search.text
     assert "These homes are still being checked for a floorplan" in search.text
     assert "Layout not verified" not in search.text
-    assert "Missing floorplan evidence" in search.text
+    assert "Floorplan still missing" in search.text
     assert 'data-pqx-filtered-dialog' in search.text
     assert re.search(r"<button[^>]+data-property-start-top[^>]*>\\s*Launch search\\s*</button>", search.text) is None
     assert "Morning Memo" not in search.text
@@ -10923,7 +10923,7 @@ def test_property_research_decision_rows_remove_clarification_noise() -> None:
     assert "Why not now" not in text
     assert "Missing-data severity" not in text
     assert any(row.get("title") == "Next" for row in rows)
-    assert "Verify the missing evidence before spending more time on it" in text
+    assert "Clear up the missing details before spending more time on it" in text
     assert "BILLA Praterstern is about 400 m away for daily errands." in text
     assert "Donaukanal is about 260 m away and helps the local cooling corridor." in text
     assert "Heating type is still missing." in text
@@ -11686,7 +11686,7 @@ def test_propertyquarry_workspace_session_root_home_override_stays_public() -> N
 
     public_home = client.get("/?home=1", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     assert public_home.status_code == 200
-    assert "Search once. Rank the right homes. Decide with evidence." in public_home.text
+    assert "Search once. Rank the right homes. Decide faster." in public_home.text
     assert 'href="/?home=1" aria-label="PropertyQuarry home"' in public_home.text
     assert 'href="/app/search"' in public_home.text
     assert 'action="/app/actions/sign-out"' in public_home.text
@@ -16214,7 +16214,7 @@ def test_propertyquarry_suppression_rows_includes_property_type_and_availability
     property_type_row = next(row for row in rows if row.get("rule_key") == "Property type mismatch")
     availability_row = next(row for row in rows if row.get("rule_key") == "Availability mismatch")
     listing_mode_row = next(row for row in rows if row.get("rule_key") == "Wrong transaction type")
-    overview_row = next(row for row in rows if row.get("rule_key") == "Provider overview page")
+    overview_row = next(row for row in rows if row.get("rule_key") == "Overview page")
 
     assert property_type_row["affected_total"] == 3
     assert availability_row["affected_total"] == 1
@@ -16741,7 +16741,7 @@ def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
     assert source_rows == [
         {
             "title": "Willhaben",
-                "detail": "12 listings | 3 ranked | 2 still waiting on floorplans | 1 3D tours | 1 client alerts | 1 email | top score 87.50",
+                "detail": "12 listings | 3 ranked | 2 floorplans pending | 1 3D tours | 1 client alerts | 1 email | top score 87.50",
                 "tag": "Scanned",
             }
         ]
@@ -17106,13 +17106,13 @@ def test_propertyquarry_workspace_exposes_investment_goal_and_guardrails() -> No
     assert "Home shape" not in workbench_script
 
 
-def test_propertyquarry_workspace_surfaces_institutional_underwriting_language() -> None:
+def test_propertyquarry_workspace_uses_plain_investment_language() -> None:
     bundle = _read_workbench_bundle()
     lowered = bundle.lower()
-    assert "Underwriting summary" in bundle
-    assert "this score combines" in lowered
-    assert "return, value, demand, liquidity, risk control, execution effort, and confidence" in lowered
-    assert "Model status" in bundle
+    assert "Numbers" in bundle
+    assert "compact read on price, rent, costs, demand, liquidity, and effort" in lowered
+    assert "Underwriting summary" not in bundle
+    assert "Model status" not in bundle
 
 
 def test_propertyquarry_saved_brief_reload_does_not_backfill_custom_location_from_checkbox_scope() -> None:
@@ -18299,10 +18299,10 @@ def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(mo
     packet = client.get(packet_match.group(1), params={"run_id": "run-88", "investment": 1}, headers=headers)
     assert packet.status_code == 200
     assert "Investment research is waiting on core facts" not in packet.text
-    assert "Current underwriting base" in packet.text
+    assert "Current price base" in packet.text
     assert "Buy-side benchmark" in packet.text
     assert "Gross yield" in packet.text
-    assert "Institutional underwriting score" in packet.text
+    assert "Investment score" in packet.text
 
 
 def test_propertyquarry_workspace_search_surface_keeps_internal_review_link(monkeypatch) -> None:
@@ -18884,7 +18884,7 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
     assert '>Open 3D tour</a>' in rendered_html
-    assert "3D tour is ready on this page and should be reviewed before the raw listing." in rendered_html
+    assert "3D tour is ready on this page. Open it before leaving for the listing." in rendered_html
     assert "3D tour ready." in rendered_html
     assert 'data-prd-visual-card="tour"' in packet.text
     assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html

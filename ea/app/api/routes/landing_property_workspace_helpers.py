@@ -1420,9 +1420,9 @@ def _property_search_guard_rows(
     if no_plan_total:
         rows.append(
             {
-                "title": "Layout evidence",
-                "detail": f"{no_plan_total} candidate{' still needs' if no_plan_total == 1 else 's still need'} verified layout evidence.",
-                "tag": "Evidence",
+                "title": "Floorplan detail",
+                "detail": f"{no_plan_total} home{' still needs' if no_plan_total == 1 else 's still need'} a clear floorplan.",
+                "tag": "Open",
             }
         )
     return rows[:5]
@@ -1440,8 +1440,8 @@ def _property_suppression_rows(
         "Outside selected area": 0,
         "Property type mismatch": 0,
         "Wrong transaction type": 0,
-        "Provider overview page": 0,
-        "Missing floorplan evidence": 0,
+        "Overview page": 0,
+        "Floorplan still missing": 0,
         "Outside area/size rule": 0,
         "Availability mismatch": 0,
         "Alert budget": 0,
@@ -1451,8 +1451,8 @@ def _property_suppression_rows(
         ("Outside selected area", "location_mismatch_candidate_total"),
         ("Property type mismatch", "filtered_property_type_total"),
         ("Wrong transaction type", "filtered_listing_mode_total"),
-        ("Provider overview page", "filtered_generic_page_total"),
-        ("Missing floorplan evidence", "filtered_floorplan_total"),
+        ("Overview page", "filtered_generic_page_total"),
+        ("Floorplan still missing", "filtered_floorplan_total"),
         ("Outside area/size rule", "filtered_area_total"),
         ("Availability mismatch", "filtered_availability_total"),
         ("Alert budget", "notification_budget_suppressed_total"),
@@ -1477,8 +1477,8 @@ def _property_suppression_rows(
         ("Outside selected area", "filtered_location_total"),
         ("Property type mismatch", "filtered_property_type_total"),
         ("Wrong transaction type", "filtered_listing_mode_total"),
-        ("Provider overview page", "filtered_generic_page_total"),
-        ("Missing floorplan evidence", "filtered_floorplan_total"),
+        ("Overview page", "filtered_generic_page_total"),
+        ("Floorplan still missing", "filtered_floorplan_total"),
         ("Outside area/size rule", "filtered_area_total"),
         ("Availability mismatch", "filtered_availability_total"),
     )
@@ -1493,8 +1493,8 @@ def _property_suppression_rows(
         "Outside selected area": "Add nearby districts first instead of opening the full market.",
         "Property type mismatch": "Allow this property type temporarily if you want mixed options in this round.",
         "Wrong transaction type": "Keep this strict. Rent and buy are hard rules, so mismatched listings are sent for provider repair.",
-        "Provider overview page": "Keep this strict. Provider overview, news, or competition pages are sent for extractor repair.",
-        "Missing floorplan evidence": "These homes are still being checked for a floorplan in photos, PDFs, downloads, and 360 media.",
+        "Overview page": "Keep this strict. Overview, news, or competition pages are skipped.",
+        "Floorplan still missing": "These homes are still being checked for a floorplan in photos, PDFs, downloads, and 360 media.",
         "Outside area/size rule": "Stretch the size or area rule only if the shortlist feels too thin.",
         "Availability mismatch": "Loosen the move-in timing if the date is flexible.",
         "Alert budget": "Raise the daily alert limit if you want more saved-search notifications.",
@@ -1502,7 +1502,7 @@ def _property_suppression_rows(
     title_map = {
         "Outside selected area": "Include nearby districts",
         "Property type mismatch": "Widen property-type rule",
-        "Missing floorplan evidence": "Include homes while floorplans are still being checked",
+        "Floorplan still missing": "Include homes while floorplans are still being checked",
         "Outside area/size rule": "Stretch the size rule",
         "Availability mismatch": "Loosen move-in timing",
         "Alert budget": "Raise the alert limit",
@@ -1510,7 +1510,7 @@ def _property_suppression_rows(
     action_label_map = {
         "Outside selected area": "Set nearby radius",
         "Property type mismatch": "Relax property type",
-        "Missing floorplan evidence": "Show held-back homes",
+        "Floorplan still missing": "Show held-back homes",
         "Outside area/size rule": "Relax size",
         "Availability mismatch": "Edit move-in timing",
         "Alert budget": "Raise alerts",
@@ -1645,7 +1645,7 @@ def _artifact_receipt_rows(run_summary: dict[str, object]) -> list[dict[str, str
         rows.append(
             {
                 "title": "Repair outcome",
-                "detail": f"{len(repair_receipts)} repair attempt{'s' if len(repair_receipts) != 1 else ''} recorded. Latest: {str(latest.get('resolution') or 'returned').replace('_', ' ')}.",
+                "detail": f"{len(repair_receipts)} repair attempt{'s' if len(repair_receipts) != 1 else ''}. Latest: {str(latest.get('resolution') or 'returned').replace('_', ' ')}.",
                 "tag": "Repair",
             }
         )
@@ -1683,20 +1683,20 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
         if confidence == "low":
             low_conf_total += 1
     if gap_total:
-        headline = "Public sources still missing"
-        headline_detail = f"{gap_total} risk check(s) still depend on municipality-specific or missing public data."
-        headline_tag = "Source gap"
+        headline = "Some public data is missing"
+        headline_detail = f"{gap_total} check(s) still depend on municipality-specific data."
+        headline_tag = "Open"
     elif flagged_total:
-        headline = "Public sources attached, checks still open"
-        headline_detail = f"{flagged_total} check(s) still need a final review before this page is fully reliable."
-        headline_tag = "Review"
+        headline = "Public data attached, checks still open"
+        headline_detail = f"{flagged_total} check(s) still need one final look."
+        headline_tag = "Open"
     elif review_total:
-        headline = "Public sources attached, one more check"
-        headline_detail = f"{review_total} check(s) still need confirmation even though public sources are already attached."
-        headline_tag = "Review"
+        headline = "Public data attached, one more check"
+        headline_detail = f"{review_total} check(s) still need a clear answer."
+        headline_tag = "Open"
     else:
-        headline = "Public sources ready"
-        headline_detail = "All active risk checks already have public-source coverage and no open source gaps."
+        headline = "Public data ready"
+        headline_detail = "The active local checks have public data and no open gaps."
         headline_tag = "Ready"
     next_steps: list[str] = []
     for row in rows:
@@ -1712,21 +1712,21 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
     response = [
         {"title": headline, "detail": headline_detail, "tag": headline_tag},
         {"title": "Coverage", "detail": " | ".join(coverage_parts), "tag": str(official.get("country_code") or "").strip() or "Market"},
-        {"title": "Checked", "detail": " | ".join(verification_parts), "tag": f"{low_conf_total} low confidence" if low_conf_total else "Confidence ok"},
+        {"title": "Checked", "detail": " | ".join(verification_parts), "tag": f"{low_conf_total} thin detail" if low_conf_total else "Ready"},
     ]
     if next_steps:
         response.append(
             {
                 "title": "Next check",
                 "detail": " | ".join(next_steps[:2]),
-                "tag": "Manual review",
+                "tag": "Open",
             }
         )
     updated_at = str(official.get("updated_at") or "").strip()
     if updated_at:
         response.append(
             {
-                "title": "Source snapshot",
+                "title": "Data snapshot",
                 "detail": updated_at.replace("T", " ").replace("+00:00", " UTC"),
                 "tag": "Attached",
             }
@@ -1751,10 +1751,10 @@ def _property_counterfactual_rows(
         lowered_title = title.lower()
         if "duplicate listing" in lowered_title or "wrong property type" in lowered_title:
             return {}
-        if title.lower() in {"pending layout proof", "missing floorplan evidence"}:
-            item["title"] = "Missing floorplan evidence"
+        if title.lower() in {"pending layout proof", "missing floorplan evidence", "floorplan still missing"}:
+            item["title"] = "Floorplan still missing"
             if detail:
-                item["detail"] = detail.replace("layout proof", "floorplan evidence")
+                item["detail"] = detail.replace("layout proof", "floorplan detail").replace("floorplan evidence", "floorplan detail")
             if action_label.lower() == "run layout recovery":
                 item["action_label"] = "Recover floorplans"
         return item

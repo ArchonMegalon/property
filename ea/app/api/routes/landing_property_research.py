@@ -115,14 +115,14 @@ def _evidence_detail_rows(items) -> list[dict[str, str]]:  # type: ignore[no-unt
     for item in items or ():
         rows.append(
             _object_detail_row(
-                str(getattr(item, "note", "") or getattr(item, "ref", "") or "Supporting evidence"),
+                str(getattr(item, "note", "") or getattr(item, "ref", "") or "Supporting detail"),
                 str(getattr(item, "ref", "") or "No external reference attached."),
-                str(getattr(item, "source_type", "") or "Evidence"),
+                str(getattr(item, "source_type", "") or "Detail"),
             )
         )
     if rows:
         return rows
-    return [_object_detail_row("No supporting evidence yet", "This object has no attached evidence refs yet.", "Pending")]
+    return [_object_detail_row("No supporting details yet", "This object has no attached details yet.", "Pending")]
 
 
 def _render_console_object_detail(
@@ -700,7 +700,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
     if hosted_tour_ready:
         status_label = "3D tour ready"
-        status_detail = "3D tour is ready on this page and should be reviewed before the raw listing."
+        status_detail = "3D tour is ready on this page. Open it before leaving for the listing."
     elif tour_url:
         status_label = "3D tour needs rebuild"
         status_detail = _hosted_tour_rebuild_detail()
@@ -922,13 +922,12 @@ def _property_packet_official_evidence_rows(facts: dict[str, object]) -> list[di
     for row in list(official.get("sources") or [])[:6]:
         if not isinstance(row, dict):
             continue
-        title = str(row.get("label") or row.get("risk_key") or "Official evidence").strip()
+        title = str(row.get("label") or row.get("risk_key") or "Official data").strip()
         source_label = str(row.get("source_label") or row.get("provider") or "Official dataset").strip()
         authority = str(row.get("authority_label") or row.get("provider") or "").strip()
         summary = str(row.get("summary") or "").strip()
         availability = str(row.get("availability") or "official_dataset").replace("_", " ").title()
         verification = str(row.get("verification_state") or "needs_review").replace("_", " ").title()
-        confidence = str(row.get("confidence") or "").replace("_", " ").title()
         next_step = str(row.get("required_next_step") or "").strip()
         scope = str(row.get("coverage_scope") or "").replace("_", " ").strip()
         detail = " | ".join(part for part in (authority, source_label, summary, f"Scope: {scope}" if scope else "") if part)
@@ -937,8 +936,8 @@ def _property_packet_official_evidence_rows(facts: dict[str, object]) -> list[di
         rows.append(
             _object_detail_row(
                 title,
-                detail or "Official source attached for this risk check.",
-                " · ".join(part for part in (availability, verification, confidence) if part),
+                detail or "Official data attached for this check.",
+                " · ".join(part for part in (availability, verification) if part),
                 href=str(row.get("source_url") or "").strip(),
             )
         )
@@ -990,7 +989,7 @@ def _property_packet_future_research_rows(facts: dict[str, object]) -> list[dict
         rows.append(_object_detail_row("Top next schools", ", ".join(top_destinations[:3]), "Path"))
     planning_confidence = str(future.get("planning_confidence") or "").strip()
     if planning_confidence:
-        rows.append(_object_detail_row("Planning confidence", planning_confidence, "Confidence"))
+        rows.append(_object_detail_row("Planning clarity", planning_confidence, "Planning"))
     investment_impact = str(future.get("investment_impact") or "").strip()
     if investment_impact:
         rows.append(_object_detail_row("Long-term impact", investment_impact.replace("_", " ").title(), "Impact"))
@@ -1901,10 +1900,10 @@ def _property_packet_decision_rows(
         "review": "Keep it in review",
         "candidate": "Keep it under review",
         "mention": "Check it after the top homes",
-        "view if compelling": "Verify the missing evidence before spending more time on it",
-        "ask for clarification": "Verify the missing evidence before spending more time on it",
-        "reject": "Drop it unless new evidence changes the file",
-        "drop": "Drop it unless new evidence changes the file",
+        "view if compelling": "Clear up the missing details before spending more time on it",
+        "ask for clarification": "Clear up the missing details before spending more time on it",
+        "reject": "Drop it unless new details change the file",
+        "drop": "Drop it unless new details change the file",
     }.get(recommendation_key, recommendation_key.title() or "Keep it under review")
     rows = _property_packet_positive_fact_rows(
         facts=fact_payload,
@@ -1933,7 +1932,7 @@ def _property_investment_research_access_level(preferences: dict[str, object], c
 def _property_investment_risk_rows(facts: dict[str, object], snapshot: dict[str, object]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     if not str(facts.get("street_address") or "").strip():
-        rows.append(_object_detail_row("Address confidence is low", "Exact address is still missing, so neighbourhood and comp confidence are reduced.", "High"))
+        rows.append(_object_detail_row("Exact address missing", "Neighbourhood and comparison reads stay thinner until the exact address is available.", "High"))
     if not str(facts.get("heating_type") or "").strip():
         rows.append(_object_detail_row("Heating type still unknown", "Yield assumptions can be wrong if the heating setup drives renovation or tenant demand risk.", "Medium"))
     occupancy = str(facts.get("occupancy_status") or "").strip().lower()
@@ -1976,7 +1975,7 @@ def _property_investment_context_rows(
                 risk_rows.append(
                     _object_detail_row(
                         "Rental cooperative listing",
-                        "This candidate is coming through a rental/cooperative listing while the brief is in buy mode. Treat the underwriting output as weak until the acquisition path is confirmed.",
+                        "This candidate is coming through a rental/cooperative listing while the brief is in buy mode. Treat the numbers as weak until the acquisition path is clear.",
                         "High",
                     )
                 )
@@ -2001,7 +2000,7 @@ def _property_investment_context_rows(
         risk_rows.append(
             _object_detail_row(
                 "Judicial sale diligence",
-                "This candidate is coming from a judicial or foreclosure source. Underwriting should explicitly verify occupancy, legal encumbrances, and auction terms before treating the apparent discount as real.",
+                "This candidate is coming from a judicial or foreclosure source. Check occupancy, legal encumbrances, and auction terms before treating the apparent discount as real.",
                 "High",
             )
         )
@@ -2026,7 +2025,7 @@ def _property_investment_research_rows(
         return [
             _object_detail_row(
                 "Upgrade required",
-                "Investment research is reserved for paid investment tiers. The current free tier does not run buy-side underwriting research.",
+                "Investment numbers are reserved for paid investment tiers. The current free tier does not run the buy-side calculation.",
                 "Locked",
             )
         ], []
@@ -2063,7 +2062,7 @@ def _property_investment_research_rows(
         ], context_risk_rows
     rows: list[dict[str, str]] = context_rows + [
         _object_detail_row(
-            "Current underwriting base",
+            "Current price base",
             (
                 f"{_property_money_amount_label(current_price_eur, currency_code=currency_code)} over {current_area_sqm:.1f} m2 "
                 f"({_property_money_amount_label(float(snapshot.get('current_price_per_sqm_eur') or 0.0), currency_code=currency_code)}/m2)"
@@ -2083,8 +2082,8 @@ def _property_investment_research_rows(
     if underwriting:
         rows.append(
             _object_detail_row(
-                "Institutional underwriting score",
-                f"{underwriting.get('score_display') or ''} | {underwriting.get('confidence_label') or 'Partial evidence'}",
+                "Investment score",
+                f"{underwriting.get('score_display') or ''} | {underwriting.get('underwriting_summary') or 'Partial details'}",
                 str(underwriting.get("score_bucket_label") or "Mixed"),
             )
         )
@@ -2092,7 +2091,7 @@ def _property_investment_research_rows(
         if external_model:
             rows.append(
                 _object_detail_row(
-                    "External model status",
+                    "External data",
                     " | ".join(
                         part
                         for part in (
@@ -2100,8 +2099,8 @@ def _property_investment_research_rows(
                             str(underwriting.get("feed_status_detail") or "").strip(),
                         )
                         if part
-                    ) or "External model is still building from the confirmed listing facts.",
-                    str(external_model.get("confidence_label") or "Mixed"),
+                    ) or "External data is still being prepared from the listing details.",
+                    str(external_model.get("status_label") or "Mixed"),
                 )
             )
     market_buy = snapshot.get("market_buy_per_sqm_eur")

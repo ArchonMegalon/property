@@ -138,16 +138,16 @@
           </article>
           {% if brief.get('search_goal') == 'investment' %}
           <article class="pqx-reading-card">
-            <strong>Underwriting summary <button type="button" class="pqx-tooltip" title="This score combines return, value, demand, liquidity, risk control, execution effort, and confidence. Open the property page for the full notes." aria-label="This score combines return, value, demand, liquidity, risk control, execution effort, and confidence. Open the property page for the full notes." aria-expanded="false" data-tooltip-trigger>?</button></strong>
-            <span class="pqx-note" data-pw-underwriting-summary>{{ selected.get('investment', {}).get('score_display') or selected.get('investment', {}).get('underwriting_summary') or selected.get('investment', {}).get('confidence_label') or 'Scoring will appear once rent, costs, and market context are complete.' }}{% if selected.get('investment', {}).get('confidence_label') and not selected.get('investment', {}).get('score_display') %}{% elif selected.get('investment', {}).get('confidence_label') %} · {{ selected.get('investment', {}).get('confidence_label') }}{% endif %}{% if selected.get('investment', {}).get('underwriting_summary') and selected.get('investment', {}).get('score_display') %} · {{ selected.get('investment', {}).get('underwriting_summary') }}{% endif %}</span>
+            <strong>Numbers <button type="button" class="pqx-tooltip" title="A compact read on price, rent, costs, demand, liquidity, and effort. Open the property page for the full notes." aria-label="A compact read on price, rent, costs, demand, liquidity, and effort. Open the property page for the full notes." aria-expanded="false" data-tooltip-trigger>?</button></strong>
+            <span class="pqx-note" data-pw-underwriting-summary>{{ selected.get('investment', {}).get('score_display') or selected.get('investment', {}).get('underwriting_summary') or 'Numbers appear once rent, costs, and market context are complete.' }}{% if selected.get('investment', {}).get('underwriting_summary') and selected.get('investment', {}).get('score_display') %} · {{ selected.get('investment', {}).get('underwriting_summary') }}{% endif %}</span>
           </article>
           <article class="pqx-reading-card">
-            <span class="pqx-small">Model status</span>
-            <strong data-pw-feed-status>{{ selected.get('investment', {}).get('feed_status_label') or 'Using current listing and shortlist data until rent, cost, and financing reads arrive.' }}{% if selected.get('investment', {}).get('feed_status_detail') %} · {{ selected.get('investment', {}).get('feed_status_detail') }}{% endif %}{% if selected.get('investment', {}).get('dscr_display') %} · {{ selected.get('investment', {}).get('dscr_display') }}{% endif %}</strong>
+            <span class="pqx-small">Data</span>
+            <strong data-pw-feed-status>{{ selected.get('investment', {}).get('feed_status_label') or 'Using current listing and shortlist data until rent, costs, and financing are complete.' }}{% if selected.get('investment', {}).get('feed_status_detail') %} · {{ selected.get('investment', {}).get('feed_status_detail') }}{% endif %}{% if selected.get('investment', {}).get('dscr_display') %} · {{ selected.get('investment', {}).get('dscr_display') }}{% endif %}</strong>
           </article>
           <article class="pqx-reading-card">
-            <strong>Confidence</strong>
-            <span class="pqx-note">{{ selected.get('investment', {}).get('confidence_label') or 'Still partial until the external model finishes.' }}</span>
+            <strong>Completeness</strong>
+            <span class="pqx-note">{{ 'Enough detail to screen.' if selected.get('investment', {}).get('confidence_label') else 'Still partial until all numbers are available.' }}</span>
           </article>
           {% endif %}
           {% if selected.get('review_page_neuronwriter', {}).get('questions') %}

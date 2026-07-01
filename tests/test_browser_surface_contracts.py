@@ -116,7 +116,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         _assert_no_drift(response.text)
 
     landing = anonymous_client.get("/", headers={"host": "propertyquarry.com", "accept": "text/html"})
-    assert "Search once. Rank the right homes. Decide with evidence." in landing.text
+    assert "Search once. Rank the right homes. Decide faster." in landing.text
     assert "ranked homes" in landing.text
     assert "Open search" in landing.text
     assert (

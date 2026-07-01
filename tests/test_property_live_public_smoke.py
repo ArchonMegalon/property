@@ -35,7 +35,7 @@ def _fake_response(
 
 def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
     bodies = {
-        "https://propertyquarry.com/": "PropertyQuarry Search once. Rank the right homes. Decide with evidence.",
+        "https://propertyquarry.com/": "PropertyQuarry Search once. Rank the right homes. Decide faster.",
         "https://propertyquarry.com/security": (
             'PropertyQuarry Strict rules. Smart ranking. Score guide '
             'href="/how-it-works/score" Hard filters decide eligibility. '
@@ -118,7 +118,7 @@ def test_live_public_smoke_fails_missing_browser_security_headers_without_networ
     receipt = build_live_public_smoke_receipt(
         routes=("/",),
         fetcher=lambda url, _timeout: _fake_response(
-            "PropertyQuarry Search once. Rank the right homes. Decide with evidence.",
+            "PropertyQuarry Search once. Rank the right homes. Decide faster.",
             final_url=url,
             headers={"Content-Type": "text/html; charset=utf-8"},
         ),
@@ -134,7 +134,7 @@ def test_live_public_smoke_fails_legacy_home_proof_component_without_network() -
     receipt = build_live_public_smoke_receipt(
         routes=("/",),
         fetcher=lambda url, _timeout: _fake_response(
-            '<html><body><main>PropertyQuarry Search once. Rank the right homes. Decide with evidence.</main><div class="pq-proof"></div></body></html>',
+            '<html><body><main>PropertyQuarry Search once. Rank the right homes. Decide faster.</main><div class="pq-proof"></div></body></html>',
             final_url=url,
         ),
     )

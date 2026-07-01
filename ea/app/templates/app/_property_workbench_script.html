@@ -1587,20 +1587,20 @@
         return `Outdoor space was missing for candidate ${ordinal} (score impact only)`;
       }
       const positiveSignals = [
-        [['balcony', 'terrace', 'outdoor'], 'Outdoor space evidence found'],
-        [['lift', 'elevator', 'barrier-free', 'barrier free', 'accessible'], 'Access evidence improved the score'],
-        [['operating cost', 'monthly cost', 'total cost', 'betriebskosten'], 'Cost evidence improved the score'],
-        [['heating', 'heizung'], 'Heating evidence improved the score'],
-        [['energy', 'energy certificate', 'energieausweis'], 'Energy evidence improved the score'],
-        [['internet', 'broadband', 'fiber', 'fibre', 'high-speed'], 'Internet evidence improved the score'],
-        [['floorplan', 'layout'], 'Layout evidence improved the score'],
-        [['360', 'matterport', '3dvista', 'virtual tour', 'live tour'], 'Remote-view evidence improved the score'],
-        [['garage', 'parking'], 'Parking evidence improved the score'],
-        [['commute', 'transit', 'subway', 'u-bahn', 'underground', 'train'], 'Transit evidence improved the score'],
+        [['balcony', 'terrace', 'outdoor'], 'Outdoor space found'],
+        [['lift', 'elevator', 'barrier-free', 'barrier free', 'accessible'], 'Access detail improved the score'],
+        [['operating cost', 'monthly cost', 'total cost', 'betriebskosten'], 'Cost detail improved the score'],
+        [['heating', 'heizung'], 'Heating detail improved the score'],
+        [['energy', 'energy certificate', 'energieausweis'], 'Energy detail improved the score'],
+        [['internet', 'broadband', 'fiber', 'fibre', 'high-speed'], 'Internet detail improved the score'],
+        [['floorplan', 'layout'], 'Layout detail improved the score'],
+        [['360', 'matterport', '3dvista', 'virtual tour', 'live tour'], 'Remote-view detail improved the score'],
+        [['garage', 'parking'], 'Parking detail improved the score'],
+        [['commute', 'transit', 'subway', 'u-bahn', 'underground', 'train'], 'Transit detail improved the score'],
         [['school', 'volksschule'], 'School fit improved the score'],
         [['kindergarten', 'childcare'], 'Childcare fit improved the score'],
         [['supermarket', 'pharmacy', 'bakery', 'market', 'errand'], 'Daily errands improved the score'],
-        [['sunlight', 'bright', 'orientation', 'south-facing'], 'Light and orientation evidence improved the score'],
+        [['sunlight', 'bright', 'orientation', 'south-facing'], 'Light and orientation detail improved the score'],
       ];
       for (const [tokens, label] of positiveSignals) {
         if (tokens.some((token) => normalized.includes(token)) && ['found', 'confirmed', 'available', 'evidence', 'clear', 'ready'].some((token) => normalized.includes(token))) {
@@ -1706,18 +1706,18 @@
       }
       if (['flood', 'water', 'groundwater'].some((token) => normalized.includes(token))) {
         if (['clear', 'low', 'outside', 'not in'].some((token) => normalized.includes(token))) {
-          return `Water-risk evidence looked clear for candidate ${ordinal} (score upgraded)`;
+          return `Water risk looked clear for candidate ${ordinal}`;
         }
         if (['risk', 'burden', 'inside', 'unclear'].some((token) => normalized.includes(token))) {
-          return `Water-risk evidence needs review for candidate ${ordinal} (score impact only)`;
+          return `Water risk still needs a look for candidate ${ordinal}`;
         }
       }
       if (['document', 'energy certificate', 'operating-cost statement', 'betriebskosten statement'].some((token) => normalized.includes(token))) {
         if (['found', 'available', 'attached', 'confirmed'].some((token) => normalized.includes(token))) {
-          return `Document evidence improved confidence for candidate ${ordinal}`;
+          return `Documents improved the read for candidate ${ordinal}`;
         }
         if (['missing', 'not attached', 'unavailable'].some((token) => normalized.includes(token))) {
-          return `Document evidence is still missing for candidate ${ordinal} (score impact only)`;
+          return `Documents are still missing for candidate ${ordinal}`;
         }
       }
       if (
@@ -2057,7 +2057,7 @@
       if (currentStep === 'source_shortlist' && shortlistReady > 0) {
         return `${scanLabel} · ${shortlistReady} ranked home${shortlistReady === 1 ? '' : 's'} ready`;
       }
-      return `${scanLabel}${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
+      return `${scanLabel}${noPlan > 0 ? ` · ${noPlan} floorplans pending` : ''}`;
     };
     const renderRunEvents = (events) => {
       const rawRows = Array.isArray(events) ? [...events] : [];
@@ -2297,11 +2297,11 @@
       wrap.hidden = false;
       list.innerHTML = rows.slice(0, 8).map((row) => `
         <article class="pqx-source-card">
-          <strong>${escapeHtml(row?.label || 'Official evidence')}</strong>
-          <span class="pqx-note">${escapeHtml(row?.description || 'Public evidence layer')}</span>
+          <strong>${escapeHtml(row?.label || 'Official data')}</strong>
+          <span class="pqx-note">${escapeHtml(row?.description || 'Public data layer')}</span>
           <div class="pqx-source-metrics">
-            <span>Check <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'evidence')}</b></span>
-            <span>Confidence <b>${escapeHtml(String(row?.confidence || 'medium').replaceAll('_', ' '))}</b></span>
+            <span>Check <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'data')}</b></span>
+            <span>Detail <b>${escapeHtml(String(row?.confidence || 'medium').replaceAll('_', ' '))}</b></span>
           </div>
         </article>
       `).join('');
@@ -3439,11 +3439,11 @@
           ? { label: 'Guardrails', detail: 'Execution risk, legal context, and which weak listings should be excluded.' }
           : { label: 'What matters', detail: 'Preferences, family setup, errands, and local-fit rules.' },
         reachability: isInvestment
-          ? { label: 'Evidence', detail: 'How much underwriting and supporting evidence the shortlist needs.' }
+          ? { label: 'Details', detail: 'How much supporting detail the shortlist needs.' }
           : { label: 'Reachability', detail: 'Destinations, travel modes, and time limits that change the ranking.' },
         research: isInvestment
-          ? { label: 'Underwriting', detail: 'Return, risk, and external evidence depth.' }
-          : { label: 'Research depth', detail: 'Risk, supply, and how much evidence each strong match should carry.' },
+          ? { label: 'Numbers', detail: 'Return, risk, and external data depth.' }
+          : { label: 'Research depth', detail: 'Risk, supply, and how much detail each strong match should carry.' },
         providers: { label: 'Sources', detail: 'Choose trusted sources.' },
       };
       return map[key] || { label: fallbackLabel, detail: fallbackDetail };
