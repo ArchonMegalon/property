@@ -92,6 +92,20 @@ done
 
 cd "${APP_ROOT}"
 
+normalise_deploy_process_priority() {
+  local nice_value
+  nice_value="$(ps -o ni= -p "$$" 2>/dev/null | tr -d '[:space:]' || true)"
+  if [[ -z "${nice_value}" || ! "${nice_value}" =~ ^-?[0-9]+$ ]]; then
+    return 0
+  fi
+  if (( nice_value > 0 )) && [[ "$(id -u)" == "0" ]]; then
+    echo "Deploy process started with host nice ${nice_value}; correcting to nice 0." >&2
+    renice -n 0 -p "$$" >/dev/null || true
+  fi
+}
+
+normalise_deploy_process_priority
+
 deploy_tmp_dir="${PROPERTYQUARRY_DEPLOY_TMP_DIR:-}"
 if [[ -n "${deploy_tmp_dir}" ]]; then
   mkdir -p "${deploy_tmp_dir}"
@@ -157,16 +171,25 @@ env_truthy() {
   esac
 }
 
-python_candidate_has_playwright() {
+python_candidate_has_deploy_gate_modules() {
   local candidate="$1"
   if [[ -z "${candidate}" ]]; then
     return 1
   fi
   "${candidate}" - <<'PY' >/dev/null 2>&1
 import importlib.util
+import sys
 
-raise SystemExit(0 if importlib.util.find_spec("playwright.sync_api") else 1)
+required = ("playwright.sync_api", "PIL", "requests")
+missing = [module for module in required if not importlib.util.find_spec(module)]
+if missing:
+    print("missing deploy gate module(s): " + ", ".join(missing), file=sys.stderr)
+    raise SystemExit(1)
 PY
+}
+
+python_candidate_has_playwright() {
+  python_candidate_has_deploy_gate_modules "$1"
 }
 
 playwright_browsers_path_has_chromium() {
@@ -226,12 +249,12 @@ resolve_deploy_python_bin() {
       echo "PROPERTYQUARRY_DEPLOY_PYTHON_BIN is not executable or on PATH: ${explicit}" >&2
       exit 2
     fi
-    if python_candidate_has_playwright "${resolved}"; then
+    if python_candidate_has_deploy_gate_modules "${resolved}"; then
       printf '%s' "${resolved}"
       return 0
     fi
-    echo "PROPERTYQUARRY_DEPLOY_PYTHON_BIN cannot import playwright.sync_api: ${resolved}" >&2
-    echo "Install Playwright for that interpreter or point PROPERTYQUARRY_DEPLOY_PYTHON_BIN at the repo/user Python that has it." >&2
+    echo "PROPERTYQUARRY_DEPLOY_PYTHON_BIN cannot import required deploy gate modules: ${resolved}" >&2
+    echo "Install Playwright, Pillow, and requests for that interpreter or point PROPERTYQUARRY_DEPLOY_PYTHON_BIN at the repo/user Python that has them." >&2
     exit 2
   fi
 
@@ -269,15 +292,15 @@ resolve_deploy_python_bin() {
     fi
     seen="${seen}${resolved}:"
     checked="${checked} ${resolved}"
-    if python_candidate_has_playwright "${resolved}"; then
+    if python_candidate_has_deploy_gate_modules "${resolved}"; then
       printf '%s' "${resolved}"
       return 0
     fi
   done
 
-  echo "No Playwright-capable Python found for PropertyQuarry deploy gates." >&2
+  echo "No Python with required PropertyQuarry deploy gate modules found." >&2
   echo "Checked:${checked:- none}" >&2
-  echo "Set PROPERTYQUARRY_DEPLOY_PYTHON_BIN or install Playwright for the deploy interpreter." >&2
+  echo "Set PROPERTYQUARRY_DEPLOY_PYTHON_BIN or install Playwright, Pillow, and requests for the deploy interpreter." >&2
   exit 2
 }
 
