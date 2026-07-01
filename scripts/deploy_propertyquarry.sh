@@ -589,9 +589,6 @@ correct_service_runtime_priority_if_needed() {
   local cid host_pid main_nice thread_nice strict_thread_nice strict_runtime_nice
   strict_thread_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_STRICT_THREAD_NICE)"
   strict_runtime_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_STRICT_RUNTIME_NICE)"
-  if ! env_truthy "${strict_thread_nice}" && ! env_truthy "${strict_runtime_nice}"; then
-    return 0
-  fi
   cid="$(container_id_for_service "${service}" "${container_name}")"
   if [[ -z "${cid}" ]]; then
     return 0
