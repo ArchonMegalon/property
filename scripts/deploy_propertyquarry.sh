@@ -93,14 +93,19 @@ done
 cd "${APP_ROOT}"
 
 normalise_deploy_process_priority() {
-  local nice_value
-  nice_value="$(ps -o ni= -p "$$" 2>/dev/null | tr -d '[:space:]' || true)"
+  local current_pid pgid nice_value
+  current_pid="${BASHPID:-$$}"
+  pgid="$(ps -o pgid= -p "${current_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+  nice_value="$(ps -o ni= -p "${current_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
   if [[ -z "${nice_value}" || ! "${nice_value}" =~ ^-?[0-9]+$ ]]; then
     return 0
   fi
   if (( nice_value > 0 )) && [[ "$(id -u)" == "0" ]]; then
     echo "Deploy process started with host nice ${nice_value}; correcting to nice 0." >&2
-    renice -n 0 -p "$$" >/dev/null || true
+    renice -n 0 -p "${current_pid}" >/dev/null || true
+    if [[ -n "${pgid}" && "${pgid}" =~ ^[0-9]+$ ]]; then
+      renice -n 0 -g "${pgid}" >/dev/null || true
+    fi
   fi
 }
 

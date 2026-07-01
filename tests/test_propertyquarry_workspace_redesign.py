@@ -10,6 +10,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
 
+from PIL import Image, ImageDraw, ImageFilter, ImageStat
+
 from app.api.dependencies import RequestContext, get_request_context
 from app.api.routes import landing as landing_routes
 from app.api.routes.landing_property_surface_contracts import PropertySurfaceScope
@@ -6925,6 +6927,29 @@ def test_property_scope_preview_map_only_uses_local_boundary_and_async_render(mo
     assert scheduled
     assert scheduled[0]["draw_overlay"] is True
     assert len(scheduled[0]["overlay_rows"]) == 2
+
+
+def test_property_map_preview_backdrop_softens_tile_noise_without_erasing_map_detail() -> None:
+    image = Image.new("RGB", (640, 368), (230, 226, 218))
+    draw = ImageDraw.Draw(image, "RGBA")
+    for x in range(-80, 720, 18):
+        draw.line([(x, 0), (x + 160, 368)], fill=(74, 70, 64, 130), width=2)
+    for y in range(0, 390, 16):
+        draw.line([(0, y), (640, y - 58)], fill=(95, 89, 80, 118), width=2)
+    draw.polygon([(0, 250), (190, 210), (420, 246), (640, 198), (640, 368), (0, 368)], fill=(160, 193, 208, 160))
+
+    raw_thumbnail = image.resize((160, 92)).convert("L").filter(ImageFilter.FIND_EDGES)
+    raw_edge_mean = ImageStat.Stat(raw_thumbnail).mean[0]
+
+    softened = landing_view_models._flagship_map_backdrop(image)
+    softened_thumbnail = softened.resize((160, 92)).convert("L").filter(ImageFilter.FIND_EDGES)
+    softened_edge_mean = ImageStat.Stat(softened_thumbnail).mean[0]
+    softened_stddev = sum(ImageStat.Stat(softened).stddev) / 3
+
+    assert softened_edge_mean < raw_edge_mean * 0.82
+    assert softened_edge_mean <= 34.0
+    assert softened_stddev >= 14.0
+    assert landing_view_models._PROPERTY_MAP_PREVIEW_STYLE_VERSION.startswith("flagship_map_v8")
 
 
 def test_property_scope_preview_map_only_uses_slightly_wider_padding_for_full_district_shapes(monkeypatch) -> None:
