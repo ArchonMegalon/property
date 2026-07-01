@@ -937,7 +937,7 @@ def _property_packet_official_evidence_rows(facts: dict[str, object]) -> list[di
         rows.append(
             _object_detail_row(
                 title,
-                detail or "Official source attached for this risk lane.",
+                detail or "Official source attached for this risk check.",
                 " · ".join(part for part in (availability, verification, confidence) if part),
                 href=str(row.get("source_url") or "").strip(),
             )
@@ -2001,7 +2001,7 @@ def _property_investment_context_rows(
         risk_rows.append(
             _object_detail_row(
                 "Judicial sale diligence",
-                "This candidate is coming from a judicial or foreclosure lane. Underwriting should explicitly verify occupancy, legal encumbrances, and auction terms before treating the apparent discount as real.",
+                "This candidate is coming from a judicial or foreclosure source. Underwriting should explicitly verify occupancy, legal encumbrances, and auction terms before treating the apparent discount as real.",
                 "High",
             )
         )

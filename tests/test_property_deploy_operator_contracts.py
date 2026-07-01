@@ -214,9 +214,11 @@ def test_property_release_gate_wires_tour_import_manifest_into_gold_status() -> 
     assert "docker exec --user root \"${property_api_container}\" python /app/scripts/materialize_property_tour_export_manifest.py" in release_gate
     assert "--incoming-root /data/incoming_property_tours" in release_gate
     assert "property-tour-export-import-manifest-release-gate-live-container.json" in release_gate
-    assert "docker exec \"${property_api_container}\" python /app/scripts/verify_property_tour_vendor_tooling.py" in release_gate
+    assert "property_render_container=\"${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}\"" in release_gate
+    assert "docker exec \"${property_render_container}\" python /app/scripts/verify_property_tour_vendor_tooling.py" in release_gate
     assert "--runtime-only" in release_gate
     assert "property-tour-vendor-tooling-release-gate-live-container.json" in release_gate
+    assert "docker cp \"${property_render_container}:/data/artifacts/property-tour-vendor-tooling-release-gate-live-container.json\"" in release_gate
     assert "_completion/tours/property-tour-vendor-tooling-current.json" in release_gate
     assert "--drop-dir \"${tour_export_incoming_dir}\"" in release_gate
     assert "--public-tour-dir \"${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}\"" in release_gate
@@ -363,6 +365,29 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "build_propertyquarry_magicfit_promo.py" not in dockerfile
 
 
+def test_property_web_dockerfile_excludes_native_reconstruction_and_browser_payloads() -> None:
+    dockerfile = _read("ea/Dockerfile.property-web")
+
+    assert "COPY . /tmp/src" not in dockerfile
+    assert "COPY ea/requirements.txt /app/requirements.txt" in dockerfile
+    assert "COPY ea/requirements.lock /app/requirements.lock" in dockerfile
+    assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
+    assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
+    assert "COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py" in dockerfile
+    assert "COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py" in dockerfile
+    assert "COPY scripts/discover_property_tour_exports.py /app/scripts/discover_property_tour_exports.py" in dockerfile
+    assert "COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py" in dockerfile
+    assert "COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py" not in dockerfile
+    assert "COPY scripts/verify_property_tour_vendor_tooling.py /app/scripts/verify_property_tour_vendor_tooling.py" not in dockerfile
+    assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" not in dockerfile
+    assert "python -m playwright install --with-deps chromium" not in dockerfile
+    assert "blender" not in dockerfile.lower()
+    assert "colmap" not in dockerfile.lower()
+    assert "meshlab" not in dockerfile.lower()
+    assert "for script in /tmp/src/scripts/*" not in dockerfile
+    assert 'cp "$script" /app/scripts/' not in dockerfile
+
+
 def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
     dockerfile = _read("ea/Dockerfile.property")
     copied_scripts = re.findall(r"COPY\s+scripts/([^\s]+)\s+/app/scripts/", dockerfile)
@@ -401,9 +426,17 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
 def test_property_compose_container_names_are_recoverable() -> None:
     compose = _read("docker-compose.property.yml")
 
+    assert "dockerfile: ea/Dockerfile.property-web" in compose
+    assert "image: propertyquarry-web-runtime:latest" in compose
+    assert "propertyquarry-render-tools:" in compose
+    assert "dockerfile: ea/Dockerfile.property" in compose
+    assert "image: propertyquarry-render-runtime:latest" in compose
+    assert "profiles:" in compose
+    assert "- render-tools" in compose
     assert 'container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"' in compose
-    assert 'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db}"' in compose
+    assert 'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db-live}"' in compose
+    assert 'container_name: "${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"' in compose
     assert "EA_SCHEDULER_HEARTBEAT_PATH: /data/artifacts/propertyquarry-scheduler-heartbeat.json" in compose
     assert 'EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS: "${EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS:-900}"' in compose
     assert 'test: ["CMD", "python", "-m", "app.scheduler_healthcheck"]' in compose

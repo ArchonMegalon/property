@@ -1,0 +1,528 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  body:has(.pq-fast-run) footer { display: none; }
+  body:has(.pq-fast-run) main { padding-top: 14px; }
+  .pq-fast-run {
+    display: grid;
+    gap: 14px;
+  }
+  .pq-fast-top,
+  .pq-fast-card,
+  .pq-fast-row {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+    box-shadow: var(--shadow);
+  }
+  .pq-fast-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+    align-items: end;
+    padding: clamp(16px, 3vw, 24px);
+  }
+  .pq-fast-kicker {
+    margin: 0 0 8px;
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 760;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .pq-fast-top h1 {
+    max-width: none;
+    margin: 0;
+    font-size: clamp(2rem, 4vw, 3.4rem);
+    line-height: 1;
+    letter-spacing: -0.045em;
+  }
+  .pq-fast-subtitle {
+    max-width: 58ch;
+    margin-top: 8px;
+    color: var(--text-soft);
+    line-height: 1.42;
+  }
+  .pq-fast-nav,
+  .pq-fast-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .pq-fast-nav a,
+  .pq-fast-chip {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 12px;
+    color: var(--text-soft);
+    font-size: 13px;
+    font-weight: 720;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .pq-fast-nav a:hover,
+  .pq-fast-nav a:focus-visible {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .pq-fast-chip.good {
+    border-color: rgba(39, 107, 83, 0.24);
+    background: rgba(39, 107, 83, 0.1);
+    color: var(--good);
+  }
+  .pq-fast-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .pq-fast-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(95, 103, 97, 0.22);
+    border-top-color: var(--text);
+    border-radius: 999px;
+    animation: pq-fast-spin 0.85s linear infinite;
+  }
+  @keyframes pq-fast-spin { to { transform: rotate(360deg); } }
+  .pq-fast-list {
+    display: grid;
+    gap: 10px;
+  }
+  .pq-fast-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+  }
+  .pq-fast-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    box-shadow: none;
+    padding: 14px;
+  }
+  .pq-fast-row h2 {
+    margin: 0;
+    font-size: clamp(1.05rem, 2vw, 1.25rem);
+    line-height: 1.24;
+    letter-spacing: -0.02em;
+  }
+  .pq-fast-row p {
+    margin-top: 6px;
+    color: var(--text-soft);
+    line-height: 1.38;
+  }
+  .pq-fast-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .pq-fast-score {
+    min-width: 58px;
+    color: var(--good);
+    font-size: 1.55rem;
+    font-weight: 850;
+    text-align: right;
+  }
+  .pq-fast-actions {
+    justify-content: flex-start;
+    margin-top: 12px;
+  }
+  .pq-fast-actions a {
+    min-height: 38px;
+  }
+  .pq-fast-muted {
+    color: var(--text-dim);
+  }
+  .pq-fast-skeleton {
+    position: relative;
+    overflow: hidden;
+  }
+  .pq-fast-skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+    animation: pq-fast-shimmer 1.2s infinite;
+  }
+  @keyframes pq-fast-shimmer { to { transform: translateX(100%); } }
+  .pq-fast-skeleton-line {
+    height: 13px;
+    border-radius: 999px;
+    background: rgba(95, 103, 97, 0.16);
+  }
+  .pq-fast-skeleton-line.short { width: 42%; }
+  .pq-fast-skeleton-line.medium { width: 68%; }
+  .pq-fast-skeleton-line.long { width: 86%; }
+  .pq-fast-empty {
+    padding: 26px;
+    text-align: center;
+  }
+  .pq-fast-empty h2 {
+    max-width: none;
+    margin: 0 0 8px;
+  }
+  .pq-fast-empty p {
+    color: var(--text-soft);
+  }
+  @media (max-width: 760px) {
+    .pq-fast-top {
+      grid-template-columns: 1fr;
+      padding: 16px;
+    }
+    .pq-fast-nav,
+    .pq-fast-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      justify-content: stretch;
+    }
+    .pq-fast-nav a,
+    .pq-fast-actions .btn {
+      width: 100%;
+      justify-content: center;
+    }
+    .pq-fast-row {
+      grid-template-columns: 1fr;
+      padding: 12px;
+    }
+    .pq-fast-score {
+      text-align: left;
+      font-size: 1.1rem;
+    }
+  }
+</style>
+
+<section
+  class="pq-fast-run"
+  data-pq-fast-ranked-run
+  data-status-url="{{ run_status_url }}"
+  data-full-href="{{ full_shortlist_href }}"
+  data-run-id="{{ run_id }}"
+  aria-labelledby="pq-fast-title"
+>
+  <header class="pq-fast-top">
+    <div>
+      <p class="pq-fast-kicker">Search results</p>
+      <h1 id="pq-fast-title">Ranked homes</h1>
+      <p class="pq-fast-subtitle" data-pq-fast-subtitle>Opening the ranked homes for this search.</p>
+    </div>
+    <nav class="pq-fast-nav" aria-label="PropertyQuarry navigation">
+      <a href="{{ search_href }}">Search</a>
+      <a href="{{ history_href }}">History</a>
+      <a href="{{ account_href }}">Account</a>
+      <a href="{{ full_shortlist_href }}">Full view</a>
+    </nav>
+  </header>
+
+  <section class="pq-fast-card" aria-live="polite" aria-busy="true" data-pq-fast-status-card>
+    <div class="pq-fast-status">
+      <span class="pq-fast-spinner" aria-hidden="true"></span>
+      <strong data-pq-fast-status-title>Loading ranked homes</strong>
+      <span class="pq-fast-muted" data-pq-fast-status-detail>Usually a few seconds.</span>
+    </div>
+  </section>
+
+  <section class="pq-fast-list" data-pq-fast-list aria-label="Ranked homes">
+    {% for _ in range(3) %}
+    <article class="pq-fast-row pq-fast-skeleton" aria-hidden="true">
+      <div style="display:grid; gap:10px;">
+        <div class="pq-fast-skeleton-line long"></div>
+        <div class="pq-fast-skeleton-line medium"></div>
+        <div class="pq-fast-skeleton-line short"></div>
+      </div>
+      <div class="pq-fast-skeleton-line short" style="width:48px;"></div>
+    </article>
+    {% endfor %}
+  </section>
+
+  <noscript>
+    <section class="pq-fast-card pq-fast-empty">
+      <h2>Open the full shortlist</h2>
+      <p>This page loads ranked homes with JavaScript. The full view is still available.</p>
+      <div class="pq-fast-actions">
+        <a class="btn primary" href="{{ full_shortlist_href }}">Open full view</a>
+      </div>
+    </section>
+  </noscript>
+</section>
+
+<script>
+(() => {
+  const root = document.querySelector('[data-pq-fast-ranked-run]');
+  if (!root) return;
+  const statusUrl = String(root.dataset.statusUrl || '').trim();
+  const fullHref = String(root.dataset.fullHref || '/app/shortlist').trim();
+  const list = root.querySelector('[data-pq-fast-list]');
+  const statusCard = root.querySelector('[data-pq-fast-status-card]');
+  const statusTitle = root.querySelector('[data-pq-fast-status-title]');
+  const statusDetail = root.querySelector('[data-pq-fast-status-detail]');
+  const subtitle = root.querySelector('[data-pq-fast-subtitle]');
+  if (!statusUrl || !list) return;
+
+  const terminalStatuses = new Set(['processed', 'completed', 'completed_partial', 'failed', 'noop', 'cancelled']);
+  let settled = false;
+  let pollCount = 0;
+
+  const text = (value, fallback = '') => {
+    const resolved = String(value == null ? '' : value).trim();
+    return resolved || fallback;
+  };
+  const number = (value) => {
+    const resolved = Number(value);
+    return Number.isFinite(resolved) ? resolved : 0;
+  };
+  const clear = (node) => {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  };
+  const chip = (label, tone = '') => {
+    const span = document.createElement('span');
+    span.className = `pq-fast-chip${tone ? ` ${tone}` : ''}`;
+    span.textContent = label;
+    return span;
+  };
+  const safeUrl = (value) => {
+    const resolved = text(value);
+    if (!resolved) return '';
+    if (resolved.startsWith('/') || /^https?:\/\//i.test(resolved)) return resolved;
+    return '';
+  };
+  const candidateKey = (candidate) => {
+    return text(candidate.candidate_ref)
+      || text(candidate.property_ref)
+      || text(candidate.property_url)
+      || text(candidate.source_url)
+      || text(candidate.title);
+  };
+  const candidateScore = (candidate) => {
+    const score = number(candidate.fit_score || candidate.ranking_score || candidate.score);
+    return Math.max(0, Math.min(100, Math.round(score)));
+  };
+  const candidatePrice = (candidate) => {
+    const facts = candidate && typeof candidate.property_facts === 'object' && candidate.property_facts ? candidate.property_facts : {};
+    return text(candidate.price_display)
+      || text(candidate.rent_display)
+      || text(facts.price_display)
+      || text(facts.rent_display)
+      || text(facts.price)
+      || text(candidate.price);
+  };
+  const candidateLocation = (candidate) => {
+    const facts = candidate && typeof candidate.property_facts === 'object' && candidate.property_facts ? candidate.property_facts : {};
+    return text(candidate.location_label)
+      || text(candidate.postal_name)
+      || text(facts.postal_name)
+      || text(facts.address)
+      || text(candidate.source_label)
+      || text(candidate.source_platform);
+  };
+  const candidateDetail = (candidate) => {
+    const reasons = Array.isArray(candidate.match_reasons) ? candidate.match_reasons.filter(Boolean) : [];
+    return text(candidate.fit_summary)
+      || text(candidate.compare_reason)
+      || text(candidate.summary)
+      || text(reasons[0])
+      || 'Open the property to review the details.';
+  };
+  const candidatePropertyHref = (candidate) => {
+    return safeUrl(candidate.packet_url)
+      || safeUrl(candidate.review_url)
+      || safeUrl(candidate.detail_href)
+      || '';
+  };
+  const candidateListingHref = (candidate) => {
+    return safeUrl(candidate.property_url)
+      || safeUrl(candidate.source_url)
+      || safeUrl(candidate.listing_url)
+      || '';
+  };
+  const collectRanked = (payload) => {
+    const summary = payload && typeof payload.summary === 'object' && payload.summary ? payload.summary : {};
+    const candidates = [];
+    if (Array.isArray(summary.ranked_candidates)) {
+      candidates.push(...summary.ranked_candidates);
+    }
+    if (!candidates.length && Array.isArray(summary.sources)) {
+      summary.sources.forEach((source) => {
+        if (source && Array.isArray(source.top_candidates)) {
+          candidates.push(...source.top_candidates);
+        }
+      });
+    }
+    const seen = new Set();
+    return candidates
+      .filter((candidate) => candidate && typeof candidate === 'object')
+      .filter((candidate) => {
+        const key = candidateKey(candidate);
+        if (!key) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => candidateScore(b) - candidateScore(a));
+  };
+  const statusCopy = (payload, candidates) => {
+    const summary = payload && typeof payload.summary === 'object' && payload.summary ? payload.summary : {};
+    const status = text(payload.status || summary.status, 'loading').replace(/_/g, ' ');
+    const listings = number(summary.listing_total || summary.raw_listing_total);
+    const providers = number(summary.sources_total || (Array.isArray(summary.sources) ? summary.sources.length : 0));
+    const parts = [];
+    parts.push(`${candidates.length} ranked ${candidates.length === 1 ? 'home' : 'homes'}`);
+    if (providers) parts.push(`${providers} ${providers === 1 ? 'provider' : 'providers'}`);
+    if (listings) parts.push(`${listings} checked`);
+    return { status, detail: parts.join(' · ') };
+  };
+  const renderCandidates = (payload, candidates) => {
+    clear(list);
+    candidates.forEach((candidate, index) => {
+      const article = document.createElement('article');
+      article.className = 'pq-fast-row';
+
+      const copy = document.createElement('div');
+      const title = document.createElement('h2');
+      title.textContent = text(candidate.title, `Home ${index + 1}`);
+      copy.appendChild(title);
+
+      const detail = document.createElement('p');
+      detail.textContent = candidateDetail(candidate);
+      copy.appendChild(detail);
+
+      const meta = document.createElement('div');
+      meta.className = 'pq-fast-meta';
+      const price = candidatePrice(candidate);
+      const location = candidateLocation(candidate);
+      if (price) meta.appendChild(chip(price, 'good'));
+      if (location) meta.appendChild(chip(location));
+      const provider = text(candidate.source_label || candidate.source_platform);
+      if (provider && provider !== location) meta.appendChild(chip(provider));
+      copy.appendChild(meta);
+
+      const actions = document.createElement('div');
+      actions.className = 'pq-fast-actions';
+      const propertyHref = candidatePropertyHref(candidate);
+      const listingHref = candidateListingHref(candidate);
+      if (propertyHref) {
+        const propertyLink = document.createElement('a');
+        propertyLink.className = 'btn primary';
+        propertyLink.href = propertyHref;
+        propertyLink.textContent = 'Open property';
+        actions.appendChild(propertyLink);
+      }
+      if (listingHref) {
+        const listingLink = document.createElement('a');
+        listingLink.className = propertyHref ? 'btn ghost' : 'btn primary';
+        listingLink.href = listingHref;
+        listingLink.textContent = 'Open listing';
+        if (/^https?:\/\//i.test(listingHref)) {
+          listingLink.target = '_blank';
+          listingLink.rel = 'noopener noreferrer';
+        }
+        actions.appendChild(listingLink);
+      }
+      const fullLink = document.createElement('a');
+      fullLink.className = 'btn ghost';
+      fullLink.href = fullHref;
+      fullLink.textContent = 'Full view';
+      actions.appendChild(fullLink);
+      copy.appendChild(actions);
+
+      const score = document.createElement('div');
+      score.className = 'pq-fast-score';
+      score.textContent = `${candidateScore(candidate)}`;
+
+      article.appendChild(copy);
+      article.appendChild(score);
+      list.appendChild(article);
+    });
+    const copy = statusCopy(payload, candidates);
+    if (statusTitle) statusTitle.textContent = `${candidates.length} ranked ${candidates.length === 1 ? 'home' : 'homes'}`;
+    if (statusDetail) statusDetail.textContent = copy.detail || copy.status;
+    if (subtitle) subtitle.textContent = 'Results are ready. Open a property or switch to the full view when you need the complete workspace.';
+    if (statusCard) statusCard.setAttribute('aria-busy', 'false');
+  };
+  const renderEmpty = (payload, retry = false) => {
+    clear(list);
+    const section = document.createElement('section');
+    section.className = 'pq-fast-card pq-fast-empty';
+    const title = document.createElement('h2');
+    title.textContent = retry ? 'Still loading results' : 'No ranked homes in this run';
+    const paragraph = document.createElement('p');
+    paragraph.textContent = retry
+      ? 'The run is taking longer than usual. You can keep this page open or open the full view.'
+      : 'Open the full view to inspect the run, or start a broader search.';
+    const actions = document.createElement('div');
+    actions.className = 'pq-fast-actions';
+    const retryButton = document.createElement('button');
+    retryButton.className = 'btn primary';
+    retryButton.type = 'button';
+    retryButton.textContent = retry ? 'Try again' : 'Refresh';
+    retryButton.addEventListener('click', () => loadOnce());
+    const fullLink = document.createElement('a');
+    fullLink.className = 'btn';
+    fullLink.href = fullHref;
+    fullLink.textContent = 'Open full view';
+    actions.appendChild(retryButton);
+    actions.appendChild(fullLink);
+    section.appendChild(title);
+    section.appendChild(paragraph);
+    section.appendChild(actions);
+    list.appendChild(section);
+    const status = text(payload && (payload.status || (payload.summary && payload.summary.status)), '');
+    if (statusTitle) statusTitle.textContent = retry ? 'Loading is slow' : 'No ranked homes';
+    if (statusDetail) statusDetail.textContent = status ? status.replace(/_/g, ' ') : 'Open the full view for details.';
+    if (statusCard) statusCard.setAttribute('aria-busy', 'false');
+  };
+  const loadOnce = async () => {
+    if (statusCard) statusCard.setAttribute('aria-busy', 'true');
+    if (statusTitle) statusTitle.textContent = 'Loading ranked homes';
+    if (statusDetail) statusDetail.textContent = 'Usually a few seconds.';
+    const controller = new AbortController();
+    const slowTimer = window.setTimeout(() => {
+      if (!settled && statusDetail) statusDetail.textContent = 'Still loading. The page remains usable.';
+    }, 3500);
+    const abortTimer = window.setTimeout(() => controller.abort(), 18000);
+    try {
+      const response = await fetch(statusUrl, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      const payload = await response.json();
+      const candidates = collectRanked(payload);
+      settled = true;
+      window.clearTimeout(slowTimer);
+      window.clearTimeout(abortTimer);
+      if (candidates.length) {
+        renderCandidates(payload, candidates);
+        return;
+      }
+      const status = text(payload.status || (payload.summary && payload.summary.status), '');
+      if (status && !terminalStatuses.has(status) && pollCount < 12) {
+        pollCount += 1;
+        if (statusTitle) statusTitle.textContent = 'Search is still running';
+        if (statusDetail) statusDetail.textContent = 'This page will update automatically.';
+        window.setTimeout(loadOnce, 5000);
+        return;
+      }
+      renderEmpty(payload, false);
+    } catch (_error) {
+      settled = true;
+      window.clearTimeout(slowTimer);
+      window.clearTimeout(abortTimer);
+      renderEmpty(null, true);
+    }
+  };
+
+  loadOnce();
+})();
+</script>
+{% endblock %}

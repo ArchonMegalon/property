@@ -1423,20 +1423,13 @@ def settings_outcomes_detail(
         surface="settings_outcomes",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
-    outcomes = product.workspace_outcomes(principal_id=context.principal_id)
-    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
-    counts = {str(key): int(value or 0) for key, value in dict(outcomes.get("counts") or {}).items()}
-    memo_loop = dict(outcomes.get("memo_loop") or {})
-    office_loop_proof = dict(outcomes.get("office_loop_proof") or {})
-    product_control = dict(diagnostics.get("product_control") or {})
-    journey_gate = dict(product_control.get("journey_gate_health") or {})
-    journey_freshness = dict(product_control.get("journey_gate_freshness") or {})
-    support_fallout = dict(product_control.get("support_fallout") or {})
-    public_guide_freshness = dict(product_control.get("public_guide_freshness") or {})
-    route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
-    proof_checks = [dict(value) for value in list(office_loop_proof.get("checks") or [])]
     if is_property_brand:
         property_usage = _property_search_usage_state(product, principal_id=context.principal_id, access_email=str(context.access_email or ""))
+        outcomes = {
+            "churn_risk": "watch",
+            "correction_rate": 0,
+            "first_value_event": "search ready",
+        }
         return _render_console_object_detail(
             request=request,
             context=context,
@@ -1501,6 +1494,18 @@ def settings_outcomes_detail(
                 },
             ],
         )
+    outcomes = product.workspace_outcomes(principal_id=context.principal_id)
+    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
+    counts = {str(key): int(value or 0) for key, value in dict(outcomes.get("counts") or {}).items()}
+    memo_loop = dict(outcomes.get("memo_loop") or {})
+    office_loop_proof = dict(outcomes.get("office_loop_proof") or {})
+    product_control = dict(diagnostics.get("product_control") or {})
+    journey_gate = dict(product_control.get("journey_gate_health") or {})
+    journey_freshness = dict(product_control.get("journey_gate_freshness") or {})
+    support_fallout = dict(product_control.get("support_fallout") or {})
+    public_guide_freshness = dict(product_control.get("public_guide_freshness") or {})
+    route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
+    proof_checks = [dict(value) for value in list(office_loop_proof.get("checks") or [])]
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -3108,10 +3113,13 @@ def app_search(
     run_id: str = Query(default=""),
     candidate: str = Query(default=""),
     agent_id: str = Query(default=""),
+    load_agent: str = Query(default=""),
+    run_agent: str = Query(default=""),
     packet_missing: str = Query(default=""),
     missing_candidate_ref: str = Query(default=""),
     stale_run: str = Query(default=""),
     missing_run_id: str = Query(default=""),
+    full: str = Query(default=""),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
@@ -3126,10 +3134,13 @@ def app_search(
             run_id=run_id,
             candidate=candidate,
             agent_id=agent_id,
+            load_agent=load_agent,
+            run_agent=run_agent,
             packet_missing=packet_missing,
             missing_candidate_ref=missing_candidate_ref,
             stale_run=stale_run,
             missing_run_id=missing_run_id,
+            full=full,
         )
     workspace = dict(container.onboarding.status(principal_id=context.principal_id).get("workspace") or {})
     product = build_product_service(container)

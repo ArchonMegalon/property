@@ -64,7 +64,22 @@
         if (!hostedBase) hostedBase = rawHostedTourControlBase(url);
       }
       const provider = hostedTourProviderFromProof(...values);
-      return hostedBase && provider ? `${hostedBase}/control/${provider}` : '';
+      if (hostedBase && provider) return `${hostedBase}/control/${provider}`;
+      for (const value of values) {
+        const url = String(value || '').trim();
+        if (!url) continue;
+        try {
+          const parsed = new URL(url, window.location.origin);
+          if (!['http:', 'https:'].includes(parsed.protocol)) continue;
+          const trackingHost = ['api', 'willhaben', 'at'].join('.');
+          const trackingPath = ['/restapi', '/v2', '/logevent/'].join('');
+          if (parsed.href.toLowerCase().includes(`${trackingHost}${trackingPath}`)) continue;
+          return parsed.href;
+        } catch (_error) {
+          if (url.startsWith('/')) return url;
+        }
+      }
+      return '';
     };
     const normalizeWalkthroughProvider = (_value) => 'magicfit';
     const getWalkthroughProviderFromButton = (button) => {
@@ -501,15 +516,16 @@
       const candidateRef = escapeHtml(candidate.candidate_ref || '');
       const runId = escapeHtml(String(data.run?.run_id || meta.run_id || ''));
       const visualPropertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
+      const visualMediaReady = Boolean(String(candidate.floorplan_url || candidate.source_virtual_tour_url || candidate.vendor_tour_url || tour.provider_url || '').trim());
       return [
         candidate.packet_url ? `<a class="pqx-link-button primary" href="${escapeHtml(candidate.packet_url)}" data-rybbit-event="pq.property.opened" data-rybbit-prop-surface="shortlist">Open property</a>` : '',
         `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${candidateRef}" data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="shortlist">Share this home</button>`,
         `<details class="pqx-decision-advanced" style="margin-top:12px;"><summary><strong>More actions</strong></summary><div class="pqx-note" style="margin-top:10px;">Open the source, share the shortlist, or request remote visuals only when you need them.</div><div class="pqx-actions" style="margin-top:14px;">${[
           visualPropertyUrl ? `<a class="pqx-link-button" href="${escapeHtml(visualPropertyUrl)}" target="_blank" rel="noreferrer" data-rybbit-event="pq.property.opened" data-rybbit-prop-cta-key="open_listing" data-rybbit-prop-surface="shortlist">Open listing</a>` : '',
-          !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="shortlist">Request 3D tour</button>` : '',
-          !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="shortlist" data-pw-walkthrough-provider="magicfit">Request walkthrough</button>` : '',
+          !tour.url && visualMediaReady && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="shortlist">Request 3D tour</button>` : '',
+          !tour.url && visualMediaReady && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="shortlist" data-pw-walkthrough-provider="magicfit">Request walkthrough</button>` : '',
           `<button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="shortlist">Share results</button>`,
-        ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${!tour.url ? 'Request remote visuals only when this home deserves deeper screening.' : ''}</div></details>`,
+        ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${(!tour.url && visualMediaReady) ? 'Request remote visuals only when this home deserves deeper screening.' : ''}</div></details>`,
       ].filter(Boolean).join('');
     };
     const feedbackPersonId = String(meta.feedback_person_id || 'self').trim() || 'self';
@@ -595,6 +611,10 @@
         return raw;
       }
     };
+    const safeCandidateTitle = (value) => {
+      const rawTitle = String(value || '').trim();
+      return rawTitle && !/^(https?:\/\/|www\.)/i.test(rawTitle) ? rawTitle : 'Property candidate';
+    };
     const packetCandidatePayload = (candidate) => {
       const facts = candidate?.property_facts && typeof candidate.property_facts === 'object'
         ? { ...candidate.property_facts }
@@ -602,8 +622,8 @@
       delete facts.map_image_url;
       delete facts.orientation_preview;
       return {
-        title: String(candidate?.title || 'Property candidate').trim(),
-        property_title: String(candidate?.title || 'Property candidate').trim(),
+        title: safeCandidateTitle(candidate?.title),
+        property_title: safeCandidateTitle(candidate?.title),
         property_url: absoluteUrl(candidate?.property_url || candidate?.source_url || candidate?.listing_url || ''),
         source_url: absoluteUrl(candidate?.source_url || candidate?.property_url || candidate?.listing_url || ''),
         source_label: String(candidate?.source_label || '').trim(),
@@ -680,6 +700,10 @@
     const counterfactualSaveErrorLabel = (_adjustments) => 'Could not apply the broader search.';
     const counterfactualRestartLabel = (_adjustments) => 'Restarting search...';
     const counterfactualRestartErrorLabel = (_adjustments) => 'Could not restart property search.';
+    const refreshCurrentSurface = (statusNode) => {
+      if (statusNode) statusNode.textContent = 'Refreshing results...';
+      window.setTimeout(() => window.location.reload(), 120);
+    };
     const saveCounterfactualBrief = async (adjustments) => {
       const endpoint = String(meta.preferences_endpoint || data.endpoints?.preferences || '').trim();
       if (!endpoint) throw new Error('Brief endpoint missing.');
@@ -761,11 +785,12 @@
       if (statusNode) statusNode.textContent = counterfactualRestartLabel(adjustments);
       if (runBody.run_id) {
         window.location.href = `/app/properties?run_id=${encodeURIComponent(runBody.run_id)}`;
-        return;
+        return true;
       }
       if (runBody.status_url) {
         await pollRun(String(runBody.status_url || ''));
       }
+      return false;
     };
     const recordDecisionState = async (candidate, decisionState, statusNode) => {
       if (!candidate) return;
@@ -2004,7 +2029,7 @@
         );
       };
       const hasRealEvents = rawRows.some(isUsefulRunEvent);
-      const rows = rawRows.filter(isUsefulRunEvent).reverse().slice(0, 4);
+      const rows = rawRows.filter(isUsefulRunEvent).reverse().slice(0, 10);
       return rows.map((event) => {
         const label = labelRunEvent(event);
         return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'Search is still running.')}</span></div>`;
@@ -2203,7 +2228,7 @@
           <strong>${escapeHtml(row?.label || 'Official evidence')}</strong>
           <span class="pqx-note">${escapeHtml(row?.description || 'Public evidence layer')}</span>
           <div class="pqx-source-metrics">
-            <span>Lane <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'evidence')}</b></span>
+            <span>Check <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'evidence')}</b></span>
             <span>Confidence <b>${escapeHtml(String(row?.confidence || 'medium').replaceAll('_', ' '))}</b></span>
           </div>
         </article>
@@ -2371,7 +2396,7 @@
       if (progress > 0 && sources > 0) return Math.max(3, Math.ceil(sources * 1.5));
       if (layout > 0) return Math.max(2, layout * 2);
       if (sources > 0) return Math.max(3, Math.ceil(sources * 1.5));
-      return progress > 0 ? 1 : null;
+      return null;
     };
     const estimateRunEtaLabel = (runPayload, summary, layout) => {
       const status = String(runPayload?.status || summary?.status || 'queued');
@@ -2391,7 +2416,7 @@
       if (runId && etaProjectionState.runId === runId && etaProjectionState.signature === signature && etaProjectionState.finishAtMs > nowMs) {
         return `${Math.round(progress)}% · ${formatEta((etaProjectionState.finishAtMs - nowMs) / 60000)}`;
       }
-      if (estimatedMinutes !== null) {
+      if (estimatedMinutes !== null && estimatedMinutes >= 2) {
         etaProjectionState = {
           runId,
           signature,
@@ -2431,7 +2456,7 @@
       const planKey = currentPlanKey();
       const planCap = isAgentPlanKey(planKey) ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(0, Number(summary?.provider_workers?.worker_concurrency || 0));
-      const workerTooltip = 'This strip shows the provider trail inside this search. Visible lanes reflect running, queued, repaired, and failed provider checks. Separate saved searches use their own run slots.';
+      const workerTooltip = 'This shows which sources are running, queued, recovered, or unavailable for this search. Other saved searches keep their own progress.';
       const sourceMeta = reviewed > 0
         ? `${reviewed} homes reviewed`
         : (providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Waiting for first checks');
@@ -2691,6 +2716,7 @@
       const filteredBreakdown = (!shortlistSurface && filteredTotal > 0) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
             <summary><strong>${locationMismatchTotal ? 'Provider scope' : 'What to widen'}</strong><span class="pqx-note">${locationMismatchTotal ? 'Wrong area returned' : 'Hard filters'}</span></summary>
+            <div class="pqx-note">Relax one hard rule so more homes move into the visible ranking on refresh.</div>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
       ` : '';
@@ -2709,14 +2735,14 @@
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
               ${shortlistSurface
                 ? shortlistEmptyResultsMarkup()
-                : `<div class="pqx-empty">No ranked homes are ready yet. ${escapeHtml(locationMismatchTotal ? 'The provider returned homes outside the selected area, so none were ranked.' : 'No in-brief homes were found in this pass.')}</div>`}
+                : `<div class="pqx-empty">${escapeHtml(filteredTotal > 0 ? 'No ranked homes are ready yet. Relax one hard rule to rank more homes.' : 'No ranked homes are ready yet.')} ${escapeHtml(locationMismatchTotal ? 'The provider returned homes outside the selected area, so none were ranked.' : 'No in-brief homes were found in this pass.')}</div>`}
             </div>
             ${filteredBreakdown}
           </section>
         `;
       }
       const body = rows.map((candidate, index) => {
-        const title = candidate?.title || 'Property candidate';
+        const title = safeCandidateTitle(candidate?.title);
         const location = String(candidate?.location_label || '').trim();
         const previewUrl = String(
           candidate?.preview_image_url
@@ -2736,6 +2762,7 @@
         const packetUrl = String(candidate?.packet_url || candidate?.review_url || '').trim();
         const propertyUrl = String(candidate?.property_url || candidate?.source_url || candidate?.listing_url || '').trim();
         const facts = (candidate?.property_facts && typeof candidate.property_facts === 'object') ? candidate.property_facts : {};
+        const visualMediaReady = Boolean(String(candidate?.floorplan_url || candidate?.source_virtual_tour_url || candidate?.vendor_tour_url || candidate?.tour?.provider_url || '').trim());
         const derivedPrimaryPrice = [
           candidate?.price_display,
           candidate?.costs_display,
@@ -2823,10 +2850,10 @@
           propertyUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(propertyUrl)}" target="_blank" rel="noopener noreferrer">Open listing</a>` : '',
           tourUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(tourUrl)}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="results">Open 3D tour</a>` : '',
           tourPending && !shortlistSurface ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(tourProgress)}%;" title="${escapeHtml(tourTooltip)}" aria-label="${escapeHtml(tourTooltip)}">${escapeHtml(tourLabel)}</button>` : '',
-          propertyUrl && !shortlistSurface && !tourUrl && !tourPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="results">Request 3D tour</button>` : '',
+          propertyUrl && visualMediaReady && !shortlistSurface && !tourUrl && !tourPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="results">Request 3D tour</button>` : '',
           flythroughUrl && !shortlistSurface ? `<a class="pqx-progress-button is-ready" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">Open walkthrough</a>` : '',
           flythroughPending && !shortlistSurface ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(flythroughProgress)}%;" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">${escapeHtml(flythroughLabel)}</button>` : '',
-          propertyUrl && !shortlistSurface && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="results" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough" data-pw-walkthrough-provider="magicfit">Request walkthrough</button>` : '',
+          propertyUrl && visualMediaReady && !shortlistSurface && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="results" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough" data-pw-walkthrough-provider="magicfit">Request walkthrough</button>` : '',
           shortlistSurface ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-decision-state="archived" data-candidate-ref="${escapeHtml(candidateRef)}" data-pw-remove-row>Remove</button>` : '',
         ].filter(Boolean).join('');
         return `
@@ -3671,17 +3698,28 @@
       };
       const locationMapPoint = (event) => ({ x: Number(event.clientX || 0), y: Number(event.clientY || 0) });
       const findLocationMapDistrictFromEvent = (event) => {
-        const directDistrict = event.target?.closest?.('[data-location-map-district]');
+        const directDistrict = event.target?.closest?.('[data-location-map-district], [data-location-map-hitbox]');
         if (directDistrict) return directDistrict;
         const point = locationMapPoint(event);
         if (!point.x && !point.y) return null;
         const pointElement = document.elementFromPoint(point.x, point.y);
-        return pointElement?.closest?.('[data-location-map-district]') || null;
+        const hitElement = pointElement?.closest?.('[data-location-map-district], [data-location-map-hitbox]');
+        if (hitElement) return hitElement;
+        return [...(locationMapLayer?.querySelectorAll('[data-location-map-district]') || [])].find((district) => {
+          const rect = district.getBoundingClientRect();
+          return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+        }) || null;
+      };
+      const locationInputByValue = (value) => {
+        const normalizedValue = String(value || '').trim();
+        if (!normalizedValue) return null;
+        return [...form.querySelectorAll('input[name="location_query"]')]
+          .find((input) => input instanceof HTMLInputElement && String(input.value || '').trim() === normalizedValue) || null;
       };
       const toggleLocationMapDistrict = (district) => {
         if (!district) return false;
         const value = String(district.getAttribute('data-location-value') || '').trim();
-        const input = value ? form.querySelector(`input[name="location_query"][value="${CSS.escape(value)}"]`) : null;
+        const input = locationInputByValue(value);
         if (!(input instanceof HTMLInputElement) || input.disabled) return false;
         input.checked = !input.checked;
         input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -3698,6 +3736,31 @@
         locationMapPicker?.querySelectorAll('[data-location-map-zoom="reset"]').forEach((button) => {
           button.textContent = boundedScale <= 1.02 ? 'Zoom' : 'Fit';
           button.setAttribute('aria-label', boundedScale <= 1.02 ? 'Zoom map' : 'Reset map zoom');
+        });
+      };
+      const installLocationMapHitboxes = () => {
+        if (!locationMapLayer) return;
+        locationMapLayer.querySelectorAll('[data-location-map-hitbox]').forEach((node) => node.remove());
+        locationMapLayer.querySelectorAll('path[data-location-map-district]').forEach((path) => {
+          if (typeof path.getBBox !== 'function') return;
+          let box = null;
+          try {
+            box = path.getBBox();
+          } catch (_error) {
+            box = null;
+          }
+          if (!box || box.width <= 0 || box.height <= 0) return;
+          const hitbox = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          hitbox.setAttribute('data-location-map-hitbox', 'true');
+          hitbox.setAttribute('data-location-value', String(path.getAttribute('data-location-value') || ''));
+          hitbox.setAttribute('x', String(box.x));
+          hitbox.setAttribute('y', String(box.y));
+          hitbox.setAttribute('width', String(box.width));
+          hitbox.setAttribute('height', String(box.height));
+          hitbox.setAttribute('fill', 'transparent');
+          hitbox.setAttribute('pointer-events', 'all');
+          hitbox.setAttribute('aria-hidden', 'true');
+          path.after(hitbox);
         });
       };
       const locationMapPointerDistance = () => {
@@ -3783,7 +3846,7 @@
       const removeLocationValue = (value) => {
         const normalizedValue = String(value || '').trim();
         if (!normalizedValue) return false;
-        const input = form.querySelector(`input[name="location_query"][value="${CSS.escape(normalizedValue)}"]`);
+        const input = locationInputByValue(normalizedValue);
         if (!(input instanceof HTMLInputElement) || input.disabled || !input.checked) return false;
         input.checked = false;
         input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -3933,9 +3996,10 @@
         }
         const districts = mapRows.map((row, index) => {
           const shortLabel = (row.label.match(/\b\d{4}\b/) || [String(index + 1)])[0];
-          return `<path class="pqx-location-map-district" data-location-map-district data-location-value="${escapeHtml(row.value)}" role="button" tabindex="0" aria-pressed="false" aria-label="Toggle ${escapeHtml(row.label)}" d="${escapeHtml(row.mapPath)}"></path><text class="pqx-location-map-label" x="${row.labelX.toFixed(1)}" y="${row.labelY.toFixed(1)}">${escapeHtml(shortLabel)}</text>`;
+          return `<path class="pqx-location-map-district" data-location-map-district data-location-value="${escapeHtml(row.value)}" pointer-events="bounding-box" role="button" tabindex="0" aria-pressed="false" aria-label="Toggle ${escapeHtml(row.label)}" d="${escapeHtml(row.mapPath)}"></path><text class="pqx-location-map-label" x="${row.labelX.toFixed(1)}" y="${row.labelY.toFixed(1)}">${escapeHtml(shortLabel)}</text>`;
         }).join('');
         locationMapLayer.innerHTML = `<rect x="0" y="0" width="360" height="286" rx="22" fill="rgba(211,226,216,0.2)"></rect>${districts}`;
+        installLocationMapHitboxes();
         applyLocationMapTransform();
         syncLocationMapPickerSelection();
         setLocationSelectionMode(locationFieldWrap?.dataset.locationMode || 'map');
@@ -4594,7 +4658,11 @@
       };
       const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncAreaScopeControls, {
         preserveGeography: geographyLocked(),
-      }).finally(resyncSearchFormState);
+      })
+        .then(() => {
+          savedWhatMattersSnapshot = captureWhatMattersSnapshot();
+        })
+        .finally(resyncSearchFormState);
       const refreshRegionAndLocationChoices = () => {
         const regionCatalog = meta.region_catalog_by_country || {};
         const locationCatalog = meta.location_catalog_by_country_region || {};
@@ -4652,7 +4720,7 @@
           refreshRegionAndLocationChoices();
           if (ipPostal) {
             const districtValue = matchLocationValue(form, ipPostal);
-            const locationInput = form.querySelector(`input[name="location_query"][value="${districtValue}"]`);
+            const locationInput = locationInputByValue(districtValue);
             if (locationInput) {
               if (fullRegionScopeField) fullRegionScopeField.checked = false;
               locationInput.checked = true;
@@ -5895,7 +5963,8 @@
         if (localStatusNode) localStatusNode.textContent = counterfactualApplyLabel(adjustments);
         try {
           const nextPreferences = await saveCounterfactualBrief(adjustments);
-          await startSearchWithPreferences(nextPreferences, localStatusNode, adjustments);
+	          if (await startSearchWithPreferences(nextPreferences, localStatusNode, adjustments)) return;
+	          refreshCurrentSurface(localStatusNode);
         } catch (error) {
           if (localStatusNode) localStatusNode.textContent = error instanceof Error ? error.message : counterfactualSaveErrorLabel(adjustments);
         }
@@ -5953,13 +6022,6 @@
         if (terminalStates.has(status)) {
           if (status === 'failed') {
             startQuietFailedRepairPolling(statusUrl);
-          } else {
-            fetch(compactRunStatusUrl(statusUrl), { credentials: 'same-origin', cache: 'no-store' })
-              .then((response) => response.ok ? response.json() : null)
-              .then((payload) => {
-                if (payload && typeof payload === 'object') renderRun(payload);
-              })
-              .catch(() => {});
           }
         } else {
           pollRun(statusUrl);

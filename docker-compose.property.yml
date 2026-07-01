@@ -2,8 +2,8 @@ services:
   propertyquarry-api:
     build:
       context: .
-      dockerfile: ea/Dockerfile.property
-    image: propertyquarry-runtime:latest
+      dockerfile: ea/Dockerfile.property-web
+    image: propertyquarry-web-runtime:latest
     container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"
     restart: unless-stopped
     env_file:
@@ -60,7 +60,7 @@ services:
       TZ: Europe/Vienna
     ports:
       - "${EA_HOST_PORT:-8090}:8090"
-    cpu_shares: ${PROPERTYQUARRY_API_CPU_SHARES:-256}
+    cpu_shares: ${PROPERTYQUARRY_API_CPU_SHARES:-1024}
     cpus: ${PROPERTYQUARRY_API_CPUS:-2.0}
     volumes:
       - ./config:/config:ro
@@ -74,10 +74,9 @@ services:
         condition: service_healthy
 
   propertyquarry-scheduler:
-    image: propertyquarry-runtime:latest
+    image: propertyquarry-web-runtime:latest
     container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"
     restart: unless-stopped
-    command: ["nice", "-n", "10", "python", "-m", "app.runner"]
     env_file:
       - .env
     environment:
@@ -123,8 +122,8 @@ services:
       PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR: "${PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR:-_completion/brilliant_directories}"
       HOME: /home/ea
       TZ: Europe/Vienna
-    cpu_shares: ${PROPERTYQUARRY_SCHEDULER_CPU_SHARES:-32}
-    cpus: ${PROPERTYQUARRY_SCHEDULER_CPUS:-0.50}
+    cpu_shares: ${PROPERTYQUARRY_SCHEDULER_CPU_SHARES:-512}
+    cpus: ${PROPERTYQUARRY_SCHEDULER_CPUS:-1.0}
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
@@ -144,11 +143,50 @@ services:
       start_period: 90s
       retries: 5
 
+  propertyquarry-render-tools:
+    profiles:
+      - render-tools
+    build:
+      context: .
+      dockerfile: ea/Dockerfile.property
+    image: propertyquarry-render-runtime:latest
+    container_name: "${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      EA_ROLE: render-tools
+      EA_RUNTIME_MODE: "${EA_RUNTIME_MODE:-prod}"
+      EA_ARTIFACTS_DIR: /data/artifacts
+      EA_PUBLIC_TOUR_DIR: /data/public_property_tours
+      PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR: /data/incoming_property_tours
+      PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR: /data/incoming_property_tours
+      EA_RESPONSES_PROVIDER_LEDGER_DIR: /data/provider-ledger
+      TEABLE_BASE_URL: "${TEABLE_BASE_URL:-https://app.teable.ai}"
+      TEABLE_TABLE_SYNC_CONFIG_JSON: "${TEABLE_TABLE_SYNC_CONFIG_JSON:-}"
+      PROPERTYQUARRY_TEABLE_BASE_ID: "${PROPERTYQUARRY_TEABLE_BASE_ID:-}"
+      PROPERTYQUARRY_TEABLE_TENANT_KEY: "${PROPERTYQUARRY_TEABLE_TENANT_KEY:-propertyquarry}"
+      PROPERTYQUARRY_TEABLE_TENANT_NAME: "${PROPERTYQUARRY_TEABLE_TENANT_NAME:-PropertyQuarry}"
+      PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON: "${PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON:-}"
+      PROPERTYQUARRY_TEABLE_AUTO_SYNC: "${PROPERTYQUARRY_TEABLE_AUTO_SYNC:-0}"
+      HOME: /home/ea
+      TZ: Europe/Vienna
+    command: ["sh", "-lc", "sleep infinity"]
+    cpu_shares: ${PROPERTYQUARRY_RENDER_CPU_SHARES:-512}
+    cpus: ${PROPERTYQUARRY_RENDER_CPUS:-1.0}
+    volumes:
+      - ./config:/config:ro
+      - ./config:/app/config:ro
+      - ./state/incoming_property_tours:/data/incoming_property_tours
+      - propertyquarry_artifacts:/data/artifacts
+      - propertyquarry_public_tours:/data/public_property_tours
+      - propertyquarry_provider_ledger:/data/provider-ledger
+
   propertyquarry-db:
     image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
-    container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db}"
+    container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db-live}"
     restart: unless-stopped
-    cpu_shares: ${PROPERTYQUARRY_DB_CPU_SHARES:-64}
+    cpu_shares: ${PROPERTYQUARRY_DB_CPU_SHARES:-512}
     cpus: ${PROPERTYQUARRY_DB_CPUS:-1.0}
     environment:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}"

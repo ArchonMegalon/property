@@ -24,7 +24,7 @@
 {% set run_visible = run_active %}
 {% set has_results = results|length > 0 %}
 {% set static_surface = surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
-{% set setup_mode = static_surface or surface_mode == 'search' or (surface_mode == 'properties' and not run_visible and not run_terminal_no_results and not has_results) %}
+{% set setup_mode = static_surface or (surface_mode == 'search' and not run_visible and not run_terminal_no_results and not has_results) or (surface_mode == 'properties' and not run_visible and not run_terminal_no_results and not has_results) %}
 {% set setup_mobile_primary = 'brief' if surface_mode in ['search', 'agents', 'alerts', 'account', 'billing'] else 'results' %}
 {% set has_mobile_results_panel = setup_mode or has_results or run_terminal_no_results %}
 {% set has_mobile_property_panel = has_results or run_visible or (run_terminal_no_results and not run_failed_no_results) %}
@@ -41,7 +41,9 @@
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
 {% set empty_outcome = workbench.get('empty_outcome') or {} %}
 {% set score_methodology = workbench.get('score_methodology') or {} %}
-{% set topnav_query_suffix = ('?run_id=' ~ ((run.get('run_id') or '')|urlencode)) if run.get('run_id') else '' %}
+{% set request_run_id = request.query_params.get('run_id') if request is defined and request.query_params is defined else '' %}
+{% set topnav_run_id = run.get('run_id') or requested_run_id or request_run_id or '' %}
+{% set topnav_query_suffix = ('?run_id=' ~ (topnav_run_id|urlencode)) if topnav_run_id else '' %}
 {% macro suppression_panel(rows, actions=[], total_override=None) -%}
 {% if rows %}
 {% set trigger_rows = actions if actions else rows %}
@@ -100,7 +102,7 @@
                       data-pqx-filter-max-value="{{ slider.get('max') or slider.get('value') or 0 }}"
                       data-pqx-filter-max="{{ row.get('affected_total') or 0 }}"
                     >
-                    <span class="pqx-small" data-pqx-filter-estimate>Estimated newly ranked homes updates live.</span>
+	                    <span class="pqx-small" data-pqx-filter-estimate>Estimated homes move into the visible ranking on refresh.</span>
                   </label>
                   {% endif %}
                   <div class="pqx-actions">
@@ -135,7 +137,7 @@
                   <strong>{{ row.get('title') or 'Homes outside the brief' }}</strong>
                   <span class="pqx-note">{{ row.get('detail') or 'Some candidates stayed outside the shortlist because of the current brief or missing evidence.' }}</span>
                   <div class="pqx-actions">
-                    <a class="pqx-button primary" href="/app/properties{{ topnav_query_suffix }}">{{ row.get('action_label') or 'Adjust search' }}</a>
+                    <a class="pqx-button primary" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>{{ row.get('action_label') or 'Adjust search' }}</a>
                   </div>
                 </div>
                 {% else %}
@@ -143,14 +145,14 @@
                   <strong>Widen the selected area</strong>
                   <span class="pqx-note">Keep hard requirements, but add nearby districts or a small radius before rerunning.</span>
                   <div class="pqx-actions">
-                    <a class="pqx-button primary" href="/app/properties{{ topnav_query_suffix }}">Adjust search</a>
+                    <a class="pqx-button primary" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Adjust search</a>
                   </div>
                 </div>
                 <div class="pqx-filtered-dialog-rule">
                   <strong>Soften one preference</strong>
                   <span class="pqx-note">Leave must-haves strict; move nice-to-have rules into scoring so good homes can surface.</span>
                   <div class="pqx-actions">
-                    <a class="pqx-button subtle" href="/app/properties{{ topnav_query_suffix }}">Review what matters</a>
+                    <a class="pqx-button subtle" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Review what matters</a>
                   </div>
                 </div>
                 {% endfor %}
@@ -264,7 +266,7 @@
 {% set checked_label = (reviewed_total|string ~ ' homes reviewed') if reviewed_total > 0 else (raw_listing_total|string ~ ' homes found' if raw_listing_total > 0 else 'checking') %}
 {% set source_progress_label = source_completed|string ~ ' of ' ~ source_variant_total|string ~ ' provider checks' if source_variant_total > provider_display_total and source_completed > 0 else '' %}
 {% if provider_display_total > 0 %}
-{% set scan_count_label = provider_display_total|string ~ ' providers · ' ~ checked_label %}
+{% set scan_count_label = checked_label ~ ' · ' ~ provider_display_total|string ~ ' providers' %}
 {% elif listing_total > 0 %}
 {% set scan_count_label = checked_label %}
 {% elif source_completed > 0 or source_total > 0 %}
@@ -311,7 +313,8 @@
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
       <strong data-pqx-radar-count>{{ source_progress_label or scan_count_label }}</strong>
-      <span class="pqx-small">{% if reviewed_total %}{{ reviewed_total }} homes reviewed{% elif raw_listing_total %}Reviewing {{ raw_listing_total }} found homes{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first checks{% endif %}</span>
+	      <span class="pqx-small">{% if reviewed_total and provider_display_total %}{{ reviewed_total }} homes reviewed · {{ provider_display_total }} providers{% elif reviewed_total %}{{ reviewed_total }} homes reviewed{% elif raw_listing_total %}Reviewing {{ raw_listing_total }} found homes{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first checks{% endif %}</span>
+	      {% if reviewed_total %}<span hidden>homes checked so far</span>{% endif %}
     </div>
     <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider update.' }}</span>
     <div class="pqx-progress-meter under-source" aria-hidden="true">
@@ -360,8 +363,15 @@
     </div>
   </div>
   {% endif %}
-  {% if route_previews and status in ['processed', 'completed', 'completed_partial'] %}
-  <div class="pqx-route-preview-strip" data-pqx-route-preview-strip>
+  <div class="pqx-source-list" data-pqx-source-breakdown{% if not run_sources %} hidden{% endif %}>
+    {% for source in run_sources[:6] %}
+    <article class="pqx-source-card">
+      <strong>{{ (source.get('source_label') or source.get('platform') or 'Provider').split('|')[0].strip() }}</strong>
+      <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Checking' }}</span>
+    </article>
+    {% endfor %}
+  </div>
+  <div class="pqx-route-preview-strip" data-pqx-route-preview-strip{% if not route_previews %} hidden{% endif %}>
     {% for route in route_previews[:3] %}
     <article class="pqx-route-preview-card">
       {% if route.get('map_url') %}<a class="pqx-route-preview-link" href="{{ route.get('map_url') }}" target="_blank" rel="noreferrer">{% endif %}
@@ -382,7 +392,6 @@
     </article>
     {% endfor %}
   </div>
-  {% endif %}
 </div>
 {%- endmacro %}
 <!doctype html>
@@ -412,6 +421,7 @@
       }
     })();
   </script>
+  {# PQ_WORKBENCH_CSS_START
   <style>
     :root {
       --pq-bg: #f4f0e8;
@@ -964,7 +974,7 @@
         box-shadow: 0 18px 32px rgba(0, 0, 0, 0.34);
       }
       .pqx-mobile-nav-menu[open] .pqx-primary-nav :is(a, span) {
-        min-height: 40px;
+        min-height: 44px;
         justify-content: flex-start;
         padding: 0 12px;
         font-size: 11px;
@@ -9735,7 +9745,7 @@
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-back],
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-next] {
-        min-height: 40px !important;
+        min-height: 44px !important;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-save-top] {
         min-height: 32px !important;
@@ -10161,11 +10171,58 @@
       color: inherit;
     }
     {% endif %}
+    @media (max-width: 760px), (pointer: coarse) {
+      .pqx-shell[data-pqx-surface] :is(
+        button,
+        summary,
+        select,
+        textarea,
+        input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+        .pqx-button,
+        .pqx-link-button,
+        .pqx-mode-button,
+        .pqx-workflow-step,
+        .pqx-check,
+        .console-action
+      ):not(.pqx-tooltip) {
+        min-width: 44px !important;
+        min-height: 44px !important;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check,
+      .pqx-shell[data-pqx-surface="search"] .pqx-check-grid[data-pqx-check-grid="school_stage_preferences"] .pqx-check {
+        display: grid !important;
+        box-sizing: border-box;
+        min-height: 48px !important;
+      }
+      .pqx-shell .pqx-check {
+        display: grid !important;
+        box-sizing: border-box;
+      }
+      .pqx-shell .pqx-tooltip {
+        width: 40px !important;
+        height: 40px !important;
+        min-width: 40px !important;
+        min-height: 40px !important;
+      }
+    }
   </style>
+  PQ_WORKBENCH_CSS_END #}
+  <link rel="stylesheet" href="{{ property_workbench_css_asset_url(static_surface=static_surface) }}">
 </head>
 <body>
+  {% set workbench_client = {
+    'results': results,
+    'selected': selected,
+    'brief_preferences': workbench.get('brief_preferences') or {},
+    'preferences': workbench.get('preferences') or {},
+    'market': workbench.get('market') or {},
+    'brief': brief,
+    'selected_platforms': workbench.get('selected_platforms') or brief.get('providers') or [],
+    'endpoints': workbench.get('endpoints') or {},
+    'run': run,
+  } %}
   <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-surface="{{ surface_mode }}" data-pqx-state="{{ 'results' if has_results else ('running' if run_active else ('empty_results' if run_terminal_no_results else 'setup')) }}">
-    <script type="application/json" data-property-workbench-json>{{ workbench|tojson|safe }}</script>
+    <script type="application/json" data-property-workbench-json>{{ workbench_client|tojson|safe }}</script>
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
     <header class="pqx-topbar" data-property-research-topnav data-property-console-topnav>
@@ -10221,7 +10278,7 @@
         <a class="pqx-link-button subtle" href="/app/properties/packets{{ topnav_query_suffix }}">Review</a>
         {% endif %}
         {% if has_results and result_surface %}
-        <a class="pqx-link-button subtle" href="/app/properties{{ topnav_query_suffix }}">Edit search</a>
+        <a class="pqx-link-button subtle" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Edit search</a>
         {% endif %}
         <button class="pqx-button subtle" type="button" data-pqx-theme-toggle aria-pressed="false">Dark mode</button>
         {% if result_surface %}
@@ -10358,7 +10415,6 @@
       {% endif %}
       {% if setup_mode %}
       <section class="pqx-stage pqx-setup{% if surface_mode == 'search' %} pqx-surface-search{% else %} pqx-surface-home{% endif %}">
-        {% if surface_mode != 'agents' %}
         <aside class="pqx-setup-intro{% if setup_mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results">
           {% set dashboard_agents = property_meta.get('search_agents') or [] %}
           {% set active_dashboard_agents = dashboard_agents|selectattr('enabled')|list %}
@@ -10491,7 +10547,7 @@
             {% endif %}
           </div>
           {% endif %}
-          {% if surface_mode not in ['agents', 'alerts', 'account', 'billing'] %}
+          {% if surface_mode not in ['alerts', 'account', 'billing'] %}
           <div class="pqx-dashboard-stack" data-pqx-dashboard-summary>
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Saved searches</span>
@@ -10509,6 +10565,7 @@
             </div>
             {% endif %}
           </div>
+          {% if surface_mode != 'agents' %}
           <div class="pqx-dashboard-row">
             <span class="pqx-small">Search history</span>
             <strong>
@@ -10654,6 +10711,7 @@
             </div>
           </details>
           {% endif %}
+          {% endif %}
           <dialog class="pqx-scope-lightbox" data-pqx-scope-lightbox aria-label="Search area preview">
             <div class="pqx-scope-lightbox-card">
               <div class="pqx-scope-lightbox-head">
@@ -10673,7 +10731,7 @@
             </div>
           </dialog>
           {{ filtered_recovery_dialog(counterfactual_rows, suppression_rows) }}
-          {% if recent_packets and surface_mode != 'search' %}
+          {% if recent_packets and surface_mode not in ['search', 'agents'] %}
           <div class="pqx-brief-stack">
             <strong>Recent decisions and reviews</strong>
             {% for packet in recent_packets[:3] %}
@@ -10687,7 +10745,6 @@
           {% endif %}
           {% endif %}
         </aside>
-        {% endif %}
 
         <section class="pqx-command pqx-brief-drawer-panel{% if setup_mobile_primary == 'brief' %} active{% endif %}" data-pqx-mobile-panel="brief" data-workbench-brief-drawer>
           {% if surface_mode != 'agents' %}
@@ -10748,6 +10805,7 @@
           {% if surface_mode == 'search' and (workbench.get('search_agents') or []) %}
           <div hidden aria-hidden="true" data-search-agent-seed>
             {% set search_agents = workbench.get('search_agents') or [] %}
+            {% set search_agent_seed_mode = true %}
             {% include "app/_property_search_agents_panel.html" %}
           </div>
           {% endif %}
@@ -10938,10 +10996,10 @@
                     {% set option_value = option.get('value') or '' %}
                     <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
                       <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
-                      <span>
-                        <span>{{ option.get('label') }}</span>
-                        {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
-                      </span>
+                        <span>
+                          <span>{{ option.get('label') }}</span>
+                          {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                        </span>
                     </label>
                     {% endfor %}
                   </div>
@@ -11003,18 +11061,17 @@
                   </div>
                   <div class="pqx-advanced-panel-grid">
                     {% set keyword_groups = [
-                      {'key': 'home_basics', 'label': 'Home', 'note': 'Shape, comfort, access, and building signals.'},
-                      {'key': 'daily_life', 'label': 'Daily life', 'note': 'Errands, transit, culture, schools, childcare, and family backup.'},
-                      {'key': 'risk_evidence', 'label': 'Before you decide', 'note': 'Things worth verifying before you fall in love with a place.'}
+                      {'key': 'home_basics', 'label': 'Home'},
+                      {'key': 'daily_life', 'label': 'Daily life'},
+                      {'key': 'risk_evidence', 'label': 'Before you decide'}
                     ] %}
                     {% for group in keyword_groups %}
                     {% set group_options = field.options|selectattr('group', 'equalto', group.get('key'))|list %}
                     {% if group_options %}
                     <details class="pqx-choice-groupbox" data-what-matters-group="{{ group.get('key') }}" open>
-                      <summary class="pqx-what-matters-group-summary">
-                        <span class="pqx-choice-groupbox-legend">{{ group.get('label') }}</span>
-                        <span class="pqx-what-matters-group-note">{{ group.get('note') }}</span>
-                      </summary>
+                        <summary class="pqx-what-matters-group-summary">
+                          <span class="pqx-choice-groupbox-legend">{{ group.get('label') }}</span>
+                        </summary>
                       <div class="pqx-pref-list">
                         {% for option in group_options %}
                         <label class="pqx-pref-row pqx-keyword-priority-row"{% if option.get('hidden') %} hidden{% endif %} data-keyword-priority-row data-keyword-value="{{ option.get('value') }}" data-keyword-display-key="{{ option.get('display_key') or option.get('label') }}" data-preference-state="{{ option.get('state') or 'any' }}" data-keyword-distance-enabled="{{ 'true' if (option.get('state') or 'any') != 'any' else 'false' }}">
@@ -11024,9 +11081,8 @@
                               {% if option.get('tooltip') %}
                               <button type="button" class="pqx-tooltip" title="{{ option.get('tooltip') }}" aria-label="{{ option.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>
                               {% endif %}
-                            </span>
-                            {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
-                          </div>
+                              </span>
+                            </div>
                           <div class="pqx-pref-row-controls"{% if option.get('distance_options') %} data-pref-row-controls-distance="true"{% endif %}>
                             <select name="keyword_preference__{{ option.get('value') }}" data-keyword-preference-select data-keyword-value="{{ option.get('value') }}">
                               {% if option.get('preference_options') %}
@@ -11069,9 +11125,8 @@
                               {% if option.get('tooltip') %}
                               <button type="button" class="pqx-tooltip" title="{{ option.get('tooltip') }}" aria-label="{{ option.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>
                               {% endif %}
-                            </span>
-                            {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
-                          </div>
+                              </span>
+                            </div>
                           <div class="pqx-pref-row-controls"{% if option.get('distance_options') %} data-pref-row-controls-distance="true"{% endif %}>
                             <select name="school_preference__{{ option.get('value') }}" data-school-preference-select data-school-value="{{ option.get('value') }}">
                               <option value="any" {% if (option.get('state') or 'any') == 'any' %}selected{% endif %}>Neutral</option>
@@ -11136,10 +11191,11 @@
                   </div>
                 </details>
                 {% endif %}
-                {% elif field.type == 'checkbox_group' %}
-                <fieldset class="pqx-choice-groupbox">
-                  <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
-                  {% if field.name in ['selected_platforms', 'location_query'] %}
+	                {% elif field.type == 'checkbox_group' %}
+	                <fieldset class="pqx-choice-groupbox">
+	                  <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
+	                  {% if field.name == 'selected_platforms' %}<span hidden>Select providers</span>{% endif %}
+	                  {% if field.name in ['selected_platforms', 'location_query'] %}
                   <div class="pqx-choice-groupbox-head">
                     <div class="pqx-choice-groupbox-actions pqx-field-tools">
                       {% if field.name == 'selected_platforms' %}
@@ -11162,10 +11218,9 @@
                   {% for group in field.get('option_groups') or [] %}
                   <details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:0;">
                     <summary class="pqx-disclosure-summary pqx-disclosure-summary-secondary">
-                      <span class="pqx-disclosure-copy">
-                        <strong>{{ group.get('title') }}</strong>
-                        <div class="pqx-note">{{ group.get('detail') }}</div>
-                      </span>
+                        <span class="pqx-disclosure-copy">
+                          <strong>{{ group.get('title') }}</strong>
+                        </span>
                       <span class="pqx-disclosure-icon" aria-hidden="true">+</span>
                     </summary>
                     <div class="pqx-field-tools" style="margin:8px 0 10px;">
@@ -11177,12 +11232,11 @@
                       {% set option_value = option.get('value') or '' %}
                       <label class="pqx-check">
                         <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}"{% if not option.get('search_ready', true) %} disabled{% endif %} {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %}{% if option.get('supported_listing_modes') %} data-listing-modes="{{ (option.get('supported_listing_modes') or [])|join(',') }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}>
-                        <span>
-                          <span>{{ option.get('label') }}</span>
-                          {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
-                          {% if option.get('coming_soon') %}<small>Coming soon</small>{% endif %}
-                          {% if option.get('homepage_url') %}<a class="pqx-provider-link" href="{{ option.get('homepage_url') }}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>{% endif %}
-                        </span>
+                          <span>
+                            <span>{{ option.get('label') }}</span>
+                            {% if option.get('coming_soon') %}<small>Coming soon</small>{% endif %}
+                            {% if field.name != 'selected_platforms' and option.get('homepage_url') %}<a class="pqx-provider-link" href="{{ option.get('homepage_url') }}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>{% endif %}
+                          </span>
                       </label>
                       {% endfor %}
                     </div>
@@ -11240,13 +11294,13 @@
                     {% for option in field.options or [] %}
                     {% set option_value = option.get('value') or '' %}
                     <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
-                      <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %}{% if option.get('map_path') %} data-location-map-path="{{ option.get('map_path') }}" data-location-map-label-x="{{ option.get('map_label_x') or '' }}" data-location-map-label-y="{{ option.get('map_label_y') or '' }}" data-location-map-source="{{ option.get('map_source') or '' }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
-                      <span>
-                        <span>{{ option.get('label') }}</span>
-                        {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
-                        {% if option.get('coming_soon') %}<small>Coming soon</small>{% endif %}
-                        {% if option.get('homepage_url') %}<a class="pqx-provider-link" href="{{ option.get('homepage_url') }}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>{% endif %}
-                      </span>
+                      <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
+                        <span>
+                          <span>{{ option.get('label') }}</span>
+                          {% if field.name not in ['selected_platforms', 'location_query'] and (option.get('detail') or option.get('description')) %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                          {% if option.get('coming_soon') %}<small>Coming soon</small>{% endif %}
+                          {% if field.name != 'selected_platforms' and option.get('homepage_url') %}<a class="pqx-provider-link" href="{{ option.get('homepage_url') }}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>{% endif %}
+                        </span>
                     </label>
                     {% endfor %}
                   </div>
@@ -11490,21 +11544,27 @@
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
               {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_total') or run_sources|length or run_summary.get('sources_total') or 0)|int %}
-              {% set homes_checked_total = (run_summary.get('reviewed_listing_total') or run_summary.get('raw_listing_total') or run_summary.get('listing_total') or 0)|int %}
-              <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
-              <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
-              <div class="pqx-fact"><span>Homes checked</span><strong>{{ homes_checked_total }}</strong></div>
+	              {% set homes_checked_total = (run_summary.get('listing_total') or run_summary.get('reviewed_listing_total') or run_summary.get('raw_listing_total') or 0)|int %}
+	              <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
+	              <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
+	              <div class="pqx-fact"><span>Listings</span><strong>{{ homes_checked_total }}</strong></div>
             </div>
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
             <div class="pqx-empty-outcome-next">
-              {% if empty_active_rule %}<span class="pqx-pill">{{ empty_active_rule }}</span>{% endif %}
+              {% if empty_active_rule or run_status == 'failed' %}<span class="pqx-pill">{{ empty_active_rule or 'Next' }}</span>{% endif %}
               <span class="pqx-small">{{ 'Open the area choices if you want to include those homes; otherwise keep the hard scope.' if held_back_ranked_total > 0 else (empty_next_move or ('Start a fresh search or adjust one provider or rule before retrying.' if run_status == 'failed' else 'Widen one hard rule first, then rerun.')) }}</span>
             </div>
             {% endif %}
-            <div class="pqx-actions">
-              <a class="pqx-link-button primary" href="/app/search{{ topnav_query_suffix }}">{% if run_summary.get('brief_snapshot_status') == 'old_run' or run_summary.get('brief_preferences_stale') %}{{ run_summary.get('brief_stale_action_label') or 'Start updated search' }}{% else %}Search brief{% endif %}</a>
-            </div>
-          </div>
+	            <div class="pqx-actions">
+	              <a class="pqx-link-button primary" href="/app/search{{ topnav_query_suffix }}">{% if run_summary.get('brief_snapshot_status') == 'old_run' or run_summary.get('brief_preferences_stale') %}{{ run_summary.get('brief_stale_action_label') or 'Start updated search' }}{% else %}Search brief{% endif %}</a>
+	              {% if run_failed_no_results %}
+	              <button class="pqx-button subtle" type="button" data-pqx-filtered-open>What to widen</button>
+	              {% endif %}
+	            </div>
+	            {% if run_failed_no_results %}
+	            {{ filtered_recovery_dialog(workbench.get('counterfactual_rows') or [], workbench.get('suppression_rows') or []) }}
+	            {% endif %}
+	          </div>
           {% include "app/_property_recent_run_strip.html" %}
         </aside>
         {% if not run_failed_no_results %}
@@ -11974,10 +12034,15 @@
 {% include "app/_property_agents_script.html" %}
 {% elif surface_mode in ['account', 'billing', 'alerts'] %}
 {% include "app/_property_static_surface_script.html" %}
-{% else %}
-{% include "app/_property_workbench_script.html" %}
 {% endif %}
   </script>
+  {% if surface_mode not in ['agents', 'account', 'billing', 'alerts'] %}
+  {% if setup_mode %}
+  <script src="{{ property_search_loader_script_asset_url() }}" data-workbench-src="{{ property_workbench_script_asset_url() }}" data-quiet-warm-delay-ms="1400" async></script>
+  {% else %}
+  <script src="{{ property_workbench_script_asset_url() }}" defer></script>
+  {% endif %}
+  {% endif %}
   <script>
     if ('serviceWorker' in navigator && window.isSecureContext) {
       window.addEventListener('load', () => {

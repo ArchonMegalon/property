@@ -420,6 +420,8 @@ class PropertyWorkbenchCandidateSnapshot:
     map_url: str = ""
     source_url: str = ""
     floorplan_url: str = ""
+    source_virtual_tour_url: str = ""
+    vendor_tour_url: str = ""
     property_facts: dict[str, object] = field(default_factory=dict)
     listing_fact_confirmation: dict[str, object] = field(default_factory=dict)
     assessment: dict[str, object] = field(default_factory=dict)

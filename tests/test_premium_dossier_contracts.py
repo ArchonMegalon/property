@@ -704,6 +704,7 @@ def test_premium_pipeline_writes_visual_preview_receipt_fields(monkeypatch, tmp_
         artifact_bytes,
         expected_text,
         forbidden_text,
+        supplemental_required_text="",
         preview_output_path=None,
         require_cover_visual_dominance=False,
         require_footer_band=False,
@@ -881,6 +882,38 @@ def test_playwright_renderer_blocks_remote_network_requests(monkeypatch, tmp_pat
     assert observed["route_pattern"] == "**/*"
     assert observed["allowed"] == ["file:///tmp/dossier.html"]
     assert observed["blocked"] == ["https://cdn.example.test/hero.jpg"]
+
+
+def test_playwright_renderer_prefers_explicit_helper_python(monkeypatch) -> None:
+    from app.services.premium_dossier import playwright_adapter
+
+    observed: dict[str, object] = {}
+
+    def _fake_helper(helper_python, request, *, started):
+        observed["helper_python"] = helper_python
+        observed["request_title"] = request.title
+        return PremiumDossierRenderResult(status="rendered", renderer="playwright", pdf_bytes=b"%PDF-helper")
+
+    monkeypatch.setenv("PROPERTYQUARRY_PLAYWRIGHT_PYTHON", "/opt/propertyquarry-browser/bin/python")
+    monkeypatch.setattr(playwright_adapter, "sync_playwright", object())
+    monkeypatch.setattr(playwright_adapter, "_render_pdf_via_helper_python", _fake_helper)
+
+    result = playwright_adapter.render_pdf_with_playwright(
+        PremiumDossierRenderRequest(
+            dossier_id="pub_helper",
+            renderer_version="v1_premium_playwright_dossier",
+            html="<html><body>PropertyQuarry</body></html>",
+            title="PropertyQuarry helper",
+            privacy_mode="family_review",
+            packet_kind="family_review",
+        )
+    )
+
+    assert result.status == "rendered"
+    assert observed == {
+        "helper_python": "/opt/propertyquarry-browser/bin/python",
+        "request_title": "PropertyQuarry helper",
+    }
 
 
 def test_premium_pipeline_records_quality_failure_when_fail_closed_blocks_legacy(monkeypatch, tmp_path: Path) -> None:

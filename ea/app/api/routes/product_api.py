@@ -138,6 +138,7 @@ _PROPERTY_DECISION_REASON_KEYS: frozenset[str] = frozenset(
         "noise_risk",
     }
 )
+_PROPERTY_MAP_PREVIEW_PENDING_LABEL = "Preparing map"
 
 
 def _api_safe_token(value: object, fallback: str = "ref") -> str:
@@ -1656,6 +1657,7 @@ def get_property_map_preview_file(
                 "Cache-Control": "no-store, max-age=0, no-transform",
                 "Content-Encoding": "identity",
                 "X-Property-Map-Preview-State": "pending",
+                "X-Property-Map-Preview-Label": _PROPERTY_MAP_PREVIEW_PENDING_LABEL,
                 "X-Robots-Tag": "noindex, nofollow",
             },
         )

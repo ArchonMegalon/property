@@ -9,8 +9,19 @@ CUSTOMER_TEMPLATES = (
     ROOT / "ea/app/templates/app/property_packets.html",
     ROOT / "ea/app/templates/app/property_research_detail.html",
     ROOT / "ea/app/templates/app/_property_selected_review_panel.html",
+    ROOT / "ea/app/templates/pricing_page.html",
+    ROOT / "ea/app/templates/property_billing_commercial_lane.html",
     ROOT / "ea/app/templates/propertyquarry_home.html",
     ROOT / "ea/app/services/premium_dossier/templates/propertyquarry_dossier.html.j2",
+)
+
+CUSTOMER_COPY_SOURCES = CUSTOMER_TEMPLATES + (
+    ROOT / "ea/app/api/routes/landing.py",
+    ROOT / "ea/app/api/routes/landing_view_models.py",
+    ROOT / "ea/app/api/routes/landing_property_workspace_helpers.py",
+    ROOT / "ea/app/api/routes/landing_property_research.py",
+    ROOT / "ea/app/api/routes/landing_property_workspace_payload.py",
+    ROOT / "ea/app/templates/app/_property_workbench_script.html",
 )
 
 
@@ -49,14 +60,38 @@ def test_propertyquarry_customer_templates_avoid_internal_operator_language() ->
         assert marker not in body
 
 
+def test_propertyquarry_customer_copy_avoids_operations_lane_language() -> None:
+    body = "\n".join(path.read_text(encoding="utf-8") for path in CUSTOMER_COPY_SOURCES)
+    lowered = body.lower()
+
+    forbidden_phrases = (
+        "visible lanes",
+        "run slots",
+        "crawl lane",
+        "candidate lane",
+        "risk lane",
+        "risk lanes",
+        "source lanes",
+        "lanes in progress",
+        "billing lane",
+        "account lane",
+        "provider lane",
+        "working lane",
+        "foreclosure lane",
+        "lane <b",
+    )
+    for phrase in forbidden_phrases:
+        assert phrase not in lowered
+
+
 def test_propertyquarry_mobile_navigation_stays_branded_and_compact() -> None:
     workbench = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     public_base = (ROOT / "ea/app/templates/base_public.html").read_text(encoding="utf-8")
 
     assert 'grid-template-areas: "brand nav actions";' in workbench
     assert '.pqx-top-actions > :not([data-property-start-top]):not(.pqx-account-menu):not([data-pqx-delete-run])' in workbench
-    assert ".pqx-brand-copy {\n        display: none;" in workbench
-    assert '.pqx-shell[data-pqx-surface="agents"] .pqx-topbar,\n      .pqx-shell[data-pqx-surface="alerts"] .pqx-topbar {\n        grid-template-columns: minmax(0, 1fr) auto;\n        grid-template-areas: "brand nav";' in workbench
+    assert ".pqx-brand {\n        display: none !important;" in workbench
+    assert '.pqx-shell[data-pqx-surface="agents"] .pqx-topbar,\n      .pqx-shell[data-pqx-surface="alerts"] .pqx-topbar {\n        grid-template-columns: minmax(0, 1fr);\n        grid-template-areas: "nav";' in workbench
     assert '.pqx-shell[data-pqx-surface="agents"] .pqx-top-actions,\n      .pqx-shell[data-pqx-surface="alerts"] .pqx-top-actions {\n        display: none;' in workbench
     assert '<details class="pqx-mobile-nav-menu" data-pqx-mobile-nav-menu>' in workbench
     assert '.pqx-mobile-nav-menu > summary {\n        min-height: 38px;' in workbench
@@ -274,7 +309,7 @@ def test_propertyquarry_search_results_explain_suppression_and_provider_quality(
 
     assert "Search guard" not in body
     assert "Relax filtered homes" in body
-    assert "Relax one hard rule" in body
+    assert "Adjust one hard rule" in body
     assert "Choose one small change, then rerun." in body
     assert "data-pqx-counterfactual" in body
     assert "Best matches" in body
@@ -300,7 +335,7 @@ def test_propertyquarry_app_surfaces_expose_account_navigation() -> None:
     for body in (console_shell, workbench):
         assert "Account navigation" in body
         assert ">Saved defaults<" in body
-        assert ">Billing account<" in body
+        assert "Billing account" in body
         assert ">Access<" in body
         assert ">Log out<" in body
 

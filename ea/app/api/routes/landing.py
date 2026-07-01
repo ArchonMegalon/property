@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import concurrent.futures
+import hashlib
 import html
 import hmac
 import io
@@ -195,6 +196,86 @@ _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE: dict[str, object] = {
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
+
+
+@lru_cache(maxsize=1)
+def _property_workbench_script_asset() -> tuple[str, str]:
+    body = templates.get_template("app/_property_workbench_script.html").render(surface_mode="search")
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    return body, f'"pq-workbench-{digest}"'
+
+
+@lru_cache(maxsize=1)
+def _property_search_loader_script_asset() -> tuple[str, str]:
+    body = templates.get_template("app/_property_search_loader_script.html").render()
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    return body, f'"pq-search-loader-{digest}"'
+
+
+@lru_cache(maxsize=2)
+def _property_workbench_css_asset(*, static_surface: bool = False) -> tuple[str, str]:
+    source, _filename, _uptodate = templates.env.loader.get_source(  # type: ignore[union-attr]
+        templates.env,
+        "app/property_decision_workbench.html",
+    )
+    start_marker = "{# PQ_WORKBENCH_CSS_START"
+    end_marker = "PQ_WORKBENCH_CSS_END #}"
+    if start_marker not in source or end_marker not in source:
+        return "", '"pq-workbench-css-missing"'
+    raw_block = source.split(start_marker, 1)[1].split(end_marker, 1)[0]
+    css_source = raw_block.split("<style>", 1)[1].rsplit("</style>", 1)[0] if "<style>" in raw_block and "</style>" in raw_block else raw_block
+    body = templates.env.from_string(css_source).render(static_surface=static_surface)
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    variant = "static" if static_surface else "app"
+    return body, f'"pq-workbench-css-{variant}-{digest}"'
+
+
+def _property_asset_version(etag: str) -> str:
+    normalized = str(etag or "").strip().strip('"')
+    return normalized.rsplit("-", 1)[-1] if "-" in normalized else normalized
+
+
+def _property_workbench_script_asset_url() -> str:
+    _body, etag = _property_workbench_script_asset()
+    version = urllib.parse.quote(_property_asset_version(etag), safe="")
+    return f"/app/assets/property-workbench.js?v={version}" if version else "/app/assets/property-workbench.js"
+
+
+def _property_search_loader_script_asset_url() -> str:
+    _body, etag = _property_search_loader_script_asset()
+    version = urllib.parse.quote(_property_asset_version(etag), safe="")
+    return f"/app/assets/property-search-loader.js?v={version}" if version else "/app/assets/property-search-loader.js"
+
+
+def _property_workbench_css_asset_url(*, static_surface: bool = False) -> str:
+    _body, etag = _property_workbench_css_asset(static_surface=bool(static_surface))
+    version = urllib.parse.quote(_property_asset_version(etag), safe="")
+    query = []
+    if static_surface:
+        query.append(("surface", "static"))
+    if version:
+        query.append(("v", version))
+    query_string = urllib.parse.urlencode(query)
+    return f"/app/assets/property-workbench.css?{query_string}" if query_string else "/app/assets/property-workbench.css"
+
+
+def _property_workbench_asset_headers(*, etag: str, version: str = "") -> dict[str, str]:
+    expected_version = _property_asset_version(etag)
+    versioned = bool(str(version or "").strip()) and str(version or "").strip() == expected_version
+    cache_control = (
+        "public, max-age=86400, immutable"
+        if versioned
+        else "public, max-age=3600, stale-while-revalidate=86400"
+    )
+    return {
+        "Cache-Control": cache_control,
+        "ETag": etag,
+    }
+
+
+templates.env.globals["property_workbench_script_asset_url"] = _property_workbench_script_asset_url
+templates.env.globals["property_search_loader_script_asset_url"] = _property_search_loader_script_asset_url
+templates.env.globals["property_workbench_css_asset_url"] = _property_workbench_css_asset_url
 
 
 def _brilliant_directories_public_profile_rows(profiles: list[object]) -> list[dict[str, object]]:
@@ -420,12 +501,12 @@ def _property_pricing_billing_link_copy(handoff: dict[str, object] | None = None
     if status == "member_token_ready":
         return (
             "Continue billing sign-in",
-            "Use the same email in the billing lane.",
+            "Use the same email for the billing portal.",
         )
     if status == "bridge_ready":
         return (
             "Continue billing sign-in",
-            "Use the same email in the billing lane.",
+            "Use the same email for the billing portal.",
         )
     if status in {"login_required", "unresolved", "verifying", "disabled"}:
         return (
@@ -434,7 +515,7 @@ def _property_pricing_billing_link_copy(handoff: dict[str, object] | None = None
         )
     return (
         "Open billing account",
-        "Use your active account lane.",
+        "Use your active billing account.",
     )
 
 
@@ -1074,6 +1155,73 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
     return {}
 
 
+def _propertyquarry_example_shortlist_href(candidate_key: str = "") -> str:
+    normalized_key = str(candidate_key or "").strip()
+    if not normalized_key:
+        return "/app/example/shortlist"
+    encoded_key = urllib.parse.quote(normalized_key, safe="")
+    return f"/app/example/shortlist?candidate={encoded_key}#{encoded_key}"
+
+
+def _propertyquarry_fast_ranked_run_href(run_id: str, *, full: bool = False) -> str:
+    normalized_run_id = str(run_id or "").strip()
+    if not normalized_run_id:
+        return "/app/shortlist"
+    encoded_run_id = urllib.parse.quote(normalized_run_id, safe="")
+    if full:
+        return f"/app/shortlist?run_id={encoded_run_id}&full=1#results-list"
+    return f"/app/shortlist/run/{encoded_run_id}"
+
+
+def _propertyquarry_example_shortlist_rows() -> list[dict[str, object]]:
+    example_media_targets = _propertyquarry_example_media_targets()
+    example_rows: list[dict[str, object]] = [
+        {
+            "candidate_key": "danube-flats-demo",
+            "title": "Danube Flats demo",
+            "detail": "Example home with a 3D tour and walkthrough.",
+            "score": 84,
+            "area_label": "1010 Vienna, 1020 Vienna",
+            "price_label": "Premium example",
+            "layout_label": "Bright high-rise layout",
+            "href": _propertyquarry_example_shortlist_href("danube-flats-demo"),
+            "detail_href": _propertyquarry_example_shortlist_href("danube-flats-demo"),
+            "tour_href": example_media_targets.get("tour_href", ""),
+            "walkthrough_href": example_media_targets.get("walkthrough_href", ""),
+            "tour_label": example_media_targets.get("tour_label", "") if example_media_targets.get("tour_href", "") else "",
+            "walkthrough_label": (
+                example_media_targets.get("walkthrough_label", "") if example_media_targets.get("walkthrough_href", "") else ""
+            ),
+            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1010 Vienna, 1020 Vienna"),
+        },
+        {
+            "candidate_key": "quiet-layout-near-transit",
+            "title": "Quiet layout near transit",
+            "detail": "Good fit. Parking still unclear.",
+            "score": 78,
+            "area_label": "1040 Vienna, 1050 Vienna",
+            "price_label": "Rent example",
+            "layout_label": "Quiet street, transit nearby",
+            "href": _propertyquarry_example_shortlist_href("quiet-layout-near-transit"),
+            "detail_href": _propertyquarry_example_shortlist_href("quiet-layout-near-transit"),
+            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1040 Vienna, 1050 Vienna"),
+        },
+        {
+            "candidate_key": "strong-price-open-risk",
+            "title": "Strong price, open questions",
+            "detail": "Strong price. Check the details.",
+            "score": 72,
+            "area_label": "1180 Vienna, 1190 Vienna",
+            "price_label": "Value example",
+            "layout_label": "Good price, more checks needed",
+            "href": _propertyquarry_example_shortlist_href("strong-price-open-risk"),
+            "detail_href": _propertyquarry_example_shortlist_href("strong-price-open-risk"),
+            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1180 Vienna, 1190 Vienna"),
+        },
+    ]
+    return example_rows
+
+
 def _request_country_code(request: Request) -> str:
     for header in (
         "cf-ipcountry",
@@ -1308,6 +1456,10 @@ def prewarm_property_search_surface_cache() -> bool:
     for template_name in template_names:
         with contextlib.suppress(Exception):
             templates.env.get_template(template_name)
+    with contextlib.suppress(Exception):
+        _property_workbench_css_asset(static_surface=False)
+        _property_workbench_css_asset(static_surface=True)
+        _property_search_loader_script_asset()
 
     _property_country_catalog_snapshot_json()
     country_rows = [dict(row) for row in property_country_options()]
@@ -1651,6 +1803,14 @@ def _property_lookup_candidate_across_runs(
                 recent_run_id = str(row.get("run_id") or "").strip()
                 if recent_run_id and recent_run_id not in run_ids:
                     run_ids.append(recent_run_id)
+        except TypeError:
+            with contextlib.suppress(Exception):
+                for row in list(product.list_property_search_runs(principal_id=principal_id, limit=max_runs) or []):
+                    if not isinstance(row, dict):
+                        continue
+                    recent_run_id = str(row.get("run_id") or "").strip()
+                    if recent_run_id and recent_run_id not in run_ids:
+                        run_ids.append(recent_run_id)
         except Exception:
             pass
     except Exception:
@@ -2296,7 +2456,7 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
         )
 
     if request_brand(request)["key"] == "propertyquarry":
-        billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
+        billing_handoff = _property_brilliant_directories_billing_handoff()
         billing_label, _billing_detail = _property_pricing_billing_link_copy(billing_handoff)
         billing_open_href = _property_billing_usable_open_href(billing_handoff)
         if billing_open_href:
@@ -2862,6 +3022,7 @@ def _property_console_context(
     selected_candidate_ref: str = "",
     selected_agent_id: str = "",
     surface_mode: str = "properties",
+    force_recent_runs: bool = False,
 ) -> dict[str, object]:
     product = build_product_service(container)
     surface_scope = PropertySurfaceScope.for_section(surface_mode)
@@ -2871,6 +3032,7 @@ def _property_console_context(
     wants_recent_matches = surface_scope.wants_recent_matches
     wants_preference_profile = surface_scope.wants_preference_profile
     wants_learning_summary = surface_scope.wants_learning_summary
+    wants_agent_views = surface_scope.wants_agent_views
     raw_property_preferences = dict(status.get("property_search_preferences") or {})
     merged_preference_seed = dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences)
     if isinstance(raw_property_preferences.get("property_commercial"), dict) and not isinstance(
@@ -2922,33 +3084,54 @@ def _property_console_context(
             preferences=preferences,
             selected_platforms=selected_platforms,
             selected_agent_id=selected_agent_id,
-        )
+    )
     should_load_recent_runs = (
-        wants_recent_runs
-        and not (normalized_run_id and surface_scope.section in {"properties", "shortlist", "research"})
+        (
+            wants_recent_runs
+            or wants_agent_views
+            or (surface_scope.section == "properties" and not normalized_run_id)
+        )
+        and (
+            force_recent_runs
+            or not (normalized_run_id and surface_scope.section in {"properties", "shortlist", "research"})
+        )
     )
     if should_load_recent_runs:
+        hydrate_recent_runs = surface_scope.section not in {"properties", "shortlist", "research", "search"}
         try:
             raw_recent_search_runs = [
                 normalize_property_search_run_snapshot(dict(row))
                 for row in product.list_property_search_runs(
                     principal_id=principal_id,
                     limit=24,
-                    hydrate=surface_scope.section not in {"properties", "shortlist", "research", "search"},
+                    hydrate=hydrate_recent_runs,
                     account_email=access_email,
                 )
                 if isinstance(row, dict)
             ]
         except TypeError:
-            raw_recent_search_runs = [
-                normalize_property_search_run_snapshot(dict(row))
-                for row in product.list_property_search_runs(
-                    principal_id=principal_id,
-                    limit=24,
-                    hydrate=surface_scope.section not in {"properties", "shortlist", "research", "search"},
-                )
-                if isinstance(row, dict)
-            ]
+            try:
+                raw_recent_search_runs = [
+                    normalize_property_search_run_snapshot(dict(row))
+                    for row in product.list_property_search_runs(
+                        principal_id=principal_id,
+                        limit=24,
+                        hydrate=hydrate_recent_runs,
+                    )
+                    if isinstance(row, dict)
+                ]
+            except TypeError:
+                try:
+                    raw_recent_search_runs = [
+                        normalize_property_search_run_snapshot(dict(row))
+                        for row in product.list_property_search_runs(
+                            principal_id=principal_id,
+                            limit=24,
+                        )
+                        if isinstance(row, dict)
+                    ]
+                except Exception:
+                    raw_recent_search_runs = []
         except Exception:
             raw_recent_search_runs = []
         recent_search_run_limit = 24 if surface_scope.section == "search" else 8
@@ -2959,7 +3142,7 @@ def _property_console_context(
     history_run_candidates = raw_recent_search_runs or recent_search_runs
     if wants_run_state and not normalized_run_id:
         terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started"}
-        if surface_scope.section == "properties":
+        if surface_scope.section in {"properties", "shortlist"}:
             with contextlib.suppress(Exception):
                 active_run = dict(
                     product.find_active_property_search_run(
@@ -2974,6 +3157,22 @@ def _property_console_context(
                     active_run = dict(product.find_active_property_search_run(principal_id=principal_id, limit=8) or {})
             if isinstance(active_run, dict) and active_run and not _current_scope_compatible_run(active_run):
                 active_run = None
+        if (not isinstance(active_run, dict) or not active_run) and surface_scope.section == "properties":
+            active_run = next(
+                (
+                    row
+                    for row in history_run_candidates
+                    if _current_scope_compatible_run(row)
+                    and str(row.get("run_id") or "").strip()
+                    and str(
+                        row.get("status")
+                        or (dict(row.get("summary") or {}) if isinstance(row.get("summary"), dict) else {}).get("status")
+                        or ""
+                    ).strip().lower()
+                    not in terminal_statuses
+                ),
+                None,
+            )
         if (not isinstance(active_run, dict) or not active_run) and surface_scope.section == "properties":
             active_run = next(
                 (
@@ -3001,7 +3200,7 @@ def _property_console_context(
                 ),
                 None,
             )
-        if (not isinstance(active_run, dict) or not active_run) and surface_scope.section != "shortlist":
+        if (not isinstance(active_run, dict) or not active_run) and surface_scope.section in {"properties", "research", "agents", "alerts"}:
             active_run = next(
                 (
                     row
@@ -3017,7 +3216,7 @@ def _property_console_context(
                 ),
                 None,
             )
-        if active_run is None and surface_scope.section == "shortlist":
+        if (not isinstance(active_run, dict) or not active_run) and surface_scope.section == "shortlist":
             active_run = next(
                 (
                     row
@@ -3025,6 +3224,22 @@ def _property_console_context(
                     if _current_scope_compatible_run(row)
                     and str(row.get("run_id") or "").strip()
                     and _property_run_payload_has_shortlist_results(row)
+                ),
+                None,
+            )
+        if (not isinstance(active_run, dict) or not active_run) and surface_scope.section == "shortlist":
+            active_run = next(
+                (
+                    row
+                    for row in history_run_candidates
+                    if _current_scope_compatible_run(row)
+                    and str(row.get("run_id") or "").strip()
+                    and str(
+                        row.get("status")
+                        or (dict(row.get("summary") or {}) if isinstance(row.get("summary"), dict) else {}).get("status")
+                        or ""
+                    ).strip().lower()
+                    not in terminal_statuses
                 ),
                 None,
             )
@@ -3136,11 +3351,8 @@ def _property_console_context(
             candidate_ref=selected_candidate_ref,
         )
     run_status_value = str(run_payload.get("status") or "").strip().lower()
-    enrich_run_candidates_with_feedback = (
-        wants_run_state
-        and surface_scope.section == "shortlist"
-        and run_status_value not in {"processed", "completed", "completed_partial"}
-    )
+    # First paint must stay fast; preference fine-tuning loads packet feedback explicitly.
+    enrich_run_candidates_with_feedback = False
     if run_payload and enrich_run_candidates_with_feedback:
         packet_service = build_fliplink_packet_service(container)
         summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
@@ -3403,51 +3615,8 @@ def landing(
     else:
         principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     commercial = property_commercial_snapshot(None)
-    example_shortlist_href = "/app/shortlist" if authenticated_principal else "/sign-in?signing_in=1"
-    example_shortlist_detail_href = (
-        "/app/shortlist?example=1#results-list"
-        if authenticated_principal
-        else "/sign-in?signing_in=1"
-    )
-    example_media_targets = _propertyquarry_example_media_targets()
-    example_demo_href = example_media_targets.get("demo_href") or example_shortlist_href
-    example_demo_detail_href = example_media_targets.get("demo_href") or example_shortlist_detail_href
-    example_shortlist = [
-        {
-            "title": "Danube Flats demo",
-            "detail": "Search result, presentation, 3D tour, walkthrough.",
-            "score": 84,
-            "href": example_demo_href,
-            "detail_href": example_demo_detail_href,
-            "tour_href": example_media_targets.get("tour_href", ""),
-            "walkthrough_href": example_media_targets.get("walkthrough_href", ""),
-            "tour_label": example_media_targets.get("tour_label", "") if example_media_targets.get("tour_href", "") else "",
-            "walkthrough_label": (
-                example_media_targets.get("walkthrough_label", "") if example_media_targets.get("walkthrough_href", "") else ""
-            ),
-            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1010 Vienna, 1020 Vienna"),
-        },
-        {
-            "title": "Quiet layout near transit",
-            "detail": "Good fit. Parking evidence missing.",
-            "score": 78,
-            "tour_label": "3D tour queued",
-            "walkthrough_label": "Walkthrough queued",
-            "href": example_shortlist_href,
-            "detail_href": example_shortlist_detail_href,
-            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1040 Vienna, 1050 Vienna"),
-        },
-        {
-            "title": "Strong price, open risk",
-            "detail": "Kept visible because hard rules pass.",
-            "score": 72,
-            "tour_label": "3D tour on request",
-            "walkthrough_label": "Walkthrough on request",
-            "href": example_shortlist_href,
-            "detail_href": example_shortlist_detail_href,
-            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1180 Vienna, 1190 Vienna"),
-        },
-    ]
+    del authenticated_principal
+    example_shortlist = _propertyquarry_example_shortlist_rows()
     return _render_public_template(
         request,
         "propertyquarry_home.html" if brand["key"] == "propertyquarry" else "marketing_home.html",
@@ -3680,7 +3849,7 @@ def _render_property_billing_unavailable_page(
         link_kicker="PropertyQuarry",
         link_title="Billing portal unavailable",
         link_summary=f"{blocker_summary} Your PropertyQuarry access stays active from the account page.",
-        link_detail_title="Current billing lane",
+        link_detail_title="Current billing status",
         link_status_label=blocker_label,
         link_rows=[
             {
@@ -3951,7 +4120,7 @@ def pricing_page(
     account_nav = _account_nav_context(request=request, context=context)
     pricing_signed_in_billing_href = str(account_nav.get("billing_href") or _property_billing_fallback_href()).strip() or _property_billing_fallback_href()
     pricing_signed_in_billing_label = "Open billing account"
-    pricing_signed_in_billing_detail = "Use your active account lane."
+    pricing_signed_in_billing_detail = "Use your active billing account."
     if checkout_session_ready and request_brand(request)["key"] == "propertyquarry":
         billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
         pricing_signed_in_billing_href = (
@@ -5663,6 +5832,166 @@ def property_notification_preview_page(
     return HTMLResponse(body)
 
 
+@router.get("/app/example/shortlist", response_class=HTMLResponse, include_in_schema=False)
+def propertyquarry_example_shortlist_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+    candidate: str = Query(default=""),
+) -> HTMLResponse:
+    brand = request_brand(request)
+    if str(brand.get("key") or "").strip() != "propertyquarry":
+        return RedirectResponse("/", status_code=307)
+    authenticated_principal = _landing_authenticated_principal(
+        container=container,
+        access_identity=access_identity,
+        request=request,
+    )
+    rows = _propertyquarry_example_shortlist_rows()
+    selected_key = str(candidate or "").strip() or str((rows[0] if rows else {}).get("candidate_key") or "")
+    selected = next(
+        (
+            dict(row)
+            for row in rows
+            if str(row.get("candidate_key") or "").strip() == selected_key
+        ),
+        dict(rows[0] if rows else {}),
+    )
+    start_search_href = "/app/search" if authenticated_principal else "/sign-in?return_to=%2Fapp%2Fsearch"
+    return _render_public_template(
+        request,
+        "propertyquarry_example_shortlist.html",
+        **_public_context(
+            request=request,
+            current_nav="product",
+            page_title="PropertyQuarry Example Shortlist",
+            principal_id=authenticated_principal,
+            status=_anonymous_onboarding_status(),
+            access_identity=access_identity,
+            extra={
+                "example_rows": rows,
+                "selected_example": selected,
+                "start_search_href": start_search_href,
+                "meta_description": "A minimal PropertyQuarry example shortlist showing how sample homes open before you start your own search.",
+                "canonical_path": "/app/example/shortlist",
+                "robots_directive": "noindex, follow",
+            },
+        ),
+    )
+
+
+@router.get("/app/assets/property-workbench.js", include_in_schema=False)
+def propertyquarry_workbench_script_asset(
+    request: Request,
+    v: str = Query(default=""),
+) -> Response:
+    brand = request_brand(request)
+    if str(brand.get("key") or "").strip() != "propertyquarry":
+        raise HTTPException(status_code=404, detail="asset_not_found")
+    body, etag = _property_workbench_script_asset()
+    headers = _property_workbench_asset_headers(etag=etag, version=v)
+    if str(request.headers.get("if-none-match") or "").strip() == etag:
+        return Response(
+            status_code=304,
+            headers=headers,
+        )
+    return Response(
+        body,
+        media_type="application/javascript; charset=utf-8",
+        headers=headers,
+    )
+
+
+@router.get("/app/assets/property-search-loader.js", include_in_schema=False)
+def propertyquarry_search_loader_script_asset(
+    request: Request,
+    v: str = Query(default=""),
+) -> Response:
+    brand = request_brand(request)
+    if str(brand.get("key") or "").strip() != "propertyquarry":
+        raise HTTPException(status_code=404, detail="asset_not_found")
+    body, etag = _property_search_loader_script_asset()
+    headers = _property_workbench_asset_headers(etag=etag, version=v)
+    if str(request.headers.get("if-none-match") or "").strip() == etag:
+        return Response(
+            status_code=304,
+            headers=headers,
+        )
+    return Response(
+        body,
+        media_type="application/javascript; charset=utf-8",
+        headers=headers,
+    )
+
+
+@router.get("/app/assets/property-workbench.css", include_in_schema=False)
+def propertyquarry_workbench_style_asset(
+    request: Request,
+    surface: str = Query(default=""),
+    v: str = Query(default=""),
+) -> Response:
+    brand = request_brand(request)
+    if str(brand.get("key") or "").strip() != "propertyquarry":
+        raise HTTPException(status_code=404, detail="asset_not_found")
+    static_surface = str(surface or "").strip().lower() in {"static", "account", "billing", "agents", "alerts"}
+    body, etag = _property_workbench_css_asset(static_surface=static_surface)
+    if not body:
+        raise HTTPException(status_code=404, detail="asset_not_found")
+    headers = _property_workbench_asset_headers(etag=etag, version=v)
+    if str(request.headers.get("if-none-match") or "").strip() == etag:
+        return Response(
+            status_code=304,
+            headers=headers,
+        )
+    return Response(
+        body,
+        media_type="text/css; charset=utf-8",
+        headers=headers,
+    )
+
+
+@router.get("/app/shortlist/run/{run_id}", response_class=HTMLResponse, include_in_schema=False)
+def propertyquarry_fast_ranked_run_page(
+    run_id: str,
+    request: Request,
+    context: RequestContext = Depends(get_request_context),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    brand = request_brand(request)
+    if str(brand.get("key") or "").strip() != "propertyquarry":
+        return RedirectResponse("/app/shortlist", status_code=307)
+    normalized_run_id = str(run_id or "").strip()
+    if not normalized_run_id or len(normalized_run_id) > 160 or not re.fullmatch(r"[A-Za-z0-9._:-]+", normalized_run_id):
+        raise HTTPException(status_code=404, detail="property_search_run_not_found")
+    encoded_run_id = urllib.parse.quote(normalized_run_id, safe="")
+    status_url = f"/app/api/signals/property/search/run/{encoded_run_id}?lightweight=1"
+    full_href = _propertyquarry_fast_ranked_run_href(normalized_run_id, full=True)
+    return _render_public_template(
+        request,
+        "app/property_ranked_run_fast.html",
+        **_public_context(
+            request=request,
+            current_nav="product",
+            page_title="PropertyQuarry Ranked Homes",
+            principal_id=context.principal_id,
+            status=_anonymous_onboarding_status(),
+            access_identity=access_identity,
+            extra={
+                "run_id": normalized_run_id,
+                "run_status_url": status_url,
+                "full_shortlist_href": full_href,
+                "search_href": "/app/search",
+                "history_href": "/app/agents#search-history",
+                "account_href": "/app/account",
+                "account_nav": _account_nav_context(request=request, context=context),
+                "meta_description": "A fast PropertyQuarry ranked-results view that loads the homes for a completed search without waiting for the full workbench.",
+                "canonical_path": f"/app/shortlist/run/{encoded_run_id}",
+                "robots_directive": "noindex, nofollow",
+            },
+        ),
+    )
+
+
 @router.get("/app/{section}", response_class=HTMLResponse)
 def app_shell(
     section: str,
@@ -5679,6 +6008,7 @@ def app_shell(
     missing_candidate_ref: str = Query(default=""),
     stale_run: str = Query(default=""),
     missing_run_id: str = Query(default=""),
+    full: str = Query(default=""),
 ) -> HTMLResponse:
     brand = request_brand(request)
     property_brand = brand["key"] == "propertyquarry"
@@ -5782,7 +6112,13 @@ def app_shell(
                 or {}
             )
         if not route_run:
-            if resolved_section == "properties" and str(context.auth_source or "").strip() == "workspace_access_session":
+            if resolved_section == "properties":
+                target_query = str(request.url.query or "").strip()
+                target = "/app/search"
+                if target_query:
+                    target = f"{target}?{target_query}"
+                return RedirectResponse(target, status_code=307)
+            if str(context.auth_source or "").strip() == "workspace_access_session":
                 route_run = {}
             else:
                 query_pairs = [
@@ -5797,9 +6133,31 @@ def app_shell(
                 if target_query:
                     target = f"{target}?{target_query}"
                 return RedirectResponse(target, status_code=303)
+        explicit_full_view = str(full or "").strip().lower() in {"1", "true", "yes"}
         if resolved_section == "properties":
             route_run_status = str(route_run.get("status") or "").strip().lower()
             route_run_summary = dict(route_run.get("summary") or {}) if isinstance(route_run.get("summary"), dict) else {}
+            route_ranked_candidates = list(route_run_summary.get("ranked_candidates") or route_run.get("ranked_candidates") or [])
+            route_sources = list(route_run_summary.get("sources") or route_run.get("sources") or [])
+            if (
+                not explicit_full_view
+                and route_run_status in {"processed", "completed", "completed_partial"}
+                and route_ranked_candidates
+                and not str(route_run.get("status_url") or "").strip()
+            ):
+                return RedirectResponse(_propertyquarry_fast_ranked_run_href(normalized_run_id), status_code=307)
+            if (
+                not explicit_full_view
+                and route_run_status in {"in_progress", "running", "processing", "scanning", "starting"}
+                and not route_ranked_candidates
+                and not route_sources
+                and not route_run_summary.get("reviewed_listing_total")
+            ):
+                target_query = str(request.url.query or "").strip()
+                target = "/app/search"
+                if target_query:
+                    target = f"{target}?{target_query}"
+                return RedirectResponse(target, status_code=307)
             replacement_run_id = str(route_run_summary.get("repair_replacement_run_id") or "").strip()
             if route_run_status == "failed" and replacement_run_id and replacement_run_id != normalized_run_id:
                 query_pairs = [
@@ -5810,14 +6168,6 @@ def app_shell(
                 query_pairs.insert(0, ("run_id", replacement_run_id))
                 target_query = urllib.parse.urlencode(query_pairs)
                 return RedirectResponse(f"{request.url.path}?{target_query}", status_code=303)
-            if route_run_status in {"processed", "completed", "completed_partial"} and _property_run_payload_has_shortlist_results(route_run):
-                target = "/app/shortlist"
-                query = str(request.url.query or "").strip()
-                if query:
-                    target = f"{target}?{query}"
-                else:
-                    target = f"{target}?run_id={urllib.parse.quote(normalized_run_id, safe='')}"
-                return RedirectResponse(target, status_code=307)
     if resolved_section == "channel-loop":
         workspace = dict(status.get("workspace") or {})
         product = build_product_service(container)
@@ -5915,12 +6265,54 @@ def app_shell(
     else:
         property_payload_section = property_surface_aliases.get(resolved_section, resolved_section) if property_brand else resolved_section
         product = build_product_service(container)
-        if property_brand and resolved_section == "properties":
-            query = str(request.url.query or "").strip()
-            target = "/app/search"
-            if query:
-                target = f"{target}?{query}"
-            return RedirectResponse(target, status_code=307)
+        if property_brand and resolved_section == "properties" and not normalized_run_id:
+            has_live_property_run = False
+            try:
+                active_candidate = product.find_active_property_search_run(
+                    principal_id=context.principal_id,
+                    limit=8,
+                    account_email=context.access_email,
+                )
+            except TypeError:
+                active_candidate = product.find_active_property_search_run(principal_id=context.principal_id, limit=8)
+            except Exception:
+                active_candidate = {}
+            if isinstance(active_candidate, dict) and str(active_candidate.get("run_id") or "").strip():
+                has_live_property_run = True
+            if not has_live_property_run:
+                try:
+                    recent_candidates = product.list_property_search_runs(
+                        principal_id=context.principal_id,
+                        limit=24,
+                        hydrate=False,
+                        account_email=context.access_email,
+                    )
+                except TypeError:
+                    try:
+                        recent_candidates = product.list_property_search_runs(
+                            principal_id=context.principal_id,
+                            limit=24,
+                            hydrate=False,
+                        )
+                    except TypeError:
+                        recent_candidates = product.list_property_search_runs(principal_id=context.principal_id, limit=24)
+                except Exception:
+                    recent_candidates = []
+                terminal_statuses = {"processed", "completed", "completed_partial", "failed", "noop", "cancelled", "not started"}
+                for row in list(recent_candidates or []):
+                    if not isinstance(row, dict) or not str(row.get("run_id") or "").strip():
+                        continue
+                    row_summary = dict(row.get("summary") or {}) if isinstance(row.get("summary"), dict) else {}
+                    row_status = str(row.get("status") or row_summary.get("status") or "").strip().lower()
+                    if row_status and row_status not in terminal_statuses:
+                        has_live_property_run = True
+                        break
+            if not has_live_property_run:
+                query = str(request.url.query or "").strip()
+                target = "/app/search"
+                if query:
+                    target = f"{target}?{query}"
+                return RedirectResponse(target, status_code=307)
         property_context = (
             _property_console_context(
                 container=container,
@@ -5931,6 +6323,7 @@ def app_shell(
                 selected_candidate_ref=candidate,
                 selected_agent_id=requested_agent_id,
                 surface_mode=resolved_section,
+                force_recent_runs=str(full or "").strip().lower() in {"1", "true", "yes"},
             )
             if resolved_section in property_sections or resolved_section == "properties"
             else None
@@ -6009,12 +6402,13 @@ def app_shell(
                     billing_truth["fleet_digest"] = dict(property_context.get("fleet_digest") or {})
                     property_context["billing_truth"] = billing_truth
         if (resolved_section in property_sections or resolved_section == "properties") and current_nav != "search":
-            product.record_surface_event(
-                principal_id=context.principal_id,
-                event_type=f"{current_nav}_opened",
-                surface=current_nav,
-                actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
-            )
+            with contextlib.suppress(Exception):
+                product.record_surface_event(
+                    principal_id=context.principal_id,
+                    event_type=f"{current_nav}_opened",
+                    surface=current_nav,
+                    actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+                )
         if property_brand and resolved_section in property_sections:
             if property_context is not None and property_payload_section in {"properties", "shortlist"}:
                 property_context["selected_candidate_ref"] = str(candidate or "").strip()

@@ -121,8 +121,19 @@ def _render_pdf_via_helper_python(
 
 def render_pdf_with_playwright(request: PremiumDossierRenderRequest) -> PremiumDossierRenderResult:
     started = time.time()
+    helper_python = _fallback_playwright_python()
+    explicit_helper = bool(str(os.getenv("PROPERTYQUARRY_PLAYWRIGHT_PYTHON") or "").strip())
+    if explicit_helper and helper_python != sys.executable:
+        try:
+            return _render_pdf_via_helper_python(helper_python, request, started=started)
+        except Exception as helper_exc:
+            return PremiumDossierRenderResult(
+                status="failed",
+                renderer="playwright",
+                error_code="playwright_missing",
+                error_detail=str(helper_exc or "playwright_missing")[:240],
+            )
     if sync_playwright is None:
-        helper_python = _fallback_playwright_python()
         if helper_python != sys.executable:
             try:
                 return _render_pdf_via_helper_python(helper_python, request, started=started)

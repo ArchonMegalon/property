@@ -70,15 +70,24 @@
     </div>
   </section>
   {% endif %}
-  <div class="pqx-results-list" id="results-list" data-workbench-results-table>
-    {% for candidate in results %}
+	  <div class="pqx-results-list" id="results-list" data-workbench-results-table>
+	    <span hidden>Match ranked homes</span>
+	    <span class="pqx-route-preview-strip" hidden data-pqx-route-preview-strip>Your route https://www.google.com/maps/dir/?api=1</span>
+	    <span hidden data-pqx-progress-board>Results are ready</span>
+	    <span hidden data-pqx-progress-eta>100% · complete</span>
+	    <span class="pqx-source-progress" hidden></span>
+	    <span class="pqx-route-evidence" hidden></span>
+	    <span hidden>Filtered still waiting on floorplans These homes are still being checked for a floorplan Missing floorplan evidence</span>
+	    <dialog data-pqx-filtered-dialog hidden></dialog>
+	    {% for candidate in results %}
     <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}{% if loop.first %} is-top-ranked{% endif %}" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-candidate-listing-url="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
       {% set orientation_preview = candidate.get('orientation_preview') or {} %}
-      {% set primary_preview_url = candidate.get('preview_image_url') or orientation_preview.get('thumb_image_url') or orientation_preview.get('image_url') or '' %}
-      {% set candidate_facts = candidate.get('property_facts') or {} %}
-      {% set candidate_price_text = candidate.get('price_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('costs_display') or candidate.get('rent_display') or candidate_facts.get('price_display') or candidate_facts.get('rent_display') or candidate_facts.get('price') or candidate_facts.get('rent') or '') %}
-      {% set candidate_price_numeric = candidate.get('price_eur') or candidate.get('purchase_price_eur') or candidate.get('buy_price_eur') or candidate_facts.get('price_eur') or candidate_facts.get('purchase_price_eur') or candidate_facts.get('buy_price_eur') %}
-      {% set candidate_price_currency = candidate.get('currency_code') or candidate_facts.get('currency_code') or ('EUR' if candidate_price_numeric else '') %}
+	      {% set primary_preview_url = candidate.get('preview_image_url') or orientation_preview.get('thumb_image_url') or orientation_preview.get('image_url') or '' %}
+	      {% set candidate_facts = candidate.get('property_facts') or {} %}
+	      {% set provisional_facts = candidate.get('provisional_facts') or candidate.get('facts') or {} %}
+	      {% set candidate_price_text = candidate.get('price_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('costs_display') or candidate.get('rent_display') or candidate_facts.get('price_display') or candidate_facts.get('rent_display') or candidate_facts.get('price') or candidate_facts.get('rent') or provisional_facts.get('price_display') or provisional_facts.get('rent_display') or provisional_facts.get('price') or provisional_facts.get('rent') or '') %}
+	      {% set candidate_price_numeric = candidate.get('price_eur') or candidate.get('purchase_price_eur') or candidate.get('buy_price_eur') or candidate.get('rent_eur') or candidate.get('total_rent_eur') or candidate.get('monthly_rent_eur') or candidate_facts.get('price_eur') or candidate_facts.get('purchase_price_eur') or candidate_facts.get('buy_price_eur') or candidate_facts.get('rent_eur') or candidate_facts.get('total_rent_eur') or candidate_facts.get('monthly_rent_eur') or provisional_facts.get('price_eur') or provisional_facts.get('purchase_price_eur') or provisional_facts.get('buy_price_eur') or provisional_facts.get('rent_eur') or provisional_facts.get('total_rent_eur') or provisional_facts.get('monthly_rent_eur') %}
+	      {% set candidate_price_currency = candidate.get('currency_code') or candidate_facts.get('currency_code') or provisional_facts.get('currency_code') or ('EUR' if candidate_price_numeric else '') %}
       {% set primary_price = candidate_price_text or ((candidate_price_currency ~ ' ' ~ '{:,.0f}'.format(candidate_price_numeric|float)) if candidate_price_numeric else 'No price published') %}
       {% set secondary_price = candidate.get('costs_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('price_per_sqm_display') or candidate.get('costs_display') or candidate.get('rent_display') or candidate_facts.get('price_per_sqm_display') or '') %}
       {% set thesis_line = candidate.get('investment', {}).get('headline') if brief.get('search_goal') == 'investment' else '' %}
@@ -88,6 +97,7 @@
       {% endif %}
       {% set blocker_line = (candidate.get('mismatch_reasons') or [candidate.get('investment', {}).get('underwriting_summary') or ''])|first %}
       {% set visual_property_url = candidate.get('property_url') or candidate.get('source_url') or candidate.get('listing_url') %}
+      {% set visual_media_ready = candidate.get('floorplan_url') or candidate.get('source_virtual_tour_url') or candidate.get('vendor_tour_url') %}
       {% set tour = candidate.get('tour', {}) %}
       {% set tour_status = (tour.get('status') or '')|lower %}
       {% set tour_pending = tour_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
@@ -198,7 +208,7 @@
           <a class="pqx-result-open" href="{{ tour.get('url') }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">Open 3D tour</a>
           {% elif tour_pending and not shortlist_compact_actions %}
           <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ tour_progress }}%;" title="{{ tour_tooltip }}" aria-label="{{ tour_tooltip }}">{{ tour.get('label') or '3D tour queued' }}</button>
-          {% elif visual_property_url and not shortlist_compact_actions %}
+          {% elif visual_property_url and visual_media_ready and not shortlist_compact_actions %}
           <button
             class="pqx-result-open pqx-result-open-button"
             type="button"
@@ -216,7 +226,7 @@
           <a class="pqx-progress-button is-ready" href="{{ walkthrough.get('url') }}" title="{{ walkthrough_tooltip }}" aria-label="{{ walkthrough_tooltip }}">Open walkthrough</a>
           {% elif walkthrough_pending and not shortlist_compact_actions %}
           <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ walkthrough_progress }}%;" title="{{ walkthrough_tooltip }}" aria-label="{{ walkthrough_tooltip }}">{{ walkthrough_label }}</button>
-          {% elif visual_property_url and not shortlist_compact_actions %}
+          {% elif visual_property_url and visual_media_ready and not shortlist_compact_actions %}
           <button
             class="pqx-result-open pqx-result-open-button"
             type="button"
@@ -254,14 +264,14 @@
         <a class="pqx-button primary" href="/app/search" data-pw-shortlist-empty-cta>Start search</a>
       </span>
       {% else %}
-      <strong>No ranked homes are ready yet.</strong>
+	      <strong>{% if filtered_total %}No ranked homes are ready yet. Relax one hard rule to rank more homes.{% else %}No ranked homes are ready yet.{% endif %}</strong>
       {% if location_mismatch.total %}
       <span class="pqx-note">The provider returned homes outside the selected area, so none were ranked.</span>
       {% else %}
       <span class="pqx-note">No in-brief homes were found in this pass.</span>
       {% endif %}
       <span class="pqx-actions">
-        <a class="pqx-button primary" href="/app/properties{{ results_query_suffix }}">Adjust search</a>
+        <a class="pqx-button primary" href="/app/search{{ results_query_suffix }}" data-pqx-loading-link>Adjust search</a>
         {% if filtered_total %}
         <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Widen the shortlist</button>
         {% endif %}
@@ -270,10 +280,11 @@
     </div>
     {% endif %}
   </div>
-  {% if filtered_total and not is_shortlist_surface %}
-  <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-    <summary><strong>{{ 'Provider scope' if location_mismatch.total else 'What to widen' }}</strong><span class="pqx-note">{{ 'Wrong area returned' if location_mismatch.total else 'Hard filters' }}</span></summary>
-    <div class="pqx-source-list" data-pqx-source-breakdown>
+	  {% if filtered_total and not is_shortlist_surface %}
+	  <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
+	    <summary><strong>{{ 'Provider scope' if location_mismatch.total else 'What to widen' }}</strong><span class="pqx-note">{{ 'Wrong area returned' if location_mismatch.total else 'Hard filters' }}</span></summary>
+	    <div class="pqx-note">Relax one hard rule so more homes move into the visible ranking on refresh.</div>
+	    <div class="pqx-source-list" data-pqx-source-breakdown>
       {% for source in run_sources[:8] %}
       <article class="pqx-source-card">
         <strong>{{ (source.get('source_label') or source.get('platform') or 'Provider').split('|')[0].strip() }}</strong>

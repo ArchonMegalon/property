@@ -442,7 +442,7 @@
         <a href="/app/properties{{ packet_query_suffix or '' }}">Search</a>
         <a href="/app/shortlist{{ packet_query_suffix or '' }}">Shortlist</a>
         <span class="is-active" aria-current="page">Research</span>
-        <a href="/app/account{{ packet_query_suffix or '' }}">Account</a>
+        <a href="/app/account{{ packet_query_suffix or '' }}" data-pqx-nav-account>Account</a>
       </nav>
       <nav class="pq-pack-actions">
         <a class="pq-pack-button" href="/app/properties{{ packet_query_suffix or '' }}">{% if selected_search_run_id %}Back to run{% else %}Open search{% endif %}</a>

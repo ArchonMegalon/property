@@ -674,7 +674,14 @@ def main() -> int:
     parser.add_argument("--tour-root", default=str(_default_tour_root()))
     parser.add_argument("--wine-prefix", default=str(_default_wine_prefix()))
     parser.add_argument("--installer-root", action="append", default=[])
-    parser.add_argument("--runtime-container", default=os.getenv("PROPERTYQUARRY_API_CONTAINER_NAME") or "propertyquarry-api")
+    parser.add_argument(
+        "--runtime-container",
+        default=(
+            os.getenv("PROPERTYQUARRY_RENDER_CONTAINER_NAME")
+            or os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER")
+            or "propertyquarry-render-tools"
+        ),
+    )
     parser.add_argument("--runtime-only", action="store_true", help="Validate the current runtime container/process lane; skip desktop Wine/installers/apps.")
     parser.add_argument("--write", default="_completion/tours/property-tour-vendor-tooling-current.json")
     parser.add_argument("--fail-on-blocked", action="store_true")

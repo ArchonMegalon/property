@@ -35,7 +35,7 @@ def _free_port() -> int:
     return port
 
 
-def _wait_for_http(base_url: str, *, timeout_seconds: float = 15.0) -> None:
+def _wait_for_http(base_url: str, *, timeout_seconds: float = 30.0) -> None:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         try:
@@ -930,6 +930,239 @@ def _assert_mobile_surface_motor_accessible(page: Page) -> None:
     assert metrics["offenders"] == [], metrics
 
 
+def _collect_clickable_targets(page: Page) -> dict[str, object]:
+    return page.evaluate(
+        """
+        () => {
+          const ids = new Set(
+            Array.from(document.querySelectorAll('[id]'))
+              .map((node) => String(node.getAttribute('id') || ''))
+              .filter(Boolean)
+          );
+          const visible = (node) => {
+            const rect = node.getBoundingClientRect();
+            const style = window.getComputedStyle(node);
+            if (rect.width <= 0 || rect.height <= 0) {
+              return false;
+            }
+            if (style.display === 'none' || style.visibility === 'hidden') {
+              return false;
+            }
+            return rect.left > -1 && rect.top > -1 && rect.right <= window.innerWidth + 1 && rect.bottom <= window.innerHeight + 1;
+          };
+          const hasDataAttr = (node) => Array.from((node.attributes || []))
+            .some((attribute) => String(attribute?.name || '').startsWith('data-'));
+
+          const nodes = Array.from(
+            document.querySelectorAll('a, button, input:not([type="hidden"]), summary, [role="button"], [role="link"]')
+          );
+          const targets = [];
+          for (const node of nodes) {
+            if (!visible(node)) continue;
+            if (node.tagName.toLowerCase() === 'summary' && !node.closest('details')) {
+              continue;
+            }
+            const tag = node.tagName.toLowerCase();
+            const role = String(node.getAttribute('role') || '').toLowerCase();
+            const type = String(node.getAttribute('type') || '').toLowerCase();
+            const href = tag === 'a' ? String(node.getAttribute('href') || '').trim() : '';
+            const absHref = href ? new URL(href, location.href).href : '';
+            const text = String(
+              (node.textContent || node.getAttribute('aria-label') || node.getAttribute('title') || '')
+            ).trim();
+            const rect = node.getBoundingClientRect();
+            const disabled = (
+              node.hasAttribute('disabled')
+              || String(node.getAttribute('aria-disabled')).toLowerCase() === 'true'
+            );
+            const hasOnclick = Boolean(String(node.getAttribute('onclick') || '').trim());
+            const popovertarget = String(node.getAttribute('popovertarget') || '').trim();
+            const ariaControls = String(node.getAttribute('aria-controls') || '').trim();
+            const action = String(node.getAttribute('action') || '').trim();
+            const formaction = String(node.getAttribute('formaction') || '').trim();
+            const formMethod = String(node.getAttribute('formmethod') || '').trim().toLowerCase() || null;
+            const actionMethod = formMethod || null;
+            const hasDataHandler = hasDataAttr(node);
+            const ariaPressed = String(node.getAttribute('aria-pressed') || '').trim();
+            const target = String(node.getAttribute('target') || '').trim();
+            const rel = String(node.getAttribute('rel') || '').trim();
+            const detailsSummary = tag === 'summary' && Boolean(node.closest('details'));
+            targets.push({
+              tag,
+              role,
+              type,
+              text: text.slice(0, 120),
+              href,
+              absHref,
+              target,
+              rel,
+              disabled,
+              hasOnclick,
+              popovertarget,
+              ariaControls,
+              ariaPressed,
+              hasDataHandler,
+              hasActionHandler: hasDataHandler || hasOnclick || Boolean(popovertarget) || Boolean(ariaControls),
+              hasFormAction: Boolean(formaction),
+              hasAction: Boolean(action),
+              formaction,
+              formMethod: actionMethod,
+              hasActionTarget: Boolean(formaction || action),
+              rectLeft: Math.round(rect.left),
+              rectTop: Math.round(rect.top),
+              rectWidth: Math.round(rect.width),
+              rectHeight: Math.round(rect.height),
+              isSubmit: tag === 'button' && (type === 'submit' || !type),
+              isDetailsSummary: detailsSummary,
+            });
+          }
+          return {
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            targetCount: targets.length,
+            visibleIdSet: Array.from(ids),
+            targets,
+          };
+        }
+        """
+    )
+
+
+def _assert_surface_click_targets_are_hydrated(
+    page: Page,
+    base_url: str,
+    route: str,
+    *,
+    max_budget_ms: int,
+) -> None:
+    start = time.perf_counter()
+    route_response = page.goto(f"{base_url}{route}", wait_until="domcontentloaded")
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    assert route_response is not None and route_response.ok, route
+    assert duration_ms <= max_budget_ms, {"route": route, "duration_ms": duration_ms, "budget_ms": max_budget_ms}
+
+    payload = _collect_clickable_targets(page)
+    assert payload["targetCount"] >= 1, route
+    known_ids = set(map(str, payload["visibleIdSet"]))
+    metrics = page.evaluate(
+        """
+        () => ({
+          bodyWidth: Math.max(document.documentElement.scrollWidth || 0, document.body ? document.body.scrollWidth : 0),
+          viewportWidth: window.innerWidth,
+        })
+        """
+    )
+    assert int(metrics["bodyWidth"]) <= int(metrics["viewportWidth"]) + 1, metrics
+    base_components = urllib.parse.urlsplit(base_url)
+    assert base_components.scheme and base_components.netloc, base_url
+    base_origin = f"{base_components.scheme}://{base_components.netloc}"
+    local_allowed_statuses = {200, 201, 202, 204, 301, 302, 303, 307, 308, 401, 403, 405, 422}
+    for row in payload["targets"]:
+        if not isinstance(row, dict):
+            continue
+        tag = str(row.get("tag") or "").lower()
+        role = str(row.get("role") or "").lower()
+        disabled = bool(row.get("disabled"))
+        text = str(row.get("text") or "").strip()
+        href = str(row.get("href") or "").strip()
+        abs_href = str(row.get("absHref") or "").strip()
+        has_data = bool(row.get("hasDataHandler"))
+        has_handler = bool(row.get("hasActionHandler"))
+        has_action_target = bool(row.get("hasActionTarget"))
+        popover = str(row.get("popovertarget") or "").strip()
+        aria_controls = str(row.get("ariaControls") or "").strip()
+        is_submit = bool(row.get("isSubmit"))
+        input_type = str(row.get("type") or "").lower()
+        is_summary = bool(row.get("isDetailsSummary"))
+
+        if disabled:
+            continue
+        if tag == "a" or role == "link":
+            assert href, f"missing href on clickable anchor on {route}: {text}"
+            lower_href = href.lower()
+            assert not lower_href.startswith("javascript:"), f"javascript href on {route}: {text}"
+            assert not lower_href.startswith("mailto:") or "@" in href, f"bad mailto href on {route}: {text}"
+            if href.startswith("#"):
+                assert href != "#", f"hash-only href on {route}: {text}"
+                if href == "#pqx-filtered-breakdown":
+                    continue
+                if has_data or has_handler:
+                    continue
+                assert href[1:] in known_ids, f"missing hash target on {route}: {text} -> {href}"
+                continue
+            if abs_href.startswith("tel:") or abs_href.startswith("sms:") or abs_href.startswith("mailto:"):
+                continue
+            if abs_href.startswith(base_origin):
+                parsed = urllib.parse.urlsplit(abs_href)
+                probe_skip_non_app_paths = {
+                    "",
+                    "/",
+                    "/how-it-works",
+                    "/product",
+                    "/docs",
+                    "/integrations",
+                    "/privacy",
+                    "/terms",
+                    "/support",
+                    "/imprint",
+                    "/cookies",
+                    "/subprocessors",
+                    "/refunds",
+                    "/disclaimers",
+                    "/register",
+                    "/sign-in",
+                    "/pricing",
+                    "/sign-out",
+                }
+                probe_skip_path_prefixes = (
+                    "/static/",
+                    "/assets/",
+                    "/images/",
+                    "/media/",
+                    "/files/",
+                    "/tours/",
+                    "/app/",
+                    "/api/",
+                )
+                probe_should_skip = parsed.path in {"", "/"} and (
+                    not parsed.query or "home=" in parsed.query or parsed.query.startswith("home=")
+                )
+                if (
+                    probe_should_skip
+                    or parsed.path in probe_skip_non_app_paths
+                    or parsed.path.startswith(probe_skip_path_prefixes)
+                ):
+                    continue
+                probe_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, ""))
+                try:
+                    probe = page.request.get(probe_url, fail_on_status_code=False, timeout=5000)
+                except Exception:
+                    assert False, {
+                        "route": route,
+                        "href": abs_href,
+                        "error": "link request timeout",
+                    }
+                assert probe.status in local_allowed_statuses, {
+                    "route": route,
+                    "href": abs_href,
+                    "status": probe.status,
+                }
+            continue
+        if tag == "summary":
+            if is_summary:
+                continue
+            assert has_handler or popover or aria_controls, f"unbound summary on {route}: {text}"
+            continue
+        if tag == "input":
+            if input_type in {"checkbox", "radio", "file", ""}:
+                continue
+            if input_type in {"button", "submit", "image"}:
+                assert has_data or bool(row.get("hasOnclick") or has_handler) or has_action_target, f"unbound input[{input_type}] on {route}: {text}"
+            continue
+        if tag == "button" and not is_submit:
+            assert has_data or has_handler or has_action_target or row.get("formMethod"), f"unbound button on {route}: {text}"
+
+
 def _goto_with_browser_budget(page: Page, url: str, *, wait_until: str, budget_ms: int) -> tuple[object, int]:
     started = time.perf_counter()
     response = page.goto(url, wait_until=wait_until)
@@ -1098,7 +1331,7 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         content = page.content()
         assert 'data-property-spa-shell' in content
@@ -1113,15 +1346,71 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
         assert "Altbau near U6" in content
         assert "Family flat near Tiergarten" in content
-        assert page.locator("body", has_text="360 ready").is_visible()
+        assert page.locator("body", has_text="3D tour ready").is_visible()
         assert page.locator("body", has_text="Open property").is_visible()
-        assert "360 ready" in content
+        assert "3D tour ready" in content
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         page.locator("[data-workbench-row]", has_text="Altbau near U6").locator(".pqx-result-title").click()
         assert "/app/research/" in page.url
         assert "run_id=run-42" in page.url
         assert page.locator("body", has_text="Altbau near U6").is_visible()
+    finally:
+        context.close()
+
+
+def test_propertyquarry_completed_run_opens_fast_ranked_shell_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    try:
+        _, duration_ms = _goto_with_browser_budget(
+            page,
+            f"{base_url}/app/shortlist?run_id=run-42",
+            wait_until="networkidle",
+            budget_ms=3600,
+        )
+        assert "/app/shortlist/run/run-42" in page.url
+        expect(page.locator("[data-pq-fast-ranked-run]")).to_be_visible()
+        expect(page.locator("[data-property-decision-workbench]")).to_have_count(0)
+        fast_rows = page.locator("[data-pq-fast-list] .pq-fast-row:not(.pq-fast-skeleton)")
+        fast_rows.first.wait_for(timeout=5000)
+        assert fast_rows.count() >= 2
+        expect(page.get_by_role("link", name="Open property").first).to_be_visible()
+        expect(page.get_by_role("link", name="Full view").first).to_be_visible()
+        resource_urls = page.evaluate(
+            "() => performance.getEntriesByType('resource').map((entry) => entry.name)"
+        )
+        assert all("/app/assets/property-workbench." not in str(url) for url in resource_urls)
+        assert duration_ms > 0
+    finally:
+        context.close()
+
+
+def test_propertyquarry_search_loads_versioned_workbench_assets_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible", timeout=5000)
+        resource_urls = page.evaluate(
+            "() => performance.getEntriesByType('resource').map((entry) => entry.name)"
+        )
+        assert any("/app/assets/property-workbench.css?surface=static" in str(url) for url in resource_urls)
+        loader = page.locator('script[src*="/app/assets/property-search-loader.js?v="]').first
+        loader_src = loader.get_attribute("src")
+        assert loader_src and "/app/assets/property-search-loader.js?v=" in loader_src
+        assert loader.get_attribute("async") is not None
+        assert "/app/assets/property-workbench.js?v=" in str(loader.get_attribute("data-workbench-src") or "")
+        assert all("/app/assets/property-workbench.js" not in str(url) for url in resource_urls)
     finally:
         context.close()
 
@@ -1141,7 +1430,7 @@ def test_propertyquarry_result_thumbnail_opens_lazy_evidence_atlas(
         else None,
     )
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         row = page.locator("[data-workbench-row]", has_text="Altbau near U6").first
         row.wait_for()
@@ -1201,7 +1490,7 @@ def test_propertyquarry_dark_mode_keeps_shortlist_cards_readable(
     context.add_init_script("window.localStorage.setItem('propertyquarry.theme', 'dark');")
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
         page.locator("[data-workbench-row]:visible").first.wait_for(timeout=5000)
@@ -1353,7 +1642,7 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
             ("/app/billing", "propertyquarry-billing-dark-surfaces.png"),
             ("/app/alerts", "propertyquarry-alerts-dark-surfaces.png"),
             ("/app/agents", "propertyquarry-agents-dark-surfaces.png"),
-            ("/app/shortlist?run_id=run-42", "propertyquarry-shortlist-management-dark-surfaces.png"),
+            ("/app/shortlist?run_id=run-42&full=1", "propertyquarry-shortlist-management-dark-surfaces.png"),
             ("/app/settings/plan", "propertyquarry-settings-plan-dark-surfaces.png"),
             ("/app/settings/usage", "propertyquarry-settings-usage-dark-surfaces.png"),
             ("/app/settings/support", "propertyquarry-settings-support-dark-surfaces.png"),
@@ -1424,7 +1713,7 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
     context = _new_context(browser, mobile=True)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         content = page.content()
         assert 'data-property-decision-workbench' in content
@@ -1455,7 +1744,7 @@ def test_propertyquarry_all_customer_app_surfaces_are_motor_accessible_on_phone(
     page: Page = context.new_page()
     routes = [
         "/app/search",
-        "/app/shortlist?run_id=run-42",
+        "/app/shortlist?run_id=run-42&full=1",
         "/app/alerts",
         "/app/account",
         "/app/billing",
@@ -1483,7 +1772,7 @@ def test_propertyquarry_all_customer_app_surfaces_are_motor_accessible_on_phone(
             _assert_mobile_surface_motor_accessible(page)
             _assert_mobile_topnav_tap_targets(page)
 
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="domcontentloaded")
         assert response is not None and response.ok
         packet_href = page.locator('a[href*="/app/research/"]').first.get_attribute("href")
         assert packet_href
@@ -1491,6 +1780,51 @@ def test_propertyquarry_all_customer_app_surfaces_are_motor_accessible_on_phone(
         assert response is not None and response.ok
         page.locator("[data-property-research-detail]").wait_for(state="visible", timeout=5000)
         _assert_mobile_surface_motor_accessible(page)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_ui_behavior_audit_collects_no_dead_clickables_and_keeps_surface_load_fast(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    audited_routes = [
+        ("/app/search", 22000),
+        ("/app/properties?run_id=run-42&full=1", 14000),
+        ("/app/shortlist?run_id=run-42&full=1", 14000),
+        ("/app/research/altbau-u6?run_id=run-42", 13000),
+        ("/app/alerts", 9000),
+        ("/app/agents", 9000),
+        ("/app/account", 9000),
+        ("/app/settings/plan", 9000),
+        ("/app/settings/access", 9000),
+        ("/app/settings/usage", 9000),
+        ("/app/settings/support", 9000),
+        ("/app/settings/trust", 9000),
+        ("/app/settings/invitations", 9000),
+        ("/app/settings/outcomes", 9000),
+        ("/app/billing", 9000),
+    ]
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        for route, max_budget_ms in audited_routes:
+            _assert_surface_click_targets_are_hydrated(page, base_url, route, max_budget_ms=max_budget_ms)
+            if route.startswith("/app/billing"):
+                expect(page.get_by_role("button", name="Log out")).to_be_visible()
+        mobile_context = _new_context(browser, mobile=True, width=390, height=844)
+        mobile_page: Page = mobile_context.new_page()
+        try:
+            for route in ["/app/search", "/app/shortlist?run_id=run-42&full=1", "/app/properties?run_id=run-42&full=1"]:
+                _assert_surface_click_targets_are_hydrated(
+                    mobile_page,
+                    base_url,
+                    route,
+                    max_budget_ms=12000,
+                )
+        finally:
+            mobile_context.close()
     finally:
         context.close()
 
@@ -1728,7 +2062,7 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert packet_path
@@ -1778,7 +2112,7 @@ def test_propertyquarry_packet_tracks_followup_state_in_browser(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert packet_path
@@ -1809,7 +2143,7 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
@@ -2026,7 +2360,7 @@ def test_propertyquarry_workspace_sign_out_works_in_real_browser(
     _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         account_summary = page.locator(".pqx-account-menu > summary")
         expect(account_summary).to_be_visible()
@@ -2038,7 +2372,7 @@ def test_propertyquarry_workspace_sign_out_works_in_real_browser(
         logout_button.click()
         page.wait_for_load_state("domcontentloaded")
         assert page.url.startswith(f"{base_url}") or page.url.startswith("http://propertyquarry.com:")
-        assert page.url != f"{base_url}/app/shortlist?run_id=run-42"
+        assert page.url != f"{base_url}/app/shortlist?run_id=run-42&full=1"
 
         # Signed-out pages should no longer expose the account menu.
         page.wait_for_timeout(100)
@@ -2258,7 +2592,7 @@ def test_propertyquarry_mobile_shortlist_keeps_one_focus_and_opens_the_property_
     page: Page = context.new_page()
     screenshot_path = tmp_path / "propertyquarry-shortlist-mobile-single-focus.png"
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
 
         metrics = page.evaluate(
@@ -3043,7 +3377,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
     page: Page = context.new_page()
     screenshot_path = tmp_path / "property_research_detail_first_screen.png"
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
@@ -3175,7 +3509,7 @@ def test_propertyquarry_shortlist_and_research_have_browser_performance_budget(
     try:
         _, shortlist_ms = _goto_with_browser_budget(
             page,
-            f"{base_url}/app/shortlist?run_id=run-42",
+            f"{base_url}/app/shortlist?run_id=run-42&full=1",
             wait_until="networkidle",
             budget_ms=3200,
         )
@@ -3278,7 +3612,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
     page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
     screenshot_path = tmp_path / "property-research-detail-mobile.png"
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         row = page.locator("[data-workbench-row]", has_text="Listing URL only loft").first
         row.wait_for(timeout=5000)
@@ -3492,7 +3826,7 @@ def test_propertyquarry_visual_request_does_not_invent_eta_before_backend_suppli
 
     page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         row = page.locator("[data-workbench-row]", has_text="Listing URL only loft").first
         row.wait_for(timeout=5000)
@@ -3987,7 +4321,8 @@ def test_propertyquarry_desktop_district_map_click_selects_shape_and_zoom_toggle
         assert value
         before_checked = page.evaluate(
             """(value) => {
-              const input = document.querySelector(`input[name="location_query"][value="${CSS.escape(value)}"]`);
+              const input = Array.from(document.querySelectorAll('input[name="location_query"]'))
+                .find((node) => String(node.value || '').trim() === String(value || '').trim());
               return Boolean(input && input.checked);
             }""",
             value,
@@ -3997,7 +4332,8 @@ def test_propertyquarry_desktop_district_map_click_selects_shape_and_zoom_toggle
         page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         page.wait_for_function(
             """([value, beforeChecked]) => {
-              const input = document.querySelector(`input[name="location_query"][value="${CSS.escape(value)}"]`);
+              const input = Array.from(document.querySelectorAll('input[name="location_query"]'))
+                .find((node) => String(node.value || '').trim() === String(value || '').trim());
               return Boolean(input) && input.checked !== beforeChecked;
             }""",
             arg=[value, before_checked],
@@ -4473,7 +4809,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=True, width=390, height=844)
     routes = [
-        ("/app/shortlist?run_id=run-42", "Shortlist", "propertyquarry-shortlist-mobile.png"),
+        ("/app/shortlist?run_id=run-42&full=1", "Shortlist", "propertyquarry-shortlist-mobile.png"),
         ("/app/agents", "Saved searches", "propertyquarry-agents-mobile.png"),
         ("/app/alerts", "Alerts", "propertyquarry-alerts-mobile.png"),
         ("/app/account", "Account", "propertyquarry-account-mobile.png"),
@@ -5342,7 +5678,7 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
     console_errors: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         best_match = page.locator("[data-workbench-row]", has_text="Altbau near U6").first
         best_match.wait_for()
@@ -5439,7 +5775,7 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
 
     page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         page.locator("[data-workbench-row]").first.wait_for(timeout=5000)
         assert visual_requests == []
@@ -5508,7 +5844,7 @@ def test_propertyquarry_visual_request_uses_listing_url_fallback_in_real_browser
 
     page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         listing_only_row = page.locator("[data-workbench-row]", has_text="Listing URL only loft").first
         listing_only_row.wait_for(timeout=5000)
@@ -5714,7 +6050,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
         candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")

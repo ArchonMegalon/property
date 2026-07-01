@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+DEFAULT_RENDER_CONTAINER = "propertyquarry-render-tools"
 
 
 def _run(command: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -155,7 +159,7 @@ PY
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Smoke the deployed PropertyQuarry runtime generated reconstruction path.")
-    parser.add_argument("--container", default="propertyquarry-api")
+    parser.add_argument("--container", default=os.getenv("PROPERTYQUARRY_RENDER_CONTAINER_NAME") or DEFAULT_RENDER_CONTAINER)
     parser.add_argument("--slug", default="runtime-reconstruction-smoke")
     parser.add_argument("--write", default="_completion/tours/property-runtime-reconstruction-smoke-current.json")
     parser.add_argument("--fail-on-error", action="store_true")

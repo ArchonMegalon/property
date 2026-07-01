@@ -3,9 +3,13 @@ from __future__ import annotations
 import asyncio
 from functools import lru_cache
 from importlib import import_module
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.responses import Response
+from starlette.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
@@ -15,6 +19,19 @@ from app.settings import get_settings, validate_startup_settings
 
 
 _PROPERTY_SEARCH_PREWARM_CONTAINER = None
+
+
+class CachedStaticFiles(StaticFiles):
+    def file_response(
+        self,
+        full_path: str,
+        stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code=status_code)
+        response.headers.setdefault("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
+        return response
 
 
 async def _prewarm_provider_health_cache() -> None:
@@ -269,11 +286,16 @@ def create_app() -> FastAPI:
     rewrite_router = route_modules["rewrite"].router
     runtime_router = route_modules["runtime"].router
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
+    static_root = Path(__file__).resolve().parents[1] / "static"
+    if static_root.exists():
+        app.mount("/static", CachedStaticFiles(directory=static_root), name="static")
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
     is_memory_backend = str(s.storage_backend or "").strip().lower() == "memory"
-    if not is_memory_backend:
+    if is_memory_backend:
+        app.router.on_startup.append(_prewarm_property_search_surface_cache)
+    else:
         app.state.container.readiness.register_startup_gate("property_search_shell_prewarm")
         global _PROPERTY_SEARCH_PREWARM_CONTAINER
         _PROPERTY_SEARCH_PREWARM_CONTAINER = app.state.container

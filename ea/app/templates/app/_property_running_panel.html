@@ -48,7 +48,7 @@
     {{ progress_board(run, run_sources, research_task_counts) }}
     {% include "app/_property_recent_run_strip.html" %}
     <details class="pqx-card" data-pqx-running-details>
-      <summary><strong>Useful updates</strong></summary>
+      <summary><strong>Search history</strong><span class="pqx-note">Latest 10 useful updates</span></summary>
       {% if (research_task_counts.get('open') or 0) %}
       <div class="pqx-note" style="margin:12px 0 0;">{{ research_task_counts.get('open') or 0 }} missing details are still being checked in the background.</div>
       {% endif %}
@@ -58,7 +58,7 @@
         {% set event_step = (event.get('step') or '')|lower %}
         {% set event_message = event.get('message') or '' %}
         {% set event_message_lower = event_message|lower %}
-        {% if visible_event_count.value < 4 and not ('suppressed_generic_listing_page' in event_message_lower or 'could not load property search status' in event_message_lower or 'checking run status' in event_message_lower or 'starting property search run' in event_message_lower or (event_step == 'status_refresh')) %}
+        {% if visible_event_count.value < 10 and not ('suppressed_generic_listing_page' in event_message_lower or 'could not load property search status' in event_message_lower or 'checking run status' in event_message_lower or 'starting property search run' in event_message_lower or (event_step == 'status_refresh')) %}
         {% set visible_event_count.value = visible_event_count.value + 1 %}
         {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
         {% set event_label = 'Preparing search' %}

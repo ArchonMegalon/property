@@ -1,0 +1,56 @@
+FROM python:3.12-slim@sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dcf1ecbdfdfe203
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl espeak-ng ffmpeg imagemagick libimage-exiftool-perl && \
+    rm -rf /var/lib/apt/lists/* && \
+    adduser --system --uid 10001 --group --home /home/ea --shell /bin/sh ea
+
+WORKDIR /app
+
+COPY ea/requirements.txt /app/requirements.txt
+COPY ea/requirements.lock /app/requirements.lock
+
+RUN python -m pip install --no-cache-dir --upgrade pip==26.1.2 && \
+    pip install --no-cache-dir -r requirements.txt -c requirements.lock
+
+RUN mkdir -p /app/scripts /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea
+COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
+COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py
+COPY scripts/mootion_movie_worker.py /app/scripts/mootion_movie_worker.py
+COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py
+COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py
+COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py
+COPY scripts/verify_property_scene_video_readiness.py /app/scripts/verify_property_scene_video_readiness.py
+COPY scripts/materialize_scene_video_provider_refresh_packet.py /app/scripts/materialize_scene_video_provider_refresh_packet.py
+COPY scripts/verify_scene_video_provider_refresh_packet.py /app/scripts/verify_scene_video_provider_refresh_packet.py
+COPY scripts/merge_scene_video_provider_accounts_env.py /app/scripts/merge_scene_video_provider_accounts_env.py
+COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py
+COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py
+COPY scripts/import_krpano_walkable_scene.py /app/scripts/import_krpano_walkable_scene.py
+COPY scripts/import_property_tour_exports.py /app/scripts/import_property_tour_exports.py
+COPY scripts/attach_provider_tour_layer.py /app/scripts/attach_provider_tour_layer.py
+COPY scripts/discover_property_tour_exports.py /app/scripts/discover_property_tour_exports.py
+COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py
+COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_paths.py
+COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py
+COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py
+COPY scripts/intake_3dvista_gold_artifact.py /app/scripts/intake_3dvista_gold_artifact.py
+COPY ea/app /app/app
+COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY LTDs.md /app/LTDs.md
+
+RUN set -eu; \
+    mkdir -p /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea; \
+    chown -R ea:ea /app /data /home/ea /usr/local/bin/docker-entrypoint.sh; \
+    chmod +x /usr/local/bin/docker-entrypoint.sh
+
+USER ea
+
+HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \
+  CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler|render-tools) exit 0 ;; *) curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/health/live >/dev/null ;; esac"]
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["python", "-m", "app.runner"]

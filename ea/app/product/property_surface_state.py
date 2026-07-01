@@ -115,6 +115,11 @@ _PROPERTY_RUN_ALLOWED_ETA_PHRASES = {
     "start a fresh run after changing one provider or rule",
 }
 _PROPERTY_RUN_SUPPRESSED_RESOLUTION_RE = re.compile(r"\bsuppressed_[a-z0-9_]+\b", flags=re.IGNORECASE)
+_PROPERTY_RUN_ETA_TOKEN_RE = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*(d|day|days|h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds)\b",
+    flags=re.IGNORECASE,
+)
+_PROPERTY_RUN_VISIBLE_EVENT_LIMIT = 10
 
 
 def _positive_int(value: object, *, default: int = 0) -> int:
@@ -134,9 +139,31 @@ def property_run_public_eta_label(value: object) -> str:
     normalized = text.lower().strip(" .")
     if normalized in _PROPERTY_RUN_ALLOWED_ETA_PHRASES:
         return text.strip(" .")
+    duration_seconds = _property_run_eta_duration_seconds(text)
+    if duration_seconds and duration_seconds < 120:
+        return ""
     if _PROPERTY_RUN_DIRECT_ETA_RE.fullmatch(text) or _PROPERTY_RUN_BARE_ETA_RE.fullmatch(text) or _PROPERTY_RUN_DELAYED_ETA_RE.fullmatch(text):
         return text
     return ""
+
+
+def _property_run_eta_duration_seconds(text: str) -> int:
+    total = 0.0
+    for raw_amount, raw_unit in _PROPERTY_RUN_ETA_TOKEN_RE.findall(str(text or "")):
+        try:
+            amount = float(str(raw_amount).replace(",", "."))
+        except Exception:
+            continue
+        unit = str(raw_unit or "").strip().lower()
+        if unit.startswith("d"):
+            total += amount * 86400
+        elif unit in {"h", "hr", "hrs", "hour", "hours"}:
+            total += amount * 3600
+        elif unit in {"m", "min", "mins", "minute", "minutes"}:
+            total += amount * 60
+        else:
+            total += amount
+    return int(total)
 
 
 def _property_run_distance_subject(value: object) -> str:
@@ -690,6 +717,128 @@ def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
     return "Preparing provider checks."
 
 
+def _property_run_source_status_counts(summary: dict[str, object]) -> dict[str, int]:
+    source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    done_statuses = {"completed", "processed", "done", "success", "repaired", "skipped", "failed", "error"}
+    active_statuses = {"running", "processing", "in_progress", "working", "starting", "warming", "repairing"}
+    status = str(summary.get("status") or "").strip().lower()
+    terminal = status in {"processed", "completed", "completed_partial", "failed", "noop", "cancelled"}
+    done = 0
+    active = 0
+    failed = 0
+    for row in source_rows:
+        status = str(row.get("status") or row.get("state") or "").strip().lower()
+        has_error = bool(row.get("error"))
+        if status in {"failed", "error"} or has_error:
+            failed += 1
+        if status in done_statuses or has_error:
+            done += 1
+        elif status in active_statuses:
+            active += 1
+    source_total = _positive_int(
+        summary.get("source_variant_total")
+        or summary.get("sources_total"),
+        default=len(source_rows),
+    )
+    provider_total = _positive_int(summary.get("provider_total"))
+    collapsed_to_provider_total = False
+    if provider_total > 0 and source_total > provider_total and source_total >= provider_total * 3:
+        source_total = provider_total
+        collapsed_to_provider_total = True
+    total = max(source_total, provider_total, 0 if collapsed_to_provider_total else len(source_rows))
+    if terminal:
+        completed_total = _positive_int(summary.get("sources_completed"))
+        done = min(total, max(done, completed_total, source_total, provider_total))
+        active = 0
+        if status in {"failed", "cancelled"} and failed <= 0:
+            failed = max(0, total - done)
+    queued = max(0, total - done - active)
+    return {
+        "total": total,
+        "provider_total": provider_total,
+        "source_total": source_total,
+        "done": done,
+        "active": active,
+        "queued": queued,
+        "failed": failed,
+        "rows": len(source_rows),
+    }
+
+
+def _property_run_count_label(count: int, singular: str, plural: str | None = None) -> str:
+    return f"{count} {singular if count == 1 else (plural or singular + 's')}"
+
+
+def _property_run_synthetic_progress_events(
+    payload: dict[str, object],
+    *,
+    summary: dict[str, object],
+    status: str,
+) -> list[dict[str, object]]:
+    counts = _property_run_source_status_counts(summary)
+    provider_total = counts["provider_total"] or counts["total"]
+    reviewed = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
+    raw_found = _positive_int(summary.get("raw_listing_total"))
+    ranked = _positive_int(
+        summary.get("ranked_total")
+        or summary.get("shortlist_total")
+        or summary.get("ranked_candidate_total")
+        or len(list(summary.get("ranked_candidates") or []))
+    )
+    held_back = _positive_int(summary.get("held_back_total") or summary.get("filtered_total"))
+    current_step = str(payload.get("current_step") or summary.get("current_step") or "status_refresh").strip() or "status_refresh"
+    timestamp = str(payload.get("updated_at") or payload.get("generated_at") or "")
+    events: list[dict[str, object]] = []
+
+    def add(step: str, message: str) -> None:
+        text = " ".join(str(message or "").split()).strip()
+        if not text:
+            return
+        events.append(
+            {
+                "step": step,
+                "status": status,
+                "message": text,
+                "created_at": timestamp,
+            }
+        )
+
+    if provider_total > 0:
+        add("sources_resolved", f"{_property_run_count_label(provider_total, 'provider')} selected for this search.")
+
+    if counts["rows"] or counts["done"] or counts["active"]:
+        parts: list[str] = []
+        if counts["done"]:
+            parts.append(f"{counts['done']} checked")
+        if counts["active"]:
+            parts.append(f"{counts['active']} running")
+        if counts["queued"]:
+            parts.append(f"{counts['queued']} queued")
+        if counts["failed"]:
+            parts.append(f"{counts['failed']} need follow-up")
+        if parts:
+            total_suffix = f" of {counts['total']}" if counts["total"] else ""
+            add("source_search", f"Provider checks: {', '.join(parts)}{total_suffix}.")
+    elif provider_total > 0:
+        add("source_started", "Waiting for the first provider response.")
+
+    if raw_found > 0 and reviewed > 0 and raw_found != reviewed:
+        add("source_fetch", f"{_property_run_count_label(raw_found, 'home')} found; {reviewed} reviewed so far.")
+    elif reviewed > 0:
+        add("source_fetch", f"{_property_run_count_label(reviewed, 'home')} reviewed so far.")
+    elif raw_found > 0:
+        add("source_fetch", f"{_property_run_count_label(raw_found, 'home')} found; reviews are starting.")
+
+    if ranked > 0:
+        add("source_shortlist", f"{_property_run_count_label(ranked, 'ranked home')} ready.")
+    elif held_back > 0:
+        add("source_area_filter", f"{_property_run_count_label(held_back, 'home')} held back by the active rules.")
+
+    current_message = _property_run_current_progress_message(payload, summary=summary, status=status)
+    add(current_step, current_message)
+    return events
+
+
 def _property_run_current_progress_message(
     payload: dict[str, object],
     *,
@@ -725,7 +874,7 @@ def _property_run_current_progress_message(
         progress_parts.append(provider_label)
     if fraction_label:
         progress_parts.append(fraction_label)
-    if aggregate_label and aggregate_label.lower() != "0 homes reviewed":
+    if aggregate_label and aggregate_label.lower() not in {"0 homes reviewed", "checking"}:
         progress_parts.append(aggregate_label)
 
     if step in {"source_ranking", "source_shortlist", "source_assessing", "source_low_fit_ranked", "source_discovery_penalty"}:
@@ -809,6 +958,24 @@ def property_run_customer_visible_events(
     payload = dict(run_payload or {})
     summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
     status = str(payload.get("status") or summary.get("status") or "in_progress").strip() or "in_progress"
+    synthetic_events = _property_run_synthetic_progress_events(payload, summary=summary, status=status)
+
+    def _dedup_events(events: list[dict[str, object]]) -> list[dict[str, object]]:
+        deduped_reversed: list[dict[str, object]] = []
+        seen: set[tuple[str, str]] = set()
+        for event in reversed(events):
+            message = " ".join(str(event.get("message") or "").split()).strip()
+            if not message:
+                continue
+            step = str(event.get("step") or "").strip().lower()
+            key = (step, message.lower())
+            if key in seen:
+                continue
+            row = dict(event)
+            row["message"] = message
+            seen.add(key)
+            deduped_reversed.append(row)
+        return list(reversed(deduped_reversed))
 
     def _current_progress_event() -> dict[str, object]:
         step = str(payload.get("current_step") or summary.get("current_step") or "status_refresh").strip() or "status_refresh"
@@ -832,6 +999,8 @@ def property_run_customer_visible_events(
                 continue
             visible_events.append(row)
         current_event = _current_progress_event()
+        if not visible_events:
+            return _dedup_events([current_event])[-_PROPERTY_RUN_VISIBLE_EVENT_LIMIT:]
         if current_event.get("message"):
             latest_visible = visible_events[-1] if visible_events else {}
             latest_step = str(latest_visible.get("step") or "").strip().lower()
@@ -841,9 +1010,9 @@ def property_run_customer_visible_events(
             if current_message and (current_step != latest_step or current_message != latest_message):
                 visible_events.append(current_event)
         if visible_events:
-            return visible_events[-8:]
+            return _dedup_events(visible_events)[-_PROPERTY_RUN_VISIBLE_EVENT_LIMIT:]
     if status not in {"failed", "completed_partial"}:
-        return [_current_progress_event()]
+        return _dedup_events(synthetic_events or [_current_progress_event()])[-_PROPERTY_RUN_VISIBLE_EVENT_LIMIT:]
     synthesized_events: list[dict[str, object]] = []
     repair_label = str(summary.get("repair_status_label") or summary.get("repair_status") or "").strip()
     repair_step = str(summary.get("repair_step_label") or "").strip()
@@ -871,7 +1040,7 @@ def property_run_customer_visible_events(
                 "created_at": str(receipt.get("at") or payload.get("updated_at") or payload.get("generated_at") or ""),
             }
         )
-    return synthesized_events or [_current_progress_event()]
+    return _dedup_events([*synthetic_events, *synthesized_events] or [_current_progress_event()])[-_PROPERTY_RUN_VISIBLE_EVENT_LIMIT:]
 
 
 def build_property_run_health_snapshot(
@@ -1629,7 +1798,14 @@ def build_property_run_live_board_snapshot(
     current_step = str(payload.get("current_step") or "").strip().lower()
     if phase_label == "Waiting for the first provider update." and packet_prepared > 0 and current_step == "source_review_packet":
         phase_label = f"{packet_prepared} property pages prepared"
-    elif current_step == "source_shortlist" and shortlist_ready > 0 and phase_label in {"Waiting for the first provider update.", "Shortlist ready"}:
+    elif (
+        current_step == "source_shortlist"
+        and shortlist_ready > 0
+        and (
+            phase_label in {"Waiting for the first provider update.", "Shortlist ready"}
+            or phase_label.lower().startswith("shortlist ready")
+        )
+    ):
         phase_label = f"{shortlist_ready} ranked home{'s' if shortlist_ready != 1 else ''} ready"
 
     normalized_rows: list[dict[str, object]] = []
@@ -1755,7 +1931,11 @@ def build_property_run_live_board_snapshot(
             )
         ):
             provider_total = inferred_provider_total
-    scan_total_label = f"{provider_total} providers" if provider_total else f"{source_total} provider checks"
+    scan_total_label = (
+        f"{provider_total} providers"
+        if provider_total
+        else (f"{source_total} provider checks" if source_total else "")
+    )
     provider_label = _compact_property_provider_label(provider_full_label or scan_total_label)
     provider_total = _positive_int(summary.get("provider_total"))
     if not source_rows and source_total and provider_total and source_total > provider_total and source_total > 3:
@@ -1769,8 +1949,8 @@ def build_property_run_live_board_snapshot(
         source_count_label = live_info.get("fraction_label") or ("waiting for provider checks" if source_total == 0 else f"0/{source_total} provider checks")
     summary_label = (
         f"{scan_total_label} · {provider_label} · {live_info.get('fraction_label')}"
-        if provider_full_label and live_info.get("fraction_label")
-        else f"{scan_total_label} · {aggregate_label}"
+        if scan_total_label and provider_full_label and live_info.get("fraction_label")
+        else (f"{scan_total_label} · {aggregate_label}" if scan_total_label else aggregate_label)
     )
     return PropertyRunLiveBoardSnapshot(
         provider_label=provider_label,
@@ -2119,6 +2299,9 @@ def build_property_previous_run_summary(
         if include_scope_preview
         else {}
     )
+    quoted_run_id = urllib.parse.quote(run_id_value, safe="") if run_id_value else ""
+    full_href = f"/app/shortlist?run_id={quoted_run_id}#results-list" if quoted_run_id else "/app/shortlist"
+    href = f"/app/shortlist/run/{quoted_run_id}" if quoted_run_id and ranked_candidates else full_href
     return {
         "run_id": run_id_value,
         "agent_id": str(raw_run.get("active_search_agent_id") or preferences_json.get("active_search_agent_id") or "").strip(),
@@ -2130,7 +2313,8 @@ def build_property_previous_run_summary(
         "scope_preview": scope_preview,
         "scope_summary": str(scope_preview.get("summary") or location or region or country or "Search area").strip(),
         "mode_label": mode or "Search",
-        "href": f"/app/shortlist?run_id={urllib.parse.quote(run_id_value, safe='')}" if run_id_value else "/app/shortlist",
+        "href": href,
+        "full_href": full_href,
         "updated_at": str(raw_run.get("updated_at") or raw_run.get("generated_at") or "").strip(),
         "source_total": _previous_run_int(summary.get("sources_total")),
         "listing_total": _previous_run_int(summary.get("listing_total") or summary.get("raw_listing_total")),
@@ -2272,7 +2456,7 @@ def build_property_empty_outcome_summary(
             elif source_total or listing_total:
                 listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
                 stopped_context = (
-                    f"The last pass inspected {listing_label} before the repair stopped."
+                    f"The selected providers covered {listing_label}."
                     if listing_total > 0
                     else "The brief and selected providers were saved, but no provider produced a usable shortlist."
                 )
@@ -2292,7 +2476,7 @@ def build_property_empty_outcome_summary(
                     "for the saved brief before repair took over."
                 )
             else:
-                stopped_context = f"The interrupted pass inspected {listing_label} before repair took over."
+                stopped_context = f"The selected providers covered {listing_label}."
         else:
             if repair_task_open or repair_step_label or repair_status_label:
                 happened = safe_failed_message or calm_repair_copy or "PropertyQuarry is checking the saved search again."
@@ -2493,7 +2677,7 @@ def build_property_workbench_candidate_snapshot(
     fit_label: str,
     fit_summary: str,
     tour: dict[str, object],
-    flythrough: dict[str, object] | None = None,
+    flythrough: dict[str, object] | None,
     orientation_preview: dict[str, object],
     ooda: dict[str, object],
     risk: dict[str, object],
@@ -2506,7 +2690,6 @@ def build_property_workbench_candidate_snapshot(
     property_url: str,
     map_url: str,
     source_url: str,
-    floorplan_url: str = "",
     property_facts: dict[str, object],
     listing_fact_confirmation: dict[str, object],
     assessment: dict[str, object],
@@ -2526,6 +2709,9 @@ def build_property_workbench_candidate_snapshot(
     energy_rows: list[dict[str, str]],
     household_alignment_score: int,
     household_alignment_label: str,
+    floorplan_url: str = "",
+    source_virtual_tour_url: str = "",
+    vendor_tour_url: str = "",
     recovered_by_filter: bool = False,
     relaxed_filter_label: str = "",
     preview_image_url: str = "",
@@ -2561,6 +2747,8 @@ def build_property_workbench_candidate_snapshot(
         map_url=str(map_url or "").strip(),
         source_url=str(source_url or "").strip(),
         floorplan_url=str(floorplan_url or "").strip(),
+        source_virtual_tour_url=str(source_virtual_tour_url or "").strip(),
+        vendor_tour_url=str(vendor_tour_url or "").strip(),
         property_facts=dict(property_facts or {}),
         listing_fact_confirmation=dict(listing_fact_confirmation or {}),
         assessment=dict(assessment or {}),

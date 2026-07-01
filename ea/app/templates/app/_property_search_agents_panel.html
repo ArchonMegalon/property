@@ -5,7 +5,7 @@
 {% endfor %}
 {% set run = workbench.get('run') or {} %}
 {% set active_total = (search_agents|selectattr('enabled')|list)|length %}
-{% if surface_mode == 'agents' %}
+{% if surface_mode == 'agents' or search_agent_seed_mode|default(false) %}
 <section class="pqx-card pqx-automation-board is-compact" data-property-search-agent-management>
   <div class="pqx-section-head">
     <div>
@@ -58,6 +58,7 @@
         <div class="pqx-automation-rhythm" style="font-size:10px; line-height:1.2;">
           <span>{{ agent.get('run_label') or 'Waiting for first run' }}</span>
           <span>{{ agent.get('delivery_label') or 'Alerts not set' }}</span>
+          <span>{{ agent.get('latest_outcome_label') or 'No finished run yet' }}</span>
         </div>
         <div class="pqx-automation-actions" style="gap:5px; padding-top:0;">
           <button class="pqx-button primary" type="button" data-search-agent-action="run" data-run-agent-href="/app/search?run_agent={{ (agent.get('agent_id') or 'current')|urlencode }}" style="padding-inline:10px;">Run</button>
@@ -80,24 +81,27 @@
     {% endfor %}
   </div>
 
-  {% if outcomes_card.value and outcomes_card.value.get('items') %}
-  <div class="pqx-automation-history-strip">
-    {% for item in (outcomes_card.value.get('items') or [])[:4] %}
-    {% set item_href = item.get('action_href') or '' %}
-    {% set item_is_dead_placeholder = not item_href %}
-    {% if item_is_dead_placeholder %}
-    <div class="pqx-automation-history-link" aria-disabled="true">
-    {% else %}
-    <a class="pqx-automation-history-link" href="{{ item.get('action_href') or '/app/agents' }}">
-    {% endif %}
-      <span>{{ item.get('title') or 'Saved search' }}</span>
-      <strong>{{ item.get('detail') or 'No finished run yet.' }}</strong>
-      {% if item.get('tag') %}<small>{{ item.get('tag') }}</small>{% endif %}
-    {% if item_is_dead_placeholder %}
-    </div>
-    {% else %}
-    </a>
-    {% endif %}
+  {% set previous_runs = workbench.get('previous_search_runs') or [] %}
+  {% if surface_mode == 'agents' and previous_runs %}
+  <div class="pqx-previous-search-list" data-pqx-previous-searches style="margin-top:10px; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px;">
+    {% for previous in previous_runs[:4] %}
+    <article class="pqx-previous-search" data-pqx-previous-search-card style="padding:10px; min-height:0;">
+      <div class="pqx-previous-search-head">
+        <div>
+          <strong class="pqx-previous-title">{{ previous.get('title') or previous.get('scope_label') or 'Search' }}</strong>
+          <span class="pqx-note">{{ previous.get('mode_label') }} · {{ previous.get('scope_summary') or previous.get('scope_label') }} · {{ previous.get('status_label') }}</span>
+        </div>
+      </div>
+      {% if previous.get('top_price_display') %}
+      <div class="pqx-previous-price"><span>Top</span>{{ previous.get('top_price_display') }}</div>
+      {% endif %}
+      <div class="pqx-previous-metrics">
+        <a class="pqx-previous-open-link" href="/app/search"><b>{{ previous.get('ranked_total') or 0 }}</b> ranked</a>
+        {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
+        {% if previous.get('held_back_total') %}<span><b>{{ previous.get('held_back_total') }}</b> filtered</span>{% endif %}
+        {% if previous.get('top_fit_score') %}<span>best <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
+      </div>
+    </article>
     {% endfor %}
   </div>
   {% endif %}

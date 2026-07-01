@@ -65,7 +65,7 @@ from app.api.routes.product_api_contracts import (
 )
 from app.api.routes.landing_property_research import _property_candidate_ref
 from app.container import AppContainer
-from app.product.property_surface_state import property_run_customer_visible_events
+from app.product.property_surface_state import property_run_customer_visible_events, property_run_public_eta_label
 from app.product.service import build_product_service
 from app.services.property_billing import (
     brilliant_directories_billing_webhook_receipt,
@@ -129,6 +129,8 @@ _PAYFUNNELS_REFUNDED_EVENTS = {
 _PAYFUNNELS_FAILED_STATUSES = {"failed", "declined", "error"}
 _PAYFUNNELS_CANCELLED_STATUSES = {"cancelled", "canceled", "voided"}
 _PAYFUNNELS_REFUNDED_STATUSES = {"refunded", "partially_refunded"}
+_PROPERTY_SEARCH_TERMINAL_STATUSES = {"processed", "completed", "completed_partial", "failed", "cancelled", "noop"}
+_PROPERTY_SEARCH_LIGHTWEIGHT_SOURCE_LIMIT = 24
 
 
 def _payfunnels_title_value(pattern: re.Pattern[str], title: str) -> str:
@@ -240,6 +242,80 @@ def _property_search_status_url(run_id: object, *, canonical: bool) -> str:
     return f"/app/api/signals/property/search/run/{normalized_run_id}"
 
 
+def _property_search_source_row_status(row: dict[str, object]) -> str:
+    return str(row.get("status") or row.get("state") or "").strip().lower()
+
+
+def _property_search_compact_source_rows(summary: dict[str, object]) -> dict[str, object]:
+    normalized = dict(summary or {})
+    source_rows = [dict(row) for row in list(normalized.get("sources") or []) if isinstance(row, dict)]
+    if not source_rows:
+        return normalized
+    existing_counts = normalized.get("source_status_counts")
+    existing_status_counts = dict(existing_counts) if isinstance(existing_counts, dict) else {}
+    status_counts: dict[str, int] = {}
+    for row in source_rows:
+        status = _property_search_source_row_status(row) or "unknown"
+        status_counts[status] = status_counts.get(status, 0) + 1
+    normalized.setdefault("sources_untrimmed_total", len(source_rows))
+    terminal = str(normalized.get("status") or "").strip().lower() in _PROPERTY_SEARCH_TERMINAL_STATUSES
+    terminal_status = "completed_partial" if str(normalized.get("status") or "").strip().lower() == "completed_partial" else "completed"
+    active_terminal_statuses = {"queued", "pending", "starting", "warming", "running", "processing", "in_progress", "working", "repairing"}
+    if terminal:
+        existing_has_active = any(str(key).strip().lower() in active_terminal_statuses for key in existing_status_counts)
+        existing_total = sum(int(value or 0) for value in existing_status_counts.values() if isinstance(value, int))
+        if existing_status_counts and not existing_has_active and existing_total >= len(source_rows):
+            normalized["source_status_counts"] = existing_status_counts
+        else:
+            terminal_counts: dict[str, int] = {}
+            for row in source_rows:
+                status = _property_search_source_row_status(row) or terminal_status
+                if status in active_terminal_statuses:
+                    status = terminal_status
+                terminal_counts[status] = terminal_counts.get(status, 0) + 1
+            try:
+                untrimmed_total = int(float(str(normalized.get("sources_untrimmed_total") or "0").strip() or "0"))
+            except Exception:
+                untrimmed_total = 0
+            if untrimmed_total > len(source_rows) and set(terminal_counts) <= {terminal_status}:
+                terminal_counts = {terminal_status: untrimmed_total}
+            normalized["source_status_counts"] = terminal_counts
+    else:
+        normalized.setdefault("source_status_counts", status_counts)
+    priority_statuses = {"failed", "error", "skipped", "completed", "processed", "done", "success", "repaired"}
+
+    def row_weight(row: dict[str, object]) -> tuple[int, int]:
+        row_status = _property_search_source_row_status(row)
+        def as_int(value: object) -> int:
+            try:
+                return max(0, int(float(str(value or "0").strip() or "0")))
+            except Exception:
+                return 0
+        activity = (
+            as_int(row.get("ranked_total") or row.get("high_fit_total"))
+            + as_int(row.get("listing_total") or row.get("raw_listing_total"))
+            + as_int(row.get("reviewed_listing_total") or row.get("scanned_listing_total"))
+            + as_int(row.get("preview_prepared_total"))
+        )
+        priority = 2 if row_status in priority_statuses or row.get("error") else (1 if activity > 0 else 0)
+        return priority, activity
+
+    trimmed = sorted(source_rows, key=row_weight, reverse=True)[:_PROPERTY_SEARCH_LIGHTWEIGHT_SOURCE_LIMIT]
+    if terminal:
+        cleaned_rows: list[dict[str, object]] = []
+        for row in trimmed:
+            cleaned = dict(row)
+            row_status = _property_search_source_row_status(cleaned)
+            if row_status in active_terminal_statuses:
+                cleaned["status"] = terminal_status
+                cleaned["source_status"] = "Partial coverage" if terminal_status == "completed_partial" else "Checked"
+            cleaned_rows.append(cleaned)
+        trimmed = cleaned_rows
+    normalized["sources"] = trimmed
+    normalized["sources_trimmed"] = len(source_rows) > len(trimmed)
+    return normalized
+
+
 def _property_search_payload_with_status_url(payload: dict[str, object], *, canonical: bool) -> dict[str, object]:
     copied = dict(payload or {})
     summary = dict(copied.get("summary") or {}) if isinstance(copied.get("summary"), dict) else {}
@@ -259,7 +335,30 @@ def _property_search_payload_with_status_url(payload: dict[str, object], *, cano
     copied.setdefault("status", "queued")
     copied.setdefault("progress", 0)
     copied.setdefault("message", "")
-    copied.setdefault("summary", summary)
+    status = str(copied.get("status") or summary.get("status") or "").strip().lower()
+    if status in _PROPERTY_SEARCH_TERMINAL_STATUSES:
+        copied["progress"] = 100
+        summary["progress"] = 100
+        summary["progress_percent"] = 100
+        copied.pop("eta_label", None)
+        copied.pop("eta_seconds", None)
+        summary.pop("eta_label", None)
+        summary.pop("eta_seconds", None)
+        summary.pop("next_useful_update_eta_label", None)
+    else:
+        sanitized_eta = property_run_public_eta_label(copied.get("eta_label") or summary.get("eta_label"))
+        if sanitized_eta:
+            copied["eta_label"] = sanitized_eta
+            summary["eta_label"] = sanitized_eta
+        else:
+            copied.pop("eta_label", None)
+            summary.pop("eta_label", None)
+        sanitized_next_eta = property_run_public_eta_label(summary.get("next_useful_update_eta_label"))
+        if sanitized_next_eta:
+            summary["next_useful_update_eta_label"] = sanitized_next_eta
+        else:
+            summary.pop("next_useful_update_eta_label", None)
+    copied["summary"] = summary
     copied.setdefault("events", list(copied.get("events") or []))
     run_id = str(copied.get("run_id") or "").strip()
     if not run_id:
@@ -392,6 +491,20 @@ def _property_search_run_status_payload(
         normalized["created_at"] = str(normalized.get("generated_at") or fallback_timestamp).strip()
     if not str(normalized.get("generated_at") or "").strip():
         normalized["generated_at"] = str(normalized.get("updated_at") or normalized.get("created_at") or "")
+    status_value = str(normalized.get("status") or summary.get("status") or "").strip().lower()
+    if status_value in _PROPERTY_SEARCH_TERMINAL_STATUSES:
+        normalized["progress"] = 100
+        normalized.pop("eta_label", None)
+        normalized.pop("eta_seconds", None)
+        summary["status"] = status_value
+        summary["progress"] = 100
+        summary["progress_percent"] = 100
+        summary.pop("eta_label", None)
+        summary.pop("eta_seconds", None)
+        summary.pop("next_useful_update_eta_label", None)
+    if lightweight:
+        summary = _property_search_compact_source_rows(summary)
+    normalized["summary"] = summary
     normalized["events"] = property_run_customer_visible_events(run_payload=normalized)
     if summary:
         score_demoted_total = int(summary.get("score_demoted_total") or summary.get("filtered_low_fit_total") or 0)
@@ -454,6 +567,8 @@ def _property_search_run_status_payload(
         if held_back_total > 0:
             summary.setdefault("held_back_total", held_back_total)
             summary.setdefault("filtered_total", held_back_total)
+        if lightweight:
+            summary = _property_search_compact_source_rows(summary)
         normalized["summary"] = summary
     return normalized
 

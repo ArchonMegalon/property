@@ -43,6 +43,7 @@ RUNTIME_RELEASE_FILES = (
     "docker-compose.property.yml",
     "docker-compose.property-legacy-edge.yml",
     "ea/Dockerfile.property",
+    "ea/Dockerfile.property-web",
     "scripts/deploy_propertyquarry.sh",
     "scripts/property_release_gates.sh",
 )

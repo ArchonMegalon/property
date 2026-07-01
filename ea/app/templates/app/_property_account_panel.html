@@ -10,9 +10,9 @@
   {% if card.get('title') == 'Public pages' %}{% set public_card.value = card %}{% endif %}
 {% endfor %}
 {% set profile_item = (profile_card.value.get('items') or [{}])[0] if profile_card.value else {} %}
-{% set profile_action_href = profile_item.get('action_href') or '/app/properties' %}
-{% if query_suffix and profile_action_href == '/app/properties' %}
-  {% set profile_action_href = '/app/properties' ~ query_suffix %}
+{% set profile_action_href = profile_item.get('action_href') or '/app/search' %}
+{% if query_suffix and profile_action_href == '/app/search' %}
+  {% set profile_action_href = '/app/search' ~ query_suffix %}
 {% endif %}
 {% set profile_items = profile_card.value.get('items') or [] %}
 {% set plan_items = plan_card.value.get('items') or [] %}
@@ -142,7 +142,7 @@
             <span>{{ preferred_notification_channel|title if preferred_notification_channel else 'Choose a primary route for follow-up.' }}</span>
           </div>
           <div class="pqx-account-channel-detail">
-            <strong>Destination mix</strong>
+            <strong>Where matches arrive</strong>
             <span>Strong matches go to every selected channel.</span>
             <span>Near-miss follow-up stays Telegram-only when Telegram is primary.</span>
           </div>
@@ -223,14 +223,6 @@
         </span>
       </summary>
       <div class="pqx-mobile-fold-content">
-      <nav class="pqx-account-settings-links" aria-label="Account settings shortcuts">
-        <a class="pqx-link-button subtle" href="/app/settings/google">Google</a>
-        <a class="pqx-link-button subtle" href="/app/settings/access">Access</a>
-        <a class="pqx-link-button subtle" href="/app/settings/usage">Usage</a>
-        <a class="pqx-link-button subtle" href="/app/settings/support">Support</a>
-        <a class="pqx-link-button subtle" href="/app/settings/trust">Trust</a>
-        <a class="pqx-link-button subtle" href="/app/settings/invitations">Invites</a>
-      </nav>
       <div class="pqx-pref-list pqx-account-link-list">
         <div class="pqx-pref-row">
           <div>

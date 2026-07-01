@@ -25,10 +25,12 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_candidate_directions_url,
     _property_candidate_maps_url,
     _property_candidate_orientation_preview,
+    _property_candidate_floorplan_url,
     _property_candidate_is_rankable,
     _property_candidate_preview_image,
     _property_candidate_route_evidence,
     _property_candidate_display_facts,
+    _property_candidate_source_virtual_tour_url,
     _property_postal_codes_from_text,
     _property_postal_names_from_text,
     _property_counterfactual_rows,
@@ -637,6 +639,7 @@ def property_workspace_payload(
         if isinstance(agent, dict)
     ]
     property_search_agent = next((agent for agent in property_search_agents if agent.get("is_active")), property_search_agents[0] if property_search_agents else {})
+    requested_property_agent_id = str(property_state.get("selected_agent_id") or "").strip()
 
     def _compact_scope_preview_payload(row: dict[str, object]) -> None:
         scope_preview = dict(row.get("scope_preview") or {})
@@ -677,14 +680,13 @@ def property_workspace_payload(
     )
     saved_property_preferences = dict(property_state.get("preferences") or {})
     preference_bundle = dict(property_state.get("preference_bundle") or {})
-    if wants_agent_views and not property_search_agents:
+    if (wants_agent_views or (wants_search_runs and requested_property_agent_id)) and not property_search_agents:
         raw_saved_agents = [
             dict(agent)
             for agent in list(saved_property_preferences.get("search_agents") or [])
             if isinstance(agent, dict)
         ]
         normalized_saved_agents: list[dict[str, object]] = []
-        selected_agent_hint = str(property_state.get("selected_agent_id") or "").strip()
         for index, raw_agent in enumerate(raw_saved_agents):
             agent_row = dict(raw_agent)
             agent_id = str(agent_row.get("agent_id") or "current").strip() or "current"
@@ -696,9 +698,9 @@ def property_workspace_payload(
             ).strip() or "No scope saved"
             enabled = bool(agent_row.get("enabled"))
             is_active = bool(agent_row.get("is_active"))
-            if not is_active and selected_agent_hint and agent_id == selected_agent_hint:
+            if not is_active and requested_property_agent_id and agent_id == requested_property_agent_id:
                 is_active = True
-            if not is_active and not selected_agent_hint and index == 0:
+            if not is_active and not requested_property_agent_id and index == 0:
                 is_active = True
             agent_row.setdefault("agent_id", agent_id)
             agent_row.setdefault("scope_label", scope_label)
@@ -959,11 +961,55 @@ def property_workspace_payload(
         run_payload_for_surface = {**run_payload_for_surface, "summary": run_summary_for_surface}
         if stale_scope_message:
             run_payload_for_surface["message"] = stale_scope_message
+    def _active_run_ranked_candidate_is_presentable(candidate: dict[str, object]) -> bool:
+        if _property_candidate_is_rankable(candidate):
+            return True
+        if str(candidate.get("hard_filter_reason") or "").strip():
+            return False
+        blocked_statuses = {
+            "dismissed",
+            "filtered",
+            "filtered_out",
+            "hard_filtered",
+            "maybe_false",
+            "maybe_false_positive",
+            "false_positive",
+            "not_a_listing",
+            "repair_only",
+            "queued_for_repair",
+            "suppressed",
+        }
+        for field in ("status", "review_status", "candidate_status", "filter_status", "repair_status"):
+            if str(candidate.get(field) or "").strip().lower() in blocked_statuses:
+                return False
+        for flag in ("maybe_false", "maybe_false_positive", "false_positive", "filtered_out", "hard_filtered", "not_a_listing"):
+            value = candidate.get(flag)
+            if isinstance(value, bool) and value:
+                return False
+            if isinstance(value, (int, float)) and value != 0:
+                return False
+            if str(value or "").strip().lower() in {"1", "true", "yes", "on", "y"}:
+                return False
+        has_stable_identity = any(
+            str(candidate.get(key) or "").strip()
+            for key in ("candidate_ref", "source_ref", "packet_url", "review_url", "property_url")
+        )
+        if not has_stable_identity:
+            return False
+        if bool(candidate.get("budget_revalidated") or candidate.get("revalidated_from_old_brief")):
+            return True
+        if normalized_section == "properties" and str(candidate.get("title") or "").strip():
+            return True
+        return any(
+            str(candidate.get(key) or "").strip()
+            for key in ("fit_score", "recommendation", "fit_summary")
+        ) or bool(list(candidate.get("match_reasons") or []))
+
     ranked_candidates = [
         {**dict(candidate), "_active_run_ranked": True}
         for candidate in list(raw_run_summary.get("ranked_candidates") or [])
         if isinstance(candidate, dict)
-        and _property_candidate_is_rankable(candidate)
+        and _active_run_ranked_candidate_is_presentable(candidate)
     ]
     synthesized_ranked_candidates: list[dict[str, object]] = []
     if not ranked_candidates:
@@ -986,6 +1032,20 @@ def property_workspace_payload(
     elif not shortlist_candidates:
         shortlist_candidates = list(active_run_candidates)
     if not compact_summary_surface and active_run_candidates and not list(run_summary_for_surface.get("ranked_candidates") or []):
+        run_summary_for_surface = {
+            **dict(run_summary_for_surface),
+            "ranked_candidates": [dict(candidate) for candidate in active_run_candidates],
+        }
+        run_payload_for_surface = {**run_payload_for_surface, "summary": run_summary_for_surface}
+    if (
+        compact_summary_surface
+        and normalized_section == "properties"
+        and active_run_candidates
+        and any(
+            bool(candidate.get("budget_revalidated") or candidate.get("revalidated_from_old_brief"))
+            for candidate in active_run_candidates
+        )
+    ):
         run_summary_for_surface = {
             **dict(run_summary_for_surface),
             "ranked_candidates": [dict(candidate) for candidate in active_run_candidates],
@@ -1248,8 +1308,8 @@ def property_workspace_payload(
     if wants_search_runs or wants_agent_views:
         selected_agent_context = select_property_search_agent(
             property_search_agents,
-            requested_agent_id=str(property_state.get("selected_agent_id") or "").strip(),
-            previous_runs=previous_search_runs,
+            requested_agent_id=requested_property_agent_id,
+            previous_runs=[] if normalized_section == "agents" else previous_search_runs,
             run_id=run_id,
         )
     else:
@@ -1267,6 +1327,7 @@ def property_workspace_payload(
     selected_agent_latest_run = selected_agent_context["selected_agent_latest_run"]
     selected_agent_open_href = selected_agent_context["selected_agent_open_href"]
     selected_agent_edit_href = selected_agent_context["selected_agent_edit_href"]
+    include_search_agent_payload = normalized_section != "search" or bool(requested_property_agent_id and selected_agent_id)
 
     preference_manager = build_property_preference_manager_snapshot(
         person_id=preference_person_id,
@@ -1274,7 +1335,7 @@ def property_workspace_payload(
         include_full_manager=wants_full_preference_manager,
         schema=_property_preference_schema() if wants_full_preference_manager else {},
     )
-    if normalized_section == "search":
+    if normalized_section == "search" and not run_id:
         decision_workbench = PropertyDecisionWorkbenchContract(
             run=PropertyDecisionWorkbenchRunContract(
                 run_id="",
@@ -1324,12 +1385,12 @@ def property_workspace_payload(
             previous_search_runs=previous_search_runs,
             search_agents=(
                 property_search_agents
-                if normalized_section != "search" or bool(str(property_state.get("selected_agent_id") or "").strip())
+                if include_search_agent_payload
                 else []
             ),
             search_agent=(
                 property_search_agent
-                if normalized_section != "search" or bool(str(property_state.get("selected_agent_id") or "").strip())
+                if include_search_agent_payload
                 else {}
             ),
             results=[],
@@ -1476,32 +1537,8 @@ def property_workspace_payload(
                 return f"{value} m2"
         return ""
 
-    def _floorplan_url(facts: dict[str, object]) -> str:
-        for key in ("floorplan_preview_url", "floorplan_url", "floorplan_image_url"):
-            value = str(facts.get(key) or "").strip()
-            if value:
-                return value
-        for key in ("floorplan_urls_json", "floorplan_urls"):
-            raw = facts.get(key)
-            rows = raw if isinstance(raw, list) else []
-            if isinstance(raw, str) and raw.strip():
-                try:
-                    parsed = json.loads(raw)
-                    if isinstance(parsed, list):
-                        rows = parsed
-                except Exception:
-                    rows = [raw]
-            for item in rows:
-                if isinstance(item, dict):
-                    for item_key in ("image_url", "url", "src", "href"):
-                        value = str(item.get(item_key) or "").strip()
-                        if value:
-                            return value
-                else:
-                    value = str(item or "").strip()
-                    if value:
-                        return value
-        return ""
+    def _floorplan_url(facts: dict[str, object], *, candidate: dict[str, object] | None = None) -> str:
+        return _property_candidate_floorplan_url(candidate or {"property_facts": facts}, facts=facts)
 
     def _obvious_listing_mode_mismatch(facts: dict[str, object], *, listing_mode: str) -> bool:
         normalized_mode = str(listing_mode or "").strip().lower()
@@ -1532,17 +1569,8 @@ def property_workspace_payload(
         return False
 
     def _tour_status_line(candidate: dict[str, object]) -> str:
-        provider_tour_url = str(
-            candidate.get("source_virtual_tour_url")
-            or (
-                dict(candidate.get("property_facts") or {}).get("source_virtual_tour_url")
-                if isinstance(candidate.get("property_facts"), dict)
-                else ""
-            )
-            or ""
-        ).strip()
-        if "api.willhaben.at/restapi/v2/logevent/" in provider_tour_url.lower():
-            provider_tour_url = ""
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        provider_tour_url = _property_candidate_source_virtual_tour_url(candidate, facts=facts)
         try:
             from app.product import property_tour_hosting
 
@@ -1723,7 +1751,8 @@ def property_workspace_payload(
             preferences=property_preferences,
         )
         missing: list[str] = []
-        if not str(candidate.get("tour_url") or "").strip():
+        provider_tour_url = _property_candidate_source_virtual_tour_url(candidate, facts=facts)
+        if not str(candidate.get("tour_url") or provider_tour_url or "").strip():
             tour_status = str(candidate.get("tour_status") or "").strip().lower()
             if tour_status in {"blocked", "failed", "skipped", "not_applicable"}:
                 missing.append("floorplan/360 source media")
@@ -1829,7 +1858,7 @@ def property_workspace_payload(
                     "tag": str(cluster.get("severity") or "Risk").replace("_", " ").title(),
                 }
             )
-        if not str(candidate.get("tour_url") or "").strip():
+        if not str(candidate.get("tour_url") or _property_candidate_source_virtual_tour_url(candidate, facts=facts) or "").strip():
             rows.append({"title": "360 gap", "detail": _tour_source_gap_detail(candidate), "tag": "Review"})
         for item in _missing_fact_items(facts)[:2]:
             if str(item.get("status") or "").strip().lower() == "filled":
@@ -1890,7 +1919,7 @@ def property_workspace_payload(
             },
             {
                 "title": "360 state",
-                "detail": str(candidate.get("tour_url") or _tour_status_line(candidate)).strip(),
+                "detail": str(candidate.get("tour_url") or _property_candidate_source_virtual_tour_url(candidate, facts=facts) or _tour_status_line(candidate)).strip(),
                 "tag": "360",
             },
         ]
@@ -2034,17 +2063,7 @@ def property_workspace_payload(
                 ).strip()
             except Exception:
                 tour_url = ""
-        provider_tour_url = str(
-            candidate.get("source_virtual_tour_url")
-            or (
-                property_facts.get("source_virtual_tour_url")
-                if property_facts
-                else ""
-            )
-            or ""
-        ).strip()
-        if "api.willhaben.at/restapi/v2/logevent/" in provider_tour_url.lower():
-            provider_tour_url = ""
+        provider_tour_url = _property_candidate_source_virtual_tour_url(candidate, facts=property_facts)
         status = str(candidate.get("tour_status") or "").strip().lower()
         eta_minutes = str(candidate.get("tour_eta_minutes") or "").strip()
         reason = str(candidate.get("blocked_reason") or "").strip()
@@ -2106,7 +2125,7 @@ def property_workspace_payload(
                 provider_key = property_tour_hosting._property_tour_provider_host_kind(provider_tour_url)  # type: ignore[attr-defined]
             except Exception:
                 provider_key = ""
-            provider_label = "3D tour" if provider_key else "Original tour"
+            provider_label = _visual_provider_label(provider_key) if provider_key else "Provider tour"
             visual_runtime = _visual_runtime_payload(
                 candidate,
                 request_kind="tour",
@@ -2118,13 +2137,13 @@ def property_workspace_payload(
                 "label": "Original tour",
                 "url": provider_tour_url,
                 "embed_url": provider_tour_url,
-                "eta_label": "Original tour",
+                "eta_label": "Provider tour",
                 "progress_pct": visual_runtime["progress_pct"],
                 "provider_label": provider_label,
                 "provider_key": provider_key,
-                "status_detail": "Original tour is available, but no in-page 3D tour is ready yet.",
+                "status_detail": "Original tour is available from the listing; no in-page 3D tour is ready yet.",
                 "recovery_label": "",
-                "control_label": "Open 3D tour" if provider_key else "Open original tour",
+                "control_label": "Open 3D tour",
             }
         if status in {"queued", "pending"}:
             visual_runtime = _visual_runtime_payload(
@@ -2783,7 +2802,8 @@ def property_workspace_payload(
             or str(facts.get("rooms") or "").strip()
             or has_area_signal
             or str(candidate.get("tour_url") or "").strip()
-            or str(_floorplan_url(facts) or "").strip()
+            or str(_property_candidate_source_virtual_tour_url(candidate, facts=facts) or "").strip()
+            or str(_floorplan_url(facts, candidate=candidate) or "").strip()
         )
         if not has_core_signal:
             return False
@@ -2805,6 +2825,7 @@ def property_workspace_payload(
         first_paint_candidates = first_paint_candidates[:_PROPERTY_PROPERTIES_FIRST_PAINT_RESULT_LIMIT]
     for candidate in first_paint_candidates:
         facts = _property_candidate_display_facts(candidate)
+        provider_tour_url = _property_candidate_source_virtual_tour_url(candidate, facts=facts)
         if (
             not bool(candidate.get("_active_run_ranked"))
             and run_has_explicit_listing_context
@@ -2840,12 +2861,14 @@ def property_workspace_payload(
             price_line = "n/a"
         fit_score = _fit_score_value(candidate, facts)
         layout_parts = [_rooms_layout_part(facts), _area_display(facts)]
+        floorplan_url = _floorplan_url(facts, candidate=candidate)
         layout_verified = bool(
             facts.get("has_floorplan")
             or facts.get("floorplan_count")
             or facts.get("floorplans_count")
             or facts.get("floorplan_urls_json")
             or facts.get("floorplan_urls")
+            or floorplan_url
         )
         packet_url = str(candidate.get("packet_url") or "").strip()
         review_url = str(candidate.get("review_url") or "").strip()
@@ -2949,7 +2972,9 @@ def property_workspace_payload(
                 property_url=external_listing_url,
                 map_url=map_url,
                 source_url=external_listing_url,
-                floorplan_url=_floorplan_url(facts),
+                floorplan_url=floorplan_url,
+                source_virtual_tour_url=provider_tour_url,
+                vendor_tour_url=provider_tour_url,
                 property_facts=facts,
                 listing_fact_confirmation=dict(facts.get("listing_fact_confirmation") or {}) if isinstance(facts.get("listing_fact_confirmation"), dict) else {},
                 assessment=dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
@@ -2970,7 +2995,7 @@ def property_workspace_payload(
                                 f"Next: {str(row.get('required_next_step') or '').strip()}" if str(row.get("required_next_step") or "").strip() else "",
                             )
                             if part
-                        ) or "Official source linked for this risk lane.",
+                        ) or "Official source linked for this risk check.",
                         "tag": " · ".join(
                             part
                             for part in (
@@ -3053,19 +3078,26 @@ def property_workspace_payload(
                 for candidate in list(run_summary_for_surface.get("ranked_candidates") or [])
                 if isinstance(candidate, dict)
             ]
-            held_back_ranked_candidates = [
-                candidate
-                for candidate in raw_surface_ranked_candidates
-                if _shortlist_identity(candidate) not in admitted_identities
-            ]
-            run_summary_for_surface["ranked_candidates"] = [
-                candidate
-                for candidate in raw_surface_ranked_candidates
-                if _shortlist_identity(candidate) in admitted_identities
-            ]
-            if held_back_ranked_candidates:
-                run_summary_for_surface["held_back_ranked_total"] = len(held_back_ranked_candidates)
+            if admitted_identities:
+                held_back_ranked_candidates = [
+                    candidate
+                    for candidate in raw_surface_ranked_candidates
+                    if _shortlist_identity(candidate) not in admitted_identities
+                ]
+                run_summary_for_surface["ranked_candidates"] = [
+                    candidate
+                    for candidate in raw_surface_ranked_candidates
+                    if _shortlist_identity(candidate) in admitted_identities
+                ]
+                if held_back_ranked_candidates:
+                    run_summary_for_surface["held_back_ranked_total"] = len(held_back_ranked_candidates)
+                    run_summary_for_surface["held_back_ranked_reason"] = "outside_selected_area_or_hard_scope"
+            elif normalized_section == "shortlist" and raw_surface_ranked_candidates:
+                run_summary_for_surface["ranked_candidates"] = []
+                run_summary_for_surface["held_back_ranked_total"] = len(raw_surface_ranked_candidates)
                 run_summary_for_surface["held_back_ranked_reason"] = "outside_selected_area_or_hard_scope"
+            else:
+                run_summary_for_surface["ranked_candidates"] = raw_surface_ranked_candidates
         if "sources" in run_summary_for_surface:
             surface_sources: list[dict[str, object]] = []
             for source in list(run_summary_for_surface.get("sources") or []):
@@ -3076,7 +3108,7 @@ def property_workspace_payload(
                     _surface_candidate_with_normalized_mismatches(dict(candidate))
                     for candidate in list(source_row.get("top_candidates") or [])
                     if isinstance(candidate, dict)
-                    and _shortlist_identity(candidate) in admitted_identities
+                    and (not admitted_identities or _shortlist_identity(candidate) in admitted_identities)
                 ]
                 if source_row.get("top_candidates") is not None:
                     source_row["top_candidates"] = top_candidates
@@ -3087,7 +3119,7 @@ def property_workspace_payload(
     hero_actions = {
         "properties": [
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist", "tone": "primary"},
-            {"href": f"/app/properties{run_suffix}", "label": "Edit brief"},
+            {"href": f"/app/search{run_suffix}", "label": "Edit brief"},
             {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
         ],
         "shortlist": [
@@ -3111,8 +3143,8 @@ def property_workspace_payload(
             {"href": f"/app/account{run_suffix}#delivery", "label": "Delivery"},
         ],
         "agents": [
-            {"href": f"/app/properties{run_suffix}", "label": "New search", "tone": "primary"},
-            {"href": selected_agent_edit_href or f"/app/properties{run_suffix}", "label": "Edit brief"},
+            {"href": f"/app/search{run_suffix}", "label": "New search", "tone": "primary"},
+            {"href": selected_agent_edit_href or f"/app/search{run_suffix}", "label": "Edit brief"},
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
         ],
         "billing": [
@@ -3335,7 +3367,7 @@ def property_workspace_payload(
     delivery_recovery_label = (
         str(repair_truth_rows[0].get("detail") or "").strip()
         if repair_truth_rows
-        else "If a tour, walkthrough, or provider source degrades, the next run keeps the recovery note visible here."
+        else "Delivery retries stay visible here."
     )
     alerts_rows = list(recent_matches_card.get("items") or []) + [
         row_item(
@@ -3407,7 +3439,7 @@ def property_workspace_payload(
         else ("Access status" if has_active_paid_plan else "Billing account")
     )
     billing_account_detail = (
-        "Continue in the billing lane with the same email."
+        "Use the same email for the billing portal."
         if billing_handoff_available and billing_handoff_bridge_only
         else (
             "Open the billing portal."
@@ -3526,7 +3558,7 @@ def property_workspace_payload(
         if platform_cap > current_platform_cap:
             improvement_parts.append(f"+{platform_cap - current_platform_cap} more portals")
         elif platform_cap < current_platform_cap:
-            improvement_parts.append(f"{current_platform_cap - platform_cap} fewer platforms, but a tighter working lane")
+            improvement_parts.append(f"{current_platform_cap - platform_cap} fewer platforms, but a tighter provider set")
         if search_agent_limit <= 0 and current_search_agent_limit > 0:
             improvement_parts.append("unlimited saved searches")
         elif search_agent_limit > current_search_agent_limit:
@@ -3564,7 +3596,7 @@ def property_workspace_payload(
         billing_decision_rows.append(
             row_item(
                 "First paid move",
-                "Plus adds deeper review on a wider provider set; Agent opens the full provider lane.",
+                "Plus adds deeper review on a wider provider set; Agent opens every supported provider.",
                 "Next tier",
             )
         )
@@ -3700,7 +3732,7 @@ def property_workspace_payload(
                 ) if part
             ) or "No saved search brief yet.",
             "tag": "Saved",
-            "action_href": f"/app/properties{run_suffix}",
+            "action_href": f"/app/search{run_suffix}",
             "action_method": "get",
             "action_label": "Open results",
         },
@@ -3769,7 +3801,7 @@ def property_workspace_payload(
                 )
             ),
             "hero_actions": [{"href": f"/app/properties{run_suffix}", "label": "Open search"}, {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"}] if run_in_progress else (hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
-                {"href": f"/app/properties{run_suffix}", "label": "Refine search", "tone": "primary"},
+                {"href": f"/app/search{run_suffix}", "label": "Refine search", "tone": "primary"},
                 {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
                 {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
             ]),
@@ -3939,7 +3971,7 @@ def property_workspace_payload(
                                 (
                                     _run_outcome_compact_detail(selected_agent_latest_run)
                                     if selected_agent_latest_run
-                                    else "No finished run for this saved search yet."
+                                    else "No finished run yet."
                                 ),
                                 str((selected_agent_latest_run or {}).get("status_label") or "Waiting"),
                             ),
@@ -4081,7 +4113,7 @@ def property_workspace_payload(
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account?settings_view=google#connected-services"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": signed_in_billing_href},
                 {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
-                {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/properties{run_suffix}"},
+                {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},
             ],
             "primary_cards": [
                 {
@@ -4153,7 +4185,7 @@ def property_workspace_payload(
             "hero_title": "Account.",
             "hero_summary": "Saved defaults, notifications, billing, and access.",
             "hero_actions": [
-                {"href": f"/app/properties{run_suffix}", "label": "Edit search", "tone": "primary"},
+                {"href": f"/app/search{run_suffix}", "label": "Edit search", "tone": "primary"},
                 {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
                 {"href": signed_in_billing_href, "label": billing_primary_action_label or "Billing account"},
             ],
@@ -4161,7 +4193,7 @@ def property_workspace_payload(
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account?settings_view=google#connected-services"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": signed_in_billing_href},
                 {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
-                {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/properties{run_suffix}"},
+                {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},
             ],
             "primary_cards": [
                 {
@@ -4282,7 +4314,7 @@ def property_workspace_payload(
             score_demoted_total=workbench_score_demoted_total,
             held_back_total=workbench_held_back_total,
             summary=run_summary_for_surface,
-            events=run_events[-8:],
+            events=run_events[-10:],
             worker_state=search_worker_state,
             reliability=_property_run_reliability_summary(
                 {
@@ -4346,12 +4378,12 @@ def property_workspace_payload(
         previous_search_runs=previous_search_runs,
         search_agents=(
             property_search_agents
-            if normalized_section != "search" or bool(str(property_state.get("selected_agent_id") or "").strip())
+            if include_search_agent_payload
             else []
         ),
         search_agent=(
             property_search_agent
-            if normalized_section != "search" or bool(str(property_state.get("selected_agent_id") or "").strip())
+            if include_search_agent_payload
             else {}
         ),
         results=workbench_results,

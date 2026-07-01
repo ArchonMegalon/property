@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 import re
 
 import urllib.parse
@@ -18,6 +19,108 @@ _PROPERTY_POSTAL_LOCALITY_PATTERN = re.compile(
 _PROPERTY_POSTAL_LOCALITY_STOPWORDS = re.compile(
     r"\s+(?:m(?:²|2)|sqm|zimmer|rooms?|eur|€|usd|gbp|chf|der\s+standard|willhaben|immobilien|real\s+estate)\b.*$",
     flags=re.IGNORECASE,
+)
+_PROPERTY_MEDIA_URL_RE = re.compile(r"https?://[^\s<>'\")]+", flags=re.IGNORECASE)
+_PROPERTY_FLOORPLAN_MARKERS = (
+    "floorplan",
+    "floor-plan",
+    "floor_plan",
+    "floor plan",
+    "grundriss",
+    "lageplan",
+    "plan_top",
+    "plan top",
+    "raumskizze",
+    "wohnungsplan",
+)
+_PROPERTY_SOURCE_360_MARKERS = (
+    "matterport.com",
+    "my.matterport.com",
+    "360tour",
+    "3d-tour",
+    "3dtour",
+    "virtualtour",
+    "virtual-tour",
+    "tourmkr.com",
+    "eye-spy360.com",
+    "ogulo.com",
+    "aroundmedia.com",
+    "immoviewer.com",
+    "giraffe360.com",
+    "panoee.com",
+    "cloudpano.com",
+    "kuula.co",
+    "roundme.com",
+    "teliportme.com",
+    "vieweet.com",
+    "3d-wohnung",
+    "360grad",
+    "360grad-tour",
+    "youvisit.com",
+    "peek3d",
+    "peek3d.app",
+    "3dlook.at",
+    "360.homestaging",
+    "feelestate.com",
+    "immobilien360",
+    "3d.laendleanzeiger.at",
+    "360.kalandra.at",
+)
+_PROPERTY_FLOORPLAN_URL_KEYS = (
+    "floorplan_preview_url",
+    "floorplan_url",
+    "floorplan_image_url",
+    "floorplan_pdf_url",
+    "floor_plan_url",
+    "floor_plan_image_url",
+    "grundriss_url",
+    "grundriss_image_url",
+    "layout_plan_url",
+)
+_PROPERTY_FLOORPLAN_CONTAINER_KEYS = (
+    "floorplan_urls_json",
+    "floorplan_urls",
+    "floorplans",
+    "floor_plan_urls",
+    "grundriss_urls",
+    "media_urls_json",
+    "photo_urls_json",
+    "image_urls_json",
+    "photos",
+    "images",
+    "media",
+    "documents",
+    "attachments",
+)
+_PROPERTY_SOURCE_360_URL_KEYS = (
+    "source_virtual_tour_url",
+    "vendor_tour_url",
+    "virtual_tour_url",
+    "virtualtour_url",
+    "virtual_tour_href",
+    "external_virtual_tour_url",
+    "provider_virtual_tour_url",
+    "source_360_url",
+    "tour_360_url",
+    "three_d_tour_url",
+    "threed_tour_url",
+    "matterport_url",
+    "ogulo_url",
+    "immoviewer_url",
+    "panorama_url",
+    "panorama_source",
+)
+_PROPERTY_SOURCE_360_CONTAINER_KEYS = (
+    "source_virtual_tour_urls",
+    "vendor_tour_urls",
+    "virtual_tour_urls",
+    "tour_urls_json",
+    "panorama_media_urls_json",
+    "media_urls_json",
+    "links",
+    "media",
+    "photos",
+    "images",
 )
 
 
@@ -52,6 +155,78 @@ def _property_postal_codes_from_text(text: object, *, require_locality: bool = T
             codes.append(code)
             seen.add(code)
     return tuple(codes)
+
+
+def _property_url_is_web_or_local(value: object) -> bool:
+    url = str(value or "").strip()
+    if not url:
+        return False
+    return url.startswith(("https://", "http://", "/"))
+
+
+def _property_media_url_values(value: object, *, context: str = "", depth: int = 0) -> tuple[tuple[str, str], ...]:
+    if depth > 4 or value in (None, ""):
+        return ()
+    rows: list[tuple[str, str]] = []
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ()
+        if text[:1] in {"[", "{"}:
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                parsed = None
+            if parsed is not None:
+                return _property_media_url_values(parsed, context=context, depth=depth + 1)
+        for match in _PROPERTY_MEDIA_URL_RE.finditer(text):
+            url = urllib.parse.urldefrag(match.group(0).strip().rstrip(".,;"))[0]
+            if _property_url_is_web_or_local(url):
+                rows.append((url, context))
+        if _property_url_is_web_or_local(text):
+            url = urllib.parse.urldefrag(text.rstrip(".,;"))[0]
+            rows.append((url, context))
+        return tuple(dict.fromkeys(rows))
+    if isinstance(value, dict):
+        label_parts = [context]
+        for key in ("label", "title", "name", "type", "kind", "role", "caption", "alt", "description"):
+            raw_label = str(value.get(key) or "").strip()
+            if raw_label:
+                label_parts.append(raw_label)
+        local_context = " ".join(part for part in label_parts if part)
+        for key, raw in value.items():
+            key_context = f"{local_context} {key}".strip()
+            rows.extend(_property_media_url_values(raw, context=key_context, depth=depth + 1))
+        return tuple(dict.fromkeys(rows))
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            rows.extend(_property_media_url_values(item, context=context, depth=depth + 1))
+        return tuple(dict.fromkeys(rows))
+    return ()
+
+
+def _property_source_360_url_looks_usable(value: object, *, context: str = "") -> bool:
+    url = str(value or "").strip()
+    if not _property_url_is_web_or_local(url):
+        return False
+    lowered_url = url.lower()
+    if "api.willhaben.at/restapi/v2/logevent/" in lowered_url:
+        return False
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    if host.endswith("propertyquarry.com") and path.startswith("/tours/"):
+        return False
+    combined = f"{host}{path}?{parsed.query.lower()} {str(context or '').lower()}"
+    return any(marker in combined for marker in _PROPERTY_SOURCE_360_MARKERS)
+
+
+def _property_floorplan_url_looks_usable(value: object, *, context: str = "") -> bool:
+    url = str(value or "").strip()
+    if not _property_url_is_web_or_local(url):
+        return False
+    combined = f"{url.lower()} {str(context or '').lower()}"
+    return any(marker in combined for marker in _PROPERTY_FLOORPLAN_MARKERS) or combined.endswith(".pdf")
 
 
 def _property_candidate_is_rankable(candidate: dict[str, object]) -> bool:
@@ -350,6 +525,53 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
     return merged
 
 
+def _property_candidate_floorplan_url(
+    candidate: dict[str, object],
+    *,
+    facts: dict[str, object] | None = None,
+) -> str:
+    resolved_facts = facts or _property_candidate_display_facts(candidate)
+    sources: list[dict[str, object]] = [candidate, resolved_facts]
+    snapshot = resolved_facts.get("listing_research_snapshot")
+    if isinstance(snapshot, dict):
+        sources.append(snapshot)
+    for source in sources:
+        for key in _PROPERTY_FLOORPLAN_URL_KEYS:
+            for url, _context in _property_media_url_values(source.get(key), context=key):
+                if _property_url_is_web_or_local(url):
+                    return url
+        for key in _PROPERTY_FLOORPLAN_CONTAINER_KEYS:
+            for url, context in _property_media_url_values(source.get(key), context=key):
+                if _property_floorplan_url_looks_usable(url, context=context):
+                    return url
+    return ""
+
+
+def _property_candidate_source_virtual_tour_url(
+    candidate: dict[str, object],
+    *,
+    facts: dict[str, object] | None = None,
+) -> str:
+    resolved_facts = facts or _property_candidate_display_facts(candidate)
+    sources: list[dict[str, object]] = [candidate, resolved_facts]
+    snapshot = resolved_facts.get("listing_research_snapshot")
+    if isinstance(snapshot, dict):
+        sources.append(snapshot)
+    for source in sources:
+        for key in _PROPERTY_SOURCE_360_URL_KEYS:
+            for url, context in _property_media_url_values(source.get(key), context=key):
+                if _property_source_360_url_looks_usable(url, context=context):
+                    return url
+        for key in _PROPERTY_SOURCE_360_CONTAINER_KEYS:
+            for url, context in _property_media_url_values(source.get(key), context=key):
+                if _property_source_360_url_looks_usable(url, context=context):
+                    return url
+        for url, context in _property_media_url_values(source.get("tour_url"), context="tour_url"):
+            if _property_source_360_url_looks_usable(url, context=context):
+                return url
+    return ""
+
+
 def _property_candidate_maps_url(candidate: dict[str, object]) -> str:
     facts = _property_candidate_display_facts(candidate)
 
@@ -559,7 +781,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         "detail": detail,
         "workers": worker_rows,
         "upgrade_copy": "",
-        "tooltip": "This strip shows the provider trail inside this search. Visible lanes reflect running, queued, repaired, and failed provider checks. Separate saved searches use their own run slots.",
+        "tooltip": "This shows which sources are running, queued, recovered, or unavailable for this search. Other saved searches keep their own progress.",
     }
 
 
@@ -1045,8 +1267,8 @@ def _group_property_provider_options(options: list[dict[str, object]]) -> list[d
         "community_meta": 7,
     }
     family_headings = {
-        "marketplace": ("Core marketplaces", "Primary broad-market search lanes for this country."),
-        "core_portal": ("Core portals", "Primary broad-market search lanes for this country."),
+        "marketplace": ("Core marketplaces", "Primary broad-market search groups for this country."),
+        "core_portal": ("Core portals", "Primary broad-market search groups for this country."),
         "classified": ("Classifieds", "Private and long-tail inventory with weaker structure and more duplicate risk."),
         "shared_housing": ("Shared housing", "Rooms, WG, sublet, and student-friendly sources that should not pollute standard family-home search."),
         "corporate_landlord": ("Direct landlords", "Large landlord-direct inventory that often carries better availability and operating details."),
@@ -1462,19 +1684,19 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
             low_conf_total += 1
     if gap_total:
         headline = "Public sources still missing"
-        headline_detail = f"{gap_total} risk lane(s) still depend on municipality-specific or missing public data."
+        headline_detail = f"{gap_total} risk check(s) still depend on municipality-specific or missing public data."
         headline_tag = "Source gap"
     elif flagged_total:
         headline = "Public sources attached, checks still open"
-        headline_detail = f"{flagged_total} lane(s) still need a final check before this page is fully reliable."
+        headline_detail = f"{flagged_total} check(s) still need a final review before this page is fully reliable."
         headline_tag = "Review"
     elif review_total:
         headline = "Public sources attached, one more check"
-        headline_detail = f"{review_total} lane(s) still need a confirmation pass even though public sources are already attached."
+        headline_detail = f"{review_total} check(s) still need confirmation even though public sources are already attached."
         headline_tag = "Review"
     else:
         headline = "Public sources ready"
-        headline_detail = "All active risk lanes already have public-source coverage and no open source gaps."
+        headline_detail = "All active risk checks already have public-source coverage and no open source gaps."
         headline_tag = "Ready"
     next_steps: list[str] = []
     for row in rows:
@@ -1485,7 +1707,7 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
             continue
         if required_next_step and required_next_step not in next_steps:
             next_steps.append(required_next_step)
-    coverage_parts = [f"{total} lanes attached", f"{official_total} official", f"{partial_total} partial", f"{gap_total} gaps"]
+    coverage_parts = [f"{total} checks attached", f"{official_total} official", f"{partial_total} partial", f"{gap_total} gaps"]
     verification_parts = [f"{verified_total} checked", f"{flagged_total} flagged", f"{review_total} still open"]
     response = [
         {"title": headline, "detail": headline_detail, "tag": headline_tag},

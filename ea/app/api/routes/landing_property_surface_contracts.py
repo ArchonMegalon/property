@@ -38,7 +38,7 @@ class PropertySurfaceScope:
         return cls(
             section=normalized,  # type: ignore[arg-type]
             wants_run_state=normalized in {"properties", "search", "shortlist", "research", "agents", "alerts"},
-            wants_recent_runs=normalized in {"search", "shortlist", "research"},
+            wants_recent_runs=normalized in {"properties", "search", "shortlist", "research"},
             wants_recent_matches=False,
             wants_preference_profile=normalized in {"account"},
             wants_learning_summary=False,

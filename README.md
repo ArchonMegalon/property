@@ -70,7 +70,10 @@ make deploy
 ```
 
 That topology starts only `propertyquarry-api`, `propertyquarry-scheduler`, and `propertyquarry-db`.
-It builds `ea/Dockerfile.property`, which omits Docker CLI tooling and runs the app process as the non-root `ea` user.
+The API and scheduler build `ea/Dockerfile.property-web`, a lightweight web runtime without Blender, COLMAP, MeshLab, or bundled Playwright browser payloads.
+Native 3D reconstruction and vendor tooling stay in the explicit `render-tools` profile, which builds `ea/Dockerfile.property`.
+Browser-backed PDF/render fallbacks must use MarkupGo or an explicit helper/render lane rather than adding Chromium to the request-serving image.
+Both images omit Docker CLI tooling and run the app process as the non-root `ea` user.
 
 `make deploy` uses `scripts/deploy_propertyquarry.sh`, which preflights the required prod credentials, checks `EA_HOST_PORT` before rebuilding, starts `docker-compose.property.yml`, waits for the API, scheduler, and DB containers, and probes readiness plus the authenticated app boundary.
 It also runs the public route smoke, authenticated route smoke, seeded all-surface mobile smoke with a live research-detail route, and the authenticated provider-catalog smoke against the deployed runtime before reporting success.
@@ -96,6 +99,7 @@ PROPERTYQUARRY_COMPOSE_PROJECT_NAME=propertyquarry-next \
 PROPERTYQUARRY_API_CONTAINER_NAME=propertyquarry-api-next \
 PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME=propertyquarry-scheduler-next \
 PROPERTYQUARRY_DB_CONTAINER_NAME=propertyquarry-db-next \
+PROPERTYQUARRY_RENDER_CONTAINER_NAME=propertyquarry-render-tools-next \
 EA_HOST_PORT=8098 make deploy
 ```
 
@@ -136,6 +140,7 @@ Operator scripts can be pointed at non-default compose service names with:
 - `PROPERTYQUARRY_API_CONTAINER_NAME`
 - `PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME`
 - `PROPERTYQUARRY_DB_CONTAINER_NAME`
+- `PROPERTYQUARRY_RENDER_CONTAINER_NAME`
 
 This alias layer also applies to support exports such as `bash scripts/support_bundle.sh`.
 

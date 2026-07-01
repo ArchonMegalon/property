@@ -1,0 +1,283 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  body:has(.pq-example-page) footer { display: none; }
+  .pq-example-page {
+    display: grid;
+    gap: clamp(14px, 2.4vw, 24px);
+  }
+  .pq-example-hero,
+  .pq-example-grid,
+  .pq-example-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+    box-shadow: var(--shadow);
+  }
+  .pq-example-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(300px, 0.6fr);
+    gap: clamp(14px, 2.5vw, 24px);
+    padding: clamp(18px, 3.2vw, 30px);
+    align-items: end;
+  }
+  .pq-example-copy {
+    display: grid;
+    gap: 12px;
+    max-width: 690px;
+  }
+  .pq-example-kicker {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 760;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .pq-example-copy h1 {
+    max-width: 12ch;
+    margin: 0;
+    font-size: clamp(2.15rem, 5vw, 4.1rem);
+    line-height: 0.98;
+    letter-spacing: -0.04em;
+  }
+  .pq-example-copy p {
+    max-width: 52ch;
+    color: var(--text-soft);
+    font-size: 1rem;
+    line-height: 1.45;
+  }
+  .pq-example-actions,
+  .pq-example-row-actions,
+  .pq-example-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .pq-example-tabs {
+    justify-content: flex-end;
+  }
+  .pq-example-tab {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 12px;
+    color: var(--text-soft);
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .pq-example-tab.active,
+  .pq-example-tab:hover,
+  .pq-example-tab:focus-visible {
+    border-color: rgba(189, 139, 47, 0.34);
+    background: rgba(189, 139, 47, 0.12);
+    color: var(--text);
+  }
+  .pq-example-selected {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+  }
+  .pq-example-map {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel-2);
+    aspect-ratio: 1.3 / 1;
+  }
+  .pq-example-map img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+  .pq-example-selected strong {
+    display: block;
+    font-size: 1.02rem;
+    line-height: 1.25;
+  }
+  .pq-example-selected span,
+  .pq-example-card span,
+  .pq-example-card small {
+    color: var(--text-soft);
+  }
+  .pq-example-grid {
+    display: grid;
+    gap: 0;
+    overflow: hidden;
+  }
+  .pq-example-card {
+    display: grid;
+    grid-template-columns: 124px minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    border-width: 0 0 1px;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 14px;
+  }
+  .pq-example-card:last-child {
+    border-bottom: 0;
+  }
+  .pq-example-card.active {
+    background: color-mix(in srgb, var(--panel) 86%, rgba(189, 139, 47, 0.16));
+  }
+  .pq-example-thumb {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel-2);
+    aspect-ratio: 1.2 / 1;
+  }
+  .pq-example-thumb img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+  .pq-example-card-copy {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .pq-example-card-copy a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .pq-example-card-copy a:hover,
+  .pq-example-card-copy a:focus-visible {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .pq-example-score {
+    min-width: 52px;
+    text-align: right;
+    color: var(--good);
+    font-size: 1.35rem;
+    font-weight: 840;
+  }
+  .pq-example-soft {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 11px;
+    color: var(--text-soft);
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .pq-example-soft:hover,
+  .pq-example-soft:focus-visible {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  @media (max-width: 760px) {
+    body:has(.pq-example-page) main {
+      padding-top: 12px;
+    }
+    .pq-example-hero {
+      grid-template-columns: 1fr;
+      padding: 16px;
+    }
+    .pq-example-copy h1 {
+      max-width: none;
+      font-size: clamp(2.2rem, 12vw, 3.25rem);
+    }
+    .pq-example-tabs {
+      justify-content: flex-start;
+    }
+    .pq-example-card {
+      grid-template-columns: 86px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      padding: 12px;
+    }
+    .pq-example-score {
+      grid-column: 2;
+      text-align: left;
+      font-size: 1rem;
+    }
+    .pq-example-actions,
+    .pq-example-row-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+    .pq-example-actions .btn,
+    .pq-example-soft {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+</style>
+
+<section class="pq-example-page" aria-labelledby="pq-example-title">
+  <div class="pq-example-hero">
+    <div class="pq-example-copy">
+      <p class="pq-example-kicker">Example shortlist</p>
+      <h1 id="pq-example-title">Open a result, then decide.</h1>
+      <p>This is a sample ranking path. Each row opens the same way a finished search should open: clear title, useful context, then the next action.</p>
+      <div class="pq-example-actions">
+        <a class="btn primary" href="{{ start_search_href }}">Start your own search</a>
+        {% if selected_example.get('tour_href') %}
+        <a class="btn" href="{{ selected_example.get('tour_href') }}">Open 3D tour</a>
+        {% endif %}
+        {% if selected_example.get('walkthrough_href') %}
+        <a class="btn ghost" href="{{ selected_example.get('walkthrough_href') }}">Open walkthrough</a>
+        {% endif %}
+      </div>
+    </div>
+    <aside class="pq-example-selected" aria-label="Selected example">
+      {% set selected_preview = selected_example.get('scope_preview') or {} %}
+      <div class="pq-example-map">
+        {% if selected_preview.get('image_url') %}
+        <img src="{{ selected_preview.get('image_url') }}" alt="{{ selected_preview.get('alt') or selected_example.get('area_label') or 'Search area preview' }}" loading="eager">
+        {% endif %}
+      </div>
+      <div>
+        <strong>{{ selected_example.get('title') or 'Example home' }}</strong>
+        <span>{{ selected_example.get('area_label') or 'Search area' }} · {{ selected_example.get('layout_label') or 'Ranked example' }}</span>
+      </div>
+      <nav class="pq-example-tabs" aria-label="Example rows">
+        {% for row in example_rows %}
+        <a class="pq-example-tab{% if selected_example.get('candidate_key') == row.get('candidate_key') %} active{% endif %}" href="{{ row.get('href') }}" {% if selected_example.get('candidate_key') == row.get('candidate_key') %}aria-current="page"{% endif %}>{{ loop.index }}</a>
+        {% endfor %}
+      </nav>
+    </aside>
+  </div>
+
+  <div class="pq-example-grid" aria-label="Sample ranked homes">
+    {% for row in example_rows %}
+    {% set scope_preview = row.get('scope_preview') or {} %}
+    <article id="{{ row.get('candidate_key') }}" class="pq-example-card{% if selected_example.get('candidate_key') == row.get('candidate_key') %} active{% endif %}">
+      <a class="pq-example-thumb" href="{{ row.get('href') }}" aria-label="Open {{ row.get('title') or 'example home' }}">
+        {% if scope_preview.get('image_url') %}
+        <img src="{{ scope_preview.get('image_url') }}" alt="{{ scope_preview.get('alt') or row.get('area_label') or 'Search area preview' }}" loading="lazy">
+        {% endif %}
+      </a>
+      <div class="pq-example-card-copy">
+        <strong><a href="{{ row.get('href') }}">{{ row.get('title') }}</a></strong>
+        <span>{{ row.get('detail') }}</span>
+        <small>{{ row.get('area_label') }} · {{ row.get('price_label') }} · {{ row.get('layout_label') }}</small>
+        {% if row.get('tour_href') or row.get('walkthrough_href') %}
+        <div class="pq-example-row-actions">
+          {% if row.get('tour_href') %}
+          <a class="pq-example-soft" href="{{ row.get('tour_href') }}">Open 3D tour</a>
+          {% endif %}
+          {% if row.get('walkthrough_href') %}
+          <a class="pq-example-soft" href="{{ row.get('walkthrough_href') }}">Open walkthrough</a>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <div class="pq-example-score">{{ row.get('score') }}</div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

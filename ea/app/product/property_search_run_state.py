@@ -264,6 +264,9 @@ def property_search_run_sync_summary(
         progress_value = int(state.get("progress") or 100)
         normalized_summary["progress"] = progress_value
         normalized_summary["progress_percent"] = progress_value
+        normalized_summary.pop("eta_seconds", None)
+        normalized_summary.pop("eta_label", None)
+        normalized_summary.pop("next_useful_update_eta_label", None)
         return normalized_summary
     progress_value = int(state.get("progress") or 0)
     normalized_summary["progress"] = progress_value

@@ -33,6 +33,7 @@
         </div>
       </div>
       {% set selected_visual_property_url = selected.get('property_url') or selected.get('source_url') or selected.get('listing_url') %}
+      {% set selected_visual_media_ready = selected.get('floorplan_url') or selected.get('source_virtual_tour_url') or selected.get('vendor_tour_url') %}
       {% set selected_tour = selected.get('tour', {}) %}
       {% set selected_flythrough = selected.get('flythrough', {}) %}
       {% set selected_tour_status = (selected_tour.get('status') or '')|lower %}
@@ -60,16 +61,16 @@
         {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}" data-rybbit-event="pq.property.opened" data-rybbit-prop-surface="selected_review">Open property</a>{% endif %}
         {% if selected_tour.get('url') and not is_shortlist_surface %}
         <a class="pqx-progress-button is-ready" id="tour-preview" href="{{ selected_tour.get('url') }}" title="{{ selected_tour.get('detail') or '3D tour ready' }}" aria-label="{{ selected_tour.get('detail') or '3D tour ready' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="selected_review">Open 3D tour</a>
-        {% elif selected_tour_pending and not is_shortlist_surface %}
+        {% elif selected_tour_pending and selected_visual_media_ready and not is_shortlist_surface %}
         <button class="pqx-progress-button is-processing" id="tour-preview" type="button" disabled style="--pqx-fill: {{ selected_tour_progress }}%;" title="{{ (selected_tour.get('detail') or selected_tour.get('label') or 'Tour is on the way.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') }}" data-pw-visual-request="tour" data-pw-visual-state="{{ selected_tour_status or 'queued' }}" data-pw-visual-progress="{{ selected_tour_progress }}" data-pw-visual-eta="{{ selected_tour.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_tour.get('detail') or selected_tour.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_tour.get('label') or '3D tour queued' }}</button>
-        {% elif selected_visual_property_url and not is_shortlist_surface %}
+        {% elif selected_visual_property_url and selected_visual_media_ready and not is_shortlist_surface %}
         <button class="pqx-button" id="tour-preview" type="button" data-pw-visual-request="tour" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="selected_review">Request 3D tour</button>
         {% endif %}
         {% if selected_flythrough.get('url') and not is_shortlist_surface %}
         <a class="pqx-progress-button is-ready" id="walkthrough-preview" href="{{ selected_flythrough.get('url') }}" title="{{ selected_flythrough.get('detail') or 'Walkthrough ready' }}" aria-label="{{ selected_flythrough.get('detail') or 'Walkthrough ready' }}">Open walkthrough</a>
-        {% elif selected_flythrough_pending and not is_shortlist_surface %}
+        {% elif selected_flythrough_pending and selected_visual_media_ready and not is_shortlist_surface %}
         <button class="pqx-progress-button is-processing" id="walkthrough-preview" type="button" disabled style="--pqx-fill: {{ selected_flythrough_progress }}%;" title="{{ (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') }}" data-pw-visual-request="flythrough" data-pw-visual-state="{{ selected_flythrough_status or 'queued' }}" data-pw-visual-progress="{{ selected_flythrough_progress }}" data-pw-visual-eta="{{ selected_flythrough.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_flythrough.get('detail') or selected_flythrough.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_flythrough.get('label') or 'Walkthrough queued' }}</button>
-    {% elif selected_visual_property_url and not is_shortlist_surface %}
+    {% elif selected_visual_property_url and selected_visual_media_ready and not is_shortlist_surface %}
         <button class="pqx-button" id="walkthrough-preview" type="button" data-pw-visual-request="flythrough" data-pw-walkthrough-provider="magicfit" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">Request walkthrough</button>
         {% endif %}
         </div>

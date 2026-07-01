@@ -136,7 +136,7 @@
         <span class="tier-provider">Secure checkout.</span>
         {% elif pricing_checkout_session_ready %}
         <a class="btn ghost" href="{{ pricing_signed_in_billing_href or '/app/account?billing=1#delivery' }}" data-analytics-event="pricing_billing_{{ plan.plan_key }}" data-rybbit-event="pricing_open_billing_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">{{ pricing_signed_in_billing_label or 'Open billing account' }}</a>
-        <span class="tier-provider">{{ pricing_signed_in_billing_detail or 'Use your active account lane.' }}</span>
+        <span class="tier-provider">{{ pricing_signed_in_billing_detail or 'Use your active billing account.' }}</span>
         {% else %}
         <a class="btn ghost" href="/sign-in?signing_in=1" data-analytics-event="pricing_account_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to start</a>
         <span class="tier-provider">First sign-in creates the account automatically.</span>

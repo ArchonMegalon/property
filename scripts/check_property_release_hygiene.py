@@ -48,6 +48,7 @@ RELEASE_SOURCE_EXACT_PATHS = {
     "LTDs.md",
     "docker-compose.property.yml",
     "ea/Dockerfile.property",
+    "ea/Dockerfile.property-web",
 }
 
 RELEASE_SOURCE_SUFFIXES = {

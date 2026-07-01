@@ -3743,7 +3743,7 @@ def app_section_payload(
     property_platform_rows = [
         row_item(
             str(option.get("label") or option.get("value") or "Provider"),
-            "Included in the dedicated crawl lane." if str(option.get("value") or "").strip() in selected_platforms else "Available to add to the crawl lane.",
+            "Included in this search." if str(option.get("value") or "").strip() in selected_platforms else "Available to add to this search.",
             "Selected" if str(option.get("value") or "").strip() in selected_platforms else "Available",
         )
         for option in platform_options
@@ -4308,7 +4308,7 @@ def app_section_payload(
                 "label": "Makler-direkt Quellen",
                 "value": "true",
                 "checked": bool(property_preferences.get("include_broker_direct_sources")),
-                "tooltip": "Track Makler-direkt lanes such as Kalandra and other broker-owned pages as a distinct source family, separate from marketplaces and cooperatives.",
+                "tooltip": "Track Makler-direkt sources such as Kalandra and other broker-owned pages as a distinct source family, separate from marketplaces and cooperatives.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
             },
@@ -4349,7 +4349,7 @@ def app_section_payload(
                 "label": "Public housing signals",
                 "value": "true",
                 "checked": bool(property_preferences.get("include_public_housing_signals")),
-                "tooltip": "Track municipal, public housing, and Wohnservice-like lanes separately from commercial marketplaces.",
+                "tooltip": "Track municipal, public housing, and Wohnservice-like sources separately from commercial marketplaces.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
                 "hidden": selected_listing_mode != "rent",
@@ -4382,7 +4382,7 @@ def app_section_payload(
                 "label": "Prefer Miete mit Kaufoption",
                 "value": "true",
                 "checked": bool(property_preferences.get("miete_mit_kaufoption")),
-                "tooltip": "Keep lease-to-own style cooperative offers visible as their own eligibility-sensitive lane.",
+                "tooltip": "Keep lease-to-own style cooperative offers visible as their own eligibility-sensitive group.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
                 "hidden": not show_public_housing_policy_controls,
@@ -4629,6 +4629,20 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Distance preference for playground access. If good matches are scarce, PropertyQuarry relaxes this radius and marks the gap instead of returning nothing.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "select",
+                "name": "max_distance_to_playground_importance",
+                "label": "Importance",
+                "value": str(property_preferences.get("max_distance_to_playground_importance") or "important"),
+                "options": [
+                    {"value": "must_have", "label": "Must have"},
+                    {"value": "important", "label": "Important"},
+                    {"value": "nice_to_have", "label": "Nice to have"},
+                ],
+                "tooltip": "Controls how strongly playground distance affects ranking and adaptive radius relaxation.",
                 "step": "children",
                 "hidden": True,
             },
@@ -5658,7 +5672,7 @@ def app_section_payload(
                     or [
                         row_item(
                             "First shortlist still pending",
-                            "Launch the first sweep to generate a ranked candidate lane with property pages, live tours, and visible fit reasons.",
+                            "Launch the first sweep to generate ranked candidates with property pages, live tours, and visible fit reasons.",
                             "First run",
                         )
                     ],

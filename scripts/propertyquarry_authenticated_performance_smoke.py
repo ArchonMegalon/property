@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 from fastapi.testclient import TestClient
 
@@ -173,8 +174,39 @@ SETTINGS_MOBILE_PATHS = {
 }
 
 
-def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, object]]:
+def _asset_text(client: TestClient, path: str) -> str:
+    try:
+        response = client.get(path, headers={"host": "propertyquarry.com", "accept-encoding": "identity"})
+    except Exception:
+        return ""
+    if response.status_code != 200:
+        return ""
+    return response.text or ""
+
+
+def _workbench_css_path_for_route(path: str, body: str) -> str:
+    match = re.search(r'href="(?P<href>/app/assets/property-workbench\.css[^"]*)"', body)
+    if match:
+        return str(match.group("href") or "").strip()
     normalized_path = str(path or "").split("?", 1)[0]
+    if normalized_path in CONTENT_FIRST_MOBILE_PATHS:
+        return "/app/assets/property-workbench.css?surface=static"
+    return "/app/assets/property-workbench.css"
+
+
+def _has_css_min_height_at_least(css_body: str, minimum_px: int = 44) -> bool:
+    for value in re.findall(r"min-height\s*:\s*(\d+)px", css_body, flags=re.IGNORECASE):
+        try:
+            if int(value) >= minimum_px:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _mobile_surface_contract_checks(path: str, body: str, *, css_body: str = "") -> list[dict[str, object]]:
+    normalized_path = str(path or "").split("?", 1)[0]
+    surface_markup = f'data-pqx-surface="{normalized_path.rsplit("/", 1)[-1]}"'
     if normalized_path == "/sign-in":
         return [
             {
@@ -213,9 +245,9 @@ def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, obje
                 },
                 {
                     "name": "mobile_static_switch_suppressed",
-                    "ok": ".pqx-shell[data-pqx-surface=\"account\"] .pqx-mobile-switch" in body
-                    and ".pqx-shell[data-pqx-surface=\"billing\"] .pqx-mobile-switch" in body
-                    and ".pqx-shell[data-pqx-surface=\"alerts\"] .pqx-mobile-switch" in body,
+                    "ok": ".pqx-shell[data-pqx-surface=\"account\"] .pqx-mobile-switch" in css_body
+                    and ".pqx-shell[data-pqx-surface=\"billing\"] .pqx-mobile-switch" in css_body
+                    and ".pqx-shell[data-pqx-surface=\"alerts\"] .pqx-mobile-switch" in css_body,
                 },
             )
         )
@@ -223,7 +255,14 @@ def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, obje
         checks.append(
             {
                 "name": "mobile_settings_surface",
-                "ok": "data-property-research-topnav" in body and "/app/settings/" in body,
+                "ok": (
+                    "data-property-research-topnav" in body
+                    and (
+                        "/app/settings/" in body
+                        or "/app/account?settings_view=" in body
+                        or surface_markup in body
+                    )
+                ),
             }
         )
     else:
@@ -237,18 +276,42 @@ def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, obje
                     "name": "mobile_top_navigation_touch_targets",
                     "ok": (
                         "data-property-research-topnav" in body
-                        and (
-                            "min-height: 44px" in body
-                            or "min-height: 46px" in body
-                            or "min-height: 48px" in body
-                            or "min-height: 52px" in body
-                            or "min-height: 56px" in body
-                        )
+                        and _has_css_min_height_at_least(css_body, 44)
                     ),
                 },
             )
         )
     return checks
+
+
+def _allowed_billing_handoff_hosts() -> set[str]:
+    urls = [
+        "https://billing.propertyquarry.test/",
+        "https://billing.propertyquarry.com/",
+        str(os.environ.get("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL") or ""),
+        str(os.environ.get("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL") or ""),
+    ]
+    urls.extend(
+        part.strip()
+        for part in str(os.environ.get("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URLS") or "").split(",")
+        if part.strip()
+    )
+    hosts: set[str] = set()
+    for raw_url in urls:
+        parsed = urlparse(str(raw_url or "").strip())
+        if parsed.scheme == "https" and parsed.netloc:
+            hosts.add(parsed.netloc.lower())
+    return hosts
+
+
+def _billing_handoff_redirect_ok(*, path: str, status_code: int, location: str) -> tuple[bool, str]:
+    if path != "/app/billing" or status_code not in {303, 307}:
+        return False, ""
+    parsed = urlparse(str(location or "").strip())
+    host = parsed.netloc.lower()
+    if parsed.scheme != "https" or not host:
+        return False, host
+    return host in _allowed_billing_handoff_hosts(), host
 
 
 def _rybbit_surface_contract_checks(path: str, body: str) -> list[dict[str, object]]:
@@ -583,11 +646,14 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
             duration_ms = retry_duration_ms
     body = response.text or ""
     lowered_body = body.lower()
+    css_body = ""
+    if path != "/app/billing":
+        css_body = _asset_text(client, _workbench_css_path_for_route(path, body))
     billing_redirect_location = str(response.headers.get("location") or "").strip()
-    billing_handoff_redirect_ok = (
-        path == "/app/billing"
-        and response.status_code in {303, 307}
-        and billing_redirect_location.startswith("https://billing.propertyquarry.test/")
+    billing_handoff_redirect_ok, billing_redirect_host = _billing_handoff_redirect_ok(
+        path=path,
+        status_code=response.status_code,
+        location=billing_redirect_location,
     )
     noise_hits = [
         phrase
@@ -607,11 +673,11 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
             {
                 "name": "billing_external_handoff_redirect",
                 "ok": True,
-                "location_host": "billing.propertyquarry.test",
+                "location_host": billing_redirect_host,
             }
         )
     elif not billing_fail_closed_ok:
-        checks.extend(_mobile_surface_contract_checks(path, body))
+        checks.extend(_mobile_surface_contract_checks(path, body, css_body=css_body))
         checks.extend(_rybbit_surface_contract_checks(path, body))
     if path == "/app/search":
         content_encoding = str(response.headers.get("content-encoding") or "").strip().lower()
@@ -639,11 +705,11 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {
                     "name": "what_matters_distance_controls_compact",
                     "ok": (
-                        "grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 320px));" in body
-                        and "justify-content: start;" in body
-                        and "max-width: 150px;" in body
-                        and "grid-template-columns: minmax(0, 1fr) minmax(104px, 110px) minmax(96px, 100px);" in body
-                        and "grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));" not in body
+                        "grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 320px));" in css_body
+                        and "justify-content: start;" in css_body
+                        and "max-width: 150px;" in css_body
+                        and "grid-template-columns: minmax(0, 1fr) minmax(104px, 110px) minmax(96px, 100px);" in css_body
+                        and "grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));" not in css_body
                     ),
                 },
                 {
@@ -668,11 +734,16 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         )
     if path.startswith("/app/properties") or path.startswith("/app/shortlist"):
         compare_hits = [token for token in FORBIDDEN_COMPARE_CARD_TOKENS if token in body]
+        has_ranked_results_shell = (
+            ('data-workbench-results-table' in body and "pqx-rank" in body)
+            or ('data-pqx-ranked-candidates' in body and "pqx-rank" in body)
+            or ('data-pq-fast-ranked-run' in body and "ranked homes" in lowered_body)
+        )
         checks.extend(
             (
                 {
                     "name": "results_ranking_only_no_compare_cards",
-                    "ok": 'data-workbench-results-table' in body and "pqx-rank" in body and not compare_hits,
+                    "ok": has_ranked_results_shell and not compare_hits,
                     "detail": ", ".join(compare_hits[:5]),
                 },
                 {
@@ -753,18 +824,22 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "account_no_top_dropdown_duplicate_logout", "ok": '<form class="pqx-account-menu-form"' not in body},
                 {
                     "name": "account_logout_mobile_target",
-                    "ok": ".pqx-account-logout-strip-form .pqx-link-button" in body
+                    "ok": ".pqx-account-logout-strip-form .pqx-link-button" in css_body
                     and (
-                        "min-height: 46px;" in body
-                        or "min-height: 48px;" in body
-                        or "min-height: 52px;" in body
-                        or "min-height: 56px;" in body
+                        "min-height: 46px;" in css_body
+                        or "min-height: 48px;" in css_body
+                        or "min-height: 52px;" in css_body
+                        or "min-height: 56px;" in css_body
                     ),
                 },
                 {
                     "name": "notification_destination_controls",
                     "ok": all(token in body for token in ("Email", "Telegram", "WhatsApp"))
-                    and ("Destination mix" in body or "Strong matches can land in more than one place." in body),
+                    and (
+                        "Destination mix" in body
+                        or "Strong matches can land in more than one place." in body
+                        or "Where matches arrive" in body
+                    ),
                 },
                 {
                     "name": "notification_primary_channel_controls",

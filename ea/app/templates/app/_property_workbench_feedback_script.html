@@ -235,7 +235,8 @@
         });
       }
       const visualPropertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
-      if (!tour.url && visualPropertyUrl) {
+      const visualMediaReady = Boolean(String(candidate.floorplan_url || candidate.source_virtual_tour_url || candidate.vendor_tour_url || tour.provider_url || '').trim());
+      if (!tour.url && visualMediaReady && visualPropertyUrl) {
         appendActionControl(actions, {
           label: 'Request 3D tour',
           attributes: {
@@ -276,7 +277,7 @@
       const status = document.createElement('div');
       status.className = 'pqx-decision-status';
       status.setAttribute('data-pw-visual-request-status', '');
-      status.textContent = !tour.url
+      status.textContent = (!tour.url && visualMediaReady)
         ? 'Need a closer look? Request a 3D tour or walkthrough.'
         : '';
       details.appendChild(status);

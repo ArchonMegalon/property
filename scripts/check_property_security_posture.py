@@ -52,7 +52,8 @@ def build_security_posture_receipt() -> dict[str, object]:
         "PROPERTYQUARRY_DB_SERVICE": "propertyquarry-db",
         "PROPERTYQUARRY_API_CONTAINER_NAME": "propertyquarry-api",
         "PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME": "propertyquarry-scheduler",
-        "PROPERTYQUARRY_DB_CONTAINER_NAME": "propertyquarry-db",
+        "PROPERTYQUARRY_DB_CONTAINER_NAME": "propertyquarry-db-live",
+        "PROPERTYQUARRY_RENDER_CONTAINER_NAME": "propertyquarry-render-tools",
     }
     for env_name, expected_value in expected_service_aliases.items():
         if not re.search(rf"^{re.escape(env_name)}={re.escape(expected_value)}$", env_example, flags=re.MULTILINE):
@@ -78,7 +79,8 @@ def build_security_posture_receipt() -> dict[str, object]:
     expected_container_name_envs = (
         'container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"',
         'container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"',
-        'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db}"',
+        'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db-live}"',
+        'container_name: "${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"',
     )
     for expected in expected_container_name_envs:
         if expected not in compose:
@@ -93,6 +95,18 @@ def build_security_posture_receipt() -> dict[str, object]:
         failures.append("docker-compose.property.yml must default EA_RUNTIME_MODE to prod")
     if 'PROPERTYQUARRY_SCHEDULER_PROFILE: "${PROPERTYQUARRY_SCHEDULER_PROFILE:-property_only}"' not in compose:
         failures.append("docker-compose.property.yml must default the scheduler to property_only")
+    if "dockerfile: ea/Dockerfile.property-web" not in compose:
+        failures.append("docker-compose.property.yml must run API/scheduler from the lightweight web runtime")
+    if "image: propertyquarry-web-runtime:latest" not in compose:
+        failures.append("docker-compose.property.yml must name the lightweight web runtime image")
+    if "propertyquarry-render-tools:" not in compose or "render-tools" not in compose:
+        failures.append("docker-compose.property.yml must expose an explicit render-tools profile")
+    if "image: propertyquarry-render-runtime:latest" not in compose:
+        failures.append("docker-compose.property.yml must name the render tooling image separately")
+    if re.search(r"^\s+user:\s*[\"']?0(?::0)?[\"']?\s*$", compose, flags=re.MULTILINE):
+        failures.append("docker-compose.property.yml must not run property web services as root")
+    if "SYS_NICE" in compose:
+        failures.append("docker-compose.property.yml must not grant SYS_NICE to property web services")
 
     dockerfile = _read("ea/Dockerfile.property")
     if not re.search(r"^FROM\s+\S+@sha256:[0-9a-f]{64}\s*$", dockerfile, flags=re.MULTILINE):
@@ -107,6 +121,25 @@ def build_security_posture_receipt() -> dict[str, object]:
         failures.append("ea/Dockerfile.property must explicitly copy the Willhaben packet helper")
     if "for script in /tmp/src/scripts/*" in dockerfile or 'cp "$script" /app/scripts/' in dockerfile:
         failures.append("ea/Dockerfile.property must not bulk-copy scripts into the runtime image")
+    web_dockerfile = _read("ea/Dockerfile.property-web")
+    if not re.search(r"^FROM\s+\S+@sha256:[0-9a-f]{64}\s*$", web_dockerfile, flags=re.MULTILINE):
+        failures.append("ea/Dockerfile.property-web must pin its base image by digest")
+    if " docker.io" in web_dockerfile or "docker-compose" in web_dockerfile or "docker-29." in web_dockerfile:
+        failures.append("ea/Dockerfile.property-web must not install Docker tooling")
+    if not re.search(r"^USER\s+ea\s*$", web_dockerfile, flags=re.MULTILINE):
+        failures.append("ea/Dockerfile.property-web must run as USER ea")
+    if "requirements.lock" not in web_dockerfile or "-c requirements.lock" not in web_dockerfile:
+        failures.append("ea/Dockerfile.property-web must install with requirements.lock constraints")
+    if "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" not in web_dockerfile:
+        failures.append("ea/Dockerfile.property-web must explicitly copy the Willhaben packet helper")
+    if "for script in /tmp/src/scripts/*" in web_dockerfile or 'cp "$script" /app/scripts/' in web_dockerfile:
+        failures.append("ea/Dockerfile.property-web must not bulk-copy scripts into the runtime image")
+    for forbidden_native_tool in ("blender", "colmap", "meshlab", "meshlabserver"):
+        if forbidden_native_tool in web_dockerfile.lower():
+            failures.append(f"ea/Dockerfile.property-web must not install native reconstruction tool {forbidden_native_tool}")
+    for forbidden_browser_payload in ("PLAYWRIGHT_BROWSERS_PATH=/ms-playwright", "python -m playwright install --with-deps chromium"):
+        if forbidden_browser_payload in web_dockerfile:
+            failures.append("ea/Dockerfile.property-web must not install browser payloads in the request-serving image")
     if not re.search(r"image:\s+\S+@sha256:[0-9a-f]{64}", compose):
         failures.append("docker-compose.property.yml must pin sidecar images by digest")
 
@@ -180,6 +213,11 @@ def build_security_posture_receipt() -> dict[str, object]:
         "property_service_aliases",
         "property_compose_isolation",
         "non_root_pinned_runtime_image",
+        "lightweight_web_runtime_split",
+        "web_runtime_browser_payload_isolation",
+        "render_tooling_profile",
+        "web_runtime_non_root_compose",
+        "web_runtime_no_sys_nice",
         "no_docker_tooling_in_property_runtime",
         "sidecar_images_pinned_by_digest",
         "public_tour_secret_and_mutation_guards",

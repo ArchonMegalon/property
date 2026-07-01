@@ -161,6 +161,7 @@ def inspect_rendered_artifact(
     all_required_ok = len(required_hits) == len(required_expected)
     required_ok = all_required_ok
     page_count = _pdf_page_count(artifact_bytes)
+    preview_required = bool(preview_output_path or require_cover_visual_dominance or require_footer_band)
     preview_png, preview_width, preview_height = _render_pdf_first_page_png(artifact_bytes, output_path=preview_output_path)
     nonwhite_ratio, top_band_nonwhite_ratio, footer_band_nonwhite_ratio = _png_visual_metrics(preview_png)
     if preview_png:
@@ -168,16 +169,21 @@ def inspect_rendered_artifact(
         cover_dominance_check = "passed" if (not require_cover_visual_dominance or top_band_nonwhite_ratio >= 0.08) else "failed"
         footer_band_check = "passed" if (not require_footer_band or footer_band_nonwhite_ratio >= 0.01) else "failed"
     else:
-        visual_preview_check = "not_run"
-        cover_dominance_check = "not_run"
-        footer_band_check = "not_run"
+        visual_preview_check = "failed" if preview_required else "not_run"
+        cover_dominance_check = "failed" if require_cover_visual_dominance else "not_run"
+        footer_band_check = "failed" if require_footer_band else "not_run"
     raw_url_text_check = "passed" if not raw_url_hits else "failed"
     if all_required_ok:
         required_check = "passed"
     else:
         required_check = "failed"
     return PremiumDossierQualityReport(
-        ok=required_ok and not forbidden_hits and not raw_url_hits and visual_preview_check != "failed" and cover_dominance_check != "failed" and footer_band_check != "failed",
+        ok=required_ok
+        and not forbidden_hits
+        and not raw_url_hits
+        and visual_preview_check != "failed"
+        and cover_dominance_check != "failed"
+        and footer_band_check != "failed",
         required_text_check=required_check,
         forbidden_text_check="passed" if not forbidden_hits else "failed",
         page_count=page_count,

@@ -291,7 +291,7 @@ db_container_name="${PROPERTYQUARRY_DB_CONTAINER_NAME:-$(effective_env_value PRO
 cloudflared_container_name="${PROPERTYQUARRY_CLOUDFLARED_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_CLOUDFLARED_CONTAINER_NAME)}"
 api_container_name="${api_container_name:-propertyquarry-api}"
 scheduler_container_name="${scheduler_container_name:-propertyquarry-scheduler}"
-db_container_name="${db_container_name:-propertyquarry-db}"
+db_container_name="${db_container_name:-propertyquarry-db-live}"
 cloudflared_container_name="${cloudflared_container_name:-propertyquarry-cloudflared}"
 
 port_owners="$(

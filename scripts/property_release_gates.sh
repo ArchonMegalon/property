@@ -79,6 +79,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_controls.py \
   --write _completion/property_tour_controls/release-gate.json \
   --summary-only
 property_api_container="${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"
+property_render_container="${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"
 if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container}" >/dev/null 2>&1; then
   docker exec "${property_api_container}" python /app/scripts/verify_property_tour_controls.py \
     --tour-root /data/public_property_tours \
@@ -100,15 +101,23 @@ if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container
     --write /data/artifacts/property-tour-export-import-manifest-release-gate-live-container.json
   docker cp "${property_api_container}:/data/artifacts/property-tour-export-import-manifest-release-gate-live-container.json" \
     _completion/property_tour_exports/release-gate-import-manifest.json
-  docker exec "${property_api_container}" python /app/scripts/verify_property_tour_vendor_tooling.py \
-    --drop-dir /data/incoming_property_tours \
-    --tour-root /data/public_property_tours \
-    --runtime-only \
-    --runtime-container "" \
-    --write /data/artifacts/property-tour-vendor-tooling-release-gate-live-container.json \
-    > /dev/null
-  docker cp "${property_api_container}:/data/artifacts/property-tour-vendor-tooling-release-gate-live-container.json" \
-    _completion/tours/property-tour-vendor-tooling-current.json
+  if docker inspect "${property_render_container}" >/dev/null 2>&1; then
+    docker exec "${property_render_container}" python /app/scripts/verify_property_tour_vendor_tooling.py \
+      --drop-dir /data/incoming_property_tours \
+      --tour-root /data/public_property_tours \
+      --runtime-only \
+      --runtime-container "" \
+      --write /data/artifacts/property-tour-vendor-tooling-release-gate-live-container.json \
+      > /dev/null
+    docker cp "${property_render_container}:/data/artifacts/property-tour-vendor-tooling-release-gate-live-container.json" \
+      _completion/tours/property-tour-vendor-tooling-current.json
+  else
+    PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_vendor_tooling.py \
+      --drop-dir "${tour_export_incoming_dir}" \
+      --tour-root "${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}" \
+      --write _completion/tours/property-tour-vendor-tooling-current.json \
+      > /dev/null
+  fi
   docker exec "${property_api_container}" python /app/scripts/property_scene_video_readiness_report.py \
     --output /data/artifacts/property-scene-video-readiness-release-gate-live-container.json
   docker exec "${property_api_container}" python /app/scripts/verify_property_scene_video_readiness.py \

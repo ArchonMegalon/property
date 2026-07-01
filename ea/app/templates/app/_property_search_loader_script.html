@@ -1,0 +1,114 @@
+(() => {
+  const loader = document.currentScript;
+  const root = document.querySelector('[data-property-decision-workbench]');
+  const fullScriptSrc = String(loader?.getAttribute('data-workbench-src') || '').trim();
+  if (!root || !fullScriptSrc) return;
+  if (root.dataset.pqWorkbenchController === 'loaded') return;
+  const urlParams = new URLSearchParams(window.location.search);
+  const deferredSavedSearchIntent = Boolean(String(urlParams.get('load_agent') || urlParams.get('run_agent') || '').trim());
+
+  let loadPromise = null;
+  const actionSelector = [
+    '[data-property-step-next]',
+    '[data-property-step-back]',
+    '[data-property-step-trigger]',
+    '[data-property-start-top]',
+    '[data-property-save]',
+    '[data-property-save-top]',
+    '[data-location-map-open]',
+    '[data-location-mode-button]',
+    '[data-checkbox-group-select-all]',
+    '[data-checkbox-group-clear-all]',
+    '[data-checkbox-group-select-scope]',
+    '[data-checkbox-group-clear-scope]',
+    '[data-pqx-save-what-matters]',
+    '[data-pqx-load-what-matters]',
+    '[data-search-agent-action]',
+    '[data-search-agent-save-current]',
+    '[data-search-agent-save-new]',
+    '[data-search-agent-reset]',
+  ].join(',');
+
+  const setBusy = (target, busy) => {
+    if (!(target instanceof HTMLElement)) return;
+    if (!target.dataset.pqHydrationLabel) {
+      target.dataset.pqHydrationLabel = String(target.textContent || '').trim();
+    }
+    target.toggleAttribute('disabled', Boolean(busy));
+    target.setAttribute('aria-busy', busy ? 'true' : 'false');
+    if (busy && target.textContent) target.textContent = 'Preparing...';
+    if (!busy && target.dataset.pqHydrationLabel) target.textContent = target.dataset.pqHydrationLabel;
+  };
+
+  const loadWorkbench = () => {
+    if (root.dataset.pqWorkbenchController === 'loaded') return Promise.resolve();
+    if (loadPromise) return loadPromise;
+    loadPromise = new Promise((resolve, reject) => {
+      const existing = [...document.querySelectorAll('script[data-pq-workbench-main]')]
+        .find((node) => String(node.getAttribute('src') || '') === fullScriptSrc);
+      if (existing) {
+        existing.addEventListener('load', () => resolve(), { once: true });
+        existing.addEventListener('error', reject, { once: true });
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = fullScriptSrc;
+      script.async = true;
+      script.dataset.pqWorkbenchMain = 'true';
+      script.addEventListener('load', () => {
+        root.dataset.pqWorkbenchController = 'loaded';
+        resolve();
+      }, { once: true });
+      script.addEventListener('error', reject, { once: true });
+      document.head.appendChild(script);
+    });
+    return loadPromise;
+  };
+
+  root.addEventListener('click', (event) => {
+    const target = event.target?.closest?.(actionSelector);
+    if (!target || !root.contains(target) || root.dataset.pqWorkbenchController === 'loaded') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    setBusy(target, true);
+    loadWorkbench()
+      .then(() => {
+        setBusy(target, false);
+        window.requestAnimationFrame(() => target.click());
+      })
+      .catch(() => {
+        setBusy(target, false);
+        const errorNode = root.querySelector('[data-property-inline-error]');
+        if (errorNode) errorNode.textContent = 'Could not prepare the search controls. Please reload.';
+      });
+  }, true);
+
+  const warmOnIntent = (event) => {
+    if (root.dataset.pqWorkbenchController === 'loaded') return;
+    if (!event.target?.closest?.('[data-console-form-variant="property_search"]')) return;
+    loadWorkbench().catch(() => {});
+  };
+  root.addEventListener('focusin', warmOnIntent, { passive: true });
+  root.addEventListener('pointerdown', warmOnIntent, { passive: true });
+  root.addEventListener('keydown', warmOnIntent, { passive: true });
+  root.addEventListener('change', warmOnIntent, { passive: true });
+
+  const scheduleQuietWarm = () => {
+    const delay = Number(loader?.getAttribute('data-quiet-warm-delay-ms') || 1400);
+    window.setTimeout(() => loadWorkbench().catch(() => {}), Number.isFinite(delay) && delay >= 0 ? delay : 1400);
+  };
+  if (deferredSavedSearchIntent) {
+    const status = root.querySelector('[data-search-agent-status], [data-property-inline-status]');
+    if (status) status.textContent = 'Loading saved search...';
+    loadWorkbench().catch(() => {
+      const errorNode = root.querySelector('[data-property-inline-error]');
+      if (errorNode) errorNode.textContent = 'Could not load the saved search controls. Please reload.';
+    });
+    return;
+  }
+  if (document.readyState === 'complete') {
+    scheduleQuietWarm();
+  } else {
+    window.addEventListener('load', scheduleQuietWarm, { once: true });
+  }
+})();

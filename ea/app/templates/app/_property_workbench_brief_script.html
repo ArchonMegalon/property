@@ -56,7 +56,7 @@
       const parsed = Number.parseInt(fieldValue(form, name), 10);
       return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     };
-    const hasUnlimitedProviderResults = () => {% if (commercial.get('max_results_per_source') or 0)|int <= 0 %}true{% else %}false{% endif %};
+    const hasUnlimitedProviderResults = () => currentResultCap() <= 0;
     const maxResultsPerSourceValue = (form) => (
       hasUnlimitedProviderResults()
         ? null
@@ -562,24 +562,10 @@
       const renderOption = (option) => {
         const optionValue = String(option.value || '').trim();
         const label = String(option.label || optionValue || 'Provider').trim();
-        const detail = String(option.detail || option.description || '').trim();
-        const homepageUrl = String(option.homepage_url || '').trim();
+        const detail = ['selected_platforms', 'location_query'].includes(name) ? '' : String(option.detail || option.description || '').trim();
+        const homepageUrl = name === 'selected_platforms' ? '' : String(option.homepage_url || '').trim();
         const searchReady = option.search_ready !== false;
         const availabilityNote = String(option.availability_note || '').trim();
-        const locationMapAttrs = name === 'location_query'
-          ? [
-              ['data-location-map-path', option.map_path],
-              ['data-location-map-label-x', option.map_label_x],
-              ['data-location-map-label-y', option.map_label_y],
-              ['data-location-map-source', option.map_source],
-            ]
-              .map(([attr, value]) => {
-                const cleanValue = String(value || '').trim();
-                return cleanValue ? `${attr}="${escapeHtml(cleanValue)}"` : '';
-              })
-              .filter(Boolean)
-              .join(' ')
-          : '';
         const homepageLink = homepageUrl
           ? `<a class="pqx-provider-link" href="${escapeHtml(homepageUrl)}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>`
           : '';
@@ -587,7 +573,7 @@
         const listingModeAttr = Array.isArray(option.supported_listing_modes) && option.supported_listing_modes.length
           ? `data-listing-modes="${escapeHtml(option.supported_listing_modes.join(','))}"`
           : '';
-        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${countryAttr} ${listingModeAttr} ${locationMapAttrs} ${searchReady && selected.has(optionValue) ? 'checked' : ''} ${searchReady ? '' : 'disabled'}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}${availabilityNote ? `<small>${escapeHtml(availabilityNote)}</small>` : ''}${homepageLink}</span></label>`;
+        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${countryAttr} ${listingModeAttr} ${searchReady && selected.has(optionValue) ? 'checked' : ''} ${searchReady ? '' : 'disabled'}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}${availabilityNote ? `<small>${escapeHtml(availabilityNote)}</small>` : ''}${homepageLink}</span></label>`;
       };
       const optionRows = Array.isArray(options) ? options : [];
       if (name === 'selected_platforms' && optionRows.some((option) => String(option?.family || '').trim())) {
@@ -601,8 +587,8 @@
         grid.innerHTML = [...grouped.entries()]
           .sort((a, b) => familyOrder.indexOf(a[0]) - familyOrder.indexOf(b[0]))
           .map(([family, items]) => {
-            const [title, detail] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped source.'];
-            return `<details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary class="pqx-disclosure-summary pqx-disclosure-summary-secondary"><span class="pqx-disclosure-copy"><strong>${escapeHtml(title)}</strong><div class="pqx-note">${escapeHtml(detail)}</div></span><span class="pqx-disclosure-icon" aria-hidden="true">+</span></summary><div class="pqx-field-tools" style="margin:8px 0 10px;"><button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Add family</button><button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear family</button></div><div class="pqx-check-grid" data-pqx-check-grid="${escapeHtml(name)}-group">${items.map(renderOption).join('')}</div></details>`;
+            const [title] = familyHeadings[family] || [String(family).replaceAll('_', ' '), 'Grouped source.'];
+            return `<details class="pqx-advanced-panel" data-provider-group-panel style="margin-top:12px;"><summary class="pqx-disclosure-summary pqx-disclosure-summary-secondary"><span class="pqx-disclosure-copy"><strong>${escapeHtml(title)}</strong></span><span class="pqx-disclosure-icon" aria-hidden="true">+</span></summary><div class="pqx-field-tools" style="margin:8px 0 10px;"><button class="pqx-field-action" type="button" data-checkbox-group-select-scope="group">Add family</button><button class="pqx-field-action" type="button" data-checkbox-group-clear-scope="group">Clear family</button></div><div class="pqx-check-grid" data-pqx-check-grid="${escapeHtml(name)}-group">${items.map(renderOption).join('')}</div></details>`;
           })
           .join('');
         return;

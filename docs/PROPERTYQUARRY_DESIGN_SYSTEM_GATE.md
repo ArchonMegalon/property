@@ -12,7 +12,14 @@ The detailed pixel/layout contract lives in:
 docs/PROPERTYQUARRY_APP_LAYOUT_GUIDE.md
 ```
 
+The stricter premium release bar lives in:
+
+```text
+docs/PROPERTYQUARRY_PREMIUM_UI_EXIT_GATE.md
+```
+
 When a UI change conflicts with a local template habit, the app layout guide wins unless the product owner explicitly approves a new pattern.
+When a UI change technically works but feels noisy, cramped, fake, or tool-like, the premium UI exit gate wins.
 
 ## Customer Surface Rules
 
