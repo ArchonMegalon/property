@@ -64,6 +64,8 @@ Environment:
   PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE
                                   Maximum accepted host nice value for API and scheduler processes.
                                   Default 10; values above this are treated as a failed deploy.
+  PROPERTYQUARRY_DEPLOY_TMP_DIR   Optional directory for transient deploy receipts. By default deploy
+                                  creates a fresh mktemp directory and copies stable receipts into _completion.
 EOF
 }
 
@@ -86,6 +88,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 cd "${APP_ROOT}"
+
+deploy_tmp_dir="${PROPERTYQUARRY_DEPLOY_TMP_DIR:-}"
+if [[ -n "${deploy_tmp_dir}" ]]; then
+  mkdir -p "${deploy_tmp_dir}"
+else
+  deploy_tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/propertyquarry-deploy.XXXXXX")"
+fi
 
 if [[ ! -f "${COMPOSE_FILE}" ]]; then
   echo "Compose file not found: ${COMPOSE_FILE}" >&2
@@ -568,7 +577,7 @@ PY
     echo "Warning: billing worker bootstrap skipped because the public host or upstream target host is missing." >&2
     return 0
   fi
-  local worker_receipt="/tmp/propertyquarry_billing_edge_worker.json"
+  local worker_receipt="${deploy_tmp_dir}/propertyquarry_billing_edge_worker.json"
   local bridge_path="/sso/propertyquarry"
   if [[ -n "${bd_bridge_url}" ]]; then
     local parsed_bridge_path
@@ -616,7 +625,7 @@ if [[ "${landing_html}" != *PropertyQuarry* ]]; then
   exit 1
 fi
 
-app_status="$(curl -sS --connect-timeout 2 --max-time "${core_probe_timeout_seconds}" -o /tmp/propertyquarry_deploy_app_probe.html -w '%{http_code}' "${base_url}/app/properties" || true)"
+app_status="$(curl -sS --connect-timeout 2 --max-time "${core_probe_timeout_seconds}" -o "${deploy_tmp_dir}/propertyquarry_deploy_app_probe.html" -w '%{http_code}' "${base_url}/app/properties" || true)"
 case "${app_status}" in
   401|302|303) ;;
   *)
@@ -625,7 +634,7 @@ case "${app_status}" in
     ;;
 esac
 
-public_smoke_receipt="/tmp/propertyquarry_deploy_public_smoke.json"
+public_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_public_smoke.json"
 public_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PUBLIC_SMOKE_TIMEOUT_SECONDS:-8}"
 if ! PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py \
   --base-url "${base_url}" \
@@ -638,7 +647,7 @@ fi
 mkdir -p _completion/smoke
 cp "${public_smoke_receipt}" _completion/smoke/property-live-public-latest.json
 
-authenticated_smoke_receipt="/tmp/propertyquarry_deploy_authenticated_smoke.json"
+authenticated_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_authenticated_smoke.json"
 authenticated_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_AUTHENTICATED_SMOKE_TIMEOUT_SECONDS:-20}"
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_authenticated_smoke.py \
   --base-url "${base_url}" \
@@ -652,7 +661,7 @@ if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_li
 fi
 cp "${authenticated_smoke_receipt}" _completion/smoke/property-live-authenticated-latest.json
 
-mobile_smoke_receipt="/tmp/propertyquarry_deploy_mobile_smoke.json"
+mobile_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_mobile_smoke.json"
 mobile_smoke_timeout_ms="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
 mobile_smoke_process_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIMEOUT_SECONDS:-300}"
 rm -f "${mobile_smoke_receipt}"
@@ -670,7 +679,7 @@ if ! timeout "${mobile_smoke_process_timeout_seconds}" env EA_API_TOKEN="${api_t
 fi
 cp "${mobile_smoke_receipt}" _completion/smoke/property-live-mobile-surface-latest.json
 
-map_preview_gate_receipt="/tmp/propertyquarry_deploy_map_preview_flagship.json"
+map_preview_gate_receipt="${deploy_tmp_dir}/propertyquarry_deploy_map_preview_flagship.json"
 map_preview_gate_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MAP_PREVIEW_GATE_TIMEOUT_SECONDS:-60}"
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_map_preview_flagship_gate.py \
   --base-url "${base_url}" \
@@ -685,7 +694,7 @@ if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_ma
 fi
 cp "${map_preview_gate_receipt}" _completion/smoke/property-live-map-preview-flagship-latest.json
 
-market_scope_smoke_receipt="/tmp/propertyquarry_deploy_market_scope_smoke.json"
+market_scope_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_market_scope_smoke.json"
 market_scope_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MARKET_SCOPE_SMOKE_TIMEOUT_SECONDS:-8}"
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_market_scope_smoke.py \
   --base-url "${base_url}" \
@@ -698,7 +707,7 @@ if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_li
 fi
 cp "${market_scope_smoke_receipt}" _completion/smoke/property-live-market-scope-latest.json
 
-provider_smoke_receipt="/tmp/propertyquarry_deploy_provider_smoke.json"
+provider_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_provider_smoke.json"
 provider_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PROVIDER_SMOKE_TIMEOUT_SECONDS:-20}"
 provider_search_run_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PROVIDER_SEARCH_RUN_TIMEOUT_SECONDS:-60}"
 provider_smoke_mode="catalog"
@@ -787,7 +796,7 @@ elif [[ "${presentation_e2e_mode}" != "0" && "${presentation_e2e_mode}" != "fals
 fi
 
 if (( run_presentation_e2e == 1 )); then
-  presentation_e2e_receipt="/tmp/propertyquarry_deploy_presentation_e2e.json"
+  presentation_e2e_receipt="${deploy_tmp_dir}/propertyquarry_deploy_presentation_e2e.json"
   presentation_provider_matrix_args=()
   if [[ "${provider_smoke_mode}" == "e2e" ]]; then
     presentation_provider_matrix_args+=(--require-provider-matrix)
@@ -806,7 +815,7 @@ if (( run_presentation_e2e == 1 )); then
   fi
   cp "${presentation_e2e_receipt}" _completion/smoke/property-live-presentation-e2e-latest.json
 
-  browser_3d_gate_receipt="/tmp/propertyquarry_deploy_3d_browser_gate.json"
+  browser_3d_gate_receipt="${deploy_tmp_dir}/propertyquarry_deploy_3d_browser_gate.json"
   if ! PYTHONPATH=ea python3 scripts/propertyquarry_3d_browser_gate.py \
     --base-url "${base_url}" \
     --host-header "propertyquarry.com" \
@@ -819,7 +828,7 @@ if (( run_presentation_e2e == 1 )); then
   fi
   cp "${browser_3d_gate_receipt}" _completion/smoke/property-live-3d-browser-gate-latest.json
 
-  walkthrough_quality_receipt="/tmp/propertyquarry_deploy_walkthrough_quality.json"
+  walkthrough_quality_receipt="${deploy_tmp_dir}/propertyquarry_deploy_walkthrough_quality.json"
   if ! PYTHONPATH=ea python3 scripts/propertyquarry_walkthrough_quality_gate.py \
     --tour-root state/public_property_tours \
     --write "${walkthrough_quality_receipt}" >/dev/null; then

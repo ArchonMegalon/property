@@ -72,6 +72,7 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "PROPERTYQUARRY_GOLD_NOTIFICATION_STATE",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BOOTSTRAP_EDGE",
         "PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE",
+        "PROPERTYQUARRY_DEPLOY_TMP_DIR",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_URL",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET",
         "scripts/bootstrap_billing_handoff_worker.py",
