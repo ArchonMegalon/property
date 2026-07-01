@@ -357,6 +357,7 @@ def _seed_research_detail_headers(*, base_url: str, api_token: str, principal_id
     if api_token:
         headers["Authorization"] = f"Bearer {api_token}"
         headers["X-EA-API-Token"] = api_token
+        headers["X-API-Token"] = api_token
     return headers
 
 
@@ -900,10 +901,12 @@ def build_live_mobile_surface_receipt(
     headers = {
         "X-EA-Principal-ID": principal_id,
         "Accept": "text/html,application/xhtml+xml",
+        "User-Agent": SEED_FIXTURE_USER_AGENT,
     }
     if api_token:
         headers["Authorization"] = f"Bearer {api_token}"
         headers["X-EA-API-Token"] = api_token
+        headers["X-API-Token"] = api_token
     browser_args: list[str] = []
     navigation_base_url = base_url
     normalized_host_header = str(host_header or "").strip()

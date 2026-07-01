@@ -470,6 +470,7 @@ def test_live_mobile_smoke_seed_headers_include_public_edge_safe_metadata() -> N
         "Host": "propertyquarry.com",
         "Authorization": "Bearer secret-token",
         "X-EA-API-Token": "secret-token",
+        "X-API-Token": "secret-token",
     }
 
 
@@ -519,6 +520,7 @@ def test_live_mobile_smoke_seed_fixture_posts_with_browser_like_headers(monkeypa
         "Host": "propertyquarry.com",
         "Authorization": "Bearer secret-token",
         "X-Ea-Api-Token": "secret-token",
+        "X-Api-Token": "secret-token",
     }
     candidate = dict(captured["body"]["saved_shortlist_candidates"][0])
     assert candidate["candidate_ref"] == "perf-candidate-1020"

@@ -247,6 +247,7 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     billing = (repo_root / "ea/app/templates/app/_property_billing_panel.html").read_text(encoding="utf-8")
     workbench = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    static_surface_script = (repo_root / "ea/app/templates/app/_property_static_surface_script.html").read_text(encoding="utf-8")
 
     assert "Signal later" not in account
     assert "PropertyQuarry bot <small>Telegram</small>" not in account
@@ -263,6 +264,8 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert "syncMobileDetailsAccordion" in workbench_script
     assert "details.pqx-mobile-fold" in workbench_script
     assert "initializeMobileFoldAccordions" in workbench_script
+    assert "pqxMobileFoldCaptureBound" in workbench_script
+    assert "pqxMobileFoldCaptureBound" in static_surface_script
 
     assert "<h2>Billing</h2>" in billing
     assert "<h2>{{ card.get('title') }}</h2>" in billing

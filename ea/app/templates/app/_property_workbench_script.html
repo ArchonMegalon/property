@@ -3320,6 +3320,21 @@
         }
       });
     };
+    if (root.dataset.pqxMobileFoldCaptureBound !== 'true') {
+      root.dataset.pqxMobileFoldCaptureBound = 'true';
+      root.addEventListener('toggle', (event) => {
+        const details = event.target;
+        if (!(details instanceof HTMLDetailsElement)) return;
+        if (!details.matches('details.pqx-mobile-fold')) return;
+        if (!details.open) return;
+        syncMobileDetailsAccordion({
+          selector: 'details.pqx-mobile-fold',
+          openedPanel: details,
+          container: root,
+          forceSingleOpen: true,
+        });
+      }, true);
+    }
     bindMobileAccordionPanels({ selector: 'details.pqx-mobile-fold', container: root });
     const initializeMobileFoldAccordions = () => {
       if (!window.matchMedia('(max-width: 760px)').matches) return;

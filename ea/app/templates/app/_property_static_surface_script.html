@@ -64,6 +64,16 @@
         }
       });
     };
+    if (root.dataset.pqxMobileFoldCaptureBound !== 'true') {
+      root.dataset.pqxMobileFoldCaptureBound = 'true';
+      root.addEventListener('toggle', (event) => {
+        const details = event.target;
+        if (!(details instanceof HTMLDetailsElement)) return;
+        if (!details.matches('details.pqx-mobile-fold')) return;
+        if (!details.open) return;
+        syncMobileDetailsAccordion(details, true);
+      }, true);
+    }
     const resolveMobileFoldTarget = () => {
       const hash = String(window.location.hash || '').trim().replace(/^#/, '');
       if (!hash) return null;
