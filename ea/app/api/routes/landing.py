@@ -6405,7 +6405,7 @@ def app_shell(
                 force_recent_runs=str(full or "").strip().lower() in {"1", "true", "yes"},
                 defer_run_hydration=(
                     not normalized_run_id
-                    and resolved_section in {"properties", "search", "shortlist", "agents", "alerts"}
+                    and resolved_section in {"properties", "search", "shortlist", "agents", "alerts", "account", "billing", "settings"}
                     and str(full or "").strip().lower() not in {"1", "true", "yes"}
                 ),
             )
