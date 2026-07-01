@@ -2899,7 +2899,8 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
     assert "Could not load property search status." not in visible_source
-    assert "179 homes found" in visible_source
+    assert "Found" in visible_source
+    assert "179" in visible_source
     assert "29 providers" in visible_source
     assert "Found" in visible_source
     assert "To review" in visible_source
@@ -2908,6 +2909,61 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     visible_reliability = html.unescape(re.sub(r"<[^>]+>", " ", reliability_match.group("reliability")))
     assert "Could not load property search status." not in visible_reliability
     assert "179 homes found" in visible_reliability
+
+
+def test_propertyquarry_running_panel_separates_source_work_from_found_queue(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-running-source-work-queue")
+    start_workspace(client, mode="personal", workspace_name="Running Source Work Office")
+
+    def _fake_active_run(self, *, principal_id: str):
+        return {"run_id": "run-live-source-work", "status": "in_progress"}
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 37,
+            "message": "Could not load property search status.",
+            "summary": {
+                "status": "in_progress",
+                "provider_total": 29,
+                "source_variant_total": 250,
+                "sources_total": 250,
+                "sources_completed": 70,
+                "raw_listing_total": 70,
+                "reviewed_listing_total": 70,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-live-source-work"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
+    assert message_match
+    visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
+    assert "70 homes found so far. 0 waiting for review. 180 source checks still open." in visible_message
+
+    source_match = re.search(
+        r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
+        response.text,
+        re.S,
+    )
+    assert source_match
+    visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
+    assert "70 of 250 sources checked" in visible_source
+    assert "180 waiting" in visible_source
+    assert "Found" in visible_source
+    assert "70" in visible_source
+    assert "To review" in visible_source
+    assert "0" in visible_source
+    assert "Reviewed" not in visible_source
 
 
 def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(monkeypatch) -> None:
@@ -13435,7 +13491,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "event_label = 'Recovery'" in running_body
     assert "progress_message_display" in body
     assert "reliability_message_display" in body
-    assert 'resolved_section in {"properties", "search", "shortlist", "agents", "alerts"}' in (
+    assert 'resolved_section in {"properties", "search", "shortlist", "agents", "alerts", "account", "billing", "settings"}' in (
         repo_root / "ea/app/api/routes/landing.py"
     ).read_text(encoding="utf-8")
     assert ".reverse().slice(0, 10)" in script_body
@@ -14027,8 +14083,8 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'data-pqx-progress-board' in live.text
     assert 'data-pqx-progress-eta' in live.text
     assert "42% · about 6 min" in live.text
-    assert "20 of 117 provider checks" in live.text
-    assert "179 homes found" in live.text
+    assert "20 of 117 sources checked" in live.text
+    assert "179 homes found so far" in live.text
     assert "29 providers" in live.text
     assert 'class="pqx-live-review-bars"' in live.text
     assert "searches running" not in live.text

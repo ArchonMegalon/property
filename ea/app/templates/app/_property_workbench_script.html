@@ -1943,6 +1943,64 @@
       }
       return 'One source changed, so PropertyQuarry is retrying it.';
     };
+    const runSourceWorkCounts = (summary = {}, statusValue = '') => {
+      const sourceRows = Array.isArray(summary?.sources) ? summary.sources : [];
+      const sourceTotal = Math.max(
+        0,
+        Number(summary?.source_variant_total || summary?.sources_total || 0),
+        sourceRows.length,
+      );
+      let countedDone = 0;
+      let active = 0;
+      let failed = 0;
+      sourceRows.forEach((source) => {
+        const status = String(source?.status || source?.state || '').trim().toLowerCase();
+        const hasError = Boolean(source?.error);
+        if (['completed', 'processed', 'done', 'success', 'repaired', 'skipped', 'failed', 'error'].includes(status) || hasError) {
+          countedDone += 1;
+        } else if (['running', 'processing', 'in_progress', 'working', 'starting', 'warming', 'repairing'].includes(status)) {
+          active += 1;
+        }
+        if (['failed', 'error'].includes(status) || hasError) failed += 1;
+      });
+      const summaryDone = Math.max(0, Number(summary?.sources_completed || summary?.completed_sources || 0));
+      let done = Math.max(summaryDone, countedDone);
+      const status = String(statusValue || summary?.status || '').trim().toLowerCase();
+      if (sourceTotal > 0 && ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'].includes(status)) {
+        done = sourceTotal;
+        active = 0;
+      }
+      const waiting = Math.max(0, sourceTotal - done - active);
+      return {
+        total: sourceTotal,
+        done,
+        active,
+        waiting,
+        open: active + waiting,
+        failed,
+      };
+    };
+    const runSourceWorkLabel = (counts, providerDisplayTotal = 0) => {
+      if (counts?.total > 0) return `${counts.done} of ${counts.total} sources checked`;
+      if (providerDisplayTotal > 0) return `${providerDisplayTotal} providers selected`;
+      return 'Search warming up';
+    };
+    const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '') => {
+      if (counts?.active > 0) return `${counts.active} active`;
+      if (counts?.waiting > 0) return `${counts.waiting} waiting`;
+      if (found > 0 && toReview > 0) return `${toReview} to review`;
+      if (found > 0) return '0 waiting for review';
+      return fallback || 'Waiting for first listings';
+    };
+    const runFoundQueueMessage = (found, toReview, sourceWork) => {
+      if (!(found > 0)) return '';
+      if (sourceWork?.open > 0) {
+        return `${found} homes found so far. ${toReview} waiting for review. ${sourceWork.open} source checks still open.`;
+      }
+      return toReview > 0
+        ? `Found ${found} homes. ${toReview} still to review.`
+        : `Found ${found} homes. Review queue is clear.`;
+    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
       const status = String(runPayload?.status || summary?.status || '').trim().toLowerCase();
@@ -1972,6 +2030,7 @@
       const completedSources = Number(summary.sources_completed || summary.completed_sources || 0);
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
+      const sourceWork = runSourceWorkCounts(summary, status);
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const found = Math.max(Number(summary.raw_listing_total || 0), reviewed);
       const toReview = Math.max(0, found - reviewed);
@@ -1980,7 +2039,7 @@
         ? `${completedSources} of ${sourceVariantTotal} provider checks`
         : '';
       const scanLabel = found > 0
-        ? checkedLabel
+        ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork) : checkedLabel)
         : (providerDisplayTotal ? `${providerDisplayTotal} providers selected` : checkedLabel);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
@@ -2056,6 +2115,7 @@
       const found = Math.max(Number(summary.raw_listing_total || 0), reviewed);
       const toReview = Math.max(0, found - reviewed);
       const providers = Number(summary.provider_total || summary.source_variant_total || 0);
+      const sourceWork = runSourceWorkCounts(summary, status);
       const compactFoundMessage = `${found} homes found`;
       const compactQueueMessage = `${found} homes found · ${toReview} to review`;
       if (replacementRunId) {
@@ -2084,9 +2144,7 @@
         || (found > 0 && (raw === compactFoundMessage || raw === compactQueueMessage))
       ) {
         if (found > 0) {
-          return toReview > 0
-            ? `Found ${found} homes. ${toReview} still to review.`
-            : `Found ${found} homes. Review queue is clear.`;
+          return runFoundQueueMessage(found, toReview, sourceWork);
         }
         if (providers > 0) {
           return 'Preparing providers.';
@@ -2448,15 +2506,12 @@
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const found = Math.max(Number(summary.raw_listing_total || 0), reviewed);
       const toReview = Math.max(0, found - reviewed);
+      const sourceWork = runSourceWorkCounts(summary, status);
       const checkedLabel = found > 0 ? `${found} homes found` : 'checking';
       const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
         ? `${completedSources} of ${sourceVariantTotal} provider checks`
         : '';
-      const scanCountLabel = found > 0
-        ? checkedLabel
-        : (providerDisplayTotal
-          ? `${providerDisplayTotal} providers selected`
-          : (completedSources > 0 || sourceVariantTotal > 0 ? 'Checking providers' : 'Search warming up'));
+      const scanCountLabel = runSourceWorkLabel(sourceWork, providerDisplayTotal);
       const reviewDenominator = Math.max(found, reviewed, 1);
       const foundBarPct = (found > 0 || reviewed > 0) ? 100 : 0;
       const toReviewBarPct = toReview > 0 ? Math.round((toReview / reviewDenominator) * 100) : 0;
@@ -2476,9 +2531,12 @@
       const planCap = isAgentPlanKey(planKey) ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(0, Number(summary?.provider_workers?.worker_concurrency || 0));
       const workerTooltip = 'This shows which sources are running, queued, recovered, or unavailable for this search. Other saved searches keep their own progress.';
-      const sourceMeta = found > 0
-        ? (toReview > 0 ? `${toReview} homes to review` : 'Review queue clear')
-        : (sourceProgressLabel || (providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Waiting for first listings'));
+      const sourceMeta = runSourceMetaLabel(
+        sourceWork,
+        found,
+        toReview,
+        sourceProgressLabel || (providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Waiting for first listings'),
+      );
       let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first provider update.';
       const sourceRows = Array.isArray(summary.sources) ? summary.sources : [];
       const activeSourceLabel = canonicalSourceLabel(liveInfo.sourceLabel || parseRunMessageInfo(runPayload?.message).sourceLabel || '');
@@ -2669,10 +2727,11 @@
           <div class="pqx-pulse-line" aria-hidden="true"></div>
         </div>
         <div class="pqx-source-progress" data-pqx-source-progress>
-          <div class="pqx-source-progress-head">
-	            <strong data-pqx-radar-count>${escapeHtml(scanCountLabel)}</strong>
-	            <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
-          </div>
+	          <div class="pqx-source-progress-head">
+		            <strong data-pqx-radar-count>${escapeHtml(scanCountLabel)}</strong>
+		            <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
+		            ${sourceWork.waiting > 0 && sourceWork.active > 0 ? `<span class="pqx-small">${escapeHtml(sourceWork.waiting)} waiting</span>` : ''}
+	          </div>
 	          ${liveFraction ? `<span class="pqx-small">${escapeHtml(liveFraction)}</span>` : ''}
 	          <span class="pqx-note">${escapeHtml(phaseMeta)}</span>
 	          <div class="pqx-live-review-bars" aria-label="Homes found and waiting for review">

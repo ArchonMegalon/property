@@ -702,12 +702,15 @@ def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
     reviewed = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
     found = max(_positive_int(summary.get("raw_listing_total")), reviewed)
     to_review = max(0, found - reviewed)
+    source_work = _property_run_source_work_counts(summary)
     provider_total = _positive_int(
         summary.get("provider_total")
         or summary.get("source_variant_total")
         or summary.get("sources_total")
     )
     if found > 0:
+        if source_work["open"] > 0:
+            return f"{found} homes found so far. {to_review} waiting for review. {source_work['open']} source checks still open."
         if to_review > 0:
             return f"Found {found} homes. {to_review} still to review."
         return f"Found {found} homes. Review queue is clear."
@@ -764,6 +767,46 @@ def _property_run_source_status_counts(summary: dict[str, object]) -> dict[str, 
     }
 
 
+def _property_run_source_work_counts(summary: dict[str, object], *, status: str = "") -> dict[str, int]:
+    source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    done_statuses = {"completed", "processed", "done", "success", "repaired", "skipped", "failed", "error"}
+    active_statuses = {"running", "processing", "in_progress", "working", "starting", "warming", "repairing"}
+    total = max(
+        _positive_int(summary.get("source_variant_total") or summary.get("sources_total")),
+        len(source_rows),
+    )
+    counted_done = 0
+    active = 0
+    failed = 0
+    for row in source_rows:
+        row_status = str(row.get("status") or row.get("state") or "").strip().lower()
+        has_error = bool(row.get("error"))
+        if row_status in done_statuses or has_error:
+            counted_done += 1
+        elif row_status in active_statuses:
+            active += 1
+        if row_status in {"failed", "error"} or has_error:
+            failed += 1
+    done = max(
+        _positive_int(summary.get("sources_completed") or summary.get("completed_sources")),
+        counted_done,
+    )
+    run_status = str(status or summary.get("status") or "").strip().lower()
+    if total > 0 and run_status in {"processed", "completed", "completed_partial", "noop", "cancelled"}:
+        done = total
+        active = 0
+    waiting = max(0, total - done - active)
+    return {
+        "total": total,
+        "done": done,
+        "active": active,
+        "waiting": waiting,
+        "open": active + waiting,
+        "failed": failed,
+        "rows": len(source_rows),
+    }
+
+
 def _property_run_count_label(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {singular if count == 1 else (plural or singular + 's')}"
 
@@ -805,6 +848,7 @@ def _property_run_synthetic_progress_events(
     if provider_total > 0:
         add("sources_resolved", f"{_property_run_count_label(provider_total, 'provider')} selected for this search.")
 
+    source_work = _property_run_source_work_counts(summary, status=status)
     if counts["rows"] or counts["done"] or counts["active"]:
         parts: list[str] = []
         if counts["done"]:
@@ -824,7 +868,9 @@ def _property_run_synthetic_progress_events(
     found_total = max(raw_found, reviewed)
     to_review = max(0, found_total - reviewed)
     if found_total > 0:
-        if to_review > 0:
+        if source_work["open"] > 0:
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found so far; {to_review} to review; {source_work['open']} source checks still open.")
+        elif to_review > 0:
             add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; {to_review} to review.")
         else:
             add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; review queue is clear.")
@@ -1742,6 +1788,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     completed_sources = _positive_int(summary.get("sources_completed") or summary.get("completed_sources"))
     provider_display_total = _property_run_provider_display_total(payload, summary)
     source_variant_total = _positive_int(summary.get("source_variant_total"), default=sources_total)
+    source_work = _property_run_source_work_counts(summary, status=status)
     reviewed_total = _positive_int(summary.get("reviewed_listing_total") or summary.get("listing_total"))
     found_total = max(_positive_int(summary.get("raw_listing_total")), reviewed_total)
     to_review_total = max(0, found_total - reviewed_total)
@@ -1758,6 +1805,8 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     scan_label = checked_label if found_total > 0 else (
         f"{provider_display_total} providers selected" if provider_display_total > 0 else checked_label
     )
+    if found_total > 0 and source_work["open"] > 0:
+        scan_label = f"{found_total} homes found so far. {to_review_total} waiting for review. {source_work['open']} source checks still open."
     no_floorplans = _positive_int(summary.get("filtered_floorplan_total"))
     current_step = str(payload.get("current_step") or "").strip().lower()
     packet_prepared = _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total"))
