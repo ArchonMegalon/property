@@ -448,9 +448,9 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     deploy = (ROOT / "scripts" / "deploy_propertyquarry.sh").read_text(encoding="utf-8")
     release = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
 
-    assert "if ! PYTHONPATH=ea python3 scripts/propertyquarry_3d_browser_gate.py" in deploy
-    assert "if ! PYTHONPATH=ea python3 scripts/propertyquarry_walkthrough_quality_gate.py" in deploy
-    assert "if ! EA_API_TOKEN=\"${api_token}\" PYTHONPATH=ea python3 scripts/propertyquarry_map_preview_flagship_gate.py" in deploy
+    assert 'if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_3d_browser_gate.py' in deploy
+    assert 'if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py' in deploy
+    assert 'if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_map_preview_flagship_gate.py' in deploy
     assert "--map-preview-flagship-receipt _completion/smoke/property-live-map-preview-flagship-latest.json" in deploy
     assert "--browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-latest.json" in deploy
     assert "--walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-latest.json" in deploy

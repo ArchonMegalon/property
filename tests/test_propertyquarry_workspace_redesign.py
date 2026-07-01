@@ -13410,6 +13410,9 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "event_label = 'Recovery'" in running_body
     assert "progress_message_display" in body
     assert "reliability_message_display" in body
+    assert 'resolved_section in {"properties", "search", "shortlist", "agents", "alerts"}' in (
+        repo_root / "ea/app/api/routes/landing.py"
+    ).read_text(encoding="utf-8")
     assert ".reverse().slice(0, 10)" in script_body
     assert "const labelRunEvent = (event) => {" in script_body
     assert "return 'Preparing search';" in script_body
@@ -13435,6 +13438,24 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     combined_state_copy = body + "\n" + state_source
     assert "Repair is retrying it" not in combined_state_copy
     assert "One source changed, so PropertyQuarry is retrying it." in combined_state_copy
+
+
+def test_property_search_loader_keeps_mobile_map_usable_before_full_hydration() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    loader = (repo_root / "ea/app/templates/app/_property_search_loader_script.html").read_text(encoding="utf-8")
+
+    assert "'[data-location-map-open]'" not in loader.split("const setBusy", 1)[0]
+    assert "'[data-location-mode-button]'" not in loader.split("const setBusy", 1)[0]
+    assert "installCriticalLocationMap" in loader
+    assert "installCriticalWhatMattersAccordion" in loader
+    assert "data-property-workspace-meta" in loader
+    assert "location_catalog_by_country_region" in loader
+    assert "dialog.showModal()" in loader
+    assert "data-location-map-district" in loader
+    assert "data-location-map-zoom" in loader
+    assert "activePointers" in loader
+    assert "details[data-what-matters-group]" in loader
+    assert "root.dataset.pqWorkbenchController === 'loaded'" in loader
 
 
 def test_property_current_best_omits_unknown_fact_placeholders() -> None:

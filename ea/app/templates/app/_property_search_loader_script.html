@@ -15,8 +15,6 @@
     '[data-property-start-top]',
     '[data-property-save]',
     '[data-property-save-top]',
-    '[data-location-map-open]',
-    '[data-location-mode-button]',
     '[data-checkbox-group-select-all]',
     '[data-checkbox-group-clear-all]',
     '[data-checkbox-group-select-scope]',
@@ -64,6 +62,434 @@
     });
     return loadPromise;
   };
+
+  const parseWorkspaceMeta = () => {
+    try {
+      const raw = root.querySelector('[data-property-workspace-meta]')?.getAttribute('data-property-workspace-meta') || '{}';
+      return JSON.parse(raw);
+    } catch (_error) {
+      return {};
+    }
+  };
+
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char] || char));
+
+  const installCriticalWhatMattersAccordion = () => {
+    root.querySelectorAll('details[data-what-matters-group]').forEach((details) => {
+      if (!(details instanceof HTMLDetailsElement) || details.dataset.pqLoaderAccordion === 'ready') return;
+      details.dataset.pqLoaderAccordion = 'ready';
+      details.addEventListener('toggle', () => {
+        if (root.dataset.pqWorkbenchController === 'loaded' || !details.open) return;
+        const panel = details.closest('[data-property-what-matters-panel]') || root;
+        panel.querySelectorAll('details[data-what-matters-group]').forEach((other) => {
+          if (other !== details && other instanceof HTMLDetailsElement) other.open = false;
+        });
+      });
+    });
+  };
+
+  const installCriticalLocationMap = () => {
+    const form = root.querySelector('[data-console-form-variant="property_search"]');
+    const locationField = form?.querySelector('[data-property-field-name="location_query"]');
+    if (!(form instanceof HTMLFormElement) || !(locationField instanceof HTMLElement)) return;
+    if (locationField.dataset.pqLoaderLocationMap === 'ready') return;
+    locationField.dataset.pqLoaderLocationMap = 'ready';
+
+    const meta = parseWorkspaceMeta();
+    const countryField = form.querySelector('[name="country_code"]');
+    const regionField = form.querySelector('[name="region_code"]');
+    const customLocationField = form.querySelector('[name="custom_location_query"]');
+    const locationGrid = locationField.querySelector('[data-pqx-check-grid="location_query"]');
+    const mapLaunch = locationField.querySelector('[data-location-map-launch]');
+    const mapOpen = locationField.querySelector('[data-location-map-open]');
+    const dialog = locationField.querySelector('[data-location-map-dialog]');
+    const picker = locationField.querySelector('[data-location-map-picker]');
+    const layer = locationField.querySelector('[data-location-map-layer]');
+    const viewport = locationField.querySelector('[data-location-map-viewport]');
+    const title = locationField.querySelector('[data-location-map-title]');
+    const caption = locationField.querySelector('[data-location-map-caption]');
+    const launchNote = locationField.querySelector('[data-location-map-launch-note]');
+    const selection = locationField.querySelector('[data-location-map-selection]');
+    const selectionSummary = locationField.querySelector('[data-location-map-selection-summary]');
+    const selectionTags = locationField.querySelector('[data-location-map-selection-tags]');
+    const closeButtons = [...locationField.querySelectorAll('[data-location-map-close]')];
+    const clearButtons = [...locationField.querySelectorAll('[data-location-map-clear]')];
+    if (!(dialog instanceof HTMLDialogElement) || !(picker instanceof HTMLElement) || !layer || !(viewport instanceof HTMLElement)) return;
+
+    let signature = '';
+    let scale = 1;
+    let panX = 0;
+    let panY = 0;
+    let scrollY = 0;
+    let previousHtmlOverflow = '';
+    let previousBodyOverflow = '';
+    let previousBodyPosition = '';
+    let previousBodyTop = '';
+    let previousBodyWidth = '';
+    let previousBodyTouchAction = '';
+    let dragging = false;
+    let moved = false;
+    let startX = 0;
+    let startY = 0;
+    let suppressNextClick = false;
+    let pinchDistance = 0;
+    let pinchScale = 1;
+    let pinching = false;
+    const activePointers = new Map();
+
+    const checkedLocations = () => [...form.querySelectorAll('input[name="location_query"]')]
+      .filter((input) => input instanceof HTMLInputElement && input.checked)
+      .map((input) => String(input.value || '').trim())
+      .filter(Boolean);
+    const inputByValue = (value) => [...form.querySelectorAll('input[name="location_query"]')]
+      .find((input) => input instanceof HTMLInputElement && String(input.value || '').trim() === String(value || '').trim()) || null;
+    const point = (event) => ({ x: Number(event.clientX || 0), y: Number(event.clientY || 0) });
+    const pointerDistance = () => {
+      const points = [...activePointers.values()];
+      if (points.length < 2) return 0;
+      return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+    };
+    const safeSetPointerCapture = (target, pointerId) => {
+      try { target?.setPointerCapture?.(pointerId); } catch (_error) {}
+    };
+    const safeReleasePointerCapture = (target, pointerId) => {
+      try { target?.releasePointerCapture?.(pointerId); } catch (_error) {}
+    };
+    const setMode = (mode) => {
+      if (root.dataset.pqWorkbenchController === 'loaded') return;
+      const mapAvailable = locationField.dataset.locationMapAvailable !== 'false';
+      const nextMode = String(mode || '').toLowerCase() === 'list' || !mapAvailable ? 'list' : 'map';
+      locationField.dataset.locationMode = nextMode;
+      if (locationGrid instanceof HTMLElement) {
+        locationGrid.style.display = nextMode === 'map' ? 'none' : '';
+        locationGrid.setAttribute('aria-hidden', nextMode === 'map' ? 'true' : 'false');
+      }
+      if (mapLaunch instanceof HTMLElement) {
+        mapLaunch.style.display = nextMode === 'map' && mapAvailable ? '' : 'none';
+        mapLaunch.setAttribute('aria-hidden', nextMode === 'map' && mapAvailable ? 'false' : 'true');
+      }
+      locationField.querySelectorAll('[data-location-mode-button]').forEach((button) => {
+        const active = String(button.getAttribute('data-location-mode-button') || '') === nextMode;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    };
+    const applyTransform = () => {
+      scale = Math.max(1, Math.min(2.4, scale));
+      const maxPan = Math.round(42 * scale);
+      panX = Math.max(-maxPan, Math.min(maxPan, panX));
+      panY = Math.max(-maxPan, Math.min(maxPan, panY));
+      layer.setAttribute('transform', `translate(${panX} ${panY}) scale(${scale})`);
+      picker.querySelectorAll('[data-location-map-zoom="reset"]').forEach((button) => {
+        button.textContent = scale <= 1.02 ? 'Zoom' : 'Fit';
+      });
+    };
+    const locationOptions = () => {
+      const country = String(countryField?.value || 'AT').trim();
+      const region = String(regionField?.value || '').trim();
+      const catalog = meta.location_catalog_by_country_region || {};
+      const catalogRows = Array.isArray(catalog?.[country]?.[region]) ? catalog[country][region] : [];
+      const catalogByValue = new Map(catalogRows.map((row) => [String(row?.value || '').trim(), row || {}]));
+      return [...form.querySelectorAll('input[name="location_query"]')]
+        .filter((input) => input instanceof HTMLInputElement && !input.disabled)
+        .map((input, index) => {
+          const value = String(input.value || '').trim();
+          const data = catalogByValue.get(value) || {};
+          const label = String(input.closest('label')?.querySelector('span span')?.textContent || data.label || value).trim();
+          return {
+            value,
+            label,
+            index,
+            mapPath: String(data.map_path || input.dataset.locationMapPath || '').trim(),
+            labelX: Number(data.map_label_x || input.dataset.locationMapLabelX || 180),
+            labelY: Number(data.map_label_y || input.dataset.locationMapLabelY || 143),
+          };
+        })
+        .filter((row) => row.value);
+    };
+    const renderTags = (target, selected, labels) => {
+      if (!(target instanceof HTMLElement)) return;
+      target.innerHTML = '';
+      target.hidden = selected.length === 0;
+      target.style.display = selected.length ? 'flex' : 'none';
+      selected.slice(0, 4).forEach((value) => {
+        const tag = document.createElement('button');
+        tag.type = 'button';
+        tag.className = 'pqx-location-map-tag';
+        tag.textContent = labels.get(value) || value;
+        tag.addEventListener('click', () => {
+          const input = inputByValue(value);
+          if (input instanceof HTMLInputElement) {
+            input.checked = false;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+        target.appendChild(tag);
+      });
+    };
+    const syncSelection = () => {
+      const selected = checkedLocations();
+      const selectedSet = new Set(selected);
+      const labels = new Map(locationOptions().map((row) => [row.value, row.label]));
+      picker.querySelectorAll('[data-location-map-district]').forEach((node) => {
+        const value = String(node.getAttribute('data-location-value') || '').trim();
+        const active = selectedSet.has(value);
+        node.classList.toggle('is-selected', active);
+        node.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      if (caption) caption.textContent = selected.length ? `${selected.length} selected. Tap red districts to remove them.` : 'Tap a district to add it.';
+      if (launchNote) launchNote.textContent = selected.length ? `${selected.length} selected.` : 'Real district borders in a separate map.';
+      if (selection instanceof HTMLElement) selection.hidden = selected.length === 0;
+      if (selectionSummary) selectionSummary.textContent = selected.length ? `${selected.length} district${selected.length === 1 ? '' : 's'} selected` : 'No districts selected yet.';
+      renderTags(selectionTags, selected, labels);
+      clearButtons.forEach((button) => {
+        button.hidden = selected.length === 0;
+        button.disabled = selected.length === 0;
+      });
+    };
+    const renderMap = () => {
+      const rows = locationOptions();
+      const mapRows = rows.filter((row) => row.mapPath);
+      const available = mapRows.length > 0;
+      locationField.dataset.locationMapAvailable = available ? 'true' : 'false';
+      if (mapLaunch instanceof HTMLElement) mapLaunch.hidden = !available;
+      picker.hidden = !available;
+      if (!available) {
+        layer.innerHTML = '';
+        signature = '';
+        setMode('list');
+        return false;
+      }
+      const nextSignature = mapRows.map((row) => `${row.value}:${row.label}:${row.mapPath}`).join('|');
+      if (nextSignature !== signature) {
+        signature = nextSignature;
+        scale = 1;
+        panX = 0;
+        panY = 0;
+        const regionLabel = String(regionField?.selectedOptions?.[0]?.textContent || regionField?.value || 'municipality').trim();
+        if (title) title.textContent = `${regionLabel} districts`;
+        layer.innerHTML = `<rect x="0" y="0" width="360" height="286" rx="22" fill="rgba(211,226,216,0.2)"></rect>${mapRows.map((row, index) => {
+          const shortLabel = (row.label.match(/\\b\\d{4}\\b/) || [String(index + 1)])[0];
+          return `<path class="pqx-location-map-district" data-location-map-district data-location-value="${escapeHtml(row.value)}" pointer-events="bounding-box" role="button" tabindex="0" aria-pressed="false" aria-label="Toggle ${escapeHtml(row.label)}" d="${escapeHtml(row.mapPath)}"></path><text class="pqx-location-map-label" x="${Number.isFinite(row.labelX) ? row.labelX.toFixed(1) : '180.0'}" y="${Number.isFinite(row.labelY) ? row.labelY.toFixed(1) : '143.0'}">${escapeHtml(shortLabel)}</text>`;
+        }).join('')}`;
+        applyTransform();
+      }
+      syncSelection();
+      setMode(locationField.dataset.locationMode || (customLocationField instanceof HTMLInputElement && customLocationField.value.trim() ? 'list' : 'map'));
+      return true;
+    };
+    const setDialogOpenState = (open) => {
+      const html = document.documentElement;
+      const body = document.body;
+      if (!html || !body) return;
+      if (open) {
+        if (html.dataset.pqxLocationMapOpen !== 'true') {
+          previousHtmlOverflow = html.style.overflow || '';
+          previousBodyOverflow = body.style.overflow || '';
+          previousBodyPosition = body.style.position || '';
+          previousBodyTop = body.style.top || '';
+          previousBodyWidth = body.style.width || '';
+          previousBodyTouchAction = body.style.touchAction || '';
+          scrollY = Math.max(0, Number(window.scrollY || window.pageYOffset || document.documentElement.scrollTop || body.scrollTop || 0));
+        }
+        html.dataset.pqxLocationMapOpen = 'true';
+        html.style.overflow = 'hidden';
+        body.style.overflow = 'hidden';
+        body.style.position = 'fixed';
+        body.style.top = `-${scrollY}px`;
+        body.style.width = '100%';
+        body.style.touchAction = 'none';
+        return;
+      }
+      if (html.dataset.pqxLocationMapOpen === 'true') {
+        delete html.dataset.pqxLocationMapOpen;
+        html.style.overflow = previousHtmlOverflow;
+        body.style.overflow = previousBodyOverflow;
+        body.style.position = previousBodyPosition;
+        body.style.top = previousBodyTop;
+        body.style.width = previousBodyWidth;
+        body.style.touchAction = previousBodyTouchAction;
+        window.scrollTo(0, scrollY);
+        window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
+      }
+    };
+    const findDistrict = (event) => {
+      const direct = event.target?.closest?.('[data-location-map-district]');
+      if (direct) return direct;
+      const currentPoint = point(event);
+      if (!currentPoint.x && !currentPoint.y) return null;
+      const pointElement = document.elementFromPoint(currentPoint.x, currentPoint.y);
+      const hit = pointElement?.closest?.('[data-location-map-district]');
+      if (hit) return hit;
+      return [...layer.querySelectorAll('[data-location-map-district]')].find((district) => {
+        const rect = district.getBoundingClientRect();
+        return currentPoint.x >= rect.left && currentPoint.x <= rect.right && currentPoint.y >= rect.top && currentPoint.y <= rect.bottom;
+      }) || null;
+    };
+    const toggleDistrict = (district) => {
+      if (!district) return false;
+      const input = inputByValue(district.getAttribute('data-location-value'));
+      if (!(input instanceof HTMLInputElement) || input.disabled) return false;
+      input.checked = !input.checked;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      syncSelection();
+      return true;
+    };
+
+    locationField.querySelectorAll('[data-location-mode-button]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        if (root.dataset.pqWorkbenchController === 'loaded') return;
+        event.preventDefault();
+        renderMap();
+        setMode(button.getAttribute('data-location-mode-button'));
+      });
+    });
+    mapOpen?.addEventListener('click', (event) => {
+      if (root.dataset.pqWorkbenchController === 'loaded') return;
+      event.preventDefault();
+      if (!renderMap()) return;
+      if (!dialog.open) {
+        if (typeof dialog.showModal === 'function') dialog.showModal();
+        else dialog.setAttribute('open', '');
+      }
+      setDialogOpenState(true);
+    });
+    closeButtons.forEach((button) => button.addEventListener('click', (event) => {
+      if (root.dataset.pqWorkbenchController === 'loaded') return;
+      event.preventDefault();
+      if (dialog.open) dialog.close();
+      setDialogOpenState(false);
+    }));
+    clearButtons.forEach((button) => button.addEventListener('click', (event) => {
+      if (root.dataset.pqWorkbenchController === 'loaded') return;
+      event.preventDefault();
+      form.querySelectorAll('input[name="location_query"]').forEach((input) => {
+        if (input instanceof HTMLInputElement && input.checked) {
+          input.checked = false;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+      syncSelection();
+    }));
+    dialog.addEventListener('close', () => {
+      if (root.dataset.pqWorkbenchController !== 'loaded') setDialogOpenState(false);
+    });
+    picker.addEventListener('click', (event) => {
+      if (root.dataset.pqWorkbenchController === 'loaded') return;
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        return;
+      }
+      const district = findDistrict(event);
+      if (!district || moved) return;
+      toggleDistrict(district);
+    });
+    viewport.addEventListener('pointerdown', (event) => {
+      if (root.dataset.pqWorkbenchController === 'loaded' || !(event instanceof PointerEvent)) return;
+      if (event.cancelable) event.preventDefault();
+      activePointers.set(event.pointerId, point(event));
+      if (activePointers.size >= 2) {
+        pinching = true;
+        dragging = false;
+        moved = true;
+        pinchDistance = pointerDistance();
+        pinchScale = scale;
+        safeSetPointerCapture(viewport, event.pointerId);
+        return;
+      }
+      dragging = true;
+      moved = false;
+      const start = point(event);
+      startX = start.x - panX;
+      startY = start.y - panY;
+      safeSetPointerCapture(viewport, event.pointerId);
+    });
+    viewport.addEventListener('pointermove', (event) => {
+      if (root.dataset.pqWorkbenchController === 'loaded' || !(event instanceof PointerEvent)) return;
+      if (event.cancelable) event.preventDefault();
+      if (activePointers.has(event.pointerId)) activePointers.set(event.pointerId, point(event));
+      if (pinching && activePointers.size >= 2) {
+        const nextDistance = pointerDistance();
+        if (pinchDistance > 0 && nextDistance > 0) {
+          scale = pinchScale * (nextDistance / pinchDistance);
+          moved = true;
+          applyTransform();
+        }
+        return;
+      }
+      if (!dragging) return;
+      const next = point(event);
+      const nextX = next.x - startX;
+      const nextY = next.y - startY;
+      if (Math.abs(nextX - panX) + Math.abs(nextY - panY) > 4) moved = true;
+      panX = nextX;
+      panY = nextY;
+      applyTransform();
+    });
+    viewport.addEventListener('pointerup', (event) => {
+      if (root.dataset.pqWorkbenchController === 'loaded' || !(event instanceof PointerEvent)) return;
+      const shouldToggle = dragging && !moved;
+      if (shouldToggle && toggleDistrict(findDistrict(event))) suppressNextClick = true;
+      dragging = false;
+      activePointers.delete(event.pointerId);
+      if (activePointers.size < 2) {
+        pinching = false;
+        pinchDistance = 0;
+        pinchScale = scale;
+      }
+      safeReleasePointerCapture(viewport, event.pointerId);
+      window.setTimeout(() => {
+        moved = false;
+        suppressNextClick = false;
+      }, 0);
+    });
+    ['pointercancel', 'pointerleave'].forEach((eventName) => {
+      viewport.addEventListener(eventName, (event) => {
+        if (root.dataset.pqWorkbenchController === 'loaded') return;
+        dragging = false;
+        if (event instanceof PointerEvent) {
+          activePointers.delete(event.pointerId);
+          safeReleasePointerCapture(viewport, event.pointerId);
+        }
+        if (activePointers.size < 2) {
+          pinching = false;
+          pinchDistance = 0;
+          pinchScale = scale;
+        }
+        window.setTimeout(() => { moved = false; suppressNextClick = false; }, 0);
+      });
+    });
+    picker.querySelectorAll('[data-location-map-zoom]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        if (root.dataset.pqWorkbenchController === 'loaded') return;
+        event.preventDefault();
+        const mode = String(button.getAttribute('data-location-map-zoom') || '').trim();
+        if (mode === 'in') scale += 0.28;
+        else if (mode === 'out') scale -= 0.28;
+        else if (scale <= 1.02) scale = 1.56;
+        else {
+          scale = 1;
+          panX = 0;
+          panY = 0;
+        }
+        applyTransform();
+      });
+    });
+    form.addEventListener('change', (event) => {
+      if (root.dataset.pqWorkbenchController === 'loaded') return;
+      if (event.target?.matches?.('input[name="location_query"], [name="country_code"], [name="region_code"]')) renderMap();
+    });
+    renderMap();
+  };
+
+  installCriticalWhatMattersAccordion();
+  installCriticalLocationMap();
 
   root.addEventListener('click', (event) => {
     const target = event.target?.closest?.(actionSelector);

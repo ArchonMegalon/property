@@ -66,6 +66,9 @@ Environment:
                                   Default 10; values above this are treated as a failed deploy.
   PROPERTYQUARRY_DEPLOY_TMP_DIR   Optional directory for transient deploy receipts. By default deploy
                                   creates a fresh mktemp directory and copies stable receipts into _completion.
+  PROPERTYQUARRY_DEPLOY_PYTHON_BIN
+                                  Optional Python interpreter for host deploy gates. When omitted, deploy
+                                  auto-detects a Playwright-capable Python, including the invoking sudo user.
 EOF
 }
 
@@ -154,6 +157,85 @@ env_truthy() {
   esac
 }
 
+python_candidate_has_playwright() {
+  local candidate="$1"
+  if [[ -z "${candidate}" ]]; then
+    return 1
+  fi
+  "${candidate}" - <<'PY' >/dev/null 2>&1
+import importlib.util
+
+raise SystemExit(0 if importlib.util.find_spec("playwright.sync_api") else 1)
+PY
+}
+
+resolve_deploy_python_bin() {
+  local explicit candidate resolved sudo_home
+  explicit="$(effective_env_value PROPERTYQUARRY_DEPLOY_PYTHON_BIN)"
+  if [[ -n "${explicit}" ]]; then
+    if resolved="$(command -v "${explicit}" 2>/dev/null)"; then
+      :
+    elif [[ -x "${explicit}" ]]; then
+      resolved="${explicit}"
+    else
+      echo "PROPERTYQUARRY_DEPLOY_PYTHON_BIN is not executable or on PATH: ${explicit}" >&2
+      exit 2
+    fi
+    if python_candidate_has_playwright "${resolved}"; then
+      printf '%s' "${resolved}"
+      return 0
+    fi
+    echo "PROPERTYQUARRY_DEPLOY_PYTHON_BIN cannot import playwright.sync_api: ${resolved}" >&2
+    echo "Install Playwright for that interpreter or point PROPERTYQUARRY_DEPLOY_PYTHON_BIN at the repo/user Python that has it." >&2
+    exit 2
+  fi
+
+  local candidates=()
+  candidates+=("${APP_ROOT}/.venv/bin/python")
+  if [[ -n "${PYTHON_BIN:-}" ]]; then
+    candidates+=("${PYTHON_BIN}")
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    candidates+=("$(command -v python3)")
+  fi
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    sudo_home="$(getent passwd "${SUDO_USER}" 2>/dev/null | awk -F: '{print $6}')"
+    if [[ -n "${sudo_home}" ]]; then
+      candidates+=("${sudo_home}/.local/bin/python3")
+      candidates+=("${sudo_home}/.local/bin/python")
+    fi
+  fi
+
+  local checked=""
+  local seen=":"
+  for candidate in "${candidates[@]}"; do
+    if [[ -z "${candidate}" ]]; then
+      continue
+    fi
+    if resolved="$(command -v "${candidate}" 2>/dev/null)"; then
+      :
+    elif [[ -x "${candidate}" ]]; then
+      resolved="${candidate}"
+    else
+      continue
+    fi
+    if [[ "${seen}" == *":${resolved}:"* ]]; then
+      continue
+    fi
+    seen="${seen}${resolved}:"
+    checked="${checked} ${resolved}"
+    if python_candidate_has_playwright "${resolved}"; then
+      printf '%s' "${resolved}"
+      return 0
+    fi
+  done
+
+  echo "No Playwright-capable Python found for PropertyQuarry deploy gates." >&2
+  echo "Checked:${checked:- none}" >&2
+  echo "Set PROPERTYQUARRY_DEPLOY_PYTHON_BIN or install Playwright for the deploy interpreter." >&2
+  exit 2
+}
+
 require_nonempty() {
   local key="$1"
   local hint="$2"
@@ -212,6 +294,9 @@ if env_truthy "${bd_bridge_enabled}"; then
   require_nonempty "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET" \
     "Set a shared bridge secret before enabling the bridge."
 fi
+
+deploy_python_bin="$(resolve_deploy_python_bin)"
+echo "Using deploy Python: ${deploy_python_bin}" >&2
 
 if ! [[ "${host_port}" =~ ^[0-9]+$ ]] || (( host_port < 1 || host_port > 65535 )); then
   echo "EA_HOST_PORT must be a TCP port between 1 and 65535; got ${host_port}." >&2
@@ -525,7 +610,7 @@ bootstrap_billing_edge_worker() {
     BILLING_URL="${bd_billing_url}" \
     BILLING_DNS_TARGET="${bd_billing_dns_target}" \
     BILLING_FALLBACK_URLS="${bd_billing_fallback_urls}" \
-    python3 - <<'PY'
+    "${deploy_python_bin}" - <<'PY'
 import json
 import os
 import urllib.parse
@@ -557,13 +642,13 @@ PY
   fi
   local billing_host=""
   local target_host=""
-  billing_host="$(python3 - <<'PY' "${worker_payload}"
+  billing_host="$("${deploy_python_bin}" - "${worker_payload}" <<'PY'
 import json, sys
 payload = json.loads(sys.argv[1])
 print(str(payload.get("billing_host") or "").strip())
 PY
 )"
-  target_host="$(python3 - <<'PY' "${worker_payload}"
+  target_host="$("${deploy_python_bin}" - "${worker_payload}" <<'PY'
 import json, sys
 payload = json.loads(sys.argv[1])
 print(str(payload.get("target_host") or "").strip())
@@ -582,7 +667,7 @@ PY
   if [[ -n "${bd_bridge_url}" ]]; then
     local parsed_bridge_path
     parsed_bridge_path="$(
-      BRIDGE_URL="${bd_bridge_url}" python3 - <<'PY'
+      BRIDGE_URL="${bd_bridge_url}" "${deploy_python_bin}" - <<'PY'
 import os
 import urllib.parse
 raw = str(os.getenv("BRIDGE_URL") or "").strip()
@@ -593,7 +678,7 @@ PY
     )"
     bridge_path="${parsed_bridge_path:-/sso/propertyquarry}"
   fi
-  if ! python3 scripts/bootstrap_billing_handoff_worker.py \
+  if ! "${deploy_python_bin}" scripts/bootstrap_billing_handoff_worker.py \
     --host "${billing_host}" \
     --target-host "${target_host}" \
     --pricing-url "${property_public_base_url%/}/pricing" \
@@ -636,7 +721,7 @@ esac
 
 public_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_public_smoke.json"
 public_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PUBLIC_SMOKE_TIMEOUT_SECONDS:-8}"
-if ! PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py \
+if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_public_smoke.py \
   --base-url "${base_url}" \
   --timeout-seconds "${public_smoke_timeout_seconds}" \
   --write "${public_smoke_receipt}" >/dev/null; then
@@ -649,7 +734,7 @@ cp "${public_smoke_receipt}" _completion/smoke/property-live-public-latest.json
 
 authenticated_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_authenticated_smoke.json"
 authenticated_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_AUTHENTICATED_SMOKE_TIMEOUT_SECONDS:-20}"
-if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_authenticated_smoke.py \
+if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_authenticated_smoke.py \
   --base-url "${base_url}" \
   --principal-id "${live_smoke_principal_id}" \
   --expected-plan-label "${live_smoke_plan_label}" \
@@ -665,7 +750,7 @@ mobile_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_mobile_smoke.json"
 mobile_smoke_timeout_ms="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
 mobile_smoke_process_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIMEOUT_SECONDS:-300}"
 rm -f "${mobile_smoke_receipt}"
-if ! timeout "${mobile_smoke_process_timeout_seconds}" env EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_mobile_surface_smoke.py \
+if ! timeout "${mobile_smoke_process_timeout_seconds}" env EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_mobile_surface_smoke.py \
   --base-url "${base_url}" \
   --host-header "propertyquarry.com" \
   --api-token "${api_token}" \
@@ -681,7 +766,7 @@ cp "${mobile_smoke_receipt}" _completion/smoke/property-live-mobile-surface-late
 
 map_preview_gate_receipt="${deploy_tmp_dir}/propertyquarry_deploy_map_preview_flagship.json"
 map_preview_gate_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MAP_PREVIEW_GATE_TIMEOUT_SECONDS:-60}"
-if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_map_preview_flagship_gate.py \
+if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_map_preview_flagship_gate.py \
   --base-url "${base_url}" \
   --host-header "propertyquarry.com" \
   --principal-id "${live_mobile_smoke_principal_id}" \
@@ -696,7 +781,7 @@ cp "${map_preview_gate_receipt}" _completion/smoke/property-live-map-preview-fla
 
 market_scope_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_market_scope_smoke.json"
 market_scope_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MARKET_SCOPE_SMOKE_TIMEOUT_SECONDS:-8}"
-if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_market_scope_smoke.py \
+if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_market_scope_smoke.py \
   --base-url "${base_url}" \
   --principal-id "${live_market_scope_principal_id}" \
   --timeout-seconds "${market_scope_smoke_timeout_seconds}" \
@@ -751,7 +836,7 @@ if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"; then
     PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${live_provider_smoke_principal_id}" \
-    PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
+    PYTHONPATH=ea "${deploy_python_bin}" scripts/property_live_provider_smoke.py \
     --base-url "${base_url}" \
     "${provider_smoke_scope_args[@]}" \
     --execute-search-matrix \
@@ -770,7 +855,7 @@ else
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${live_provider_smoke_principal_id}" \
-    PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
+    PYTHONPATH=ea "${deploy_python_bin}" scripts/property_live_provider_smoke.py \
     --base-url "${base_url}" \
     "${provider_country_args[@]}" \
     --timeout-seconds "${provider_smoke_timeout_seconds}" \
@@ -802,7 +887,7 @@ if (( run_presentation_e2e == 1 )); then
     presentation_provider_matrix_args+=(--require-provider-matrix)
   fi
   if ! EA_API_TOKEN="${api_token}" \
-    PYTHONPATH=ea python3 scripts/propertyquarry_live_presentation_e2e.py \
+    PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_presentation_e2e.py \
     --base-url "${base_url}" \
     --host-header "propertyquarry.com" \
     --principal-id "${live_presentation_e2e_principal_id}" \
@@ -816,7 +901,7 @@ if (( run_presentation_e2e == 1 )); then
   cp "${presentation_e2e_receipt}" _completion/smoke/property-live-presentation-e2e-latest.json
 
   browser_3d_gate_receipt="${deploy_tmp_dir}/propertyquarry_deploy_3d_browser_gate.json"
-  if ! PYTHONPATH=ea python3 scripts/propertyquarry_3d_browser_gate.py \
+  if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_3d_browser_gate.py \
     --base-url "${base_url}" \
     --host-header "propertyquarry.com" \
     --screenshots-dir _completion/smoke/property-live-3d-browser-gate-screenshots \
@@ -829,7 +914,7 @@ if (( run_presentation_e2e == 1 )); then
   cp "${browser_3d_gate_receipt}" _completion/smoke/property-live-3d-browser-gate-latest.json
 
   walkthrough_quality_receipt="${deploy_tmp_dir}/propertyquarry_deploy_walkthrough_quality.json"
-  if ! PYTHONPATH=ea python3 scripts/propertyquarry_walkthrough_quality_gate.py \
+  if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py \
     --tour-root state/public_property_tours \
     --write "${walkthrough_quality_receipt}" >/dev/null; then
     echo "PropertyQuarry walkthrough quality gate failed." >&2
@@ -842,7 +927,7 @@ fi
 
 gold_status_receipt="_completion/property_gold_status/release-gate.json"
 legacy_gold_status_receipt="_completion/propertyquarry-gold-status-latest.json"
-PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py \
+PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py \
   --live-mobile-receipt _completion/smoke/property-live-mobile-surface-latest.json \
   --public-smoke-receipt _completion/smoke/property-live-public-latest.json \
   --authenticated-smoke-receipt _completion/smoke/property-live-authenticated-latest.json \
@@ -869,7 +954,7 @@ case "${gold_notification_enabled,,}" in
       EA_TELEGRAM_BOT_REGISTRY_JSON="${telegram_bot_registry_json}" \
       EA_TELEGRAM_BOT_TOKEN="${telegram_bot_token}" \
       EA_TELEGRAM_BOT_HANDLE="${telegram_bot_handle}" \
-      PYTHONPATH=ea python3 scripts/propertyquarry_notify_gold_status.py \
+      PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_notify_gold_status.py \
         --receipt "${gold_status_receipt}" \
         --state-file "${gold_notification_state}" \
         --principal-id "${gold_notification_principal_id}" \
