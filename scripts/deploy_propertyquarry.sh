@@ -579,6 +579,32 @@ process_cgroup_for_pid() {
   cat "/proc/${host_pid}/cgroup" 2>/dev/null || true
 }
 
+configured_runtime_cgroup_path() {
+  local parent
+  parent="$(effective_env_value PROPERTYQUARRY_RUNTIME_CGROUP_PARENT)"
+  parent="${parent:-system.slice}"
+  parent="${parent#/}"
+  printf '/sys/fs/cgroup/%s/cgroup.procs' "${parent}"
+}
+
+move_process_to_configured_cgroup_if_needed() {
+  local host_pid="$1"
+  local cgroup_line="$2"
+  local target
+  if ! printf '%s\n' "${cgroup_line}" | grep -Eiq 'lowprio|background'; then
+    return 0
+  fi
+  if [[ "$(id -u)" != "0" ]]; then
+    return 1
+  fi
+  target="$(configured_runtime_cgroup_path)"
+  if [[ ! -w "${target}" ]]; then
+    return 1
+  fi
+  printf '%s\n' "${host_pid}" >"${target}" 2>/dev/null || return 1
+  return 0
+}
+
 renice_process_threads_to_zero() {
   local host_pid="$1"
   local tid
@@ -606,6 +632,9 @@ correct_service_runtime_priority_if_needed() {
   if [[ -z "${host_pid}" || "${host_pid}" == "0" ]]; then
     return 0
   fi
+  local cgroup_line=""
+  cgroup_line="$(process_cgroup_for_pid "${host_pid}")"
+  move_process_to_configured_cgroup_if_needed "${host_pid}" "${cgroup_line}" || true
   main_nice="$(main_process_nice_for_pid "${host_pid}")"
   if [[ -z "${main_nice}" || ! "${main_nice}" =~ ^-?[0-9]+$ ]]; then
     return 0
@@ -673,10 +702,16 @@ assert_service_runtime_priority() {
   fi
   cgroup_line="$(process_cgroup_for_pid "${host_pid}")"
   if printf '%s\n' "${cgroup_line}" | grep -Eiq 'lowprio|background'; then
-    echo "${service} is running in a low-priority host cgroup:" >&2
-    printf '%s\n' "${cgroup_line}" >&2
-    echo "Set PROPERTYQUARRY_RUNTIME_CGROUP_PARENT=system.slice or another normal-priority slice before deploy." >&2
-    exit 1
+    if [[ "$(id -u)" == "0" ]] && move_process_to_configured_cgroup_if_needed "${host_pid}" "${cgroup_line}"; then
+      sleep 1
+      cgroup_line="$(process_cgroup_for_pid "${host_pid}")"
+    fi
+    if printf '%s\n' "${cgroup_line}" | grep -Eiq 'lowprio|background'; then
+      echo "${service} is running in a low-priority host cgroup:" >&2
+      printf '%s\n' "${cgroup_line}" >&2
+      echo "Set PROPERTYQUARRY_RUNTIME_CGROUP_PARENT=system.slice or another normal-priority slice before deploy." >&2
+      exit 1
+    fi
   fi
   for priority_attempt in 1 2 3 4 5; do
     main_nice="$(main_process_nice_for_pid "${host_pid}")"
