@@ -384,6 +384,10 @@ def test_property_web_dockerfile_excludes_native_reconstruction_and_browser_payl
     assert "blender" not in dockerfile.lower()
     assert "colmap" not in dockerfile.lower()
     assert "meshlab" not in dockerfile.lower()
+    assert "ffmpeg" not in dockerfile.lower()
+    assert "espeak" not in dockerfile.lower()
+    assert "imagemagick" not in dockerfile.lower()
+    assert "libimage-exiftool-perl" not in dockerfile.lower()
     assert "for script in /tmp/src/scripts/*" not in dockerfile
     assert 'cp "$script" /app/scripts/' not in dockerfile
 

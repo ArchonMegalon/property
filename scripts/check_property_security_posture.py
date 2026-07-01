@@ -134,9 +134,18 @@ def build_security_posture_receipt() -> dict[str, object]:
         failures.append("ea/Dockerfile.property-web must explicitly copy the Willhaben packet helper")
     if "for script in /tmp/src/scripts/*" in web_dockerfile or 'cp "$script" /app/scripts/' in web_dockerfile:
         failures.append("ea/Dockerfile.property-web must not bulk-copy scripts into the runtime image")
-    for forbidden_native_tool in ("blender", "colmap", "meshlab", "meshlabserver"):
+    for forbidden_native_tool in (
+        "blender",
+        "colmap",
+        "espeak",
+        "ffmpeg",
+        "imagemagick",
+        "libimage-exiftool-perl",
+        "meshlab",
+        "meshlabserver",
+    ):
         if forbidden_native_tool in web_dockerfile.lower():
-            failures.append(f"ea/Dockerfile.property-web must not install native reconstruction tool {forbidden_native_tool}")
+            failures.append(f"ea/Dockerfile.property-web must not install native media/render tool {forbidden_native_tool}")
     for forbidden_browser_payload in ("PLAYWRIGHT_BROWSERS_PATH=/ms-playwright", "python -m playwright install --with-deps chromium"):
         if forbidden_browser_payload in web_dockerfile:
             failures.append("ea/Dockerfile.property-web must not install browser payloads in the request-serving image")
