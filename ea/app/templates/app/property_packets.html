@@ -511,7 +511,7 @@
         <div class="pq-pack-kicker">Next improvement</div>
         <strong>Use real replies to improve the next page</strong>
         <ul>
-          <li>{{ dashboard_summary.optimization_open_total }} optimization recommendation(s) are still open.</li>
+          <li>{{ dashboard_summary.optimization_open_total }} page idea(s) are still open.</li>
           <li>Better pages are clearer, faster to review, and leave fewer questions open.</li>
           <li>Views, replies, and objections should shape the next version.</li>
         </ul>
@@ -533,28 +533,27 @@
               <span class="pq-pack-pill">{{ row.fliplink_format|replace("_", " ") }}</span>
             </div>
             <div class="pq-pack-muted">{{ row.recommended_folder }} · Updated {{ row.updated_at[:19] }}</div>
-            <div class="pq-pack-muted">Ready to share · PDF ready · sharing active</div>
+            <div class="pq-pack-muted">Ready to share</div>
             <div class="pq-pack-muted" data-analytics-summary>
-              Analytics:
+              Views:
               {{ row.analytics.views if row.analytics.views is not none else 'n/a' }} views ·
               {{ row.analytics.unique_visitors if row.analytics.unique_visitors is not none else 'n/a' }} visitors ·
               {{ row.analytics.average_time_seconds if row.analytics.average_time_seconds is not none else 'n/a' }}s avg
             </div>
             <div class="pq-pack-muted">
-              Engagement: {{ row.engagement.summary.opened or 0 }} opened · {{ row.engagement.summary.responded or 0 }} responded · {{ row.engagement.summary.no_activity or 0 }} no activity
+              Replies: {{ row.engagement.summary.opened or 0 }} opened · {{ row.engagement.summary.responded or 0 }} responded
             </div>
             <div class="pq-pack-muted">
-              Next best action: {{ (row.engagement.summary.next_best_action or 'share page')|replace("_", " ") }} · Sharing status: {{ (row.share_journey.state or 'drafted')|replace("_", " ") }}
+              Next step: {{ (row.engagement.summary.next_best_action or 'share page')|replace("_", " ") }} · {{ (row.share_journey.state or 'drafted')|replace("_", " ") }}
             </div>
             <div class="pq-pack-muted">
-              Share state:
+              Status:
               {% if row.fliplink_url %}shared link ready{% else %}link not added yet{% endif %} ·
-              {% if row.structured_feedback %}feedback present{% else %}no structured feedback yet{% endif %} ·
-              {% if row.optimization %}optimization active{% else %}no optimization recommendation yet{% endif %}
+              {% if row.structured_feedback %}responses present{% else %}no responses yet{% endif %}
             </div>
             <div class="pq-pack-decision-grid">
               <section class="pq-pack-decision-card">
-                <div class="pq-pack-kicker">Household reactions</div>
+                <div class="pq-pack-kicker">Reactions</div>
                 <div class="pq-pack-decision-value">
                   {{ row.feedback_summary.household_alignment_score or 0 }}% · {{ (row.feedback_summary.household_review.alignment_label or 'waiting')|replace("_", " ") }}
                 </div>
@@ -562,28 +561,28 @@
                   {% for item in row.feedback_summary.household_review.stakeholders[:3] %}
                   <li>{{ item.stakeholder_label }} · {{ item.decision }} · {{ item.reason }}</li>
                   {% else %}
-                  <li>No household stance recorded yet. Shared reactions will resolve here once the first page is reviewed.</li>
+                  <li>No reactions yet.</li>
                   {% endfor %}
                 </ul>
               </section>
               <section class="pq-pack-decision-card">
-                <div class="pq-pack-kicker">Next best question</div>
-                <div class="pq-pack-decision-value">{{ row.feedback_summary.next_best_question or 'Share the page or ask for the first concrete blocker.' }}</div>
+                <div class="pq-pack-kicker">Question</div>
+                <div class="pq-pack-decision-value">{{ row.feedback_summary.next_best_question or 'Ask what still blocks a viewing.' }}</div>
                 <ul>
                   {% for item in row.feedback_summary.top_blockers[:2] %}
                   <li>{{ item.theme|replace("_", " ") }} · {{ item.summary }}</li>
                   {% else %}
-                  <li>No blocker cluster yet. The first concerns and dealbreakers will be grouped here.</li>
+                  <li>No concern yet.</li>
                   {% endfor %}
                 </ul>
               </section>
               <section class="pq-pack-decision-card">
-                <div class="pq-pack-kicker">Watch-outs</div>
+                <div class="pq-pack-kicker">Notes</div>
                 <ul>
                   {% for item in row.feedback_summary.risk_signals_visible[:3] %}
-                  <li>{{ item.theme|replace("_", " ") }} · {{ item.confidence }} confidence · {{ item.summary }}</li>
+                  <li>{{ item.theme|replace("_", " ") }} · {{ item.summary }}</li>
                   {% else %}
-                  <li>No shared market note yet. Feedback needs more confirmation before it appears here.</li>
+                  <li>No shared note yet.</li>
                   {% endfor %}
                 </ul>
               </section>
@@ -593,7 +592,7 @@
                   {% for item in row.change_log[:3] %}
                   <li>{{ item.summary or item.change_type }}{% if item.detail %} · {{ item.detail }}{% endif %}</li>
                   {% else %}
-                  <li>No material page update recorded yet. Publishing, feedback, and follow-up updates will appear here.</li>
+                  <li>No update yet.</li>
                   {% endfor %}
                 </ul>
               </section>
@@ -636,7 +635,7 @@
                 <input class="pq-pack-input" style="min-width:84px;flex:1 1 84px;" type="number" min="0" max="10000000" name="unique_visitors" placeholder="Visitors" inputmode="numeric" value="{{ row.analytics.unique_visitors or '' }}">
                 <input class="pq-pack-input" style="min-width:84px;flex:1 1 84px;" type="number" min="0" max="10000000" name="average_time_seconds" placeholder="Avg sec" inputmode="numeric" value="{{ row.analytics.average_time_seconds or '' }}">
               </div>
-              <button class="pq-pack-button small" type="submit">Record analytics</button>
+              <button class="pq-pack-button small" type="submit">Save views</button>
             </form>
             <div class="pq-pack-inline">
               <a class="pq-pack-button small" href="{{ row.artifact_download_path }}">Download PDF</a>
@@ -654,7 +653,7 @@
                 <div>{{ recipient.name or recipient.email }} · {{ share.audience_type }} · {{ share.channel }}</div>
                 {% endfor %}
               {% else %}
-                <div>No page has been shared yet. Use the share form above to start the first review loop.</div>
+                <div>Not shared yet.</div>
               {% endfor %}
             </div>
             <div class="pq-pack-muted">
@@ -662,15 +661,15 @@
               {% for item in row.engagement.followups[:3] %}
               <div>{{ item.recipient_name or item.recipient_id }} · {{ item.status }} · {{ item.recommended_action }}</div>
               {% else %}
-              <div>No follow-up pressure yet. Once a page is shared, the next recommended action will surface here.</div>
+              <div>No follow-up yet.</div>
               {% endfor %}
             </div>
             <div class="pq-pack-muted">
-              <strong>Reviewed feedback</strong>
+              <strong>Responses</strong>
               {% for item in row.structured_feedback[:3] %}
               <div>{{ item.stakeholder_label or item.stakeholder_id }} · {{ item.category }} · {{ item.text or item.sentiment }}</div>
               {% else %}
-                <div>No reviewed feedback yet. Viewer reactions will return here before they are allowed to shape preferences or rules.</div>
+                <div>No response details yet.</div>
               {% endfor %}
             </div>
             <div class="pq-pack-muted">
@@ -678,15 +677,15 @@
               {% for item in row.attached_summaries[:3] %}
               <div>{{ item.title }} · {{ item.audience_type }}</div>
               {% else %}
-              <div>No audience summary attached yet. Use the share flow once a tailored explanation is worth sending.</div>
+              <div>No audience summary yet.</div>
               {% endfor %}
             </div>
             <div class="pq-pack-muted">
-              <strong>Optimization recommendations</strong>
+              <strong>Page ideas</strong>
               {% for item in row.optimization[:3] %}
               <div>{{ item.recommendation_type|replace("_", " ") }} · {{ item.priority }} · {{ item.status }}</div>
               {% else %}
-              <div>No optimization recommendation yet. Engagement, summaries, and feedback will generate the next packet improvements.</div>
+              <div>No page idea yet.</div>
               {% endfor %}
             </div>
             <div class="pq-pack-status" data-action-status aria-live="polite"></div>
@@ -719,7 +718,7 @@
             <span class="pq-pack-pill{% if item.status == 'reviewed' %} good{% else %} warn{% endif %}" data-feedback-status>{{ item.status|replace("_", " ") }}</span>
             <textarea name="note" placeholder="Owner review note">{{ item.custom_fields.question or '' }}</textarea>
             <div class="pq-pack-inline">
-              <button class="pq-pack-button small" type="button" data-feedback-action="accept_as_preference_signal">Accept preference</button>
+              <button class="pq-pack-button small" type="button" data-feedback-action="accept_as_preference_signal">Use preference</button>
               <button class="pq-pack-button small" type="button" data-feedback-action="convert_to_hard_rule">Make rule</button>
               <button class="pq-pack-button small" type="button" data-feedback-action="accept_as_viewing_question">Viewing question</button>
               <button class="pq-pack-button small" type="button" data-feedback-action="dismiss">Dismiss</button>
@@ -729,7 +728,7 @@
           </div>
         </article>
         {% else %}
-        <div class="pq-pack-empty">No viewer responses have arrived yet. Once a packet is shared, every reaction will return here for your review before it changes the decision record.</div>
+        <div class="pq-pack-empty">No viewer responses yet.</div>
         {% endfor %}
       </div>
     </section>
@@ -860,9 +859,9 @@
           const summary = card?.querySelector("[data-analytics-summary]");
           const snapshot = result.snapshot || {};
           if (summary) {
-            summary.textContent = `Analytics: ${snapshot.views ?? "n/a"} views · ${snapshot.unique_visitors ?? "n/a"} visitors · ${snapshot.average_time_seconds ?? "n/a"}s avg`;
+            summary.textContent = `Views: ${snapshot.views ?? "n/a"} views · ${snapshot.unique_visitors ?? "n/a"} visitors · ${snapshot.average_time_seconds ?? "n/a"}s avg`;
           }
-          showStatus(form, "Analytics recorded.", "ok");
+          showStatus(form, "Saved.", "ok");
         } catch (error) {
           showStatus(form, error.message, "error");
         }

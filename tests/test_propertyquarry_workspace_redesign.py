@@ -11138,7 +11138,8 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "Packet sharing" not in body
     assert "Shared pages" in body
     assert "Ready to send" in body
-    assert "Ready to share · PDF ready · sharing active" in body
+    assert "Ready to share" in body
+    assert "Ready to share · PDF ready · sharing active" not in body
     assert "Paste shared page link" in body
     assert "Copy response endpoint" in body
     assert "Pages that are ready to share" in body
@@ -11152,7 +11153,8 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "renderer_version" not in body
     assert "Share page" in body
     assert "Share packet" not in body
-    assert "Household reactions" in body
+    assert "Reactions" in body
+    assert "Household reactions" not in body
     assert 'aria-label="PropertyQuarry sections"' in body
     assert 'data-property-research-topnav' in body
     assert 'href="/app/properties{{ packet_query_suffix or \'\' }}">Search</a>' in body
@@ -13626,7 +13628,7 @@ def test_property_decision_save_uses_canonical_endpoint_and_renders_consequences
     assert "agent_question_tasks" in body
     assert "document_intake" in body
     assert "suppression_explanation" in body
-    assert "Saved durably" in body
+    assert "Saved. Future results will adjust." in body
     assert "propertyFeedbackSaveEndpoint" not in body
 
 

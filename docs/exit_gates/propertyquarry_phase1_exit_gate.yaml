@@ -51,7 +51,7 @@ required_ui_affordances:
   - Share page
   - Recipients section
   - Engagement metrics section
-  - Next best action
+  - Next step
   - Open property page entry point from workspace
 fail_closed_conditions:
   - packets can be shared but engagement is not visible in UI

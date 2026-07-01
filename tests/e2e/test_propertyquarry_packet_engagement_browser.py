@@ -39,7 +39,7 @@ def test_packet_dashboard_renders_share_and_followup_state(monkeypatch, tmp_path
     assert "Share page" in page.text
     assert "Recipients" in page.text
     assert "Follow-ups" in page.text
-    assert "Next best action:" in page.text
+    assert "Next step:" in page.text
 
 
 def test_packet_dashboard_reviews_feedback_in_real_browser(

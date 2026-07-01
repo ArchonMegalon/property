@@ -3363,8 +3363,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         </div>
         <div class="tour-detail-stack">
           <section id="risks" class="panel">
-            <div class="eyebrow">Watch-outs</div>
-            <h2>What can still break the decision</h2>
+            <div class="eyebrow">Check first</div>
+            <h2>Before you book a viewing</h2>
             <ul>{risks_html}</ul>
           </section>
           {shortlist_panel}

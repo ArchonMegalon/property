@@ -136,6 +136,15 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "best signals",
         "no strong signal attached yet",
         "no caution attached yet",
+        "analytics:",
+        "engagement:",
+        "next best action:",
+        "share state:",
+        "reviewed feedback",
+        "optimization recommendations",
+        "saved durably",
+        "no risk summary captured yet",
+        "current answer",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

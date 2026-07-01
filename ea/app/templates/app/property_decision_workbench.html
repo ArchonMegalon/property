@@ -226,9 +226,9 @@
       </div>
       <p class="pqx-note" data-research-task-detail>{{ task.get('detail') or 'This point is still too thin to rely on for a decision.' }}</p>
       {% if task.get('display_value') %}
-      <div class="pqx-research-value"><span>Current answer</span><strong data-research-task-value>{{ task.get('display_value') }}</strong></div>
+      <div class="pqx-research-value"><span>Answer</span><strong data-research-task-value>{{ task.get('display_value') }}</strong></div>
       {% else %}
-      <div class="pqx-research-value"><span>Current answer</span><strong data-research-task-value>Still missing</strong></div>
+      <div class="pqx-research-value"><span>Answer</span><strong data-research-task-value>Still missing</strong></div>
       {% endif %}
       <form class="pqx-research-task-form" data-research-task-form>
         <label>

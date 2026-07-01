@@ -433,7 +433,7 @@
             property_facts: candidate.property_facts || {},
             assessment: candidate.assessment || {},
             investment_context: [
-              { title: 'Risk', detail: String(candidate.risk?.summary || 'No risk summary captured yet.'), tag: String(candidate.risk?.level || 'risk') },
+              { title: 'Check first', detail: String(candidate.risk?.summary || 'Nothing obvious yet.'), tag: String(candidate.risk?.level || 'note') },
               {
                 title: investmentSearch ? 'Return' : 'Cost check',
                 detail: String(
@@ -760,7 +760,7 @@
           cta_key: `reason_count_${selectedFeedbackReasonKeys.size}`,
         });
         renderSavedDecisionConsequences(body);
-        feedbackStatusNode.textContent = `Saved durably. Profile now has ${likes} positive signal(s) and ${dislikes} avoid signal(s).`;
+        feedbackStatusNode.textContent = `Saved. Future results will adjust.`;
       } catch (error) {
         feedbackStatusNode.textContent = error instanceof Error ? error.message : 'Could not save decision.';
       }
@@ -965,10 +965,10 @@
       if (risk) {
         clearNode(risk);
         const label = document.createElement('strong');
-        label.textContent = 'Risk';
+        label.textContent = 'Check first';
         const note = document.createElement('span');
         note.className = 'pqx-note';
-        note.textContent = String(candidate.risk?.summary || 'No risk summary captured yet.');
+        note.textContent = String(candidate.risk?.summary || 'Nothing obvious yet.');
         risk.appendChild(label);
         risk.appendChild(note);
       }

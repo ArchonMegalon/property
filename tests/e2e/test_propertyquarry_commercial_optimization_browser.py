@@ -20,7 +20,7 @@ def _reset_repo() -> None:
     reset_packet_repo()
 
 
-def test_workspace_and_packet_dashboard_show_commercial_and_optimization_language(monkeypatch, tmp_path: Path) -> None:
+def test_workspace_and_packet_dashboard_show_commercial_and_page_idea_language(monkeypatch, tmp_path: Path) -> None:
     client = property_client_with_workspace(principal_id="pq-phase6-browser", tmp_path=tmp_path)
     publication_id = seed_packet(client, property_ref="listing-phase6-browser")
     client.post(
@@ -31,15 +31,15 @@ def test_workspace_and_packet_dashboard_show_commercial_and_optimization_languag
     install_property_run(monkeypatch, property_url="https://example.com/listing-phase6")
     workspace = client.get("/app/properties", params={"run_id": "run-phase6"})
     assert workspace.status_code == 200
-    assert "Upgrade" in workspace.text
+    assert "Quick take" in workspace.text
     assert "Account" in workspace.text
 
     packets = client.get("/app/properties/packets")
     assert packets.status_code == 200
-    assert "Optimization recommendations" in packets.text
+    assert "Page ideas" in packets.text
 
 
-def test_packet_dashboard_acknowledges_optimization_in_real_browser(
+def test_packet_dashboard_acknowledges_page_ideas_in_real_browser(
     browser,
     propertyquarry_browser_server: dict[str, object],
 ) -> None:
@@ -82,7 +82,7 @@ def test_packet_dashboard_acknowledges_optimization_in_real_browser(
         response = page.goto(f"{base_url}/app/properties/packets", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("[data-property-packets-dashboard]").is_visible()
-        assert page.locator("body", has_text="Optimization recommendations").is_visible()
+        assert page.locator("body", has_text="Page ideas").is_visible()
         assert page.locator("body", has_text="followup · high · open").is_visible()
         assert page.locator("body", has_text="mobile readability · medium · open").is_visible()
 

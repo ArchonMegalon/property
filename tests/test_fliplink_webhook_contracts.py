@@ -573,13 +573,13 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     assert "Leads" not in dashboard.text
     assert "Family flat near Augarten" in dashboard.text
     assert "Download PDF" in dashboard.text
-    assert "Record analytics" in dashboard.text
+    assert "Save views" in dashboard.text
     assert "data-fliplink-manual-form" in dashboard.text
     assert "data-copy-kind=\"webhook\"" in dashboard.text
     assert "data-copy-lead-schema" in dashboard.text
     assert "data-browseract-publish" in dashboard.text
     assert "data-archive-publication" in dashboard.text
-    assert "Household reactions" in dashboard.text
+    assert "Reactions" in dashboard.text
 
     run_bound = client.post(
         "/app/api/properties/listing-456/packets/render",
@@ -603,11 +603,11 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     assert 'href="/app/shortlist?run_id=run-packets-ctx"' in dashboard_with_run.text
     assert 'href="/app/account?run_id=run-packets-ctx#search-defaults"' in dashboard_with_run.text
     assert 'href="/app/account?run_id=run-packets-ctx#connected-services"' in dashboard_with_run.text
-    assert "Watch-outs" in dashboard.text
+    assert "Notes" in dashboard.text
     assert "What changed" in dashboard.text
     assert "data-feedback-action=\"accept_as_preference_signal\"" in dashboard.text or "No viewer responses" in dashboard.text
 
     properties = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert properties.status_code == 200
     assert "Review" in properties.text
-    assert "/app/properties/packets" in properties.text
+    assert "Research" in properties.text

@@ -23,7 +23,7 @@ def test_packet_dashboard_shows_variant_and_republish_controls(tmp_path: Path) -
     )
     page = client.get("/app/properties/packets")
     assert page.status_code == 200
-    assert "Sharing status:" in page.text
+    assert "Next step:" in page.text
     assert "Republish page" in page.text
 
 
@@ -82,15 +82,15 @@ def test_packet_dashboard_republishes_variant_in_real_browser(
         assert page.locator("[data-property-packets-dashboard]").is_visible()
         assert page.locator("body", has_text="Family Review Packet").is_visible()
         assert page.locator("body", has_text="Republish page").is_visible()
-        assert page.locator("body", has_text="Household reactions").is_visible()
-        assert page.locator("body", has_text="Watch-outs").is_visible()
+        assert page.locator("body", has_text="Reactions").is_visible()
+        assert page.locator("body", has_text="Notes").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         with page.expect_response("**/app/api/properties/packets/*/republish") as republish_response_info:
             page.locator(f'[data-republish-publication][data-publication-id="{publication_id}"]').click()
         republish_response = republish_response_info.value
         assert republish_response.ok, republish_response.text()
         page.reload(wait_until="networkidle")
-        assert page.locator("body", has_text="Sharing status:").is_visible()
+        assert page.locator("body", has_text="Next step:").is_visible()
         assert page.locator("body", has_text="Family Review Packet").is_visible()
         assert page.locator("body", has_text="What changed").is_visible()
     finally:

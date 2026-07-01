@@ -2078,7 +2078,7 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
         assert update_response.ok, update_response.text()
         page.reload(wait_until="networkidle")
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
-        assert page.locator("body", has_text="Watch-outs").is_visible()
+        assert page.locator("body", has_text="Notes").is_visible()
     finally:
         context.close()
 
@@ -5969,8 +5969,8 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
         assert response is not None and response.ok
         assert page.locator("[data-property-packets-dashboard]").is_visible()
         assert page.locator("body", has_text="Share property pages and keep the replies together.").is_visible()
-        assert page.locator("body", has_text="Household reactions").is_visible()
-        assert page.locator("body", has_text="Watch-outs").is_visible()
+        assert page.locator("body", has_text="Reactions").is_visible()
+        assert page.locator("body", has_text="Notes").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         page.locator('[data-packet-share-form] input[name="recipient_name"]').first.fill("Anna")
         page.locator('[data-packet-share-form] input[name="recipient_email"]').first.fill("anna@example.com")
@@ -5997,7 +5997,7 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
         assert page.locator("body", has_text="Anna · family · link").is_visible()
         assert page.locator("[data-analytics-summary]", has_text="8 views").is_visible()
         assert page.locator("[data-analytics-summary]", has_text="2 visitors").is_visible()
-        assert page.locator("body", has_text="Optimization recommendations").is_visible()
+        assert page.locator("body", has_text="Page ideas").is_visible()
         assert page.locator("body", has_text="What changed").is_visible()
         assert page.locator("body", has_text="Street noise is a blocker.").is_visible()
 
@@ -6088,7 +6088,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         assert packet_render.status_code == 200, packet_render.text
         response = page.goto(f"{base_url}/app/properties/packets", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Household reactions").is_visible()
+        assert page.locator("body", has_text="Reactions").is_visible()
         assert page.locator("body", has_text="What changed").is_visible()
         share_form = page.locator('[data-packet-share-form]').first
         share_form.locator('input[name="recipient_name"]').fill("Anna")
