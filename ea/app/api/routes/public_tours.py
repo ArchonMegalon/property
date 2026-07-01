@@ -2777,10 +2777,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             )
         shortlist_panel = (
             '<section class="panel">'
-            '<div class="eyebrow">Shortlist Ranking</div>'
-            '<h2>Current property within the active shortlist ranking</h2>'
+            '<div class="eyebrow">Shortlist</div>'
+            '<h2>Current property in the active shortlist</h2>'
             '<div class="summary-grid" style="margin-top:0;">'
-            f'{shortlist_cards or "<div class=\"summary-card\"><h3>No shortlist loaded</h3><p class=\"sub\">No other active shortlist property is currently available in this run ranking.</p></div>"}'
+            f'{shortlist_cards or "<div class=\"summary-card\"><h3>No shortlist loaded</h3><p class=\"sub\">No other active shortlist property is currently available.</p></div>"}'
             '</div>'
             '</section>'
         )
@@ -3518,8 +3518,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     )
     pure_shortlist_panel = (
         '<section class="card decision-card">'
-        '<div class="eyebrow">Shortlist Ranking</div>'
-        '<h2>Current property within the active shortlist ranking</h2>'
+        '<div class="eyebrow">Shortlist</div>'
+        '<h2>Current property in the active shortlist</h2>'
         f'<div class="stat-grid">{pure_shortlist_cards or "<div class=\"stat\"><span>Shortlist</span><strong>No shortlist loaded</strong></div>"}</div>'
         '</section>'
     )
@@ -4484,9 +4484,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     )
     legacy_shortlist_panel = (
         '<section class="panel">'
-        '<div class="eyebrow">Shortlist Ranking</div>'
-        '<h2>Current property within the active shortlist ranking</h2>'
-        f'<div class="stack">{legacy_shortlist_cards or "<div class=\"kv\"><b>No shortlist loaded</b>No other active shortlist property is currently available in this run ranking.</div>"}</div>'
+        '<div class="eyebrow">Shortlist</div>'
+        '<h2>Current property in the active shortlist</h2>'
+        f'<div class="stack">{legacy_shortlist_cards or "<div class=\"kv\"><b>No shortlist loaded</b>No other active shortlist property is currently available.</div>"}</div>'
         '</section>'
     )
     legacy_decision_panel = (

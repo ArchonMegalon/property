@@ -24,6 +24,15 @@ CUSTOMER_COPY_SOURCES = CUSTOMER_TEMPLATES + (
     ROOT / "ea/app/templates/app/_property_workbench_script.html",
 )
 
+PREMIUM_PUBLIC_COPY_SOURCES = CUSTOMER_COPY_SOURCES + (
+    ROOT / "ea/app/api/routes/public_tours.py",
+    ROOT / "ea/app/product/property_score_methodology.py",
+    ROOT / "ea/app/product/property_worker_queues.py",
+    ROOT / "ea/app/services/dossier_writer/evidence.py",
+    ROOT / "ea/app/templates/app/_property_account_panel.html",
+    ROOT / "ea/app/templates/app/_property_results_list.html",
+)
+
 
 def _template_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in CUSTOMER_TEMPLATES)
@@ -79,6 +88,35 @@ def test_propertyquarry_customer_copy_avoids_operations_lane_language() -> None:
         "working lane",
         "foreclosure lane",
         "lane <b",
+    )
+    for phrase in forbidden_phrases:
+        assert phrase not in lowered
+
+
+def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
+    body = "\n".join(path.read_text(encoding="utf-8") for path in PREMIUM_PUBLIC_COPY_SOURCES)
+    lowered = body.lower()
+
+    forbidden_phrases = (
+        "facts confirmed",
+        "confirmed automatically from provider evidence",
+        "confirmed facts",
+        "evidence added",
+        "what we confirmed",
+        "inspect the evidence before you open the raw listing",
+        "video evidence",
+        "visual evidence",
+        "magicfit walkthrough",
+        "risk and evidence",
+        "decision support",
+        "run ranking",
+        "no confirmed supermarket distance yet",
+        "source tour. this is the evidence-grade visual baseline.",
+        "google return path verified",
+        "listing evidence",
+        "official evidence",
+        "provider listing evidence confirmed",
+        "current listing evidence",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered
