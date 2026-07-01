@@ -1074,12 +1074,12 @@ def build_property_score_methodology(
     negative = _text_items(candidate_payload.get("mismatch_reasons"), limit=4)
     if not positive:
         positive = [
-            "Confirmed facts improve confidence.",
+            "Confirmed facts make the match easier to trust.",
             "Good matches in What matters move the score upward.",
         ]
     if not negative:
         negative = [
-            "Missing evidence reduces confidence until the fact is checked.",
+            "Missing details stay visible until the fact is checked.",
             "Soft preferences lower rank without hiding the home.",
         ]
     return {

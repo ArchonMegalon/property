@@ -884,7 +884,7 @@ def test_google_settings_surface_manages_multiple_connected_google_accounts(monk
     assert "sync_error=google_identity_only" in primary_callback.headers["location"]
     primary_connected = client.get(primary_callback.headers["location"])
     assert primary_connected.status_code == 200
-    assert "Google is linked for sign-in and return access only." in primary_connected.text
+    assert "Google sign-in is connected for this account." in primary_connected.text
     assert "tibor@girschele.com" in primary_connected.text
     assert "Google link" in primary_connected.text
 

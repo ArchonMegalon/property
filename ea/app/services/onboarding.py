@@ -1666,7 +1666,7 @@ class OnboardingService(AssistantOnboardingService):
         google_requested_bundle = str(google_pref.get("requested_bundle") or "").strip().lower() or "identity"
         google_bundle = google_scope_bundle_details(google_requested_bundle)
         google_status = "not_selected"
-        google_detail = "Select Google during onboarding if you want Google sign-in and a verified return path."
+        google_detail = "Select Google during onboarding if you want Google sign-in."
         granted_scopes = []
         if google_binding is not None:
             google_status = "connected"
@@ -1674,7 +1674,7 @@ class OnboardingService(AssistantOnboardingService):
             if google_bundle_supports_workspace_sync(scopes=tuple(granted_scopes)):
                 google_detail = "Google is linked for this principal and can now feed workspace signals according to the granted bundle."
             else:
-                google_detail = "Google is linked for this principal as a sign-in and verified return path only."
+                google_detail = "Google sign-in is connected for this account."
         elif google_state is not None and bool(google_state.secret_configured):
             if google_pref:
                 google_status = "ready_to_connect"

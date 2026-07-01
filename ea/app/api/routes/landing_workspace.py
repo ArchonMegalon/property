@@ -73,7 +73,7 @@ def _google_connect_action(sync: dict[str, object], *, return_to: str = "/app/se
         }
     if not workspace_sync_supported:
         return {
-            "detail": "Google is linked for sign-in and return access only.",
+            "detail": "Google sign-in is connected for this account.",
             "label": "Manage Google",
             "href": return_to,
             "method": "get",

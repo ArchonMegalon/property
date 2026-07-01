@@ -20489,6 +20489,8 @@ def test_property_google_settings_uses_fast_local_status(monkeypatch) -> None:
     assert "Connected Google accounts" not in account.text
     source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_workspace.py").read_text(encoding="utf-8")
     assert "Google should stay narrowly scoped on PropertyQuarry" not in source
+    assert "return access only" not in source
+    assert "verified return path" not in source
     assert "Use Google to sign in with the same PropertyQuarry account, see which Google account is connected, and reconnect it if needed." in source
     assert "_property_google_sign_in_status_label(token_status, connected=enabled and token_status != \"revoked\")" in source
 
