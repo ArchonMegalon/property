@@ -526,6 +526,36 @@ print_service_logs() {
   "${DC[@]}" logs --tail=80 "${service}" >&2 || true
 }
 
+max_thread_nice_for_pid() {
+  local host_pid="$1"
+  local max_nice=""
+  local nice_value
+  while IFS= read -r nice_value; do
+    nice_value="$(printf '%s' "${nice_value}" | tr -d '[:space:]')"
+    if [[ -n "${nice_value}" && "${nice_value}" =~ ^-?[0-9]+$ ]]; then
+      if [[ -z "${max_nice}" ]] || (( nice_value > max_nice )); then
+        max_nice="${nice_value}"
+      fi
+    fi
+  done < <(ps -T -o ni= -p "${host_pid}" 2>/dev/null || true)
+  if [[ -z "${max_nice}" ]]; then
+    max_nice="$(ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+  fi
+  printf '%s' "${max_nice}"
+}
+
+renice_process_threads_to_zero() {
+  local host_pid="$1"
+  local tid
+  renice -n 0 -p "${host_pid}" >/dev/null || true
+  while IFS= read -r tid; do
+    tid="$(printf '%s' "${tid}" | tr -d '[:space:]')"
+    if [[ -n "${tid}" && "${tid}" =~ ^[0-9]+$ ]]; then
+      renice -n 0 -p "${tid}" >/dev/null || true
+    fi
+  done < <(ps -T -o tid= -p "${host_pid}" 2>/dev/null || true)
+}
+
 correct_service_runtime_priority_if_needed() {
   local service="$1"
   local container_name="$2"
@@ -539,13 +569,13 @@ correct_service_runtime_priority_if_needed() {
   if [[ -z "${host_pid}" || "${host_pid}" == "0" ]]; then
     return 0
   fi
-  nice_value="$(ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+  nice_value="$(max_thread_nice_for_pid "${host_pid}")"
   if [[ -z "${nice_value}" || ! "${nice_value}" =~ ^-?[0-9]+$ ]]; then
     return 0
   fi
   if (( nice_value > max_nice )) && [[ "$(id -u)" == "0" ]]; then
-    echo "${service} started with host nice ${nice_value}; correcting to nice 0." >&2
-    renice -n 0 -p "${host_pid}" >/dev/null
+    echo "${service} started with host thread nice ${nice_value}; correcting all runtime threads to nice 0." >&2
+    renice_process_threads_to_zero "${host_pid}"
   fi
 }
 
@@ -595,20 +625,20 @@ assert_service_runtime_priority() {
     echo "Could not resolve host PID for ${service} while checking runtime priority." >&2
     exit 1
   fi
-  nice_value="$(ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+  nice_value="$(max_thread_nice_for_pid "${host_pid}")"
   if [[ -z "${nice_value}" || ! "${nice_value}" =~ ^-?[0-9]+$ ]]; then
-    echo "Could not read host nice value for ${service} pid ${host_pid}." >&2
+    echo "Could not read host thread nice value for ${service} pid ${host_pid}." >&2
     exit 1
   fi
   if (( nice_value > max_nice )); then
     if [[ "$(id -u)" == "0" ]]; then
-      echo "${service} started with host nice ${nice_value}; correcting to nice 0." >&2
-      renice -n 0 -p "${host_pid}" >/dev/null
-      nice_value="$(ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+      echo "${service} started with host thread nice ${nice_value}; correcting all runtime threads to nice 0." >&2
+      renice_process_threads_to_zero "${host_pid}"
+      nice_value="$(max_thread_nice_for_pid "${host_pid}")"
     fi
   fi
   if (( nice_value > max_nice )); then
-    echo "${service} started with host nice ${nice_value}, above allowed ${max_nice}." >&2
+    echo "${service} started with host thread nice ${nice_value}, above allowed ${max_nice}." >&2
     echo "Web runtime would be CPU-starved under load; restart deploy from a normal-priority operator shell." >&2
     exit 1
   fi
