@@ -184,11 +184,9 @@
               </div>
               <aside class="pqx-evidence-atlas-side">
                 <div class="pqx-evidence-layer-rail" data-pqx-evidence-layer-rail aria-label="Area layers"></div>
-                <div class="pqx-evidence-cache-note" data-pqx-evidence-cache-note>
-                  Prepared layers keep searches fast.
-                </div>
+                <div class="pqx-evidence-cache-note" data-pqx-evidence-cache-note hidden></div>
                 <div class="pqx-evidence-atlas-cards" data-pqx-evidence-atlas-cards></div>
-                <div class="pqx-note" data-pqx-evidence-atlas-footer>Not ready means this layer is not available here yet.</div>
+                <div class="pqx-note" data-pqx-evidence-atlas-footer>Only available layers are shown.</div>
               </aside>
             </div>
           </dialog>
@@ -213,7 +211,7 @@
     >
       <div class="pqx-research-task-head">
         <div>
-          <strong>{{ task.get('label') or 'Open detail' }}</strong>
+          <strong>{{ task.get('label') or 'Missing detail' }}</strong>
           <span>{{ task.get('title') or 'Property' }}{% if task.get('source_label') %} · {{ task.get('source_label') }}{% endif %}</span>
         </div>
         <span class="pqx-pill{% if task.get('status') == 'filled' %} good{% elif task.get('status') == 'dismissed' %}{% else %} warn{% endif %}" data-research-task-status-label>{{ task.get('status_label') or 'Up next' }}</span>
@@ -227,11 +225,11 @@
       <form class="pqx-research-task-form" data-research-task-form>
         <label>
           Answer
-          <input name="value" value="{{ task.get('display_value') or '' }}" maxlength="240" placeholder="e.g. 4 rooms, confirmed by agent">
+          <input name="value" value="{{ task.get('display_value') or '' }}" maxlength="240" placeholder="e.g. 4 rooms">
         </label>
         <label>
           Note
-          <input name="note" value="{{ task.get('owner_note') or '' }}" maxlength="500" placeholder="Where this answer came from">
+          <input name="note" value="{{ task.get('owner_note') or '' }}" maxlength="500" placeholder="Optional note">
         </label>
         <div class="pqx-research-task-actions">
           <button class="pqx-button primary" type="submit" data-research-task-action="fill">Save answer</button>

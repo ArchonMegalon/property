@@ -2329,7 +2329,7 @@
           <span class="pqx-note">${escapeHtml(row?.description || 'Public data layer')}</span>
           <div class="pqx-source-metrics">
             <span>Check <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'data')}</b></span>
-            <span>Detail <b>${escapeHtml(String(row?.confidence || 'medium').replaceAll('_', ' '))}</b></span>
+            <span>Status <b>Available</b></span>
           </div>
         </article>
       `).join('');
@@ -5781,90 +5781,90 @@
       const safetyRows = officialRiskSourcesForCandidate(candidate, ['crime_risk', 'safety_context']);
       const mediaRows = mediaRowsForCandidate(candidate);
       const fiberRows = officialRiskSourcesForCandidate(candidate, ['broadband_availability', 'fiber_coverage']);
-      const sourceChip = (rows, fallback = 'Cached Teable rollup') => firstEvidenceLabel(rows) || fallback;
-      const freshness = (rows) => firstEvidenceFreshness(rows) || 'freshness pending';
+      const sourceChip = (rows, fallback = '') => firstEvidenceLabel(rows) || fallback;
+      const freshness = (rows) => firstEvidenceFreshness(rows) || '';
       return [
         {
           key: 'visual',
           label: 'Visuals',
           state: visualRows.length ? 'verified' : 'unavailable',
-          title: visualRows.length ? 'Tour media ready' : 'Tour media not ready yet',
+          title: visualRows.length ? 'Tour media' : 'No tour yet',
           summary: visualRows.length
-            ? 'This property already has a tour or walkthrough ready to open.'
-            : 'No 3D tour or rendered walkthrough is attached to this candidate yet.',
+            ? 'A 3D tour or walkthrough is ready to open.'
+            : 'This property does not have a tour attached yet.',
           rows: visualRows,
-          source: sourceChip(visualRows, 'Visual control verifier'),
+          source: sourceChip(visualRows),
           freshness: freshness(visualRows),
         },
         {
           key: 'environment',
           label: 'Environment',
           state: environmentRows.length ? 'verified' : 'unavailable',
-          title: environmentRows.length ? 'Environmental context available' : 'Environment not ready',
+          title: environmentRows.length ? 'Local climate' : 'No climate layer yet',
           summary: environmentRows.length
-            ? 'Local air, heat, flood, noise, and summer-cooling context is available where the city data supports it.'
-            : 'Air, heat, flood, noise, and cooling-corridor data is not ready for this address yet.',
+            ? 'Air, heat, flood, noise, and summer-cooling context for this area.'
+            : 'No local climate layer is available for this address yet.',
           rows: environmentRows,
-          source: sourceChip(environmentRows, 'Not available yet'),
+          source: sourceChip(environmentRows),
           freshness: freshness(environmentRows),
         },
         {
           key: 'mobility',
           label: 'Traffic',
           state: mobilityValues.length ? 'verified' : 'unavailable',
-          title: mobilityValues.length ? 'Traffic context available' : 'Traffic not ready',
+          title: mobilityValues.length ? 'Traffic and transit' : 'No traffic layer yet',
           summary: mobilityValues.length
             ? mobilityValues.join(' · ')
-            : 'Traffic density and noise data is not ready for this address yet.',
+            : 'No traffic or noise layer is available for this address yet.',
           rows: [],
-          source: mobilityValues.length ? 'Area data' : 'Not available yet',
-          freshness: mobilityValues.length ? 'ready' : 'not ready',
+          source: '',
+          freshness: '',
         },
         {
           key: 'schools',
           label: 'Schools',
           state: schoolRows.length || facts.school_atlas_progression_summary ? 'verified' : 'unavailable',
-          title: schoolRows.length || facts.school_atlas_progression_summary ? 'School context available' : 'School context not ready',
+          title: schoolRows.length || facts.school_atlas_progression_summary ? 'Schools nearby' : 'No school layer yet',
           summary: String(facts.school_atlas_progression_summary || facts.school_context_summary || '').trim()
-            || 'School movement data is not ready for this area yet.',
+            || 'No school layer is available for this area yet.',
           rows: schoolRows,
-          source: sourceChip(schoolRows, 'Not available yet'),
+          source: sourceChip(schoolRows),
           freshness: freshness(schoolRows),
         },
         {
           key: 'safety',
           label: 'Safety',
           state: safetyRows.length ? 'verified' : 'unavailable',
-          title: safetyRows.length ? 'Safety context available' : 'Safety context not ready',
+          title: safetyRows.length ? 'Area safety' : 'No safety layer yet',
           summary: safetyRows.length
-            ? 'Area-level safety context is available. Treat it as local context, not as a score for a home or person.'
-            : 'Safety context is not ready for this area yet.',
+            ? 'Area-level safety context, shown as local context only.'
+            : 'No safety layer is available for this area yet.',
           rows: safetyRows,
-          source: sourceChip(safetyRows, 'Not available yet'),
+          source: sourceChip(safetyRows),
           freshness: freshness(safetyRows),
         },
         {
           key: 'media',
           label: 'Media',
           state: mediaRows.length ? 'verified' : 'unavailable',
-          title: mediaRows.length ? 'Local media mentions available' : 'No local media context yet',
+          title: mediaRows.length ? 'Local media' : 'No media layer yet',
           summary: mediaRows.length
-            ? `${mediaRows.length} local article mention${mediaRows.length === 1 ? '' : 's'}. Open original pages when available.`
-            : 'Local article statistics are not ready for this area yet.',
+            ? `${mediaRows.length} local article mention${mediaRows.length === 1 ? '' : 's'}.`
+            : 'No local media layer is available for this area yet.',
           rows: mediaRows,
-          source: sourceChip(mediaRows, 'Not available yet'),
+          source: sourceChip(mediaRows),
           freshness: freshness(mediaRows),
         },
         {
           key: 'fiber',
           label: 'Fiber',
           state: fiberRows.length ? 'verified' : 'unavailable',
-          title: fiberRows.length ? 'Fiber coverage available' : 'Fiber coverage not ready',
+          title: fiberRows.length ? 'Fiber coverage' : 'No fiber layer yet',
           summary: fiberRows.length
             ? 'Fiber data is available for this area. Address-level availability may still vary.'
-            : 'Fiber coverage is not ready for this address yet.',
+            : 'No fiber layer is available for this address yet.',
           rows: fiberRows,
-          source: sourceChip(fiberRows, 'Not available yet'),
+          source: sourceChip(fiberRows),
           freshness: freshness(fiberRows),
         },
       ];
@@ -5872,15 +5872,15 @@
     const renderEvidenceCard = (card) => {
       const evidenceStateLabel = (state) => {
         const normalized = String(state || '').trim().toLowerCase();
-        if (normalized === 'verified') return 'Available';
-        if (normalized === 'unavailable') return 'Not ready';
-        return normalized ? normalized.replaceAll('_', ' ') : 'Not ready';
+        if (normalized === 'verified') return 'On this page';
+        if (normalized === 'unavailable') return 'Unavailable';
+        return normalized ? normalized.replaceAll('_', ' ') : 'Unavailable';
       };
       const url = firstEvidenceUrl(card.rows || []);
       const stateLabel = evidenceStateLabel(card.state);
       const sourceLink = url
-        ? `<a class="pqx-evidence-source-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open detail</a>`
-        : '<span class="pqx-evidence-source-chip">No link</span>';
+        ? `<div class="pqx-evidence-card-foot"><a class="pqx-evidence-source-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open page</a></div>`
+        : '';
       return `
         <article class="pqx-evidence-card" data-state="${escapeHtml(card.state)}" data-pqx-evidence-card="${escapeHtml(card.key)}">
           <div class="pqx-evidence-card-head">
@@ -5888,11 +5888,7 @@
             <span class="pqx-evidence-state">${escapeHtml(stateLabel)}</span>
           </div>
           <p>${escapeHtml(card.summary)}</p>
-          <div class="pqx-evidence-card-foot">
-            <span class="pqx-evidence-source-chip">${escapeHtml(card.source)}</span>
-            <span class="pqx-evidence-source-chip">${escapeHtml(card.freshness)}</span>
-            ${sourceLink}
-          </div>
+          ${sourceLink}
         </article>
       `;
     };

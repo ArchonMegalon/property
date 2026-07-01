@@ -6745,9 +6745,10 @@ def test_property_workbench_bundle_uses_calm_evidence_state_labels() -> None:
     bundle = _read_workbench_bundle()
 
     assert "const evidenceStateLabel = (state) => {" in bundle
-    assert "if (normalized === 'verified') return 'Available';" in bundle
-    assert "if (normalized === 'unavailable') return 'Not ready';" in bundle
-    assert "No source link" in bundle
+    assert "if (normalized === 'verified') return 'On this page';" in bundle
+    assert "if (normalized === 'unavailable') return 'Unavailable';" in bundle
+    assert "Open page" in bundle
+    assert "No link" not in bundle
 
 
 def test_property_workbench_provider_picker_suppresses_homepage_links() -> None:

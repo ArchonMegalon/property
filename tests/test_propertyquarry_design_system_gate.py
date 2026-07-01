@@ -117,6 +117,11 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "official evidence",
         "provider listing evidence confirmed",
         "current listing evidence",
+        "visual control verifier",
+        "cached teable rollup",
+        "freshness pending",
+        "key details came from the listing",
+        "from listing",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered
