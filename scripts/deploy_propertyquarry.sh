@@ -93,7 +93,7 @@ done
 cd "${APP_ROOT}"
 
 normalise_deploy_process_priority() {
-  local current_pid pgid nice_value
+  local current_pid parent_pid pgid pid nice_value
   current_pid="${BASHPID:-$$}"
   pgid="$(ps -o pgid= -p "${current_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
   nice_value="$(ps -o ni= -p "${current_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
@@ -105,7 +105,18 @@ normalise_deploy_process_priority() {
     renice -n 0 -p "${current_pid}" >/dev/null || true
     if [[ -n "${pgid}" && "${pgid}" =~ ^[0-9]+$ ]]; then
       renice -n 0 -g "${pgid}" >/dev/null || true
+      while IFS= read -r pid; do
+        pid="$(printf '%s' "${pid}" | tr -d '[:space:]')"
+        if [[ -n "${pid}" && "${pid}" =~ ^[0-9]+$ ]]; then
+          renice -n 0 -p "${pid}" >/dev/null || true
+        fi
+      done < <(ps -o pid= -g "${pgid}" 2>/dev/null || true)
     fi
+    parent_pid="$(ps -o ppid= -p "${current_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+    while [[ -n "${parent_pid}" && "${parent_pid}" =~ ^[0-9]+$ && "${parent_pid}" != "0" && "${parent_pid}" != "1" ]]; do
+      renice -n 0 -p "${parent_pid}" >/dev/null || true
+      parent_pid="$(ps -o ppid= -p "${parent_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+    done
   fi
 }
 
@@ -644,6 +655,20 @@ assert_service_runtime_priority() {
   fi
 }
 
+settle_runtime_priorities() {
+  local attempts="${1:-3}"
+  local attempt
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    correct_service_runtime_priority_if_needed "${api_service}" "${api_container_name}" "${max_runtime_nice}"
+    correct_service_runtime_priority_if_needed "${scheduler_service}" "${scheduler_container_name}" "${max_runtime_nice}"
+    if (( attempt < attempts )); then
+      sleep 1
+    fi
+  done
+  assert_service_runtime_priority "${api_service}" "${api_container_name}" "${max_runtime_nice}"
+  assert_service_runtime_priority "${scheduler_service}" "${scheduler_container_name}" "${max_runtime_nice}"
+}
+
 max_runtime_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE)"
 max_runtime_nice="${max_runtime_nice:-10}"
 
@@ -657,12 +682,12 @@ wait_for_service_ready "${scheduler_service}" "${scheduler_container_name}"
 if (( should_enable_cloudflared )); then
   "${DC[@]}" up -d --no-deps --force-recreate "${cloudflared_container_name}" 2>/dev/null || "${DC[@]}" up -d --no-deps --force-recreate propertyquarry-cloudflared 2>/dev/null || true
 fi
-assert_service_runtime_priority "${api_service}" "${api_container_name}" "${max_runtime_nice}"
-assert_service_runtime_priority "${scheduler_service}" "${scheduler_container_name}" "${max_runtime_nice}"
+settle_runtime_priorities 4
 
 wait_for_service_ready "${db_service}" "${db_container_name}"
 wait_for_service_ready "${api_service}" "${api_container_name}"
 wait_for_service_ready "${scheduler_service}" "${scheduler_container_name}"
+settle_runtime_priorities 3
 
 base_url="$(effective_env_value PROPERTYQUARRY_DEPLOY_BASE_URL)"
 base_url="${base_url:-http://localhost:${host_port}}"
@@ -844,6 +869,8 @@ if [[ "${landing_html}" != *PropertyQuarry* ]]; then
   exit 1
 fi
 
+settle_runtime_priorities 2
+
 app_status="$(curl -sS --connect-timeout 2 --max-time "${core_probe_timeout_seconds}" -o "${deploy_tmp_dir}/propertyquarry_deploy_app_probe.html" -w '%{http_code}' "${base_url}/app/properties" || true)"
 case "${app_status}" in
   401|302|303) ;;
@@ -855,6 +882,7 @@ esac
 
 public_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_public_smoke.json"
 public_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PUBLIC_SMOKE_TIMEOUT_SECONDS:-8}"
+settle_runtime_priorities 2
 if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_public_smoke.py \
   --base-url "${base_url}" \
   --timeout-seconds "${public_smoke_timeout_seconds}" \
@@ -868,6 +896,7 @@ cp "${public_smoke_receipt}" _completion/smoke/property-live-public-latest.json
 
 authenticated_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_authenticated_smoke.json"
 authenticated_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_AUTHENTICATED_SMOKE_TIMEOUT_SECONDS:-20}"
+settle_runtime_priorities 2
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_authenticated_smoke.py \
   --base-url "${base_url}" \
   --principal-id "${live_smoke_principal_id}" \
@@ -884,6 +913,7 @@ mobile_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_mobile_smoke.json"
 mobile_smoke_timeout_ms="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
 mobile_smoke_process_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIMEOUT_SECONDS:-300}"
 rm -f "${mobile_smoke_receipt}"
+settle_runtime_priorities 3
 if ! timeout "${mobile_smoke_process_timeout_seconds}" env EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_mobile_surface_smoke.py \
   --base-url "${base_url}" \
   --host-header "propertyquarry.com" \
@@ -897,9 +927,11 @@ if ! timeout "${mobile_smoke_process_timeout_seconds}" env EA_API_TOKEN="${api_t
   exit 1
 fi
 cp "${mobile_smoke_receipt}" _completion/smoke/property-live-mobile-surface-latest.json
+settle_runtime_priorities 2
 
 map_preview_gate_receipt="${deploy_tmp_dir}/propertyquarry_deploy_map_preview_flagship.json"
 map_preview_gate_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MAP_PREVIEW_GATE_TIMEOUT_SECONDS:-60}"
+settle_runtime_priorities 2
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_map_preview_flagship_gate.py \
   --base-url "${base_url}" \
   --host-header "propertyquarry.com" \
@@ -912,9 +944,11 @@ if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/pr
   exit 1
 fi
 cp "${map_preview_gate_receipt}" _completion/smoke/property-live-map-preview-flagship-latest.json
+settle_runtime_priorities 2
 
 market_scope_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_market_scope_smoke.json"
 market_scope_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MARKET_SCOPE_SMOKE_TIMEOUT_SECONDS:-8}"
+settle_runtime_priorities 2
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_market_scope_smoke.py \
   --base-url "${base_url}" \
   --principal-id "${live_market_scope_principal_id}" \
@@ -965,6 +999,7 @@ if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"; then
   provider_smoke_mode="e2e"
   mkdir -p _completion/provider_smoke
   provider_smoke_scope_label="${provider_country_scope_slug:-all-search-ready}"
+  settle_runtime_priorities 2
   if ! EA_API_TOKEN="${api_token}" \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 \
@@ -985,6 +1020,7 @@ if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"; then
   cp "${provider_smoke_receipt}" "${provider_e2e_receipt}"
 else
   provider_smoke_scope_label="${provider_country_scope_slug:-catalog}"
+  settle_runtime_priorities 2
   if ! EA_API_TOKEN="${api_token}" \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
@@ -1020,6 +1056,7 @@ if (( run_presentation_e2e == 1 )); then
   if [[ "${provider_smoke_mode}" == "e2e" ]]; then
     presentation_provider_matrix_args+=(--require-provider-matrix)
   fi
+  settle_runtime_priorities 2
   if ! EA_API_TOKEN="${api_token}" \
     PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_presentation_e2e.py \
     --base-url "${base_url}" \
@@ -1035,6 +1072,7 @@ if (( run_presentation_e2e == 1 )); then
   cp "${presentation_e2e_receipt}" _completion/smoke/property-live-presentation-e2e-latest.json
 
   browser_3d_gate_receipt="${deploy_tmp_dir}/propertyquarry_deploy_3d_browser_gate.json"
+  settle_runtime_priorities 2
   if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_3d_browser_gate.py \
     --base-url "${base_url}" \
     --host-header "propertyquarry.com" \
@@ -1048,6 +1086,7 @@ if (( run_presentation_e2e == 1 )); then
   cp "${browser_3d_gate_receipt}" _completion/smoke/property-live-3d-browser-gate-latest.json
 
   walkthrough_quality_receipt="${deploy_tmp_dir}/propertyquarry_deploy_walkthrough_quality.json"
+  settle_runtime_priorities 2
   if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py \
     --tour-root state/public_property_tours \
     --write "${walkthrough_quality_receipt}" >/dev/null; then
@@ -1058,6 +1097,8 @@ if (( run_presentation_e2e == 1 )); then
   fi
   cp "${walkthrough_quality_receipt}" _completion/smoke/property-live-walkthrough-quality-latest.json
 fi
+
+settle_runtime_priorities 4
 
 gold_status_receipt="_completion/property_gold_status/release-gate.json"
 legacy_gold_status_receipt="_completion/propertyquarry-gold-status-latest.json"
