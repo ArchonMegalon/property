@@ -24,12 +24,12 @@
       <strong>{{ previous.get('title') or previous.get('scope_label') or 'Search' }}</strong>
       <small>
         {% if previous.get('ranked_total') %}
-        {{ previous.get('ranked_total') }} ranked
+        {{ previous.get('ranked_total') }} matching
         {% else %}
         Open results
         {% endif %}
         {% if previous.get('held_back_total') %}
-        · {{ previous.get('held_back_total') }} filtered
+        · {{ previous.get('held_back_total') }} hidden
         {% endif %}
       </small>
     </a>
@@ -66,7 +66,7 @@
         </div>
         <div class="pqx-actions">
           {% if previous.get('ranked_total') %}
-          <span class="pqx-pill">{{ previous.get('ranked_total') }} ranked</span>
+          <span class="pqx-pill">{{ previous.get('ranked_total') }} matching</span>
           {% endif %}
           <a class="pqx-link-button subtle" href="{{ previous.get('href') or '/app/shortlist' }}">Open</a>
         </div>

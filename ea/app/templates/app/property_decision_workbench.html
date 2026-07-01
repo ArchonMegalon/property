@@ -45,6 +45,14 @@
 {% set request_run_id = request.query_params.get('run_id') if request is defined and request.query_params is defined else '' %}
 {% set topnav_run_id = run.get('run_id') or requested_run_id or request_run_id or '' %}
 {% set topnav_query_suffix = ('?run_id=' ~ (topnav_run_id|urlencode)) if topnav_run_id else '' %}
+{% macro pqx_display_tag(value) -%}
+  {%- set label = (value or '')|string|trim -%}
+  {%- set lowered = label|lower -%}
+  {%- if lowered in ['verified', 'evidence'] -%}Available
+  {%- elif 'proof' in lowered -%}Source
+  {%- else -%}{{ label }}
+  {%- endif -%}
+{%- endmacro %}
 {% macro suppression_panel(rows, actions=[], total_override=None) -%}
 {% if rows %}
 {% set trigger_rows = actions if actions else rows %}
@@ -164,13 +172,13 @@
           </dialog>
 {%- endmacro %}
 {% macro evidence_atlas_dialog() -%}
-          <dialog class="pqx-evidence-atlas" data-pqx-evidence-atlas aria-label="Property context">
+          <dialog class="pqx-evidence-atlas" data-pqx-evidence-atlas aria-label="Area">
             <div class="pqx-evidence-atlas-card" data-pqx-evidence-atlas-card>
               <div class="pqx-evidence-atlas-head">
                 <div class="pqx-evidence-atlas-title">
-                  <span class="pqx-small">Area layers</span>
-                  <strong data-pqx-evidence-atlas-title>Property context</strong>
-                  <span class="pqx-note" data-pqx-evidence-atlas-caption>Map, climate, schools, traffic, and local context.</span>
+                  <span class="pqx-small">Area</span>
+                  <strong data-pqx-evidence-atlas-title>Map and surroundings</strong>
+                  <span class="pqx-note" data-pqx-evidence-atlas-caption>Map, climate, schools, traffic, and local notes.</span>
                 </div>
                 <button class="pqx-evidence-atlas-close" type="button" data-pqx-evidence-atlas-close aria-label="Close area layers">×</button>
               </div>
@@ -178,15 +186,15 @@
                 <img class="pqx-evidence-atlas-image" data-pqx-evidence-atlas-image src="" alt="" loading="lazy" decoding="async">
                 <span class="pqx-evidence-atlas-pin" aria-hidden="true"></span>
                 <div class="pqx-evidence-atlas-map-label">
-                  <strong data-pqx-evidence-map-label>Property location context</strong>
-                  <span data-pqx-evidence-map-detail>Open a layer to see the area.</span>
+                  <strong data-pqx-evidence-map-label>Area map</strong>
+                  <span data-pqx-evidence-map-detail>Choose a layer.</span>
                 </div>
               </div>
               <aside class="pqx-evidence-atlas-side">
                 <div class="pqx-evidence-layer-rail" data-pqx-evidence-layer-rail aria-label="Area layers"></div>
                 <div class="pqx-evidence-cache-note" data-pqx-evidence-cache-note hidden></div>
                 <div class="pqx-evidence-atlas-cards" data-pqx-evidence-atlas-cards></div>
-                <div class="pqx-note" data-pqx-evidence-atlas-footer>Only available layers are shown.</div>
+                <div class="pqx-note" data-pqx-evidence-atlas-footer>Unavailable layers stay hidden.</div>
               </aside>
             </div>
           </dialog>
@@ -374,7 +382,7 @@
 	  <div class="pqx-reliability-strip" data-pqx-run-reliability>
     <div class="pqx-reliability-head">
       <span class="pqx-pill {{ reliability.get('health_tone') }}">{{ reliability.get('health_label') or 'Working' }}</span>
-      {% if reliability.get('repair_step_label') %}<strong>{{ reliability.get('repair_step_label') }}</strong>{% endif %}
+      {% if reliability.get('repair_step_label') %}<strong>Checking affected lists</strong>{% endif %}
       {% if reliability.get('next_useful_update_eta_label') %}<span class="pqx-small">Next useful update: {{ reliability.get('next_useful_update_eta_label') }}</span>{% endif %}
       {% if reliability.get('final_eta_label') %}<span class="pqx-small">Finish: {{ reliability.get('final_eta_label') }}</span>{% endif %}
     </div>
@@ -11098,7 +11106,7 @@
                   {% if item.get('detail') %}<small>{{ item.get('detail') }}</small>{% endif %}
                 </div>
                 <div class="pqx-actions">
-                  {% if item.get('tag') %}<span class="pqx-pill">{{ item.get('tag') }}</span>{% endif %}
+                  {% if item.get('tag') %}<span class="pqx-pill">{{ pqx_display_tag(item.get('tag')) }}</span>{% endif %}
                   {% if item.get('action_href') and item.get('action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ item.get('action_label') }}</a>{% endif %}
                   {% if item.get('secondary_action_href') and item.get('secondary_action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ item.get('secondary_action_label') }}</a>{% endif %}
                 </div>
@@ -11126,7 +11134,7 @@
                   {% if item.get('detail') %}<small>{{ item.get('detail') }}</small>{% endif %}
                 </div>
                 <div class="pqx-actions">
-                  {% if item.get('tag') %}<span class="pqx-pill">{{ item.get('tag') }}</span>{% endif %}
+                  {% if item.get('tag') %}<span class="pqx-pill">{{ pqx_display_tag(item.get('tag')) }}</span>{% endif %}
                   {% if item.get('action_href') and item.get('action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ item.get('action_label') }}</a>{% endif %}
                   {% if item.get('secondary_action_href') and item.get('secondary_action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ item.get('secondary_action_label') }}</a>{% endif %}
                 </div>
@@ -11643,7 +11651,7 @@
               <div class="pqx-section-head">
                 <div>
                   <h2>Public data</h2>
-                  <div class="pqx-note">Public data used for this market.</div>
+                  <div class="pqx-note">Map and city layers for this market.</div>
                 </div>
               </div>
               <div class="pqx-source-grid" data-pqx-evidence-source-list></div>
@@ -11962,7 +11970,7 @@
                   <th>Property</th>
                   <th>Media</th>
                   <th>Fit</th>
-                  <th>Why it fits</th>
+                  <th>Best points</th>
                   <th>Open</th>
                 </tr>
               </thead>
@@ -12214,7 +12222,7 @@
           <details class="pqx-card pqx-mobile-review-more pqx-mobile-fold">
             <summary>
               <span class="pqx-mobile-review-copy">
-                <strong>Why it fits</strong>
+                <strong>Best points</strong>
                 <span class="pqx-mobile-review-preview">{{ selected.get('fit_summary') or (selected.get('match_reasons') or ['Open the property to inspect the fit.'])[0] }}</span>
               </span>
             </summary>
@@ -12222,7 +12230,7 @@
               {% for reason in (selected.get('match_reasons') or [])[:3] %}
               <div class="pqx-event-card"><strong>Fit</strong><span class="pqx-note">{{ reason }}</span></div>
               {% else %}
-              <div class="pqx-note">{{ selected.get('fit_summary') or 'No explicit match reason captured yet.' }}</div>
+              <div class="pqx-note">{{ selected.get('fit_summary') or 'No match notes yet.' }}</div>
               {% endfor %}
             </div>
           </details>

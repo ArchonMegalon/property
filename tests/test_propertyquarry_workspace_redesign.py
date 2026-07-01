@@ -6740,8 +6740,8 @@ def test_property_workbench_bundle_uses_calm_evidence_state_labels() -> None:
     bundle = _read_workbench_bundle()
 
     assert "const evidenceStateLabel = (state) => {" in bundle
-    assert "if (normalized === 'verified') return 'On this page';" in bundle
-    assert "if (normalized === 'unavailable') return 'Unavailable';" in bundle
+    assert "if (normalized === 'verified') return 'Available';" in bundle
+    assert "if (normalized === 'unavailable') return 'Not yet';" in bundle
     assert "Open page" in bundle
     assert "No link" not in bundle
 
@@ -9485,7 +9485,7 @@ def test_property_run_live_board_sanitizes_stale_source_counts_without_source_ro
     assert "selected sources" not in snapshot["source_count_label"]
 
 
-def test_property_run_live_board_marks_school_route_risk_as_score_only() -> None:
+def test_property_run_live_board_describes_school_route_risk_without_score_language() -> None:
     snapshot = property_surface_state.build_property_run_live_board_snapshot(
         {
             "status": "running",
@@ -9503,10 +9503,10 @@ def test_property_run_live_board_marks_school_route_risk_as_score_only() -> None
         plan_key="plus",
     )
 
-    assert snapshot["phase_label"] == "Way to school looked risky for candidate 17/60 (score impact only)"
+    assert snapshot["phase_label"] == "Way to school needs a closer look for candidate 17/60"
 
 
-def test_property_run_live_board_marks_safe_kindergarten_route_as_score_upgrade() -> None:
+def test_property_run_live_board_describes_kindergarten_route_without_score_language() -> None:
     snapshot = property_surface_state.build_property_run_live_board_snapshot(
         {
             "status": "running",
@@ -9524,7 +9524,7 @@ def test_property_run_live_board_marks_safe_kindergarten_route_as_score_upgrade(
         plan_key="plus",
     )
 
-    assert snapshot["phase_label"] == "Way to kindergarten looked safe for candidate 18/60 (score upgraded)"
+    assert snapshot["phase_label"] == "Way to kindergarten looks calm for candidate 18/60"
 
 
 def test_property_run_live_board_prefers_ranked_candidates_when_high_fit_total_is_zero() -> None:
@@ -9556,7 +9556,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
     cases = [
         (
             "Balcony evidence confirmed for candidate 11 of 60.",
-            "Outdoor space found for candidate 11/60 (score upgraded)",
+            "Outdoor space found on candidate 11/60",
         ),
         (
             "Operating costs are missing for candidate 12 of 60 and need verification.",
@@ -9564,19 +9564,19 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Postal code mismatch outside selected scope for candidate 13 of 60.",
-            "Location evidence conflicted for candidate 13/60 (hard area rule)",
+            "Candidate 13/60 is outside the selected area",
         ),
         (
             "Kept shortlist candidate 14 of 60 in discovery despite a Noise miss for Willhaben. Noise is higher than preferred.",
-            "Noise missed the preference for candidate 14/60 (score impact only)",
+            "Noise is missing on candidate 14/60",
         ),
         (
             "Matterport tour available for candidate 15 of 60.",
-            "Remote-view detail improved the score for candidate 15/60 (score upgraded)",
+            "Remote-view detail ready on candidate 15/60",
         ),
         (
             "High-speed internet detail confirmed for candidate 16 of 60.",
-            "Internet detail improved the score for candidate 16/60 (score upgraded)",
+            "Internet detail found on candidate 16/60",
         ),
         (
             "Energy certificate is missing for candidate 17 of 60.",
@@ -9584,7 +9584,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "School distance is within the selected preference for candidate 18 of 60.",
-            "School distance fit the preference for candidate 18/60 (score upgraded)",
+            "School distance fits for candidate 18/60",
         ),
         (
             "Skipped shortlist candidate 19 of 60 outside the relaxed kindergarten radius for Willhaben | Austria | Rent | 1010 Vienna: 910 m vs 450 m.",
@@ -9592,7 +9592,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Commute is longer than preferred for candidate 20 of 60.",
-            "Commute was longer than preferred for candidate 20/60 (score impact only)",
+            "Commute is longer than preferred for candidate 20/60",
         ),
         (
             "Skipped shortlist candidate 21 of 60 outside the relaxed supermarket radius for Willhaben | Austria | Rent | 1010 Vienna: 960 m vs 500 m.",
@@ -9604,11 +9604,11 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "No balcony or terrace found for candidate 22 of 60.",
-            "Outdoor space was missing for candidate 22/60 (score impact only)",
+            "Outdoor space is missing on candidate 22/60",
         ),
         (
             "South-facing orientation evidence confirmed for candidate 23 of 60.",
-            "Light and orientation detail improved the score for candidate 23/60 (score upgraded)",
+            "Light and orientation detail found on candidate 23/60",
         ),
         (
             "Duplicate candidate 24 of 60 already seen on another provider.",
@@ -9624,31 +9624,31 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Price per sqm is below benchmark for candidate 27 of 60.",
-            "Price-per-m2 benchmark improved the score for candidate 27/60",
+            "Price per m2 looks good for candidate 27/60",
         ),
         (
             "Price per sqm is above benchmark for candidate 28 of 60.",
-            "Price-per-m2 benchmark reduced the score for candidate 28/60 (score impact only)",
+            "Price per m2 looks high for candidate 28/60",
         ),
         (
             "Total monthly cost fits inside budget for candidate 29 of 60.",
-            "Total monthly cost fit the budget for candidate 29/60 (score upgraded)",
+            "Total monthly cost fits for candidate 29/60",
         ),
         (
             "Total monthly cost exceeds budget for candidate 30 of 60.",
-            "Total monthly cost exceeded the budget for candidate 30/60 (hard budget rule)",
+            "Total monthly cost is above budget for candidate 30/60",
         ),
         (
             "Room count and layout shape matched for candidate 31 of 60.",
-            "Room layout matched the home shape for candidate 31/60 (score upgraded)",
+            "Room layout looks usable for candidate 31/60",
         ),
         (
             "Bike route looked protected and direct for candidate 32 of 60.",
-            "Bike route looked practical for candidate 32/60 (score upgraded)",
+            "Bike route looks practical for candidate 32/60",
         ),
         (
             "Noise context is low and quiet for candidate 33 of 60.",
-            "Noise context improved the score for candidate 33/60",
+            "Noise looks low for candidate 33/60",
         ),
         (
             "Flood and groundwater evidence is clear for candidate 34 of 60.",
@@ -9692,12 +9692,12 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
         results_total=3,
     )
     assert reliability["health_label"] == "Repairing"
-    assert reliability["repair_step_label"] == "Retrying 1 list"
+    assert reliability["repair_step_label"] == "Checking affected lists"
     assert reliability["coverage_label"] == "2/4 lists · 2 still running"
     assert "sources checked" not in reliability["coverage_label"]
     assert "selected source" not in reliability["repair_step_label"].lower()
     assert "selected sources" not in reliability["customer_status_message"].lower()
-    assert reliability["result_label"] == "3 ranked results ready"
+    assert reliability["result_label"] == "3 matching results ready"
     assert reliability["filtered_label"] == "7 outside the current brief"
     assert reliability["repair"]["repair_status"] == "repairing"
     assert reliability["repair"]["can_auto_repair"] is True
@@ -16776,7 +16776,7 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
     assert body.index("<h2>Next step</h2>") < body.index("data-pw-finetune-panel hidden")
     assert body.index("data-pw-finetune-panel hidden") < body.index('data-pw-feedback-reaction="like"')
     assert 'href="/app/search{{ review_query_suffix }}">Search brief</a>' in body
-    assert "Pick one to teach the ranking." in body
+    assert "Pick one to tune future results." in body
     assert "Request visuals only when this home is worth a deeper review." not in body
     assert "Tour or walkthrough not available yet." in body
     assert "No 3D tour is published yet." not in body

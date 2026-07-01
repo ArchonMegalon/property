@@ -475,7 +475,7 @@
     `).join('') || '<div class="pqx-note">No quick-read detail captured yet.</div>';
     const renderMatch = (rows) => (Array.isArray(rows) ? rows : []).map((reason) => `
       <div class="pqx-event-card"><strong>Fit</strong><span class="pqx-note">${escapeHtml(reason)}</span></div>
-    `).join('') || '<div class="pqx-note">No explicit match reason captured yet.</div>';
+    `).join('') || '<div class="pqx-note">No match notes yet.</div>';
     const renderTimeline = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
       <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Update')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span></div>
     `).join('') || '<div class="pqx-note">No decision timeline yet.</div>';
@@ -1584,27 +1584,27 @@
         ['balcony', 'terrace', 'outdoor'].some((token) => normalized.includes(token))
         && ['missing', 'none', 'without', 'absent', 'no '].some((token) => normalized.includes(token))
       ) {
-        return `Outdoor space was missing for candidate ${ordinal} (score impact only)`;
+        return `Outdoor space is missing on candidate ${ordinal}`;
       }
       const positiveSignals = [
         [['balcony', 'terrace', 'outdoor'], 'Outdoor space found'],
-        [['lift', 'elevator', 'barrier-free', 'barrier free', 'accessible'], 'Access detail improved the score'],
-        [['operating cost', 'monthly cost', 'total cost', 'betriebskosten'], 'Cost detail improved the score'],
-        [['heating', 'heizung'], 'Heating detail improved the score'],
-        [['energy', 'energy certificate', 'energieausweis'], 'Energy detail improved the score'],
-        [['internet', 'broadband', 'fiber', 'fibre', 'high-speed'], 'Internet detail improved the score'],
-        [['floorplan', 'layout'], 'Layout detail improved the score'],
-        [['360', 'matterport', '3dvista', 'virtual tour', 'live tour'], 'Remote-view detail improved the score'],
-        [['garage', 'parking'], 'Parking detail improved the score'],
-        [['commute', 'transit', 'subway', 'u-bahn', 'underground', 'train'], 'Transit detail improved the score'],
-        [['school', 'volksschule'], 'School fit improved the score'],
-        [['kindergarten', 'childcare'], 'Childcare fit improved the score'],
-        [['supermarket', 'pharmacy', 'bakery', 'market', 'errand'], 'Daily errands improved the score'],
-        [['sunlight', 'bright', 'orientation', 'south-facing'], 'Light and orientation detail improved the score'],
+        [['lift', 'elevator', 'barrier-free', 'barrier free', 'accessible'], 'Access detail found'],
+        [['operating cost', 'monthly cost', 'total cost', 'betriebskosten'], 'Cost detail found'],
+        [['heating', 'heizung'], 'Heating detail found'],
+        [['energy', 'energy certificate', 'energieausweis'], 'Energy detail found'],
+        [['internet', 'broadband', 'fiber', 'fibre', 'high-speed'], 'Internet detail found'],
+        [['floorplan', 'layout'], 'Layout detail found'],
+        [['360', 'matterport', '3dvista', 'virtual tour', 'live tour'], 'Remote-view detail ready'],
+        [['garage', 'parking'], 'Parking detail found'],
+        [['commute', 'transit', 'subway', 'u-bahn', 'underground', 'train'], 'Transit detail found'],
+        [['school', 'volksschule'], 'School fit found'],
+        [['kindergarten', 'childcare'], 'Childcare fit found'],
+        [['supermarket', 'pharmacy', 'bakery', 'market', 'errand'], 'Daily errands nearby'],
+        [['sunlight', 'bright', 'orientation', 'south-facing'], 'Light and orientation detail found'],
       ];
       for (const [tokens, label] of positiveSignals) {
         if (tokens.some((token) => normalized.includes(token)) && ['found', 'confirmed', 'available', 'evidence', 'clear', 'ready'].some((token) => normalized.includes(token))) {
-          return `${label} for candidate ${ordinal} (score upgraded)`;
+          return `${label} on candidate ${ordinal}`;
         }
       }
       const softConcernTokens = [
@@ -1630,7 +1630,7 @@
         ['district', 'postal', 'postcode'].some((token) => normalized.includes(token))
         && ['conflict', 'mismatch', 'outside', 'wrong'].some((token) => normalized.includes(token))
       ) {
-        return `Location evidence conflicted for candidate ${ordinal} (hard area rule)`;
+        return `Candidate ${ordinal} is outside the selected area`;
       }
       if (
         (normalized.includes('school') || normalized.includes('kindergarten'))
@@ -1638,7 +1638,7 @@
         && ['route', 'way', 'walk'].some((token) => normalized.includes(token))
       ) {
         const routeLabel = normalized.includes('kindergarten') ? 'Way to kindergarten' : 'Way to school';
-        return `${routeLabel} looked safe for candidate ${ordinal} (score upgraded)`;
+        return `${routeLabel} looks calm for candidate ${ordinal}`;
       }
       if (
         (normalized.includes('school') || normalized.includes('kindergarten'))
@@ -1646,13 +1646,13 @@
         && ['route', 'way', 'walk'].some((token) => normalized.includes(token))
       ) {
         const routeLabel = normalized.includes('kindergarten') ? 'Way to kindergarten' : 'Way to school';
-        return `${routeLabel} looked risky for candidate ${ordinal} (score impact only)`;
+        return `${routeLabel} needs a closer look for candidate ${ordinal}`;
       }
       const discoveryMatch = text.match(/despite\s+a\s+(.+?)\s+miss/i);
       if (discoveryMatch) {
         const rawLabel = String(discoveryMatch[1] || '').trim();
         const label = rawLabel ? `${rawLabel.charAt(0).toUpperCase()}${rawLabel.slice(1)}` : 'Preference';
-        return `${label} missed the preference for candidate ${ordinal} (score impact only)`;
+        return `${label} is missing on candidate ${ordinal}`;
       }
       if (normalized.includes('duplicate') || normalized.includes('already seen') || normalized.includes('same listing')) {
         return `Candidate ${ordinal} matched existing property memory`;
@@ -1665,43 +1665,43 @@
       }
       if (['price per sqm', 'price per square', '€/m2', 'eur/m2', 'eur per m2'].some((token) => normalized.includes(token))) {
         if (['below', 'under', 'cheaper', 'discount', 'stronger than benchmark'].some((token) => normalized.includes(token))) {
-          return `Price-per-m2 benchmark improved the score for candidate ${ordinal}`;
+          return `Price per m2 looks good for candidate ${ordinal}`;
         }
         if (['above', 'over', 'expensive', 'premium', 'higher than benchmark'].some((token) => normalized.includes(token))) {
-          return `Price-per-m2 benchmark reduced the score for candidate ${ordinal} (score impact only)`;
+          return `Price per m2 looks high for candidate ${ordinal}`;
         }
-        return `Price-per-m2 benchmark was checked for candidate ${ordinal}`;
+        return `Price per m2 checked for candidate ${ordinal}`;
       }
       if (['total monthly', 'all-in cost', 'warm rent', 'monthly total'].some((token) => normalized.includes(token))) {
         if (['within', 'fits', 'fit', 'under budget', 'inside budget'].some((token) => normalized.includes(token))) {
-          return `Total monthly cost fit the budget for candidate ${ordinal} (score upgraded)`;
+          return `Total monthly cost fits for candidate ${ordinal}`;
         }
         if (['above', 'over', 'exceeds', 'outside budget'].some((token) => normalized.includes(token))) {
-          return `Total monthly cost exceeded the budget for candidate ${ordinal} (hard budget rule)`;
+          return `Total monthly cost is above budget for candidate ${ordinal}`;
         }
       }
       if (['rooms', 'room count', 'layout shape', 'floor plan shape', 'floorplan shape'].some((token) => normalized.includes(token))) {
         if (['fits', 'fit', 'matches', 'matched', 'usable'].some((token) => normalized.includes(token))) {
-          return `Room layout matched the home shape for candidate ${ordinal} (score upgraded)`;
+          return `Room layout looks usable for candidate ${ordinal}`;
         }
         if (['awkward', 'unclear', 'inefficient', 'needs verification'].some((token) => normalized.includes(token))) {
-          return `Room layout needs a closer check for candidate ${ordinal} (score impact only)`;
+          return `Room layout needs a closer check for candidate ${ordinal}`;
         }
       }
       if (['bike route', 'cycling', 'bicycle'].some((token) => normalized.includes(token))) {
         if (['safe', 'protected', 'direct', 'calm'].some((token) => normalized.includes(token))) {
-          return `Bike route looked practical for candidate ${ordinal} (score upgraded)`;
+          return `Bike route looks practical for candidate ${ordinal}`;
         }
         if (['unsafe', 'traffic', 'risky', 'indirect'].some((token) => normalized.includes(token))) {
-          return `Bike route looked weak for candidate ${ordinal} (score impact only)`;
+          return `Bike route looks weak for candidate ${ordinal}`;
         }
       }
       if (['noise', 'quiet', 'street exposure'].some((token) => normalized.includes(token))) {
         if (['low', 'quiet', 'calm', 'shielded'].some((token) => normalized.includes(token))) {
-          return `Noise context improved the score for candidate ${ordinal}`;
+          return `Noise looks low for candidate ${ordinal}`;
         }
         if (['high', 'loud', 'exposed', 'risk'].some((token) => normalized.includes(token))) {
-          return `Noise context reduced the score for candidate ${ordinal} (score impact only)`;
+          return `Noise looks high for candidate ${ordinal}`;
         }
       }
       if (['flood', 'water', 'groundwater'].some((token) => normalized.includes(token))) {
@@ -1725,7 +1725,7 @@
         && ['close enough', 'within', 'near', 'nearby', 'fit', 'matches', 'matched'].some((token) => normalized.includes(token))
       ) {
         const fitLabel = normalized.includes('kindergarten') ? 'Kindergarten distance' : 'School distance';
-        return `${fitLabel} fit the preference for candidate ${ordinal} (score upgraded)`;
+        return `${fitLabel} fits for candidate ${ordinal}`;
       }
       if (
         (normalized.includes('school') || normalized.includes('kindergarten'))
@@ -1740,10 +1740,10 @@
         });
       }
       if (normalized.includes('commute') && ['within', 'fast', 'short', 'fits', 'fit', 'matched'].some((token) => normalized.includes(token))) {
-        return `Commute fit improved the score for candidate ${ordinal}`;
+        return `Commute fits for candidate ${ordinal}`;
       }
       if (normalized.includes('commute') && ['long', 'slow', 'longer', 'beyond', 'outside'].some((token) => normalized.includes(token))) {
-        return `Commute was longer than preferred for candidate ${ordinal} (score impact only)`;
+        return `Commute is longer than preferred for candidate ${ordinal}`;
       }
       if (
         ['supermarket', 'pharmacy', 'bakery', 'market', 'errand'].some((token) => normalized.includes(token))
@@ -1758,10 +1758,10 @@
         return `Move-in was outside the horizon for candidate ${ordinal}`;
       }
       if (normalized.includes('outside the selected target area')) {
-        return `Location was outside the selected area for candidate ${ordinal} (hard area rule)`;
+        return `Location is outside the selected area for candidate ${ordinal}`;
       }
       if (normalized.includes('without enough barrier-free evidence')) {
-        return `Barrier-free evidence was missing for candidate ${ordinal}`;
+        return `Barrier-free detail is missing for candidate ${ordinal}`;
       }
       if (normalized.includes('non-residential')) {
         return `Property type did not match for candidate ${ordinal}`;
@@ -1771,7 +1771,7 @@
       }
       if (normalized.includes('layout verification') || normalized.includes('floorplan')) {
         if (['missing', 'not attached', 'unavailable', 'without'].some((token) => normalized.includes(token))) {
-          return `Floor plan was missing for candidate ${ordinal} (score impact only)`;
+          return `Floor plan is missing for candidate ${ordinal}`;
         }
         return '';
       }
@@ -2046,9 +2046,6 @@
         || repairStatus === 'repair failed'
         || repairStatus === 'degraded'
       ) {
-        if (customerStatus && repairReason && !customerStatus.toLowerCase().includes(repairReason.toLowerCase())) {
-          return joinStatusSentences(customerStatus, repairReason);
-        }
         if (customerStatus || calmRepairCopy || repairReason) {
           return customerStatus || calmRepairCopy || repairReason;
         }
@@ -2153,9 +2150,6 @@
         || repairStatus === 'repair failed'
         || repairStatus === 'degraded'
       ) {
-        if (customerStatus && repairReason && !customerStatus.toLowerCase().includes(repairReason.toLowerCase())) {
-          return joinStatusSentences(customerStatus, repairReason);
-        }
         if (customerStatus || calmRepairCopy || repairReason) {
           return customerStatus || calmRepairCopy || repairReason;
         }
@@ -2326,8 +2320,8 @@
           <strong>${escapeHtml(row?.label || 'Official data')}</strong>
           <span class="pqx-note">${escapeHtml(row?.description || 'Public data layer')}</span>
           <div class="pqx-source-metrics">
-            <span>Check <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'data')}</b></span>
-            <span>Status <b>Available</b></span>
+            <span>Layer <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'data')}</b></span>
+            <span><b>Available</b></span>
           </div>
         </article>
       `).join('');
@@ -5675,9 +5669,9 @@
     const renderEvidenceCard = (card) => {
       const evidenceStateLabel = (state) => {
         const normalized = String(state || '').trim().toLowerCase();
-        if (normalized === 'verified') return 'On this page';
-        if (normalized === 'unavailable') return 'Unavailable';
-        return normalized ? normalized.replaceAll('_', ' ') : 'Unavailable';
+        if (normalized === 'verified') return 'Available';
+        if (normalized === 'unavailable') return 'Not yet';
+        return normalized ? normalized.replaceAll('_', ' ') : 'Not yet';
       };
       const url = firstEvidenceUrl(card.rows || []);
       const stateLabel = evidenceStateLabel(card.state);
@@ -5699,7 +5693,7 @@
       if (!evidenceAtlas || !evidenceAtlasCards || !evidenceLayerRail) return;
       const candidate = resolveCandidate(candidateRef);
       if (!candidate) return;
-      const title = String(candidate.title || 'Property context').trim();
+      const title = String(candidate.title || 'Area').trim();
       const location = String(candidate.location_label || '').trim();
       const previewUrl = String(
         candidate.preview_image_url
@@ -5717,9 +5711,9 @@
         });
       };
       if (evidenceAtlasTitle) evidenceAtlasTitle.textContent = title;
-      if (evidenceAtlasCaption) evidenceAtlasCaption.textContent = location || 'Property context';
+      if (evidenceAtlasCaption) evidenceAtlasCaption.textContent = location || 'Area';
       if (evidenceMapLabel) evidenceMapLabel.textContent = location || title;
-      if (evidenceMapDetail) evidenceMapDetail.textContent = 'Prepared area layers. Search stays fast.';
+      if (evidenceMapDetail) evidenceMapDetail.textContent = 'Choose a layer.';
       if (evidenceAtlasStage) evidenceAtlasStage.dataset.hasImage = previewUrl ? 'true' : 'false';
       if (evidenceAtlasImage) {
         evidenceAtlasImage.setAttribute('src', previewUrl);

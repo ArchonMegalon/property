@@ -907,7 +907,7 @@
           : 'No 3D tour is attached yet.');
       });
       root.querySelectorAll('[data-pw-match]').forEach((match) => {
-        renderReasonCards(match, candidate.match_reasons, { emptyTitle: 'No explicit match reason captured yet.', defaultTitle: 'Fit' });
+        renderReasonCards(match, candidate.match_reasons, { emptyTitle: 'No match notes yet.', defaultTitle: 'Fit' });
       });
       const objections = root.querySelector('[data-pw-objections]');
       renderReasonCards(objections, candidate.objection_rows, { emptyTitle: 'No objection captured yet.', defaultTitle: 'Objection' });

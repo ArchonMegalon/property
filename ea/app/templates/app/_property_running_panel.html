@@ -2,7 +2,7 @@
   <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property" data-pqx-screenfit-target="run-progress">
     <div class="pqx-section-head">
       <div>
-        <h2>{% if run_active %}Live search{% else %}Search summary{% endif %}</h2>
+        <h2>{% if run_active %}Searching{% else %}Search{% endif %}</h2>
         {% set run_summary_head = run.get('summary') or {} %}
         {% set run_reviewed_head = run_summary_head.get('scanned_listing_total') if run_summary_head.get('scanned_listing_total') is not none else (run_summary_head.get('reviewed_listing_total') or 0) %}
         {% set run_raw_found_head = run_summary_head.get('found_listing_total') if run_summary_head.get('found_listing_total') is not none else (run_summary_head.get('raw_listing_total') or run_reviewed_head or run_summary_head.get('listing_total') or 0) %}

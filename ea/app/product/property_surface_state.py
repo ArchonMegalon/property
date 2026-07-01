@@ -507,17 +507,18 @@ def property_run_customer_safe_status_detail(
     ) or any(token in lowered for token in _RAW_PROVIDER_FAILURE_TOKENS)
 
     if repair_step and raw_failure_like and prefer_repair_step:
-        return customer_status or calm_repair_copy or _join_customer_sentences(repair_step, repair_reason)
+        return customer_status or calm_repair_copy or "Checking affected lists."
     if customer_status and (status in {"failed", "completed_partial"} or raw_failure_like):
-        if repair_reason and repair_reason.lower() not in customer_status.lower():
-            return _join_customer_sentences(customer_status, repair_reason)
         return customer_status
     if repair_step and raw_failure_like:
-        return calm_repair_copy or _join_customer_sentences("PropertyQuarry is checking the affected providers again", repair_reason)
+        return calm_repair_copy or _join_customer_sentences(
+            "PropertyQuarry is checking affected lists again",
+            "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
+        )
     if raw_failure_like and repair_status:
-        return calm_repair_copy or _join_customer_sentences(f"Recovery: {repair_status}", repair_reason)
+        return calm_repair_copy or "PropertyQuarry is checking affected lists again."
     if status == "failed" and raw_failure_like:
-        return calm_repair_copy or _join_customer_sentences("The search stopped before the shortlist settled", repair_reason)
+        return calm_repair_copy or "The search stopped before the shortlist settled."
     if status == "failed" and repair_flags.get("active"):
         return customer_status or calm_repair_copy or "PropertyQuarry is checking the saved search again."
     if status == "failed" and repair_flags.get("failed"):
@@ -1013,20 +1014,17 @@ def _property_run_current_progress_message(
 
 
 def _property_run_repair_receipt_message(receipt: dict[str, object]) -> str:
-    source_label = str(receipt.get("source_label") or "Provider").strip() or "Provider"
     stub_summary = {"repair_receipts": [receipt]}
     friendly = _resolved_customer_repair_reason(
         stub_summary,
         message_value=receipt.get("resolution") or receipt.get("reason") or "",
     )
-    if friendly:
-        return f"{source_label}: {friendly}"
+    if _repair_reason_points_to_provider_site_change(friendly):
+        return "A list changed, so it was skipped for now."
     resolution = str(receipt.get("resolution") or receipt.get("reason") or "repair updated").strip()
     if not resolution:
         return ""
-    normalized = " ".join(resolution.replace("_", " ").split()).strip()
-    normalized = normalized[:1].upper() + normalized[1:] if normalized else "Repair updated"
-    return f"{source_label}: {normalized}."
+    return "A list needed a retry."
 
 
 def _property_run_event_resolution(event: dict[str, object]) -> str:
@@ -1139,7 +1137,7 @@ def property_run_customer_visible_events(
             {
                 "step": "repair_status",
                 "status": str(summary.get("repair_status") or "repairing").strip() or "repairing",
-                "message": repair_step or f"Source follow-up: {repair_label}.",
+                "message": "Checking affected lists.",
                 "created_at": str(summary.get("repair_last_updated_at") or payload.get("updated_at") or payload.get("generated_at") or ""),
             }
         )
@@ -1335,9 +1333,20 @@ def build_property_run_reliability_snapshot(
     pending_total = max(0, source_total - source_checked)
     repair = build_property_run_repair_snapshot(payload, results_total=results_total)
     repair_reason = _resolved_customer_repair_reason(summary, message_value=message)
+    repair_flags = _repair_summary_flags(summary)
+    calm_repair_copy = _calm_customer_repair_copy(
+        repair_reason,
+        replacement_run_id=repair_flags.get("replacement_run_id"),
+        repair_active=bool(repair_flags.get("active")),
+        repair_failed=bool(repair_flags.get("failed")),
+    )
     customer_status = ""
     if status in {"failed", "completed_partial"} or failed_total or str(summary.get("repair_status") or "").strip():
         customer_status = property_run_customer_safe_status_detail(status, message, summary=summary)
+    if customer_status and _repair_reason_points_to_provider_site_change(repair_reason):
+        customer_status = customer_status.replace(f" {repair_reason}", "").replace(repair_reason, "").strip()
+    if _customer_status_is_internal_failure_copy(customer_status) and calm_repair_copy:
+        customer_status = calm_repair_copy
     if not customer_status:
         customer_status = str(summary.get("customer_status_message") or "").strip()
     if not customer_status:
@@ -1351,19 +1360,21 @@ def build_property_run_reliability_snapshot(
                     "A replacement search run is now checking the saved brief",
                     repair_reason,
                 )
+            elif calm_repair_copy:
+                customer_status = calm_repair_copy
             elif repair_reason:
-                customer_status = _join_customer_sentences("PropertyQuarry is checking the saved search again", repair_reason)
+                customer_status = "PropertyQuarry is checking the saved search again."
             else:
                 customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
             customer_status = _join_customer_sentences(
                 "Some lists are retrying, but the current shortlist is already usable",
-                repair_reason,
+                "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif failed_total:
             customer_status = _join_customer_sentences(
                 "Some lists are retrying before the shortlist can settle",
-                repair_reason,
+                "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif results_total > 0:
             customer_status = "The strongest matches are already ready while the rest of the search finishes."
@@ -1409,7 +1420,7 @@ def build_property_run_reliability_snapshot(
         coverage_label=coverage_label,
         result_label=result_label,
         filtered_label=filtered_label,
-        repair_step_label=str(repair.get("repair_step_label") or "").strip(),
+        repair_step_label="Checking affected lists" if str(repair.get("repair_step_label") or "").strip() else "",
         next_useful_update_eta_label=str(repair.get("next_useful_update_eta_label") or "").strip(),
         final_eta_label=final_eta_label,
         eta_confidence_label=str(repair.get("eta_confidence_label") or "Unknown").strip() or "Unknown",
@@ -1596,26 +1607,26 @@ def _property_run_candidate_reason_label(value: object) -> str:
     if any(token in normalized for token in ("balcony", "terrace", "outdoor")) and any(
         token in normalized for token in ("missing", "none", "without", "absent", "no ")
     ):
-        return f"Outdoor space was missing for candidate {ordinal} (score impact only)"
+        return f"Outdoor space is missing on candidate {ordinal}"
     positive_signals = (
         (("balcony", "terrace", "outdoor"), "Outdoor space found"),
-        (("lift", "elevator", "barrier-free", "barrier free", "accessible"), "Access detail improved the score"),
-        (("operating cost", "monthly cost", "total cost", "betriebskosten"), "Cost detail improved the score"),
-        (("heating", "heizung"), "Heating detail improved the score"),
-        (("energy", "energy certificate", "energieausweis"), "Energy detail improved the score"),
-        (("internet", "broadband", "fiber", "fibre", "high-speed"), "Internet detail improved the score"),
-        (("floorplan", "layout"), "Layout detail improved the score"),
-        (("360", "matterport", "3dvista", "virtual tour", "live tour"), "Remote-view detail improved the score"),
-        (("garage", "parking"), "Parking detail improved the score"),
-        (("commute", "transit", "subway", "u-bahn", "underground", "train"), "Transit detail improved the score"),
-        (("school", "volksschule"), "School fit improved the score"),
-        (("kindergarten", "childcare"), "Childcare fit improved the score"),
-        (("supermarket", "pharmacy", "bakery", "market", "errand"), "Daily errands improved the score"),
-        (("sunlight", "bright", "orientation", "south-facing"), "Light and orientation detail improved the score"),
+        (("lift", "elevator", "barrier-free", "barrier free", "accessible"), "Access detail found"),
+        (("operating cost", "monthly cost", "total cost", "betriebskosten"), "Cost detail found"),
+        (("heating", "heizung"), "Heating detail found"),
+        (("energy", "energy certificate", "energieausweis"), "Energy detail found"),
+        (("internet", "broadband", "fiber", "fibre", "high-speed"), "Internet detail found"),
+        (("floorplan", "layout"), "Layout detail found"),
+        (("360", "matterport", "3dvista", "virtual tour", "live tour"), "Remote-view detail ready"),
+        (("garage", "parking"), "Parking detail found"),
+        (("commute", "transit", "subway", "u-bahn", "underground", "train"), "Transit detail found"),
+        (("school", "volksschule"), "School fit found"),
+        (("kindergarten", "childcare"), "Childcare fit found"),
+        (("supermarket", "pharmacy", "bakery", "market", "errand"), "Daily errands nearby"),
+        (("sunlight", "bright", "orientation", "south-facing"), "Light and orientation detail found"),
     )
     for tokens, label in positive_signals:
         if any(token in normalized for token in tokens) and any(token in normalized for token in ("found", "confirmed", "available", "evidence", "clear", "ready")):
-            return f"{label} for candidate {ordinal} (score upgraded)"
+            return f"{label} on candidate {ordinal}"
     soft_concern_tokens = (
         ("operating cost", "monthly cost", "total cost", "betriebskosten", "price"),
         ("heating", "heizung"),
@@ -1637,26 +1648,26 @@ def _property_run_candidate_reason_label(value: object) -> str:
             return ""
     if "district" in normalized or "postal" in normalized or "postcode" in normalized:
         if any(token in normalized for token in ("conflict", "mismatch", "outside", "wrong")):
-            return f"Location evidence conflicted for candidate {ordinal} (hard area rule)"
+            return f"Candidate {ordinal} is outside the selected area"
     if (
         ("school" in normalized or "kindergarten" in normalized)
         and any(token in normalized for token in ("safe", "safer", "good", "calm", "low traffic", "low-traffic"))
         and any(token in normalized for token in ("route", "way", "walk"))
     ):
         route_label = "Way to kindergarten" if "kindergarten" in normalized else "Way to school"
-        return f"{route_label} looked safe for candidate {ordinal} (score upgraded)"
+        return f"{route_label} looks calm for candidate {ordinal}"
     if (
         ("school" in normalized or "kindergarten" in normalized)
         and any(token in normalized for token in ("danger", "dangerous", "unsafe", "risk", "risky", "traffic"))
         and any(token in normalized for token in ("route", "way", "walk"))
     ):
         route_label = "Way to kindergarten" if "kindergarten" in normalized else "Way to school"
-        return f"{route_label} looked risky for candidate {ordinal} (score impact only)"
+        return f"{route_label} needs a closer look for candidate {ordinal}"
     discovery_match = re.search(r"despite\s+a\s+(.+?)\s+miss", text, flags=re.IGNORECASE)
     if discovery_match:
         label = str(discovery_match.group(1) or "").strip()
         label = label[:1].upper() + label[1:] if label else "Preference"
-        return f"{label} missed the preference for candidate {ordinal} (score impact only)"
+        return f"{label} is missing on candidate {ordinal}"
     if "duplicate" in normalized or "already seen" in normalized or "same listing" in normalized:
         return f"Candidate {ordinal} matched existing property memory"
     if any(token in normalized for token in ("stale", "removed", "expired", "no longer available")):
@@ -1665,30 +1676,30 @@ def _property_run_candidate_reason_label(value: object) -> str:
         return f"Repair picked up candidate {ordinal}"
     if any(token in normalized for token in ("price per sqm", "price per square", "€/m2", "eur/m2", "eur per m2")):
         if any(token in normalized for token in ("below", "under", "cheaper", "discount", "stronger than benchmark")):
-            return f"Price-per-m2 benchmark improved the score for candidate {ordinal}"
+            return f"Price per m2 looks good for candidate {ordinal}"
         if any(token in normalized for token in ("above", "over", "expensive", "premium", "higher than benchmark")):
-            return f"Price-per-m2 benchmark reduced the score for candidate {ordinal} (score impact only)"
-        return f"Price-per-m2 benchmark was checked for candidate {ordinal}"
+            return f"Price per m2 looks high for candidate {ordinal}"
+        return f"Price per m2 checked for candidate {ordinal}"
     if any(token in normalized for token in ("total monthly", "all-in cost", "warm rent", "monthly total")):
         if any(token in normalized for token in ("within", "fits", "fit", "under budget", "inside budget")):
-            return f"Total monthly cost fit the budget for candidate {ordinal} (score upgraded)"
+            return f"Total monthly cost fits for candidate {ordinal}"
         if any(token in normalized for token in ("above", "over", "exceeds", "outside budget")):
-            return f"Total monthly cost exceeded the budget for candidate {ordinal} (hard budget rule)"
+            return f"Total monthly cost is above budget for candidate {ordinal}"
     if any(token in normalized for token in ("rooms", "room count", "layout shape", "floor plan shape", "floorplan shape")):
         if any(token in normalized for token in ("fits", "fit", "matches", "matched", "usable")):
-            return f"Room layout matched the home shape for candidate {ordinal} (score upgraded)"
+            return f"Room layout looks usable for candidate {ordinal}"
         if any(token in normalized for token in ("awkward", "unclear", "inefficient", "needs verification")):
-            return f"Room layout needs a closer check for candidate {ordinal} (score impact only)"
+            return f"Room layout needs a closer check for candidate {ordinal}"
     if any(token in normalized for token in ("bike route", "cycling", "bicycle")):
         if any(token in normalized for token in ("safe", "protected", "direct", "calm")):
-            return f"Bike route looked practical for candidate {ordinal} (score upgraded)"
+            return f"Bike route looks practical for candidate {ordinal}"
         if any(token in normalized for token in ("unsafe", "traffic", "risky", "indirect")):
-            return f"Bike route looked weak for candidate {ordinal} (score impact only)"
+            return f"Bike route looks weak for candidate {ordinal}"
     if any(token in normalized for token in ("noise", "quiet", "street exposure")):
         if any(token in normalized for token in ("low", "quiet", "calm", "shielded")):
-            return f"Noise context improved the score for candidate {ordinal}"
+            return f"Noise looks low for candidate {ordinal}"
         if any(token in normalized for token in ("high", "loud", "exposed", "risk")):
-            return f"Noise context reduced the score for candidate {ordinal} (score impact only)"
+            return f"Noise looks high for candidate {ordinal}"
     if any(token in normalized for token in ("flood", "water", "groundwater")):
         if any(token in normalized for token in ("clear", "low", "outside", "not in")):
             return f"Water risk looked clear for candidate {ordinal}"
@@ -1703,7 +1714,7 @@ def _property_run_candidate_reason_label(value: object) -> str:
         token in normalized for token in ("close enough", "within", "near", "nearby", "fit", "matches", "matched")
     ):
         fit_label = "Kindergarten distance" if "kindergarten" in normalized else "School distance"
-        return f"{fit_label} fit the preference for candidate {ordinal} (score upgraded)"
+        return f"{fit_label} fits for candidate {ordinal}"
     if ("school" in normalized or "kindergarten" in normalized) and any(
         token in normalized for token in ("too far", "farther", "further", "beyond", "outside")
     ):
@@ -1716,9 +1727,9 @@ def _property_run_candidate_reason_label(value: object) -> str:
             observed_distance_m=str(observed_match.group(0) if observed_match else "").replace(",", "."),
         )
     if "commute" in normalized and any(token in normalized for token in ("within", "fast", "short", "fits", "fit", "matched")):
-        return f"Commute fit improved the score for candidate {ordinal}"
+        return f"Commute fits for candidate {ordinal}"
     if "commute" in normalized and any(token in normalized for token in ("long", "slow", "longer", "beyond", "outside")):
-        return f"Commute was longer than preferred for candidate {ordinal} (score impact only)"
+        return f"Commute is longer than preferred for candidate {ordinal}"
     if any(token in normalized for token in ("supermarket", "pharmacy", "bakery", "market", "errand")) and any(
         token in normalized for token in ("far", "farther", "beyond", "outside")
     ):
@@ -1729,16 +1740,16 @@ def _property_run_candidate_reason_label(value: object) -> str:
     if "outside the move-in horizon" in normalized:
         return f"Move-in was outside the horizon for candidate {ordinal}"
     if "outside the selected target area" in normalized:
-        return f"Location was outside the selected area for candidate {ordinal} (hard area rule)"
+        return f"Location is outside the selected area for candidate {ordinal}"
     if "without enough barrier-free evidence" in normalized:
-        return f"Barrier-free evidence was missing for candidate {ordinal}"
+        return f"Barrier-free detail is missing for candidate {ordinal}"
     if "non-residential" in normalized:
         return f"Property type did not match for candidate {ordinal}"
     if "non-listing candidate" in normalized:
         return f"Candidate {ordinal} was a generic listing page"
     if "layout verification" in normalized or "floorplan" in normalized:
         if any(token in normalized for token in ("missing", "not attached", "unavailable", "without")):
-            return f"Floor plan was missing for candidate {ordinal} (score impact only)"
+            return f"Floor plan is missing for candidate {ordinal}"
         return ""
     return ""
 

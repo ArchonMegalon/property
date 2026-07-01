@@ -1,5 +1,13 @@
 {% extends "base_console.html" %}
 {% block content %}
+{% macro prd_tag_label(value) -%}
+  {%- set label = (value or '')|string|trim -%}
+  {%- set lowered = label|lower -%}
+  {%- if lowered in ['verified', 'evidence'] -%}Available
+  {%- elif 'proof' in lowered -%}Source
+  {%- else -%}{{ label }}
+  {%- endif -%}
+{%- endmacro %}
 <style>
   .prd-topbar,
   .prd-shell,
@@ -3290,7 +3298,7 @@
                 <strong>{{ item.get('title') }}</strong>
                 <span>{{ item.get('detail') }}</span>
               </div>
-              <span class="prd-tag">{{ item.get('tag') }}</span>
+              <span class="prd-tag">{{ prd_tag_label(item.get('tag')) }}</span>
             </div>
             {% endfor %}
           </div>
@@ -3305,7 +3313,7 @@
                     <strong>{{ item.get('title') }}</strong>
                     <span>{{ item.get('detail') }}</span>
                   </div>
-                  <span class="prd-tag">{{ item.get('tag') }}</span>
+                  <span class="prd-tag">{{ prd_tag_label(item.get('tag')) }}</span>
                 </div>
                 {% endfor %}
               </div>
@@ -3332,7 +3340,7 @@
             {% for row in research_score_rows[:5] %}
             <div class="prd-row">
               <div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div>
-              <span class="prd-tag">{{ row.get('tag') }}</span>
+              <span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span>
             </div>
             {% endfor %}
           </div>
@@ -3484,19 +3492,19 @@
             <p class="prd-section-copy">Saved map layers and public sources appear here when they are available for this address.</p>
             <div class="object-list">
               {% for row in research_evidence_overlay_rows[:8] %}
-              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
+              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span></div>
               {% endfor %}
               {% for row in research_official_evidence_rows[:4] %}
-              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
+              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span></div>
               {% endfor %}
               {% for row in research_official_posture_rows[:3] %}
-              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
+              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span></div>
               {% endfor %}
               {% for row in research_future_research_rows[:3] %}
-              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
+              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span></div>
               {% endfor %}
               {% for row in research_provenance_rows[:3] %}
-              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
+              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span></div>
               {% endfor %}
             </div>
           </section>
@@ -3506,7 +3514,7 @@
             <h2 class="prd-section-title">Timeline and follow-up</h2>
             <div class="object-list">
               {% for item in research_timeline_rows[:6] %}
-              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ item.get('tag') }}</span></div>
+              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(item.get('tag')) }}</span></div>
               {% endfor %}
             </div>
           </section>
@@ -3647,7 +3655,7 @@
         {% for row in research_followup_rows[:3] %}
         <div class="object-row">
           <div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div>
-          <div class="object-tag">{{ row.get('tag') }}</div>
+          <div class="object-tag">{{ prd_tag_label(row.get('tag')) }}</div>
         </div>
         {% endfor %}
       </div>
@@ -3744,7 +3752,7 @@
             <h2 class="prd-section-title">What others flagged</h2>
             <div class="object-list">
               {% for item in research_objection_rows %}
-              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ item.get('tag') }}</span></div>
+              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(item.get('tag')) }}</span></div>
               {% endfor %}
             </div>
           </section>
@@ -3754,7 +3762,7 @@
             <h2 class="prd-section-title">Household alignment</h2>
             <div class="object-list">
               {% for item in research_household_rows %}
-              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ item.get('tag') }}</span></div>
+              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(item.get('tag')) }}</span></div>
               {% endfor %}
             </div>
           </section>
@@ -3764,7 +3772,7 @@
             <h2 class="prd-section-title">Shared watch-outs</h2>
             <div class="object-list">
               {% for item in research_risk_signal_rows %}
-              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ item.get('tag') }}</span></div>
+              <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(item.get('tag')) }}</span></div>
               {% endfor %}
             </div>
           </section>
