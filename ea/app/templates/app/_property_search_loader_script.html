@@ -94,7 +94,9 @@
   root.addEventListener('change', warmOnIntent, { passive: true });
 
   const scheduleQuietWarm = () => {
-    const delay = Number(loader?.getAttribute('data-quiet-warm-delay-ms') || 1400);
+    const mobileSetup = window.matchMedia('(max-width: 760px)').matches
+      && Boolean(root.querySelector('[data-console-form-variant="property_search"]'));
+    const delay = mobileSetup ? 0 : Number(loader?.getAttribute('data-quiet-warm-delay-ms') || 1400);
     window.setTimeout(() => loadWorkbench().catch(() => {}), Number.isFinite(delay) && delay >= 0 ? delay : 1400);
   };
   if (deferredSavedSearchIntent) {
