@@ -1046,6 +1046,7 @@ def _propertyquarry_refresh_candidate_preview_if_needed(
     *,
     product: object,
     candidate: object,
+    allow_network: bool = True,
 ) -> dict[str, object] | object:
     if not isinstance(candidate, dict):
         return candidate
@@ -1079,6 +1080,9 @@ def _propertyquarry_refresh_candidate_preview_if_needed(
         )
         if not _propertyquarry_candidate_needs_detailed_preview(candidate_row):
             return candidate_row
+
+    if not allow_network:
+        return candidate_row
 
     with contextlib.suppress(Exception):
         detailed_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
@@ -5126,6 +5130,7 @@ def property_research_packet(
         candidate = _propertyquarry_refresh_candidate_preview_if_needed(
             product=product,
             candidate=candidate,
+            allow_network=False,
         )
     if candidate is not None and not resolved_run_id:
         resolved_run_id = str(candidate.get("saved_from_run_id") or "").strip()

@@ -2663,6 +2663,64 @@ def test_propertyquarry_shortlist_open_recovers_detailed_preview_for_selected_ca
     assert preview_calls == [(property_url, False)]
 
 
+def test_propertyquarry_research_detail_first_paint_does_not_fetch_provider_preview(monkeypatch) -> None:
+    principal_id = "pq-research-first-paint-no-provider-fetch"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    headers = {"host": "propertyquarry.com"}
+
+    property_url = "https://immobilien.derstandard.at/detail/slow-provider-page"
+    preview_calls: list[tuple[str, bool]] = []
+
+    def _fake_run_status(self, **kwargs):
+        assert kwargs.get("principal_id") == principal_id
+        candidate = {
+            "candidate_ref": "cand-preview",
+            "property_url": property_url,
+            "title": "Slow provider candidate",
+            "summary": "Stored run data is enough for first paint.",
+            "fit_score": 81,
+            "fit_summary": "Quiet street and enough listing detail to review.",
+            "source_label": "DER STANDARD Immobilien | Austria | Rent | 1180 Vienna",
+            "property_facts": {"has_floorplan": False, "media_count": 20},
+        }
+        return {
+            "run_id": str(kwargs.get("run_id") or "run-preview"),
+            "principal_id": principal_id,
+            "status": "completed_partial",
+            "summary": {
+                "status": "completed_partial",
+                "ranked_candidates": [dict(candidate)],
+                "sources": [{"source_label": "DER STANDARD", "top_candidates": [dict(candidate)]}],
+            },
+        }
+
+    def _fake_preview_cache_index(self):
+        return {}
+
+    def _fake_preview_cache_lookup(self, *, cache_index: dict[str, dict[str, object]], property_url: str):
+        return {}
+
+    def _fake_preview_cache_store(self, *, cache_index: dict[str, dict[str, object]], property_url: str, preview: dict[str, object] | None):
+        return dict(preview or {})
+
+    def _forbidden_provider_preview(property_url_value: str, *, prefer_fast: bool = False):
+        preview_calls.append((property_url_value, prefer_fast))
+        raise AssertionError("research detail first paint must not fetch provider pages synchronously")
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(ProductService, "_property_public_preview_cache_index", _fake_preview_cache_index)
+    monkeypatch.setattr(ProductService, "_property_public_preview_cache_lookup", _fake_preview_cache_lookup)
+    monkeypatch.setattr(ProductService, "_property_public_preview_cache_store", _fake_preview_cache_store)
+    monkeypatch.setattr(landing_routes, "_property_scout_page_preview_with_timeout", _forbidden_provider_preview)
+
+    research_detail = client.get("/app/research/cand-preview", params={"run_id": "run-preview"}, headers=headers)
+
+    assert research_detail.status_code == 200
+    assert "Slow provider candidate" in research_detail.text
+    assert preview_calls == []
+
+
 def test_property_suppression_rows_synthesizes_generic_breakdown_from_aggregate_filtered_total() -> None:
     rows = landing_property_workspace_helpers._property_suppression_rows(
         run_summary={"filtered_total": 58, "held_back_total": 58},
