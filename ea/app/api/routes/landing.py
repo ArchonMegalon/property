@@ -6464,13 +6464,26 @@ def app_shell(
             if resolved_property_section == "shortlist" or (
                 resolved_property_section == "properties" and bool(normalized_run_id)
             ):
-                with contextlib.suppress(Exception):
+                def _load_saved_shortlist_candidates() -> list[dict[str, object]]:
+                    try:
+                        return [
+                            _propertyquarry_normalize_public_tour_candidate(candidate)
+                            for candidate in product.list_property_saved_shortlist_candidates(
+                                principal_id=context.principal_id,
+                                status=status,
+                            )
+                        ]
+                    except Exception:
+                        return []
+
+                if resolved_property_section == "shortlist" and not normalized_run_id:
+                    property_context["saved_shortlist_candidates"] = list(
+                        _property_first_paint_value(_load_saved_shortlist_candidates, [])
+                    )
+                else:
                     property_context["saved_shortlist_candidates"] = [
                         _propertyquarry_normalize_public_tour_candidate(candidate)
-                        for candidate in product.list_property_saved_shortlist_candidates(
-                            principal_id=context.principal_id,
-                            status=status,
-                        )
+                        for candidate in _load_saved_shortlist_candidates()
                     ]
             if PropertySurfaceScope.for_section(resolved_section).wants_credit_digest:
                 fleet_digest = product.cached_fleet_digest_payload(
