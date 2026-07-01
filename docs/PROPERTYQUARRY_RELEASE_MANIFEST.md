@@ -14,8 +14,8 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
   - the live login probe still returns `Invalid recaptcha response or setup.` until BD reCAPTCHA is disabled for this lane or a trusted SSO/account handoff exists.
 - The backend repair lane at `https://propertyquarry.directoryup.com/admin/login` is reachable without reCAPTCHA and exposes a password-recovery URL, but the locally seeded shared account did not authenticate there on 2026-06-27; the remaining self-service repair dependency is the real Brilliant Directories admin username/password or a completed backend password reset.
 - The PropertyQuarry runtime Telegram notification path is verified separately for `cf-email:person@example.test`, but gold/deploy scripts do not send messages by default. Set `PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED=1` for an explicit operator notification run; otherwise `_completion/property_gold_status/telegram-notify-report.json` records a skipped notification.
-- `scripts/check_property_release_hygiene.py` was rerun after the 2026-06-28 live polish deploy so the manifest can track the current deployed candidate commit again instead of the earlier 2026-06-27 billing-handoff candidate.
-- The 2026-06-28 live polish deploy also moved the research-detail visual workspace into a cleaner two-stage hero layout and scrubbed stale score-filter/result-cap hints from the first-party Brilliant Directories login/account handoff HTML.
+- `scripts/check_property_release_hygiene.py` was rerun after the 2026-07-01 live proof-copy polish deploy so the manifest can track the current deployed candidate commit again instead of the earlier 2026-06-27 billing-handoff candidate.
+- The 2026-07-01 live proof-copy polish deploy removed the default score-guide block, duplicate score explanation cards, visible proof-style selected-property badges, and stale proof-heavy public-tour/dossier/PDF fallback wording.
 
 That means the billing account lane still requires a second vendor login even though the first-party billing host and redirect contract are now correct. Any earlier receipt lines claiming `billing_handoff.account_handoff_usable=true` should be treated as stale; the refreshed gold receipts keep `billing_handoff.status=ready` while recording the separate-login limitation explicitly.
 
@@ -30,13 +30,24 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `9cd1a87b7d810ef7bc231208baef94b198418396` |
+| Runtime commit SHA | `49db36e68e87745c8ab2ecfb6e1aa6a5f13ab212` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current local release candidate on 2026-07-01 after `9cd1a87b`, carrying the premium UI exit gate, authenticated performance smoke hardening, Brilliant Directories fail-closed billing guard, non-root compose posture, refreshed tour receipts, security-posture regression coverage, a thin request-serving web image that keeps native media/render tooling in the render-tools lane, and pinned FastAPI/Pydantic/Starlette runtime versions matching the verified local import/test environment |
+| Deployment ID | current local release candidate on 2026-07-01 after `49db36e6`, carrying the premium UI exit gate, authenticated performance smoke hardening, Brilliant Directories fail-closed billing guard, non-root compose posture, refreshed tour receipts, security-posture regression coverage, a thin request-serving web image that keeps native media/render tooling in the render-tools lane, pinned FastAPI/Pydantic/Starlette runtime versions matching the verified local import/test environment, and the minimal proof-copy pass deployed on 2026-07-01 |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The live polish pass on 2026-07-01 verified:
+
+- Commit `49db36e6` is the current deployed runtime candidate for this repo audit.
+- `make deploy` completed successfully and rebuilt the live `propertyquarry-api` / `propertyquarry-scheduler` stack on `http://localhost:8097`.
+- The default ranking/score guide block was removed from first-party result surfaces.
+- Duplicate score explanation panels were removed from selected-property desktop and mobile detail surfaces.
+- Public tour summaries, premium dossiers, and PDF fallback labels now use calmer copy such as `Quick take`, `Best points`, and `Fit read` instead of proof-heavy ranking language.
+- Focused proof-copy gates passed: `tests/test_propertyquarry_design_system_gate.py::test_propertyquarry_public_copy_avoids_proof_heavy_language`, `tests/test_propertyquarry_workspace_redesign.py::test_property_shortlist_results_stay_minimal_in_template_and_rehydration_bundle`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_customer_surfaces_avoid_operator_jargon`, and `tests/test_propertyquarry_workspace_redesign.py::test_property_current_best_omits_unknown_fact_placeholders`.
+- Broader public copy and live canary gates passed with `49 passed` across `tests/test_propertyquarry_design_system_gate.py`, `tests/test_browser_surface_contracts.py`, `tests/test_property_live_public_smoke.py`, and `tests/test_property_live_run_status_canary.py`.
+- The post-deploy public smoke receipt `_completion/smoke/property-live-public-post-minimal-proof-copy.json` reports `status=pass`, `failed_count=0`, and `route_count=22`.
 
 The local audit pass on 2026-07-01 verified:
 
