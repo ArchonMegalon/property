@@ -30,17 +30,17 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `e6e4b5afb1487bdd6158c81dee16075ad07bdc6f` |
+| Runtime commit SHA | `9cd1a87b7d810ef7bc231208baef94b198418396` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current local release candidate on 2026-07-01 after `e6e4b5af`, carrying the premium UI exit gate, authenticated performance smoke hardening, Brilliant Directories fail-closed billing guard, non-root compose posture, refreshed tour receipts, security-posture regression coverage, and a thin request-serving web image that keeps native media/render tooling in the render-tools lane |
+| Deployment ID | current local release candidate on 2026-07-01 after `9cd1a87b`, carrying the premium UI exit gate, authenticated performance smoke hardening, Brilliant Directories fail-closed billing guard, non-root compose posture, refreshed tour receipts, security-posture regression coverage, a thin request-serving web image that keeps native media/render tooling in the render-tools lane, and pinned FastAPI/Pydantic/Starlette runtime versions matching the verified local import/test environment |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
 The local audit pass on 2026-07-01 verified:
 
-- Commit `e6e4b5af` is the current runtime candidate for this repo audit.
+- Commit `9cd1a87b` is the current runtime candidate for this repo audit.
 - The premium UI exit gate is now defined in `docs/PROPERTYQUARRY_PREMIUM_UI_EXIT_GATE.md` and enforced by `tests/test_propertyquarry_premium_ui_exit_gate.py`.
 - The design-system gate links to the premium gate so visual quality, mobile ergonomics, loading behavior, interaction clarity, copy restraint, dark-mode contrast, and proof-language removal are checked as one release boundary.
 - `PYTHONPATH=ea python3 scripts/propertyquarry_authenticated_performance_smoke.py --write _completion/smoke/property-auth-performance-latest.json` returned `status=pass`, `failed_count=0`, and `route_count=15`.
@@ -48,6 +48,7 @@ The local audit pass on 2026-07-01 verified:
 - Tour export discovery, tour provider ownership, and PropertyQuarry security-posture receipts were refreshed for the current candidate.
 - The base PropertyQuarry compose posture no longer grants the API or scheduler root execution, `SYS_NICE`, or nice-level runtime priority overrides.
 - The request-serving `ea/Dockerfile.property-web` image now installs only `ca-certificates` and `curl`; native media/render packages remain out of the web image and are guarded by deploy-contract and security-posture checks.
+- The web framework runtime is pinned to the verified FastAPI/Pydantic/Starlette versions after the newer lock combination stalled `app.main` import during container startup.
 
 The local audit pass on 2026-06-29 verified:
 
