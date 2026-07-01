@@ -16,6 +16,7 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 - The PropertyQuarry runtime Telegram notification path is verified separately for `cf-email:person@example.test`, but gold/deploy scripts do not send messages by default. Set `PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED=1` for an explicit operator notification run; otherwise `_completion/property_gold_status/telegram-notify-report.json` records a skipped notification.
 - `scripts/check_property_release_hygiene.py` was rerun after the 2026-07-01 live proof-copy polish deploy so the manifest can track the current deployed candidate commit again instead of the earlier 2026-06-27 billing-handoff candidate.
 - The 2026-07-01 live proof-copy polish deploy removed the default score-guide block, duplicate score explanation cards, visible proof-style selected-property badges, and stale proof-heavy public-tour/dossier/PDF fallback wording.
+- The later 2026-07-01 minimal-copy deploy tightened the packet dashboard, workbench research tasks, save feedback, and public-tour language again: visible `Analytics`, `Engagement`, `Next best action`, `Share state`, `Reviewed feedback`, `Optimization recommendations`, `Saved durably`, and `Watch-outs` labels were replaced with calmer customer-facing labels such as `Views`, `Replies`, `Next step`, `Responses`, `Page ideas`, `Saved`, and `Check first`.
 
 That means the billing account lane still requires a second vendor login even though the first-party billing host and redirect contract are now correct. Any earlier receipt lines claiming `billing_handoff.account_handoff_usable=true` should be treated as stale; the refreshed gold receipts keep `billing_handoff.status=ready` while recording the separate-login limitation explicitly.
 
@@ -30,17 +31,24 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `49db36e68e87745c8ab2ecfb6e1aa6a5f13ab212` |
+| Runtime commit SHA | `3fd23daa0c575f53a3f06ba01ee64535a369c578` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current local release candidate on 2026-07-01 after `49db36e6`, carrying the premium UI exit gate, authenticated performance smoke hardening, Brilliant Directories fail-closed billing guard, non-root compose posture, refreshed tour receipts, security-posture regression coverage, a thin request-serving web image that keeps native media/render tooling in the render-tools lane, pinned FastAPI/Pydantic/Starlette runtime versions matching the verified local import/test environment, and the minimal proof-copy pass deployed on 2026-07-01 |
+| Deployment ID | current local release candidate on 2026-07-01 after `3fd23daa`, carrying the premium UI exit gate, authenticated performance smoke hardening, Brilliant Directories fail-closed billing guard, non-root compose posture, refreshed tour receipts, security-posture regression coverage, a thin request-serving web image that keeps native media/render tooling in the render-tools lane, pinned FastAPI/Pydantic/Starlette runtime versions matching the verified local import/test environment, and the minimal proof-copy pass deployed on 2026-07-01 |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
 The live polish pass on 2026-07-01 verified:
 
-- Commit `49db36e6` is the current deployed runtime candidate for this repo audit.
+- Commit `3fd23daa` is the current deployed runtime candidate for the latest minimal-copy pass.
+- `make deploy` rebuilt the live `propertyquarry-api` image and restarted `propertyquarry-api` plus `propertyquarry-scheduler`; the wrapper was interrupted after scheduler start because the compose process was quiet, so the deployment was verified manually through container health and smoke rather than by a zero-exit deploy wrapper.
+- `curl -fsS http://localhost:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}` after the restart.
+- `PYTHONPATH=ea .venv/bin/python -m pytest tests/test_propertyquarry_design_system_gate.py tests/test_propertyquarry_workspace_redesign.py::test_property_packets_dashboard_uses_customer_facing_language tests/test_propertyquarry_workspace_redesign.py::test_property_decision_save_uses_canonical_endpoint_and_renders_consequences tests/e2e/test_propertyquarry_feedback_browser.py tests/e2e/test_propertyquarry_packet_engagement_browser.py::test_packet_dashboard_renders_share_and_followup_state tests/e2e/test_propertyquarry_commercial_optimization_browser.py::test_workspace_and_packet_dashboard_show_commercial_and_page_idea_language tests/e2e/test_propertyquarry_packet_publishing_browser.py::test_packet_dashboard_shows_variant_and_republish_controls tests/test_fliplink_webhook_contracts.py -q` returned `28 passed`.
+- `rg` over production templates/API/exit-gate docs found no remaining visible hits for the removed labels: `Analytics:`, `Engagement:`, `Next best action`, `Share state:`, `Reviewed feedback`, `Optimization recommendations`, `Saved durably`, `No risk summary captured yet`, `Current answer`, `Household reactions`, `Watch-outs`, `Record analytics`, or `Sharing status:`.
+- `PYTHONPATH=ea .venv/bin/python scripts/propertyquarry_live_public_smoke.py --base-url http://localhost:8097 --write _completion/smoke/property-live-public-post-minimal-proof-copy-3fd23daa.json` returned `status=pass`, `failed_count=0`, and `route_count=22`.
+
+- Commit `49db36e6` was the previous deployed runtime candidate for the first 2026-07-01 proof-copy pass.
 - `make deploy` completed successfully and rebuilt the live `propertyquarry-api` / `propertyquarry-scheduler` stack on `http://localhost:8097`.
 - The default ranking/score guide block was removed from first-party result surfaces.
 - Duplicate score explanation panels were removed from selected-property desktop and mobile detail surfaces.
