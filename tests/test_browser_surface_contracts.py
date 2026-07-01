@@ -151,8 +151,8 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Upgrade when the current lane is the bottleneck." not in pricing.text
     assert "Typical office path" not in pricing.text
     assert "Checkout pending" not in pricing.text
-    assert "Open billing account" in pricing.text
-    assert "Use your active account lane." in pricing.text
+    assert "Billing account" in pricing.text
+    assert "Manage billing from your account." in pricing.text
     assert re.search(r'<span class="active" aria-current="page">Pricing</span>', pricing.text)
     assert re.search(r'<a href="/pricing"[^>]*>Pricing</a>', pricing.text) is None
 
@@ -360,16 +360,12 @@ def test_app_surface_routes_render_without_product_drift() -> None:
     assert str(search.url).endswith("/app/search")
     assert len(search.history) == 0
 
-    properties_redirect = client.get("/app/properties", follow_redirects=False)
-    assert properties_redirect.status_code == 307
-    assert properties_redirect.headers["location"] == "/app/search"
-
-    properties = client.get("/app/properties")
-    assert str(properties.url).endswith("/app/search")
-    assert len(properties.history) == 1
-    assert properties.history[0].headers["location"] == "/app/search"
-    assert "Launch search" in properties.text
+    properties = client.get("/app/properties", follow_redirects=False)
+    assert properties.status_code == 200
+    assert str(properties.url).endswith("/app/properties")
+    assert len(properties.history) == 0
     assert "Search flow" in properties.text
+    assert "Search history" in properties.text
 
     settings = client.get("/app/settings")
     assert str(settings.url).endswith("/app/account")

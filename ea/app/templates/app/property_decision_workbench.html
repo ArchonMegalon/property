@@ -10797,7 +10797,9 @@
             </div>
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/search">New search</a>
+              {% if surface_mode != 'agents' %}
               <a class="pqx-link-button subtle" href="/app/agents{{ topnav_query_suffix }}">Saved searches</a>
+              {% endif %}
             </div>
             {% endif %}
           </div>

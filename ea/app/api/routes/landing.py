@@ -539,7 +539,7 @@ def _property_pricing_billing_link_copy(handoff: dict[str, object] | None = None
     if status in {"login_required", "unresolved", "verifying", "disabled"}:
         return (
             "Billing account",
-            "Use the account page while the billing handoff is being connected.",
+            "Manage billing from your account.",
         )
     return (
         "Open billing account",
