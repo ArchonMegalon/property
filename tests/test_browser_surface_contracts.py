@@ -117,7 +117,8 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
 
     landing = anonymous_client.get("/", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert "Search once. See the right homes. Decide faster." in landing.text
-    assert "ranked homes" in landing.text
+    assert "matching homes" in landing.text
+    assert "ranked homes" not in landing.text.lower()
     assert "Open search" in landing.text
     assert (
         '<a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="home_open_search"'
@@ -128,8 +129,10 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         in landing.text
     )
     assert landing.text.index(">Open search</a>") < landing.text.index(">Use email instead</a>")
-    assert "Hard filters stay hard" in landing.text
-    assert "Preferences score" in landing.text
+    assert "Must-haves stay clear" in landing.text
+    assert "Preferences shape fit" in landing.text
+    assert "Hard filters stay hard" not in landing.text
+    assert "Preferences score" not in landing.text
     assert "sample-memo" not in landing.text
     assert (
         "from account settings" not in landing.text.lower()
@@ -171,10 +174,13 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "from account, with connections inside it where appropriate" in f"{cookies.text} {refunds.text}".lower()
 
     security = client.get("/how-it-works")
-    assert "Strict rules. Smart ranking." in security.text
-    assert "Score guide" in security.text
+    assert "Clear requirements. Calmer search." in security.text
+    assert "Fit guide" in security.text
     assert "/how-it-works/score" in security.text
-    assert "Hard filters decide eligibility. Optional preferences tune the score." in security.text
+    assert "Must-haves decide what belongs. Preferences shape the order." in security.text
+    assert "Strict rules. Smart ranking." not in security.text
+    assert "Score guide" not in security.text
+    assert "Hard filters decide eligibility. Optional preferences tune the score." not in security.text
     assert "Private by default." not in security.text
     assert "Automatic digests" not in security.text
     assert "Morning memo schedule" not in security.text
@@ -361,11 +367,14 @@ def test_app_surface_routes_render_without_product_drift() -> None:
     assert len(search.history) == 0
 
     properties = client.get("/app/properties", follow_redirects=False)
-    assert properties.status_code == 200
+    assert properties.status_code == 307
     assert str(properties.url).endswith("/app/properties")
     assert len(properties.history) == 0
-    assert "Search flow" in properties.text
-    assert "Search history" in properties.text
+    assert properties.headers["location"] == "/app/search"
+    properties_followed = client.get("/app/properties")
+    assert str(properties_followed.url).endswith("/app/search")
+    assert "Search flow" in properties_followed.text
+    assert "Search history" in properties_followed.text
 
     settings = client.get("/app/settings")
     assert str(settings.url).endswith("/app/account")
@@ -408,8 +417,10 @@ def test_propertyquarry_management_settings_use_property_language() -> None:
         _assert_internal_links_resolve(client, source_path=path, html=response.text)
 
     usage = client.get("/app/settings/usage", headers={"host": "propertyquarry.com", "accept": "text/html"})
-    assert "Ranked homes" in usage.text
-    assert "Sources used" in usage.text
+    assert "Matches" in usage.text
+    assert "Lists used" in usage.text
+    assert "Ranked homes" not in usage.text
+    assert "Sources used" not in usage.text
     assert "Source checks" not in usage.text
     assert "Recovery" in usage.text
 

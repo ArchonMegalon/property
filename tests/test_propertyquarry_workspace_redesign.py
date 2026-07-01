@@ -383,14 +383,15 @@ def test_property_shortlist_empty_state_stays_aligned_across_ssr_review_and_js_p
     assert 'href="/app/properties">Start search</a>' not in results
 
 
-def test_property_customer_surfaces_use_ranked_language_not_high_fit_jargon() -> None:
+def test_property_customer_surfaces_use_matching_language_not_high_fit_jargon() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     console_shell = (repo_root / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
     payload_builder = (repo_root / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
 
     assert "high-fit" not in console_shell
     assert "Turn high-fit candidates into property dossiers" not in payload_builder
-    assert "Turn ranked candidates into property dossiers" in payload_builder
+    assert "Turn ranked candidates" not in payload_builder
+    assert "Turn matching homes into clean property pages" in payload_builder
 
 
 def test_property_shortlist_archive_reconciliation_bundle_clears_selection_without_reload() -> None:
@@ -10401,7 +10402,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert re.search(r"\.prd-decision-workspace\s*\{[^}]*order:\s*-1;", packet.text, re.S)
     assert "What to do next" not in packet.text
     assert "Saved map layers and public sources appear here when they are available for this address." in packet.text
-    assert "Public sources still missing" in packet.text
+    assert "Public sources still missing" not in packet.text
     assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
     assert "Area context" in packet.text
     assert "Summer heat" in packet.text

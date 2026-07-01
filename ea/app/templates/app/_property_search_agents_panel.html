@@ -51,7 +51,7 @@
           </div>
         </div>
         <div class="pqx-automation-metrics" style="font-size:10px; line-height:1.2;">
-          <span><b>{{ agent.get('provider_count') or 0 }}</b> provider{{ '' if agent.get('provider_count') == 1 else 's' }}</span>
+          <span><b>{{ agent.get('provider_count') or 0 }}</b> list{{ '' if agent.get('provider_count') == 1 else 's' }}</span>
           <span><b>{{ agent.get('duration_label') or 'Window' }}</b></span>
           <span><b>{{ agent.get('notification_label') or 'No cap' }}</b></span>
         </div>
@@ -96,10 +96,10 @@
       <div class="pqx-previous-price"><span>Top</span>{{ previous.get('top_price_display') }}</div>
       {% endif %}
       <div class="pqx-previous-metrics">
-        <a class="pqx-previous-open-link" href="/app/search"><b>{{ previous.get('ranked_total') or 0 }}</b> ranked</a>
-        {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
-        {% if previous.get('held_back_total') %}<span><b>{{ previous.get('held_back_total') }}</b> filtered</span>{% endif %}
-        {% if previous.get('top_fit_score') %}<span>best <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
+        <a class="pqx-previous-open-link" href="/app/search"><b>{{ previous.get('ranked_total') or 0 }}</b> matches</a>
+        {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> updates</span>{% endif %}
+        {% if previous.get('held_back_total') %}<span><b>{{ previous.get('held_back_total') }}</b> hidden</span>{% endif %}
+        {% if previous.get('top_fit_score') %}<span>top fit <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
       </div>
     </article>
     {% endfor %}

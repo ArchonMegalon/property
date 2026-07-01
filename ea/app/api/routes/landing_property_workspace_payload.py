@@ -568,7 +568,7 @@ def _property_old_brief_snapshot_notice(
     )
     message = str(run_summary.get("brief_stale_message") or "").strip() or (
         "This run used an earlier brief. Start an updated search to refresh counts "
-        "with your current budget, area, providers, and filters."
+        "with your current budget, area, lists, and requirements."
     )
     return {
         "title": "Run used an earlier brief",
@@ -1294,12 +1294,12 @@ def property_workspace_payload(
                 )
                 if part
             )
-            or "No provider follow-up is active right now.",
+            or "No list follow-up is active right now.",
             "Watching",
         ),
         row_item(
             "Latest note",
-            fleet_digest_summary or "The next provider update will appear here.",
+            fleet_digest_summary or "The next list update will appear here.",
             "Updates",
         ),
     ]
@@ -1946,14 +1946,14 @@ def property_workspace_payload(
     def _candidate_timeline_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
         rows = [
             {
-                "title": "Found by provider",
-                "detail": str(candidate.get("source_label") or "Property provider").strip() or "Property provider",
+                "title": "Found on list",
+                "detail": str(candidate.get("source_label") or "List").strip() or "List",
                 "tag": "Found",
             },
             {
-                "title": "Ranked",
-                "detail": _clean_property_candidate_copy(candidate.get("fit_summary") or candidate.get("recommendation") or "Candidate ranked for review."),
-                "tag": "Ranked",
+                "title": "Fit",
+                "detail": _clean_property_candidate_copy(candidate.get("fit_summary") or candidate.get("recommendation") or "Home selected for review."),
+                "tag": "Fit",
             },
             {
                 "title": "360 state",
@@ -3227,7 +3227,7 @@ def property_workspace_payload(
         "profile": [
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "No areas saved yet.", "href": f"/app/search{run_suffix}"},
             {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "No search brief saved yet.", "href": f"/app/search{run_suffix}"},
-            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Current active provider set.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Lists", "value": str(len(selected_platforms) or 0), "detail": "Current active list set.", "href": f"/app/properties{run_suffix}"},
             {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": signed_in_billing_href},
         ],
         "alerts": [
@@ -3519,7 +3519,7 @@ def property_workspace_payload(
         ),
         row_item(
             "Coverage",
-            f"{commercial.get('max_platforms') or 'Multi'} providers | {current_search_agent_limit_label}",
+            f"{commercial.get('max_platforms') or 'Multi'} lists | {current_search_agent_limit_label}",
             "Limits",
         ),
         row_item(
@@ -3596,7 +3596,7 @@ def property_workspace_payload(
         if platform_cap > current_platform_cap:
             improvement_parts.append(f"+{platform_cap - current_platform_cap} more portals")
         elif platform_cap < current_platform_cap:
-            improvement_parts.append(f"{current_platform_cap - platform_cap} fewer platforms, but a tighter provider set")
+            improvement_parts.append(f"{current_platform_cap - platform_cap} fewer platforms, but a tighter list set")
         if search_agent_limit <= 0 and current_search_agent_limit > 0:
             improvement_parts.append("unlimited saved searches")
         elif search_agent_limit > current_search_agent_limit:
@@ -3614,14 +3614,14 @@ def property_workspace_payload(
         billing_upgrade_rows = [
             row_item(
                 "No live upgrade catalog available",
-                "Payment metadata is not loaded yet. The current plan still governs provider coverage, saved searches, and research depth.",
+                "Payment metadata is not loaded yet. The current plan still governs list coverage, saved searches, and research depth.",
                 "Catalog",
             )
         ]
     billing_decision_rows = [
         row_item(
             "Stay on the current tier",
-            "Use the current plan until a real run needs broader provider coverage or deeper research.",
+            "Use the current plan until a real run needs broader list coverage or deeper research.",
             "Decision",
         ),
         row_item(
@@ -3634,7 +3634,7 @@ def property_workspace_payload(
         billing_decision_rows.append(
             row_item(
                 "First paid move",
-                "Plus adds deeper review on a wider provider set; Agent opens every supported provider.",
+                "Plus adds deeper review on a wider list set; Agent opens every supported list.",
                 "Next tier",
             )
         )
@@ -3642,7 +3642,7 @@ def property_workspace_payload(
         billing_decision_rows.append(
             row_item(
                 "When to jump to Agent",
-                "Move when the search needs both full provider coverage and the heaviest research depth at the same time.",
+                "Move when the search needs both full list coverage and the heaviest research depth at the same time.",
                 "Next tier",
             )
         )
@@ -3713,7 +3713,7 @@ def property_workspace_payload(
             },
             row_item(
                 "Invoices",
-                "Invoice and VAT document details appear here after the payment provider returns them.",
+                "Invoice and VAT document details appear here after the billing account returns them.",
                 "Invoice",
             ),
         ]
@@ -3766,7 +3766,7 @@ def property_workspace_payload(
                 part for part in (
                     str(property_state.get("country_label") or "").strip(),
                     f"{len(selected_locations)} target area(s)" if selected_locations else "",
-                    f"{len(selected_platforms)} provider(s)" if selected_platforms else "",
+                    f"{len(selected_platforms)} list(s)" if selected_platforms else "",
                 ) if part
             ) or "No saved search brief yet.",
             "tag": "Saved",
@@ -3803,7 +3803,7 @@ def property_workspace_payload(
     editable_search_defaults_items = [
         {
             "title": "Search defaults",
-            "detail": "Market, areas, providers, budget, and what matters are edited in the Search workflow.",
+            "detail": "Market, areas, lists, budget, and what matters are edited in the Search workflow.",
             "tag": "Editable",
             "action_href": f"/app/properties{run_suffix}",
             "action_method": "get",
@@ -3815,7 +3815,7 @@ def property_workspace_payload(
         "properties": {
             "title": "Run",
             "summary": (
-                "Review the final ranked result table."
+                "Review the final results table."
                 if run_status_value in {"processed", "completed"} and results_table_rows
                 else (
                     "Keep health, coverage, repair state, and the next useful update visible while the run is active."
@@ -3847,9 +3847,9 @@ def property_workspace_payload(
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
                 (
                     {
-                        "label": "Providers",
+                        "label": "Lists",
                         "value": str(run_provider_display_total),
-                        "detail": "Selected providers are checking the chosen areas.",
+                        "detail": "Selected lists are checking the chosen areas.",
                     }
                     if run_provider_display_total > 0
                     and run_source_variant_total > run_provider_display_total
@@ -3861,7 +3861,7 @@ def property_workspace_payload(
                 ),
                 {"label": "Homes checked", "value": str(_run_homes_checked_total(run_summary)), "detail": "Homes checked so far."},
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
-                {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
+                {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final matching homes in this run."},
                 {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready now."},
                 {"label": "3D tours", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
             ]),
@@ -3877,10 +3877,10 @@ def property_workspace_payload(
         },
         "shortlist": {
             "title": "Shortlist",
-            "summary": "Use one ranked decision table for the strongest candidates and open the full property page only when a card deserves it.",
+            "summary": "Use one calm results table for the strongest homes and open the full property page only when a card deserves it.",
             "hero_kicker": "Shortlist",
             "hero_title": "Review the best candidates before you open deeper property pages.",
-            "hero_summary": "Ranked candidates first.",
+            "hero_summary": "Best matches first.",
             "hero_actions": hero_actions["shortlist"],
             "hero_highlights": hero_highlights["shortlist"],
             "primary_cards": [shortlist_card],
@@ -3891,7 +3891,7 @@ def property_workspace_payload(
         },
         "research": {
             "title": "Research",
-            "summary": "Turn ranked candidates into clean property pages with maps, 3D tours, and follow-ups.",
+            "summary": "Turn matching homes into clean property pages with maps, 3D tours, and follow-ups.",
             "hero_kicker": "Research pages",
             "hero_title": "Open the strongest property pages first.",
             "hero_summary": "Fit, open details, maps, and tours where they exist.",
@@ -4078,7 +4078,7 @@ def property_workspace_payload(
                             }
                             for run in (selected_agent_runs[:3] if selected_agent_runs else previous_search_runs[:3])
                         ]
-                        or [row_item("No finished run yet", "The first completed run will show ranked, sent, and outside-brief totals here.", "Waiting")]
+                        or [row_item("No finished run yet", "The first completed run will show matches, updates, and hidden homes here.", "Waiting")]
                     ),
                 },
                 run_card,
@@ -4191,7 +4191,7 @@ def property_workspace_payload(
                     "title": "Edit",
                     "body": "",
                     "items": [
-                        row_item("Search", "Change areas, filters, providers, or shortlist depth.", "Search"),
+                        row_item("Search", "Change areas, requirements, lists, or shortlist depth.", "Search"),
                         row_item("Plan", "Open the billing account when the current allowance blocks a real run.", "Plan"),
                         row_item("How it works", "Privacy, sharing, and search basics.", "Guide"),
                     ],
@@ -4253,7 +4253,7 @@ def property_workspace_payload(
                     "title": "Edit",
                     "body": "",
                     "items": [
-                        row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
+                        row_item("Search brief", "Go back to Search when the market, list mix, or shortlist depth needs adjustment.", "Search"),
                         row_item("Plan", "Open the billing account when the current allowance blocks a real run.", "Plan"),
                         row_item("How it works", "Privacy, sharing, and search basics.", "Guide"),
                     ],

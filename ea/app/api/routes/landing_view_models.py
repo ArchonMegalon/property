@@ -4295,10 +4295,10 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "use_flatbee_reputation_penalty",
-                "label": "Apply Flatbee reputation penalty",
+                "label": "Quiet noisy Flatbee results",
                 "value": "true",
                 "checked": bool(property_preferences.get("use_flatbee_reputation_penalty", True)),
-                "tooltip": "Flatbee stays available in all-provider sweeps, but this modifier heavily discounts its results because the source has a weak trust reputation and frequent duplicate-quality issues.",
+                "tooltip": "Keep Flatbee available in broad searches, but place likely duplicates and low-quality results lower.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
             },

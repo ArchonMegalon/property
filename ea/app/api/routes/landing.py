@@ -6368,7 +6368,6 @@ def app_shell(
             property_brand
             and resolved_section == "properties"
             and not normalized_run_id
-            and str(os.getenv("PROPERTYQUARRY_SYNC_PROPERTIES_REDIRECT") or "").strip().lower() in {"1", "true", "yes"}
         ):
             has_live_property_run = False
             try:
