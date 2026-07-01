@@ -15,7 +15,7 @@ import urllib.parse
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
@@ -179,6 +179,10 @@ _PROPERTY_BILLING_HANDOFF_VERIFICATION_EXECUTOR = concurrent.futures.ThreadPoolE
     max_workers=2,
     thread_name_prefix="pq-billing-handoff",
 )
+_PROPERTY_FIRST_PAINT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4,
+    thread_name_prefix="pq-first-paint",
+)
 _PROPERTY_BILLING_HANDOFF_CACHE_LOCK = threading.Lock()
 _PROPERTY_BILLING_HANDOFF_CACHE: dict[str, object] = {
     "hosted_url": "",
@@ -193,6 +197,30 @@ _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE: dict[str, object] = {
     "expires_at": 0.0,
     "future": None,
 }
+
+
+def _property_first_paint_timeout_seconds() -> float:
+    raw_value = str(os.getenv("PROPERTYQUARRY_FIRST_PAINT_LOOKUP_TIMEOUT_SECONDS") or "1.2").strip()
+    try:
+        timeout_seconds = float(raw_value)
+    except (TypeError, ValueError):
+        timeout_seconds = 1.2
+    if timeout_seconds <= 0:
+        return 0.0
+    return max(0.05, timeout_seconds)
+
+
+def _property_first_paint_value(loader: Callable[[], Any], fallback: Any) -> Any:
+    timeout_seconds = _property_first_paint_timeout_seconds()
+    if timeout_seconds <= 0:
+        return fallback
+    future = _PROPERTY_FIRST_PAINT_EXECUTOR.submit(loader)
+    try:
+        return future.result(timeout=timeout_seconds)
+    except concurrent.futures.TimeoutError:
+        return fallback
+    except Exception:
+        return fallback
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
@@ -3023,6 +3051,7 @@ def _property_console_context(
     selected_agent_id: str = "",
     surface_mode: str = "properties",
     force_recent_runs: bool = False,
+    defer_run_hydration: bool = False,
 ) -> dict[str, object]:
     product = build_product_service(container)
     surface_scope = PropertySurfaceScope.for_section(surface_mode)
@@ -3078,6 +3107,11 @@ def _property_console_context(
     recent_search_runs: list[dict[str, object]] = []
     lightweight_active_run: dict[str, object] = {}
     active_run: dict[str, object] | None = None
+    if defer_run_hydration and not normalized_run_id:
+        wants_run_state = False
+        wants_recent_runs = False
+        wants_recent_matches = False
+        wants_agent_views = False
     def _current_scope_compatible_run(row: object) -> bool:
         return isinstance(row, dict) and _property_run_matches_saved_brief(
             row,
@@ -3098,42 +3132,48 @@ def _property_console_context(
     )
     if should_load_recent_runs:
         hydrate_recent_runs = surface_scope.section not in {"properties", "shortlist", "research", "search"}
-        try:
-            raw_recent_search_runs = [
-                normalize_property_search_run_snapshot(dict(row))
-                for row in product.list_property_search_runs(
-                    principal_id=principal_id,
-                    limit=24,
-                    hydrate=hydrate_recent_runs,
-                    account_email=access_email,
-                )
-                if isinstance(row, dict)
-            ]
-        except TypeError:
+        def _load_recent_search_runs() -> list[dict[str, object]]:
             try:
-                raw_recent_search_runs = [
+                return [
                     normalize_property_search_run_snapshot(dict(row))
                     for row in product.list_property_search_runs(
                         principal_id=principal_id,
                         limit=24,
                         hydrate=hydrate_recent_runs,
+                        account_email=access_email,
                     )
                     if isinstance(row, dict)
                 ]
             except TypeError:
                 try:
-                    raw_recent_search_runs = [
+                    return [
                         normalize_property_search_run_snapshot(dict(row))
                         for row in product.list_property_search_runs(
                             principal_id=principal_id,
                             limit=24,
+                            hydrate=hydrate_recent_runs,
                         )
                         if isinstance(row, dict)
                     ]
-                except Exception:
-                    raw_recent_search_runs = []
-        except Exception:
-            raw_recent_search_runs = []
+                except TypeError:
+                    try:
+                        return [
+                            normalize_property_search_run_snapshot(dict(row))
+                            for row in product.list_property_search_runs(
+                                principal_id=principal_id,
+                                limit=24,
+                            )
+                            if isinstance(row, dict)
+                        ]
+                    except Exception:
+                        return []
+            except Exception:
+                return []
+
+        if not normalized_run_id and surface_scope.section in {"properties", "shortlist", "agents", "alerts"}:
+            raw_recent_search_runs = list(_property_first_paint_value(_load_recent_search_runs, []))
+        else:
+            raw_recent_search_runs = _load_recent_search_runs()
         recent_search_run_limit = 24 if surface_scope.section == "search" else 8
         recent_search_runs = _property_distinct_recent_search_runs(
             raw_recent_search_runs,
@@ -6298,7 +6338,12 @@ def app_shell(
     else:
         property_payload_section = property_surface_aliases.get(resolved_section, resolved_section) if property_brand else resolved_section
         product = build_product_service(container)
-        if property_brand and resolved_section == "properties" and not normalized_run_id:
+        if (
+            property_brand
+            and resolved_section == "properties"
+            and not normalized_run_id
+            and str(os.getenv("PROPERTYQUARRY_SYNC_PROPERTIES_REDIRECT") or "").strip().lower() in {"1", "true", "yes"}
+        ):
             has_live_property_run = False
             try:
                 active_candidate = product.find_active_property_search_run(
@@ -6357,6 +6402,11 @@ def app_shell(
                 selected_agent_id=requested_agent_id,
                 surface_mode=resolved_section,
                 force_recent_runs=str(full or "").strip().lower() in {"1", "true", "yes"},
+                defer_run_hydration=(
+                    not normalized_run_id
+                    and resolved_section in {"properties", "agents", "alerts"}
+                    and str(full or "").strip().lower() not in {"1", "true", "yes"}
+                ),
             )
             if resolved_section in property_sections or resolved_section == "properties"
             else None

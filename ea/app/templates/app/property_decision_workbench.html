@@ -11167,7 +11167,7 @@
                   </div>
               {% endif %}
               {% if not what_matters_secondary_field %}
-              <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('availability_key') %} data-property-availability-key="{{ field.get('availability_key') }}"{% endif %}{% if field.get('disabled_reason') %} data-property-disabled-reason="{{ field.get('disabled_reason') }}"{% endif %}{% if integrated_what_matters_field %} data-property-semantic-hidden="true"{% endif %}{% if field.get('hidden') or integrated_what_matters_field %} hidden{% endif %}>
+              <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.name == 'location_query' %} data-location-mode="map" data-location-map-available="true"{% endif %}{% if field.get('availability_key') %} data-property-availability-key="{{ field.get('availability_key') }}"{% endif %}{% if field.get('disabled_reason') %} data-property-disabled-reason="{{ field.get('disabled_reason') }}"{% endif %}{% if integrated_what_matters_field %} data-property-semantic-hidden="true"{% endif %}{% if field.get('hidden') or integrated_what_matters_field %} hidden{% endif %}>
                 {% if field.name == 'property_type' and (field.get('options') or []) %}
                 <fieldset class="pqx-choice-groupbox">
                   <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
@@ -11248,7 +11248,7 @@
                     {% for group in keyword_groups %}
                     {% set group_options = field.options|selectattr('group', 'equalto', group.get('key'))|list %}
                     {% if group_options %}
-                    <details class="pqx-choice-groupbox" data-what-matters-group="{{ group.get('key') }}" open>
+                    <details class="pqx-choice-groupbox" data-what-matters-group="{{ group.get('key') }}"{% if loop.first %} open{% endif %}>
                         <summary class="pqx-what-matters-group-summary">
                           <span class="pqx-choice-groupbox-legend">{{ group.get('label') }}</span>
                         </summary>

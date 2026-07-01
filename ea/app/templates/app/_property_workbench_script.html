@@ -3241,7 +3241,7 @@
           syncMobileDetailsAccordion({ selector, openedPanel: details, container, forceSingleOpen });
         };
         details.addEventListener('toggle', () => {
-          syncOpenedPanel();
+          syncOpenedPanel(true);
         });
         const summary = details.querySelector('summary');
         if (summary instanceof HTMLElement) {
@@ -4219,7 +4219,14 @@
       };
       form.querySelectorAll('details[data-what-matters-group]').forEach((details) => {
         details.addEventListener('toggle', () => {
-          if (details.open) syncMobileWhatMattersAccordion(details);
+          if (details.open) {
+            syncMobileDetailsAccordion({
+              selector: 'details[data-what-matters-group]',
+              openedPanel: details,
+              container: details.closest('[data-property-what-matters-panel]') || form,
+              forceSingleOpen: true,
+            });
+          }
         });
       });
       const initializeMobileWhatMattersAccordion = () => {
