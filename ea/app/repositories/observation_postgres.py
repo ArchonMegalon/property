@@ -5,6 +5,12 @@ from datetime import datetime
 from typing import Any
 
 from app.domain.models import ObservationEvent, now_utc_iso
+from app.repositories.postgres_schema import (
+    add_column_if_missing,
+    configure_schema_timeouts,
+    create_index_if_missing,
+    drop_index_if_present,
+)
 
 
 def _to_iso(value: Any) -> str:
@@ -34,6 +40,7 @@ class PostgresObservationEventRepository:
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
+            configure_schema_timeouts(conn)
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -52,38 +59,73 @@ class PostgresObservationEventRepository:
                     )
                     """
                 )
-                cur.execute("ALTER TABLE observation_events ADD COLUMN IF NOT EXISTS source_id TEXT NOT NULL DEFAULT ''")
-                cur.execute("ALTER TABLE observation_events ADD COLUMN IF NOT EXISTS external_id TEXT NOT NULL DEFAULT ''")
-                cur.execute("ALTER TABLE observation_events ADD COLUMN IF NOT EXISTS dedupe_key TEXT NOT NULL DEFAULT ''")
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "observation_events",
+                    "source_id",
+                    "ALTER TABLE observation_events ADD COLUMN IF NOT EXISTS source_id TEXT NOT NULL DEFAULT ''",
+                )
+                add_column_if_missing(
+                    cur,
+                    "observation_events",
+                    "external_id",
+                    "ALTER TABLE observation_events ADD COLUMN IF NOT EXISTS external_id TEXT NOT NULL DEFAULT ''",
+                )
+                add_column_if_missing(
+                    cur,
+                    "observation_events",
+                    "dedupe_key",
+                    "ALTER TABLE observation_events ADD COLUMN IF NOT EXISTS dedupe_key TEXT NOT NULL DEFAULT ''",
+                )
+                add_column_if_missing(
+                    cur,
+                    "observation_events",
+                    "auth_context_json",
                     "ALTER TABLE observation_events ADD COLUMN IF NOT EXISTS auth_context_json JSONB NOT NULL DEFAULT '{}'::jsonb"
                 )
-                cur.execute("ALTER TABLE observation_events ADD COLUMN IF NOT EXISTS raw_payload_uri TEXT NOT NULL DEFAULT ''")
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "observation_events",
+                    "raw_payload_uri",
+                    "ALTER TABLE observation_events ADD COLUMN IF NOT EXISTS raw_payload_uri TEXT NOT NULL DEFAULT ''",
+                )
+                create_index_if_missing(
+                    cur,
+                    "idx_observation_events_created",
                     """
                     CREATE INDEX IF NOT EXISTS idx_observation_events_created
                     ON observation_events(created_at DESC)
-                    """
+                    """,
                 )
-                cur.execute("DROP INDEX IF EXISTS idx_observation_events_dedupe_key_unique")
-                cur.execute(
+                drop_index_if_present(
+                    cur,
+                    "idx_observation_events_dedupe_key_unique",
+                    "DROP INDEX IF EXISTS idx_observation_events_dedupe_key_unique",
+                )
+                create_index_if_missing(
+                    cur,
+                    "idx_observation_events_principal_dedupe_unique",
                     """
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_observation_events_principal_dedupe_unique
                     ON observation_events(principal_id, dedupe_key)
                     WHERE dedupe_key <> ''
-                    """
+                    """,
                 )
-                cur.execute(
+                create_index_if_missing(
+                    cur,
+                    "idx_observation_events_source_external",
                     """
                     CREATE INDEX IF NOT EXISTS idx_observation_events_source_external
                     ON observation_events(source_id, external_id, created_at DESC)
-                    """
+                    """,
                 )
-                cur.execute(
+                create_index_if_missing(
+                    cur,
+                    "idx_observation_events_principal_created",
                     """
                     CREATE INDEX IF NOT EXISTS idx_observation_events_principal_created
                     ON observation_events(principal_id, created_at DESC)
-                    """
+                    """,
                 )
 
     def append(

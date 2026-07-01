@@ -5,6 +5,11 @@ from datetime import datetime
 from typing import Any
 
 from app.domain.models import MemoryCandidate, now_utc_iso
+from app.repositories.postgres_schema import (
+    add_column_if_missing,
+    configure_schema_timeouts,
+    create_index_if_missing,
+)
 
 
 def _to_iso(value: Any) -> str:
@@ -53,6 +58,7 @@ class PostgresMemoryCandidateRepository:
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
+            configure_schema_timeouts(conn)
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -75,36 +81,75 @@ class PostgresMemoryCandidateRepository:
                     )
                     """
                 )
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_candidates",
+                    "source_session_id",
                     "ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS source_session_id TEXT NOT NULL DEFAULT ''"
                 )
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_candidates",
+                    "source_event_id",
                     "ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS source_event_id TEXT NOT NULL DEFAULT ''"
                 )
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_candidates",
+                    "source_step_id",
                     "ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS source_step_id TEXT NOT NULL DEFAULT ''"
                 )
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_candidates",
+                    "confidence",
                     "ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION NOT NULL DEFAULT 0.5"
                 )
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_candidates",
+                    "sensitivity",
                     "ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS sensitivity TEXT NOT NULL DEFAULT 'internal'"
                 )
-                cur.execute("ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending'")
-                cur.execute("ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ NULL")
-                cur.execute("ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS reviewer TEXT NOT NULL DEFAULT ''")
-                cur.execute("ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS promoted_item_id TEXT NOT NULL DEFAULT ''")
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_candidates",
+                    "status",
+                    "ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending'",
+                )
+                add_column_if_missing(
+                    cur,
+                    "memory_candidates",
+                    "reviewed_at",
+                    "ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ NULL",
+                )
+                add_column_if_missing(
+                    cur,
+                    "memory_candidates",
+                    "reviewer",
+                    "ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS reviewer TEXT NOT NULL DEFAULT ''",
+                )
+                add_column_if_missing(
+                    cur,
+                    "memory_candidates",
+                    "promoted_item_id",
+                    "ALTER TABLE memory_candidates ADD COLUMN IF NOT EXISTS promoted_item_id TEXT NOT NULL DEFAULT ''",
+                )
+                create_index_if_missing(
+                    cur,
+                    "idx_memory_candidates_status_created",
                     """
                     CREATE INDEX IF NOT EXISTS idx_memory_candidates_status_created
                     ON memory_candidates(status, created_at DESC)
-                    """
+                    """,
                 )
-                cur.execute(
+                create_index_if_missing(
+                    cur,
+                    "idx_memory_candidates_principal_created",
                     """
                     CREATE INDEX IF NOT EXISTS idx_memory_candidates_principal_created
                     ON memory_candidates(principal_id, created_at DESC)
-                    """
+                    """,
                 )
 
     def _from_row(self, row: tuple[Any, ...]) -> MemoryCandidate:

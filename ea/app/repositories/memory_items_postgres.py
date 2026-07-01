@@ -5,6 +5,11 @@ from datetime import datetime
 from typing import Any
 
 from app.domain.models import MemoryItem, now_utc_iso
+from app.repositories.postgres_schema import (
+    add_column_if_missing,
+    configure_schema_timeouts,
+    create_index_if_missing,
+)
 
 
 def _to_iso(value: Any) -> str:
@@ -46,6 +51,7 @@ class PostgresMemoryItemRepository:
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
+            configure_schema_timeouts(conn)
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -66,31 +72,57 @@ class PostgresMemoryItemRepository:
                     )
                     """
                 )
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_items",
+                    "provenance_json",
                     "ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS provenance_json JSONB NOT NULL DEFAULT '{}'::jsonb"
                 )
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_items",
+                    "confidence",
                     "ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION NOT NULL DEFAULT 0.5"
                 )
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_items",
+                    "sensitivity",
                     "ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS sensitivity TEXT NOT NULL DEFAULT 'internal'"
                 )
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_items",
+                    "sharing_policy",
                     "ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS sharing_policy TEXT NOT NULL DEFAULT 'private'"
                 )
-                cur.execute("ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS last_verified_at TIMESTAMPTZ NULL")
-                cur.execute("ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS reviewer TEXT NOT NULL DEFAULT ''")
-                cur.execute(
+                add_column_if_missing(
+                    cur,
+                    "memory_items",
+                    "last_verified_at",
+                    "ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS last_verified_at TIMESTAMPTZ NULL",
+                )
+                add_column_if_missing(
+                    cur,
+                    "memory_items",
+                    "reviewer",
+                    "ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS reviewer TEXT NOT NULL DEFAULT ''",
+                )
+                create_index_if_missing(
+                    cur,
+                    "idx_memory_items_principal_updated",
                     """
                     CREATE INDEX IF NOT EXISTS idx_memory_items_principal_updated
                     ON memory_items(principal_id, updated_at DESC)
-                    """
+                    """,
                 )
-                cur.execute(
+                create_index_if_missing(
+                    cur,
+                    "idx_memory_items_category_updated",
                     """
                     CREATE INDEX IF NOT EXISTS idx_memory_items_category_updated
                     ON memory_items(category, updated_at DESC)
-                    """
+                    """,
                 )
 
     def _from_row(self, row: tuple[Any, ...]) -> MemoryItem:
