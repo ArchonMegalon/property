@@ -33,7 +33,7 @@ CUSTOMER_EVENT_LABELS = {
     "First shortlist",
     "Open property ready",
     "Applying hard rules",
-    "Provider finished",
+    "List finished",
     "Sending update",
     "Recovery",
     "Update",
@@ -201,6 +201,8 @@ def _contains_noise(value: object) -> bool:
     lowered = str(value or "").strip().lower()
     if not lowered:
         return False
+    if re.search(r"\b\d+\s+homes?\s+reviewed\b", lowered) or re.search(r"\b\d+\s+reviewed so far\b", lowered):
+        return True
     return any(token in lowered for token in STATUS_NOISE_TOKENS)
 
 

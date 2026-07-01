@@ -318,9 +318,9 @@
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
     {% if source_open_total > 0 %}
-      {% set progress_message_display = found_total ~ ' homes found. ' ~ to_review_total ~ ' to review. ' ~ source_open_total ~ ' lists still open.' %}
+      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review · ' ~ source_open_total ~ ' lists open' %}
     {% else %}
-      {% set progress_message_display = 'Found ' ~ found_total ~ ' homes. ' ~ to_review_total ~ ' to review.' if to_review_total else 'Found ' ~ found_total ~ ' homes. Nothing waiting to review.' %}
+      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review' %}
     {% endif %}
   {% elif provider_display_total > 0 %}
   {% set progress_message_display = 'Preparing lists.' %}
@@ -10707,9 +10707,9 @@
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
 		          {% if live_found_total %}
 		            {% if live_source_open_total > 0 %}
-				            {% set live_run_message_display = live_found_total ~ ' homes found. ' ~ live_to_review_total ~ ' to review. ' ~ live_source_open_total ~ ' lists still open.' %}
+				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review · ' ~ live_source_open_total ~ ' lists open' %}
 			            {% else %}
-				            {% set live_run_message_display = 'Found ' ~ live_found_total ~ ' homes. ' ~ live_to_review_total ~ ' to review.' if live_to_review_total else 'Found ' ~ live_found_total ~ ' homes. Nothing waiting to review.' %}
+				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review' %}
 		            {% endif %}
 		          {% elif live_provider_total > 0 %}
 			          {% set live_run_message_display = 'Preparing lists.' %}

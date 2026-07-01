@@ -1411,7 +1411,7 @@
       let text = String(value || '').trim();
       if (!text) return 'Waiting for the first list.';
       text = text
-        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, 'Found $1 homes. Nothing waiting to review.')
+        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes found · 0 to review')
         .replace(/\b(\d+)\s+homes?\s+reviewed\b/ig, '$1 homes found')
         .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 to review')
         .replace(/\b(\d+)\s+providers\b/ig, '$1 lists')
@@ -2025,11 +2025,9 @@
     const runFoundQueueMessage = (found, toReview, sourceWork) => {
       if (!(found > 0)) return '';
       if (sourceWork?.open > 0) {
-        return `${found} homes found. ${toReview} to review. ${sourceWork.open} lists still open.`;
+        return `${found} homes found · ${toReview} to review · ${sourceWork.open} lists open`;
       }
-      return toReview > 0
-        ? `Found ${found} homes. ${toReview} to review.`
-        : `Found ${found} homes. Nothing waiting to review.`;
+      return `${found} homes found · ${toReview} to review`;
     };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
@@ -2064,7 +2062,7 @@
       const listingWork = runListingWorkCounts(summary);
       const found = listingWork.found;
       const toReview = listingWork.toReview;
-      const checkedLabel = found > 0 ? `${found} homes found` : 'checking';
+      const checkedLabel = found > 0 ? `${found} homes found · ${toReview} to review` : 'checking';
       const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
         ? `${completedSources} of ${sourceVariantTotal} lists checked`
         : '';

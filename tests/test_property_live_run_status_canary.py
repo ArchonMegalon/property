@@ -47,6 +47,7 @@ def test_live_run_status_canary_ignores_script_template_event_cards() -> None:
 def test_live_run_status_canary_noise_detector_catches_internal_status_copy() -> None:
     assert _contains_noise("Could not load property search status.")
     assert _contains_noise("Starting property search run.")
+    assert _contains_noise("Willhaben · 1 / 10 · 24 homes reviewed")
     assert not _contains_noise("Preparing provider checks.")
 
 
@@ -75,7 +76,7 @@ def test_live_run_status_canary_receipt_passes_for_active_run() -> None:
                     {
                         "step": "source_fetching",
                         "status": "in_progress",
-                        "message": "Willhaben · 1 / 10 · 24 homes reviewed",
+                        "message": "Willhaben · 1 / 10 · 24 homes found · 0 to review",
                     }
                 ],
             }
@@ -88,7 +89,7 @@ def test_live_run_status_canary_receipt_passes_for_active_run() -> None:
                 {
                     "step": "source_shortlist",
                     "status": "in_progress",
-                    "message": "Shortlist ready · 1 home · Willhaben · 24 homes reviewed",
+                    "message": "Shortlist ready · 1 home · Willhaben · 24 homes found · 0 to review",
                 }
             ],
         }
@@ -97,9 +98,9 @@ def test_live_run_status_canary_receipt_passes_for_active_run() -> None:
         return {
             "status_code": 200,
             "text": """
-            <div class="pqx-note" data-pqx-run-message>Willhaben · 1 / 10 · 24 homes reviewed</div>
+            <div class="pqx-note" data-pqx-run-message>Willhaben · 1 / 10 · 24 homes found · 0 to review</div>
             <div class="pqx-event-list" data-pqx-run-events>
-              <div class="pqx-event-card"><strong>Checking listings</strong><span class="pqx-note">Willhaben · 1 / 10 · 24 homes reviewed</span></div>
+              <div class="pqx-event-card"><strong>Checking listings</strong><span class="pqx-note">Willhaben · 1 / 10 · 24 homes found · 0 to review</span></div>
             </div>
             """,
         }
@@ -123,7 +124,7 @@ def test_live_run_status_canary_receipt_passes_for_active_run() -> None:
     assert receipt["status"] == "pass"
     assert receipt["failed_checks"] == []
     assert receipt["run_id"] == "run-live-canary"
-    assert receipt["page_run_message"] == "Willhaben · 1 / 10 · 24 homes reviewed"
+    assert receipt["page_run_message"] == "Willhaben · 1 / 10 · 24 homes found · 0 to review"
     assert receipt["page_event_cards"][0]["label"] in CUSTOMER_EVENT_LABELS
 
 
@@ -148,7 +149,7 @@ def test_live_run_status_canary_receipt_fails_for_noisy_page_events() -> None:
                 {
                     "step": "source_fetching",
                     "status": "in_progress",
-                    "message": "Willhaben · 1 / 10 · 24 homes reviewed",
+                    "message": "Willhaben · 1 / 10 · 24 homes found · 0 to review",
                 }
             ],
         }
@@ -207,7 +208,7 @@ def test_live_run_status_canary_retries_page_until_customer_trail_appears() -> N
                 {
                     "step": "source_fetching",
                     "status": "in_progress",
-                    "message": "Willhaben · 1 / 10 · 24 homes reviewed",
+                    "message": "Willhaben · 1 / 10 · 24 homes found · 0 to review",
                 }
             ],
         }
@@ -221,9 +222,9 @@ def test_live_run_status_canary_retries_page_until_customer_trail_appears() -> N
         return {
             "status_code": 200,
             "text": """
-            <div class="pqx-note" data-pqx-run-message>Willhaben · 1 / 10 · 24 homes reviewed</div>
+            <div class="pqx-note" data-pqx-run-message>Willhaben · 1 / 10 · 24 homes found · 0 to review</div>
             <div class="pqx-event-list" data-pqx-run-events>
-              <div class="pqx-event-card"><strong>Checking listings</strong><span class="pqx-note">Willhaben · 1 / 10 · 24 homes reviewed</span></div>
+              <div class="pqx-event-card"><strong>Checking listings</strong><span class="pqx-note">Willhaben · 1 / 10 · 24 homes found · 0 to review</span></div>
             </div>
             """,
         }

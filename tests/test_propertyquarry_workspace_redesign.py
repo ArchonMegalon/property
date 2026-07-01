@@ -3036,7 +3036,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "Could not load property search status." not in visible_message
-    assert "Found 179 homes. Nothing waiting to review." in visible_message
+    assert "179 homes found · 0 to review" in visible_message
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
         response.text,
@@ -3094,7 +3094,7 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "70 homes found. 0 to review. 180 lists still open." in visible_message
+    assert "70 homes found · 0 to review · 180 lists open" in visible_message
 
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
@@ -3147,7 +3147,7 @@ def test_propertyquarry_running_panel_does_not_treat_listing_total_as_reviewed(m
 
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
-    assert "70 homes found. 70 to review. 180 lists still open." in visible
+    assert "70 homes found · 70 to review · 180 lists open" in visible
     assert "Reviewed" not in visible
 
 
@@ -3183,7 +3183,7 @@ def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "Now: RE/MAX Austria · 1 / 1 · 102 homes found" in visible_message
+    assert "Now: RE/MAX Austria · 1 / 1 · 102 homes found · 0 to review" in visible_message
 
 
 def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_raw_status_noise(monkeypatch) -> None:
@@ -5274,8 +5274,8 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     )
 
     assert snapshot["status_label"] == "Running"
-    assert snapshot["status_note"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes found"
-    assert snapshot["message"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes found"
+    assert snapshot["status_note"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes found · 0 to review"
+    assert snapshot["message"] == "Now: RE/MAX Austria · 1 / 1 · 102 homes found · 0 to review"
 
 
 def test_property_surface_state_builds_filtered_total_from_summary_components() -> None:
@@ -10865,7 +10865,7 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     messages = [str(event.get("message") or "") for event in events]
     assert "9 lists selected for this search." in messages
     assert "Lists: 1 checked, 1 running, 7 queued of 9." in messages
-    assert "42 homes found; 30 to review; 8 lists still open." in messages
+    assert "42 homes found · 30 to review · 8 lists open." in messages
     assert "3 homes held back by the active rules." in messages
 
 
@@ -13643,8 +13643,8 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "estimateRunEtaLabel" in script_body
     assert "formatEta" in script_body
     assert "displayRunMessage" in script_body
-    assert "Found ${found} homes. ${toReview} to review." in script_body
-    assert "Found ${found} homes. Nothing waiting to review." in script_body
+    assert "${found} homes found · ${toReview} to review" in script_body
+    assert "Nothing waiting to review" not in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body
     run_visible_branch = body.split("{% elif run_visible %}", 1)[1].split("{% elif run_terminal_no_results %}", 1)[0]
@@ -13668,13 +13668,13 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "event_label = 'First shortlist'" in running_body
     assert "event_label = 'Open property ready'" in running_body
     assert "event_label = 'Applying hard rules'" in running_body
-    assert "event_label = 'Provider finished'" in running_body
+    assert "event_label = 'List finished'" in running_body
     assert "event_label = 'Recovery'" in running_body
     assert "progress_message_display" in body
     assert "reliability_message_display" in body
-    assert 'resolved_section in {"properties", "search", "shortlist", "agents", "alerts", "account", "billing", "settings"}' in (
-        repo_root / "ea/app/api/routes/landing.py"
-    ).read_text(encoding="utf-8")
+    landing_body = (repo_root / "ea/app/api/routes/landing.py").read_text(encoding="utf-8")
+    assert '"settings": "/app/account"' in landing_body
+    assert 'allowed.update({"properties", "search", "shortlist", "agents", "alerts", "billing", "account"})' in landing_body
     assert ".reverse().slice(0, 10)" in script_body
     assert "const labelRunEvent = (event) => {" in script_body
     assert "return 'Preparing search';" in script_body
@@ -13684,7 +13684,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "return 'First shortlist';" in script_body
     assert "return 'Open property ready';" in script_body
     assert "return 'Applying hard rules';" in script_body
-    assert "return 'Provider finished';" in script_body
+    assert "return 'List finished';" in script_body
     assert "return 'Recovery';" in script_body
     assert "message.includes('suppressed_generic_listing_page')" in script_body
     assert "message.includes('checking run status')" in script_body

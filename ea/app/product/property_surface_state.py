@@ -780,10 +780,8 @@ def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
     )
     if found > 0:
         if source_work["open"] > 0:
-            return f"{found} homes found. {to_review} to review. {source_work['open']} lists still open."
-        if to_review > 0:
-            return f"Found {found} homes. {to_review} to review."
-        return f"Found {found} homes. Nothing waiting to review."
+            return f"{found} homes found · {to_review} to review · {source_work['open']} lists open"
+        return f"{found} homes found · {to_review} to review"
     if provider_total > 0:
         return "Preparing lists."
     return "Preparing lists."
@@ -940,11 +938,9 @@ def _property_run_synthetic_progress_events(
     to_review = listing_work["to_review"]
     if found_total > 0:
         if source_work["open"] > 0:
-            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; {to_review} to review; {source_work['open']} lists still open.")
-        elif to_review > 0:
-            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; {to_review} to review.")
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} to review · {source_work['open']} lists open.")
         else:
-            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found; nothing waiting to review.")
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} to review.")
 
     if ranked > 0:
         add("source_shortlist", f"{_property_run_count_label(ranked, 'ranked home')} ready.")
@@ -1426,7 +1422,7 @@ def _compact_run_message(value: object) -> str:
         return "Waiting for the first list."
     text = re.sub(
         r"^Reviewing homes\.\s+(\d+)\s+checked so far\.?$",
-        r"Found \1 homes. Nothing waiting to review.",
+        r"\1 homes found · 0 to review",
         text,
         flags=re.IGNORECASE,
     )
@@ -1871,7 +1867,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     found_total = listing_work["found"]
     to_review_total = listing_work["to_review"]
     checked_label = (
-        f"{found_total} homes found"
+        f"{found_total} homes found · {to_review_total} to review"
         if found_total > 0
         else "checking"
     )
@@ -1884,7 +1880,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
         f"{provider_display_total} lists selected" if provider_display_total > 0 else checked_label
     )
     if found_total > 0 and source_work["open"] > 0:
-        scan_label = f"{found_total} homes found. {to_review_total} to review. {source_work['open']} lists still open."
+        scan_label = f"{found_total} homes found · {to_review_total} to review · {source_work['open']} lists open"
     no_floorplans = _positive_int(summary.get("filtered_floorplan_total"))
     current_step = str(payload.get("current_step") or "").strip().lower()
     packet_prepared = _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total"))
