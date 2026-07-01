@@ -61,6 +61,8 @@ Environment:
                                   1|0|auto. When billing.propertyquarry.com is configured, keeps the
                                   Cloudflare billing worker aligned with the current billing host and
                                   bridge path. Default auto.
+  PROPERTYQUARRY_BILLING_WORKER_BOOTSTRAP_TIMEOUT_SECONDS
+                                  Hard timeout for the Cloudflare billing worker bootstrap. Default 120.
   PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE
                                   Maximum accepted host nice value for API and scheduler processes.
                                   Default 10; values above this are treated as a failed deploy.
@@ -934,7 +936,10 @@ PY
     )"
     bridge_path="${parsed_bridge_path:-/sso/propertyquarry}"
   fi
-  if ! "${deploy_python_bin}" scripts/bootstrap_billing_handoff_worker.py \
+  local worker_timeout_seconds
+  worker_timeout_seconds="$(effective_env_value PROPERTYQUARRY_BILLING_WORKER_BOOTSTRAP_TIMEOUT_SECONDS)"
+  worker_timeout_seconds="${worker_timeout_seconds:-120}"
+  if ! timeout --kill-after=10s "${worker_timeout_seconds}s" "${deploy_python_bin}" scripts/bootstrap_billing_handoff_worker.py \
     --host "${billing_host}" \
     --target-host "${target_host}" \
     --pricing-url "${property_public_base_url%/}/pricing" \
