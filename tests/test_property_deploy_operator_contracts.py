@@ -87,6 +87,8 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "docker restart",
         "did not restart cleanly after API deploy",
         "assert_service_runtime_priority",
+        "correcting to nice 0",
+        'renice -n 0 -p "${host_pid}"',
         "Web runtime would be CPU-starved under load",
         'up -d --remove-orphans "${db_service}"',
         'up -d --no-deps --force-recreate "${api_service}"',

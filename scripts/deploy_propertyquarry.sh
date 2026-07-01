@@ -403,6 +403,13 @@ assert_service_runtime_priority() {
     exit 1
   fi
   if (( nice_value > max_nice )); then
+    if [[ "$(id -u)" == "0" ]]; then
+      echo "${service} started with host nice ${nice_value}; correcting to nice 0." >&2
+      renice -n 0 -p "${host_pid}" >/dev/null
+      nice_value="$(ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+    fi
+  fi
+  if (( nice_value > max_nice )); then
     echo "${service} started with host nice ${nice_value}, above allowed ${max_nice}." >&2
     echo "Web runtime would be CPU-starved under load; restart deploy from a normal-priority operator shell." >&2
     exit 1
