@@ -2466,7 +2466,7 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
         {"value": "good air quality", "label": "Good air quality", "detail": "Treat air burden as a real quality signal"},
         {"value": "klimaerwaermungsfit", "label": "Stays cool in summer", "detail": "Can the home stay cool during longer heat waves?"},
         {"value": "avoid noise-risk area", "label": "Avoid noise-risk area", "detail": "Treat official noise burden as a genuine location risk"},
-        {"value": "high-speed internet", "label": "High-speed internet evidence", "detail": "Broadband evidence matters for the final call"},
+        {"value": "high-speed internet", "label": "High-speed internet", "detail": "Broadband quality matters for the final call"},
         {"value": "low crime area", "label": "Low crime area", "detail": "Treat quarter-level safety burden as a real signal"},
         {"value": "water and groundwater check", "label": "Water source and groundwater check", "detail": "Research water source and groundwater burden"},
         {"value": "parking pressure check", "label": "Parking pressure check", "detail": "Check parking situation if the listing has no garage"},
@@ -2703,8 +2703,8 @@ def _property_keyword_options() -> list[dict[str, str]]:
         ],
         "water and groundwater check": [
             {"value": "any", "label": "Neutral"},
-            {"value": "important", "label": "Detailed evidence"},
-            {"value": "must_have", "label": "Required evidence"},
+            {"value": "important", "label": "Detailed check"},
+            {"value": "must_have", "label": "Required check"},
         ],
         "parking pressure check": [
             {"value": "any", "label": "Neutral"},
@@ -2719,8 +2719,8 @@ def _property_keyword_options() -> list[dict[str, str]]:
         ],
         "winter driving check": [
             {"value": "any", "label": "Neutral"},
-            {"value": "important", "label": "Detailed evidence"},
-            {"value": "must_have", "label": "Required evidence"},
+            {"value": "important", "label": "Detailed check"},
+            {"value": "must_have", "label": "Required check"},
         ],
         "avoid flood-risk area": [
             {"value": "any", "label": "Neutral"},
@@ -4502,7 +4502,7 @@ def app_section_payload(
             {
                 "type": "select",
                 "name": "school_evidence_priority",
-                "label": "School evidence priority",
+                "label": "School detail level",
                 "value": str(property_preferences.get("school_evidence_priority") or "any"),
                 "options": [
                     {"value": "any", "label": "Any"},
@@ -4515,10 +4515,10 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "require_school_evidence",
-                "label": "Require school evidence",
+                "label": "Require school data",
                 "value": "true",
                 "checked": bool(property_preferences.get("require_school_evidence")),
-                "tooltip": "Keep school fit tied to official school-evidence rows instead of inferring too much from generic map proximity.",
+                "tooltip": "Use official school data instead of inferring too much from generic map proximity.",
                 "step": "children",
                 "hidden": True,
             },
@@ -4535,7 +4535,7 @@ def app_section_payload(
                 "empty_label": "Any distance",
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
-                "tooltip": "Distance preference for kindergarten access. Ranking treats missing evidence as a visible gap instead of hiding it.",
+                "tooltip": "Distance preference for kindergarten access. Ranking keeps missing details visible instead of hiding them.",
                 "step": "children",
                 "hidden": True,
             },
@@ -4841,20 +4841,20 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "require_energy_certificate",
-                "label": "Require energy certificate evidence",
+                "label": "Require energy certificate",
                 "value": "true",
                 "checked": bool(property_preferences.get("require_energy_certificate")),
-                "tooltip": "Treat missing Energieausweis evidence as a material gap, especially in Austrian buy and cooperative due diligence.",
+                "tooltip": "Treat a missing Energieausweis as a material gap, especially for Austrian buy and cooperative checks.",
                 "step": "research",
                 "hidden": land_only_search,
             },
             {
                 "type": "checkbox",
                 "name": "require_operating_cost_statement",
-                "label": "Require operating-cost evidence",
+                "label": "Require operating costs",
                 "value": "true",
                 "checked": bool(property_preferences.get("require_operating_cost_statement")),
-                "tooltip": "Keep Betriebskosten and recurring-cost evidence visible before a property is treated as ready for pursuit.",
+                "tooltip": "Keep Betriebskosten and recurring costs visible before a property is treated as ready for pursuit.",
                 "step": "research",
                 "hidden": land_only_search,
             },
@@ -5182,10 +5182,10 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "require_high_speed_internet",
-                "label": "Require high-speed internet evidence",
+                "label": "Require high-speed internet",
                 "value": "true",
                 "checked": bool(property_preferences.get("require_high_speed_internet")),
-                "tooltip": "Promote listings backed by Austrian broadband coverage evidence when home-office viability matters.",
+                "tooltip": "Promote listings with strong broadband coverage when home-office viability matters.",
                 "step": "children",
             },
             {
@@ -5443,7 +5443,7 @@ def app_section_payload(
                 {
                     "key": "research",
                     "label": "Research depth",
-                    "detail": "Risk, supply, and how much evidence each strong match should carry.",
+                    "detail": "Risk, supply, and how much detail each strong match should carry.",
                 },
                 {
                     "key": "providers",
@@ -5582,12 +5582,12 @@ def app_section_payload(
             ],
         },
         "evidence": {
-            "title": "Evidence",
-            "summary": "Evidence explains why something surfaced: which property signal, channel, context, and rule put it in front of you.",
+            "title": "Why this appears",
+            "summary": "A plain explanation of which property signal, source, context, or rule put an item in front of you.",
             "cards": [
-                {"eyebrow": "Search evidence", "title": "Why items surfaced", "items": string_rows(first_brief, ("No evidence rows surfaced yet.",), tag="Evidence", detail="This is one of the signals behind the current view.")},
+                {"eyebrow": "Search details", "title": "Why items surfaced", "items": string_rows(first_brief, ("No details surfaced yet.",), tag="Detail", detail="This is one of the signals behind the current view.")},
                 {"eyebrow": "Settings", "title": "What keeps results explainable", "items": string_rows(trust_notes, ("No settings notes yet.",), tag="Rule", detail="These settings explain the product behavior.")},
-                {"eyebrow": "Sources", "title": "Where the evidence came from", "items": channel_items},
+                {"eyebrow": "Sources", "title": "Where the details came from", "items": channel_items},
             ],
         },
         "channels": {

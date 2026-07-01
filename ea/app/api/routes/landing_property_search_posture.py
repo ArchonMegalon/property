@@ -83,14 +83,14 @@ def build_property_market_summary_items(
     if not property_is_investment_search and bool(property_preferences.get("ganztag_required")):
         items.append(row_item("All-day school", "Required", "Family"))
     if not property_is_investment_search and bool(property_preferences.get("require_school_evidence")):
-        items.append(row_item("School evidence", "Required", "Evidence"))
+        items.append(row_item("School data", "Required", "School"))
     school_evidence_priority = str(property_preferences.get("school_evidence_priority") or "any")
     if not property_is_investment_search and school_evidence_controls_enabled and school_evidence_priority not in {"", "any"}:
         items.append(
             row_item(
-                "School evidence priority",
+                "School detail level",
                 school_evidence_priority.replace("_", " ").title(),
-                "Evidence",
+                "School",
             )
         )
 

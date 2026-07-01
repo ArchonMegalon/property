@@ -808,10 +808,10 @@ def _property_official_risk_evidence(
         },
         {
             "risk_key": "school_evidence",
-            "label": "School evidence",
+            "label": "School data",
             "authority_label": "Statistik Austria / municipal school datasets",
             "provider": "STATatlas / data.gv.at",
-            "source_label": "SchoolAtlas and municipal school-location evidence",
+            "source_label": "SchoolAtlas and municipal school-location data",
             "source_url": "https://www.statistik.at/atlas/",
             "availability": "official_dataset",
             "source_type": "official_dataset",

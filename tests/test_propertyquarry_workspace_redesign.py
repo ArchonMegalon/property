@@ -9394,7 +9394,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
             "Remote-view detail improved the score for candidate 15/60 (score upgraded)",
         ),
         (
-            "High-speed internet evidence confirmed for candidate 16 of 60.",
+            "High-speed internet detail confirmed for candidate 16 of 60.",
             "Internet detail improved the score for candidate 16/60 (score upgraded)",
         ),
         (
@@ -11249,14 +11249,14 @@ def test_property_workspace_search_form_exposes_austria_evidence_and_eligibility
         Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py"
     ).read_text(encoding="utf-8")
 
-    assert "School evidence priority" in view_model_body
+    assert "School detail level" in view_model_body
     assert "Wiener Wohn-Ticket available" in view_model_body
     assert "Subsidized or cooperative supply only" in view_model_body
-    assert "Require school evidence" in view_model_body
-    assert "Require energy certificate evidence" in view_model_body
-    assert "Require operating-cost evidence" in view_model_body
+    assert "Require school data" in view_model_body
+    assert "Require energy certificate" in view_model_body
+    assert "Require operating costs" in view_model_body
     assert "Court and auction review" in view_model_body
-    assert "Require high-speed internet evidence" in view_model_body
+    assert "Require high-speed internet" in view_model_body
     assert "Avoid noise-risk area" in view_model_body
     assert "keyword_priority_group" in view_model_body
     assert "Ganztag matters" not in view_model_body
@@ -12364,7 +12364,7 @@ def test_property_search_posture_summary_hides_child_rows_when_parent_toggles_ar
     assert "University focus" not in labels
     assert "Children" not in labels
     assert "School evidence" not in labels
-    assert "School evidence priority" not in labels
+    assert "School detail level" not in labels
     assert "Accepted project stages" not in labels
     assert "Wiener Wohn-Ticket" not in labels
     assert "Subsidized supply" not in labels
