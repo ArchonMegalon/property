@@ -278,7 +278,8 @@
   {% endif %}
 {% endfor %}
 {% set source_done_total = source_completed if source_completed > source_counts.done else source_counts.done %}
-{% set source_active_total = source_counts.active %}
+{% set source_remaining_capacity = source_variant_total - source_done_total if source_variant_total > source_done_total else 0 %}
+{% set source_active_total = source_counts.active if source_counts.active < source_remaining_capacity else source_remaining_capacity %}
 {% if status|lower in ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'] and source_variant_total > 0 %}
   {% set source_done_total = source_variant_total %}
   {% set source_active_total = 0 %}
@@ -298,13 +299,13 @@
 {% set found_bar_pct = 100 if found_total > 0 else 0 %}
 {% set to_review_bar_pct = ((to_review_total * 100) // review_denominator) if to_review_total > 0 else 0 %}
 {% set checked_label = (found_total|string ~ ' homes found') if found_total > 0 else 'checking' %}
-{% set source_progress_label = source_done_total|string ~ ' / ' ~ source_variant_total|string ~ ' checked' if source_variant_total > 0 and source_done_total > 0 else '' %}
+{% set source_progress_label = '' %}
 {% if source_variant_total > 0 %}
-{% set scan_count_label = source_open_total|string ~ ' / ' ~ source_variant_total|string ~ ' lists open' %}
+{% set scan_count_label = source_open_total|string ~ ' / ' ~ source_variant_total|string ~ ' provider checks left' %}
 {% elif provider_display_total > 0 %}
-{% set scan_count_label = provider_display_total|string ~ ' lists selected' %}
+{% set scan_count_label = provider_display_total|string ~ ' provider checks selected' %}
 {% elif source_completed > 0 or source_total > 0 %}
-{% set scan_count_label = 'Checking lists' %}
+{% set scan_count_label = 'Checking provider checks' %}
 {% else %}
 {% set scan_count_label = 'Search warming up' %}
 {% endif %}
@@ -315,26 +316,35 @@
 {% set worker_state = run.get('worker_state') or summary.get('worker_state') or {} %}
 {% set reliability = run.get('reliability') or {} %}
 {% set progress_message_raw = (run.get('message') or '')|trim %}
-{% set progress_provider_label = provider_display_total|string ~ ' lists' if provider_display_total > 0 else 'selected lists' %}
+{% set progress_provider_label = provider_display_total|string ~ ' provider checks' if provider_display_total > 0 else 'selected provider checks' %}
 {% set progress_repair_status = ((reliability.get('repair') or {}).get('repair_status') or summary.get('repair_status') or summary.get('repair_status_label') or '')|lower %}
 {% set progress_has_repair_copy = status|lower == 'failed' or progress_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
 {% set progress_customer_message = (reliability.get('customer_status_message') or summary.get('customer_status_message') or '')|trim %}
 {% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
-{% set progress_message_display = progress_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'lists open')|replace('Lists left', 'Lists open') %}
+{% set progress_message_display = progress_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'provider checks left')|replace('Lists left', 'Provider checks left')|replace('lists open', 'provider checks left')|replace('Lists open', 'Provider checks left') %}
 {% set progress_message_display_lower = progress_message_display|lower %}
+{% set progress_prepared_total = ((summary.get('review_created_total') or 0)|int) + ((summary.get('review_existing_total') or 0)|int) %}
+{% if found_total > 0 and progress_prepared_total <= 0 and ('review page preparation timed out' in progress_message_display_lower or 'reviewing candidate' in progress_message_display_lower or (summary.get('current_step') or run.get('current_step') or '')|lower == 'source_review_packet') %}
+  {% if source_open_total > 0 %}
+    {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared · ' ~ source_open_total ~ ' provider checks left' %}
+  {% else %}
+    {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared' %}
+  {% endif %}
+  {% set progress_message_display_lower = progress_message_display|lower %}
+{% endif %}
 {% set progress_compact_found_message = found_total|string ~ ' homes found' %}
 {% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ to_review_total|string ~ ' to review' %}
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or 'scoring enriched candidate' in progress_message_display_lower or 'ranking homes' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
     {% if source_open_total > 0 %}
-      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review · ' ~ source_open_total ~ ' lists open' %}
+      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review · ' ~ source_open_total ~ ' provider checks left' %}
     {% else %}
       {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review' %}
     {% endif %}
   {% elif provider_display_total > 0 %}
-  {% set progress_message_display = 'Preparing lists.' %}
-  {% else %}
-  {% set progress_message_display = 'Preparing lists.' %}
+  {% set progress_message_display = 'Preparing provider checks.' %}
+      {% else %}
+  {% set progress_message_display = 'Preparing provider checks.' %}
   {% endif %}
 {% endif %}
 {% set reliability_message_raw = progress_customer_message if reliability else '' %}
@@ -354,10 +364,10 @@
 	  <div class="pqx-source-progress" data-pqx-source-progress>
 	    <div class="pqx-source-progress-head">
 			      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-					      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total %}0 to review{% elif provider_display_total %}{{ provider_display_total }} lists selected{% else %}Waiting for first listings{% endif %}</span>
+					      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total %}0 to review{% elif provider_display_total %}{{ provider_display_total }} provider checks selected{% else %}Waiting for first listings{% endif %}</span>
 					      {% if found_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
 				    </div>
-				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first list.' }}</span>
+				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider check.' }}</span>
 				    <div class="pqx-live-review-bars" aria-label="Search totals">
 		      <span>
 		        <b>Found</b>
@@ -370,7 +380,7 @@
 		        <em><u style="--progress: {{ to_review_bar_pct }}"></u></em>
 		      </span>
 		      <span>
-			        <b>Lists open</b>
+			        <b>Checks left</b>
 		        <i>{{ source_open_total or 0 }}</i>
 		        <em><u style="--progress: {{ ((source_open_total * 100) // source_variant_total) if source_variant_total > 0 and source_open_total > 0 else 0 }}"></u></em>
 		      </span>
@@ -383,7 +393,7 @@
 	  <div class="pqx-reliability-strip" data-pqx-run-reliability>
     <div class="pqx-reliability-head">
       <span class="pqx-pill {{ reliability.get('health_tone') }}">{{ reliability.get('health_label') or 'Working' }}</span>
-      {% if reliability.get('repair_step_label') %}<strong>Checking affected lists</strong>{% endif %}
+      {% if reliability.get('repair_step_label') %}<strong>Checking affected provider checks</strong>{% endif %}
       {% if reliability.get('next_useful_update_eta_label') %}<span class="pqx-small">Next useful update: {{ reliability.get('next_useful_update_eta_label') }}</span>{% endif %}
       {% if reliability.get('final_eta_label') %}<span class="pqx-small">Finish: {{ reliability.get('final_eta_label') }}</span>{% endif %}
     </div>
@@ -4663,10 +4673,22 @@
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-active-distance-rows="true"] .pqx-pref-list,
       .pqx-what-matters-panel .pqx-pref-list {
+        display: block;
         grid-template-columns: minmax(0, 1fr);
         gap: 5px;
+        width: 100%;
         min-width: 0;
         max-width: 100%;
+        box-sizing: border-box;
+      }
+      .pqx-what-matters-panel .pqx-pref-list > * + * {
+        margin-top: 5px;
+      }
+      .pqx-what-matters-panel .pqx-pref-list > * {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open] .pqx-pref-list {
         max-height: none;
@@ -4693,11 +4715,17 @@
       .pqx-what-matters-panel .pqx-pref-row,
       .pqx-what-matters-panel .pqx-keyword-priority-row,
       .pqx-what-matters-panel .pqx-school-priority-row {
+        display: grid;
         grid-template-columns: minmax(0, 1fr);
+        width: 100%;
+        inline-size: 100%;
+        max-inline-size: 100%;
         min-height: 42px;
         padding: 5px 6px;
         min-width: 0;
         max-width: 100%;
+        box-sizing: border-box !important;
+        overflow-x: clip;
       }
       .pqx-what-matters-panel .pqx-pref-row-title .pqx-tooltip {
         display: inline-grid;
@@ -4776,6 +4804,64 @@
       }
     }
     {% endif %}
+    @media (max-width: 760px) {
+      .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-pref-list,
+      [data-property-what-matters-panel] .pqx-pref-list {
+        display: block !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow: visible !important;
+        padding-right: 0 !important;
+        box-sizing: border-box !important;
+      }
+      .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-pref-list > * + *,
+      [data-property-what-matters-panel] .pqx-pref-list > * + * {
+        margin-top: 5px;
+      }
+      .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-pref-row,
+      .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-keyword-priority-row,
+      .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-school-priority-row,
+      [data-property-what-matters-panel] .pqx-pref-row,
+      [data-property-what-matters-panel] .pqx-keyword-priority-row,
+      [data-property-what-matters-panel] .pqx-school-priority-row {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        width: calc(100% - 12px) !important;
+        max-width: calc(100% - 12px) !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        justify-self: start !important;
+        overflow-x: clip;
+      }
+      .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-keyword-priority-row[data-keyword-distance-enabled="true"],
+      .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-school-priority-row[data-school-distance-enabled="true"],
+      [data-property-what-matters-panel] .pqx-keyword-priority-row[data-keyword-distance-enabled="true"],
+      [data-property-what-matters-panel] .pqx-school-priority-row[data-school-distance-enabled="true"] {
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 7px !important;
+        transform: none !important;
+      }
+      .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] .pqx-pref-row-controls,
+      .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-school-priority-row[data-school-distance-enabled="true"] .pqx-pref-row-controls,
+      [data-property-what-matters-panel] .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] .pqx-pref-row-controls,
+      [data-property-what-matters-panel] .pqx-school-priority-row[data-school-distance-enabled="true"] .pqx-pref-row-controls {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 6px !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        justify-content: stretch !important;
+      }
+      .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-pref-row select,
+      [data-property-what-matters-panel] .pqx-pref-row select {
+        width: 100% !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        min-height: 44px !important;
+      }
+    }
     @keyframes pqx-soft-reveal {
       from {
         opacity: 0;
@@ -10665,34 +10751,45 @@
           {% endfor %}
           {% set live_source_completed = (run_summary.get('sources_completed') or run_summary.get('completed_sources') or 0)|int %}
           {% set live_source_done_total = live_source_completed if live_source_completed > live_source_counts.done else live_source_counts.done %}
-          {% set live_source_waiting_raw = live_source_total - live_source_done_total - live_source_counts.active %}
+          {% set live_source_remaining_capacity = live_source_total - live_source_done_total if live_source_total > live_source_done_total else 0 %}
+          {% set live_source_active_total = live_source_counts.active if live_source_counts.active < live_source_remaining_capacity else live_source_remaining_capacity %}
+          {% set live_source_waiting_raw = live_source_total - live_source_done_total - live_source_active_total %}
           {% set live_source_waiting_total = live_source_waiting_raw if live_source_waiting_raw > 0 else 0 %}
-          {% set live_source_open_total = live_source_waiting_total + live_source_counts.active %}
+          {% set live_source_open_total = live_source_waiting_total + live_source_active_total %}
           {% set live_reviewed_total = (run_summary.get('scanned_listing_total') if run_summary.get('scanned_listing_total') is not none else (run_summary.get('reviewed_listing_total') or 0))|int %}
           {% set live_raw_found_total = (run_summary.get('found_listing_total') if run_summary.get('found_listing_total') is not none else (run_summary.get('raw_listing_total') or live_reviewed_total or run_summary.get('listing_total') or 0))|int %}
           {% set live_found_total = live_raw_found_total if live_raw_found_total > live_reviewed_total else live_reviewed_total %}
           {% set live_to_review_total = (run_summary.get('to_review_listing_total') if run_summary.get('to_review_listing_total') is not none else ((live_found_total - live_reviewed_total) if live_found_total > live_reviewed_total else 0))|int %}
-		            {% set live_provider_label = live_provider_total|string ~ ' lists' if live_provider_total > 0 else 'selected lists' %}
+		            {% set live_provider_label = live_provider_total|string ~ ' provider checks' if live_provider_total > 0 else 'selected provider checks' %}
           {% set live_repair_status = (run_summary.get('repair_status') or run_summary.get('repair_status_label') or '')|lower %}
           {% set live_has_repair_copy = run_status == 'failed' or live_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
           {% set live_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
           {% set live_run_message_display = live_safe_message if live_has_repair_copy and live_safe_message else live_run_message_raw %}
-          {% set live_run_message_display = live_run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'lists open')|replace('Lists left', 'Lists open') %}
+          {% set live_run_message_display = live_run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'provider checks left')|replace('Lists left', 'Provider checks left')|replace('lists open', 'provider checks left')|replace('Lists open', 'Provider checks left') %}
           {% set live_run_message_display_lower = live_run_message_display|lower %}
+          {% set live_prepared_total = ((run_summary.get('review_created_total') or 0)|int) + ((run_summary.get('review_existing_total') or 0)|int) %}
+          {% if live_found_total > 0 and live_prepared_total <= 0 and ('review page preparation timed out' in live_run_message_display_lower or 'reviewing candidate' in live_run_message_display_lower or (run_summary.get('current_step') or run.get('current_step') or '')|lower == 'source_review_packet') %}
+		          {% if live_source_open_total > 0 %}
+		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared · ' ~ live_source_open_total ~ ' provider checks left' %}
+		          {% else %}
+		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared' %}
+		          {% endif %}
+		          {% set live_run_message_display_lower = live_run_message_display|lower %}
+          {% endif %}
           {% set live_compact_found_message = live_found_total|string ~ ' homes found' %}
 	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_to_review_total|string ~ ' to review' %}
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or 'scoring enriched candidate' in live_run_message_display_lower or 'ranking homes' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
 		          {% if live_found_total %}
 		            {% if live_source_open_total > 0 %}
-				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review · ' ~ live_source_open_total ~ ' lists open' %}
+				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review · ' ~ live_source_open_total ~ ' provider checks left' %}
 			            {% else %}
 				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review' %}
 		            {% endif %}
 		          {% elif live_provider_total > 0 %}
-			          {% set live_run_message_display = 'Preparing lists.' %}
+			          {% set live_run_message_display = 'Preparing provider checks.' %}
 		          {% else %}
-		          {% set live_run_message_display = 'Preparing lists.' %}
-          {% endif %}
+		          {% set live_run_message_display = 'Preparing provider checks.' %}
+		          {% endif %}
           {% endif %}
           <section class="pqx-card" style="margin-bottom:14px;">
             <div class="pqx-section-head">
@@ -10705,7 +10802,7 @@
 	            <div class="pqx-pref-list">
 	              <div class="pqx-pref-row">
 	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
-	                  <div><strong>Lists</strong><small>{% if live_source_total %}{{ live_source_done_total }} / {{ live_source_total }} checked{% else %}Preparing{% endif %}</small></div>
+	                  <div><strong>Checks left</strong><small>{% if live_source_total %}{{ live_source_open_total }} / {{ live_source_total }} left{% else %}Preparing{% endif %}</small></div>
 	                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
 			                <div><strong>To review</strong><small>{{ live_to_review_total }} homes</small></div>
 	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
@@ -11812,7 +11909,7 @@
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
             <div class="pqx-empty-outcome-next">
               {% if empty_active_rule or run_status == 'failed' %}<span class="pqx-pill">{{ empty_active_rule or 'Next' }}</span>{% endif %}
-              <span class="pqx-small">{{ 'Open the area choices if you want to include those homes; otherwise keep the current area.' if held_back_ranked_total > 0 else (empty_next_move or ('Start a fresh search or adjust one list or requirement before retrying.' if run_status == 'failed' else 'Widen one requirement first, then rerun.')) }}</span>
+              <span class="pqx-small">{{ 'Open the area choices if you want to include those homes; otherwise keep the current area.' if held_back_ranked_total > 0 else (empty_next_move or ('Start a fresh search or adjust one provider check or requirement before retrying.' if run_status == 'failed' else 'Widen one requirement first, then rerun.')) }}</span>
             </div>
             {% endif %}
 	            <div class="pqx-actions">
@@ -12070,7 +12167,7 @@
           {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
           {% set event_label = 'Preparing search' %}
           {% elif event_step in ['source_search', 'provider_search', 'search'] %}
-          {% set event_label = 'Searching lists' %}
+          {% set event_label = 'Searching provider checks' %}
           {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
           {% set event_label = 'Checking details' %}
           {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}

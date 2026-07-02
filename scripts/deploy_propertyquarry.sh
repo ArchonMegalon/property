@@ -1014,9 +1014,12 @@ cp "${authenticated_smoke_receipt}" _completion/smoke/property-live-authenticate
 mobile_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_mobile_smoke.json"
 mobile_smoke_timeout_ms="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
 mobile_smoke_process_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIMEOUT_SECONDS:-300}"
-mobile_research_detail_route="$(effective_env_value PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE)"
-mobile_research_detail_route="${mobile_research_detail_route:-/app/research/perf-candidate-1020?run_id=run-gold-mobile}"
+configured_mobile_research_detail_route="$(effective_env_value PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE)"
+mobile_research_detail_route="${configured_mobile_research_detail_route:-/app/research/perf-candidate-1020?run_id=run-gold-mobile}"
 mobile_seed_research_detail_fixture="$(effective_env_value PROPERTYQUARRY_DEPLOY_MOBILE_SEED_RESEARCH_DETAIL_FIXTURE)"
+if [[ -z "${configured_mobile_research_detail_route}" && -z "${mobile_seed_research_detail_fixture}" ]]; then
+  mobile_seed_research_detail_fixture=1
+fi
 mobile_smoke_research_args=(--routes "/app/properties,/app/search,/app/shortlist,/app/agents,/app/alerts,/app/account,/app/billing,/app/settings/google,/app/settings/access,/app/settings/usage,/app/settings/support,/app/settings/trust,/app/settings/invitations,/app/research,/app/properties/packets,${mobile_research_detail_route}" --require-research-detail)
 if env_truthy "${mobile_seed_research_detail_fixture}"; then
   mobile_smoke_research_args=(--seed-research-detail-fixture)

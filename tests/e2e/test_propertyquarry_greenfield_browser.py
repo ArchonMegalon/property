@@ -3038,7 +3038,7 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         assert response is not None and response.ok
         page.locator('[data-property-step-trigger="children"]').click()
         page.wait_for_function(
-            "document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
+            "() => document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
         )
         for field_name in (
             "max_distance_to_market_m",
@@ -3048,6 +3048,49 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
             "avoid_flood_risk_area",
         ):
             expect(page.locator(f'[data-property-field-name="{field_name}"]')).to_be_hidden()
+        if int(page.evaluate("window.innerWidth")) <= 760:
+            playground_row = page.locator('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+            playground_row.evaluate(
+                """
+                (node) => {
+                  node.closest('details[data-what-matters-group]')?.setAttribute('open', '');
+                  const rect = node.getBoundingClientRect();
+                  window.scrollBy({ top: rect.top - 96, left: 0, behavior: 'auto' });
+                }
+                """
+            )
+            before_anchor = playground_row.evaluate(
+                """
+                (node) => ({
+                  top: node.getBoundingClientRect().top,
+                  scrollY: window.scrollY,
+                })
+                """
+            )
+            playground_row.locator("[data-keyword-preference-select]").select_option("nice_to_have")
+            page.wait_for_function(
+                """
+                () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+                  ?.getAttribute('data-keyword-distance-enabled') === 'true'
+                """
+            )
+            page.evaluate("() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+            after_anchor = playground_row.evaluate(
+                """
+                (node) => ({
+                  top: node.getBoundingClientRect().top,
+                  scrollY: window.scrollY,
+                })
+                """
+            )
+            assert abs(float(after_anchor["top"]) - float(before_anchor["top"])) <= 10.0, {
+                "before": before_anchor,
+                "after": after_anchor,
+            }
+            assert abs(float(after_anchor["scrollY"]) - float(before_anchor["scrollY"])) <= 48.0, {
+                "before": before_anchor,
+                "after": after_anchor,
+            }
         keyword_states = (
             ("playground nearby", "nice_to_have"),
             ("Baumarkt nearby", "important"),
@@ -3123,6 +3166,32 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
                 groupScrollWidth: group ? group.scrollWidth : 0,
                 listWidth: listRect ? listRect.width : 0,
                 listScrollWidth: list ? list.scrollWidth : 0,
+                listComputed: list ? {
+                  display: getComputedStyle(list).display,
+                  overflowX: getComputedStyle(list).overflowX,
+                  paddingLeft: getComputedStyle(list).paddingLeft,
+                  paddingRight: getComputedStyle(list).paddingRight,
+                  boxSizing: getComputedStyle(list).boxSizing,
+                  width: getComputedStyle(list).width,
+                } : {},
+                children: Array.from(list?.children || []).slice(0, 8).map((node) => {
+                  const rect = node.getBoundingClientRect();
+                  const style = getComputedStyle(node);
+                  return {
+                    tag: node.tagName,
+                    cls: node.className || '',
+                    attr: node.getAttribute('data-keyword-value') || node.getAttribute('data-school-value') || '',
+                    width: rect.width,
+                    scrollWidth: node.scrollWidth || 0,
+                    clientWidth: node.clientWidth || 0,
+                    marginLeft: style.marginLeft,
+                    marginRight: style.marginRight,
+                    boxSizing: style.boxSizing,
+                    display: style.display,
+                    paddingLeft: style.paddingLeft,
+                    paddingRight: style.paddingRight,
+                  };
+                }),
                 offenders,
               };
             }

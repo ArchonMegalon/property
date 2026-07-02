@@ -298,6 +298,16 @@ def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:
     assert "PROPERTYQUARRY_LIVE_SMOKE_BASE_URL" in release_gate
 
 
+def test_property_deploy_seeds_default_mobile_research_detail_fixture() -> None:
+    deploy_script = _read("scripts/deploy_propertyquarry.sh")
+
+    assert "configured_mobile_research_detail_route=\"$(effective_env_value PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE)\"" in deploy_script
+    assert "PROPERTYQUARRY_DEPLOY_MOBILE_SEED_RESEARCH_DETAIL_FIXTURE" in deploy_script
+    assert 'if [[ -z "${configured_mobile_research_detail_route}" && -z "${mobile_seed_research_detail_fixture}" ]]; then' in deploy_script
+    assert "mobile_seed_research_detail_fixture=1" in deploy_script
+    assert "mobile_smoke_research_args=(--seed-research-detail-fixture)" in deploy_script
+
+
 def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_gold_status() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
 

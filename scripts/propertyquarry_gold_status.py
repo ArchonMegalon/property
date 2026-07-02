@@ -929,13 +929,7 @@ def _billing_handoff_ready(
         "billing_bridge_launch" in authenticated_passed_checks
         and "billing_no_second_login" in authenticated_passed_checks
     )
-    authenticated_local_account_recovery = bool(authenticated_route_row) and (
-        "billing_bridge_launch" in authenticated_passed_checks
-        and "billing_internal_account_fallback" in authenticated_passed_checks
-    )
-    if bridge_session_ready and (
-        authenticated_bridge_launch or authenticated_external_handoff_usable or authenticated_local_account_recovery
-    ):
+    if bridge_session_ready and (authenticated_bridge_launch or authenticated_external_handoff_usable):
         return True
     return False
 

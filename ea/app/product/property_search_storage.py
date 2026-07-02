@@ -15,6 +15,26 @@ from uuid import uuid4
 _PROPERTY_SEARCH_RUN_TTL_SECONDS = 90 * 24 * 60 * 60
 _PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_READY = False
+_PROPERTY_SEARCH_RUN_DB_CONNECT_RETRY_SECONDS = 12.0
+_PROPERTY_SEARCH_RUN_DB_CONNECT_TIMEOUT_SECONDS = 3
+
+
+def _property_search_run_db_max_connections() -> int:
+    raw_value = str(
+        os.getenv("PROPERTYQUARRY_SEARCH_DB_MAX_CONNECTIONS")
+        or os.getenv("EA_PROPERTY_SEARCH_DB_MAX_CONNECTIONS")
+        or ""
+    ).strip()
+    if not raw_value:
+        return 12
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 12
+    return max(2, min(parsed, 60))
+
+
+_PROPERTY_SEARCH_RUN_DB_SEMAPHORE = threading.BoundedSemaphore(_property_search_run_db_max_connections())
 
 _PROPERTY_SOURCE_LISTING_CACHE_LOCK = threading.Lock()
 _PROPERTY_SOURCE_LISTING_CACHE: dict[str, dict[str, object]] = {}
@@ -189,13 +209,92 @@ def _property_search_run_database_url() -> str:
     return str(os.environ.get("DATABASE_URL") or "").strip()
 
 
+def _property_search_run_db_retry_seconds() -> float:
+    raw_value = str(
+        os.getenv("PROPERTYQUARRY_SEARCH_DB_CONNECT_RETRY_SECONDS")
+        or os.getenv("EA_PROPERTY_SEARCH_DB_CONNECT_RETRY_SECONDS")
+        or ""
+    ).strip()
+    if not raw_value:
+        return _PROPERTY_SEARCH_RUN_DB_CONNECT_RETRY_SECONDS
+    try:
+        parsed = float(raw_value)
+    except Exception:
+        return _PROPERTY_SEARCH_RUN_DB_CONNECT_RETRY_SECONDS
+    return max(0.0, min(parsed, 60.0))
+
+
+def _property_search_run_db_connect_timeout_seconds() -> int:
+    raw_value = str(
+        os.getenv("PROPERTYQUARRY_SEARCH_DB_CONNECT_TIMEOUT_SECONDS")
+        or os.getenv("EA_PROPERTY_SEARCH_DB_CONNECT_TIMEOUT_SECONDS")
+        or ""
+    ).strip()
+    if not raw_value:
+        return _PROPERTY_SEARCH_RUN_DB_CONNECT_TIMEOUT_SECONDS
+    try:
+        parsed = int(float(raw_value))
+    except Exception:
+        return _PROPERTY_SEARCH_RUN_DB_CONNECT_TIMEOUT_SECONDS
+    return max(1, min(parsed, 30))
+
+
+def _property_search_run_db_pressure_error(exc: BaseException) -> bool:
+    lowered = str(exc or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "too many clients",
+            "remaining connection slots are reserved",
+            "sorry, too many clients already",
+            "connection pool exhausted",
+            "timeout expired",
+            "connection timed out",
+            "could not connect to server",
+        )
+    )
+
+
+@contextlib.contextmanager
 def _property_search_run_connect():  # type: ignore[no-untyped-def]
     database_url = _property_search_run_database_url()
     if not database_url:
         raise RuntimeError("database_url_missing")
     import psycopg
 
-    return psycopg.connect(database_url, autocommit=True)
+    retry_seconds = _property_search_run_db_retry_seconds()
+    deadline = time.monotonic() + retry_seconds
+    last_exc: BaseException | None = None
+    while True:
+        timeout = max(0.0, min(0.5, deadline - time.monotonic())) if retry_seconds > 0 else 0.0
+        acquired = _PROPERTY_SEARCH_RUN_DB_SEMAPHORE.acquire(timeout=timeout)
+        if not acquired:
+            if retry_seconds <= 0 or time.monotonic() >= deadline:
+                raise RuntimeError("database_busy: property search storage connection queue is full") from last_exc
+            continue
+
+        conn = None
+        try:
+            try:
+                conn = psycopg.connect(
+                    database_url,
+                    autocommit=True,
+                    connect_timeout=_property_search_run_db_connect_timeout_seconds(),
+                )
+            except Exception as exc:
+                last_exc = exc
+                if _property_search_run_db_pressure_error(exc) and retry_seconds > 0 and time.monotonic() < deadline:
+                    time.sleep(0.25)
+                    continue
+                raise
+            try:
+                yield conn
+            finally:
+                if conn is not None:
+                    conn.close()
+            return
+        finally:
+            _PROPERTY_SEARCH_RUN_DB_SEMAPHORE.release()
 
 
 def _quote_pg_identifier(value: str) -> str:

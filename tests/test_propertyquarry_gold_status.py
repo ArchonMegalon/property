@@ -340,8 +340,8 @@ def _performance_payload(
         {"name": "research_visual_cards_present", "ok": True},
         {"name": "research_visual_requests_honest", "ok": True},
         {"name": "research_no_fake_visual_ready", "ok": True},
-        {"name": "research_confirmed_listing_facts", "ok": True},
-        {"name": "research_confirmed_price_signal", "ok": True},
+        {"name": "research_listing_facts", "ok": True},
+        {"name": "research_listed_price_signal", "ok": True},
         {"name": "research_ranking_only_no_compare_cards", "ok": True},
         {"name": "research_mobile_open_property_compact_layout", "ok": True},
         {"name": "research_mobile_visual_frame_compact", "ok": True},
@@ -2007,7 +2007,7 @@ def test_gold_status_blocks_when_signed_billing_bridge_is_configured_but_live_su
     assert "usable external account lane" in blocker["action"]
 
 
-def test_gold_status_accepts_signed_billing_bridge_with_internal_account_fallback_for_customer_surface_gate(tmp_path: Path) -> None:
+def test_gold_status_keeps_internal_account_fallback_safe_but_blocks_gold_billing_handoff(tmp_path: Path) -> None:
     performance = _write_json(tmp_path / "performance.json", _performance_payload())
     authenticated_smoke = _write_json(
         tmp_path / "authenticated-smoke.json",
@@ -2055,8 +2055,11 @@ def test_gold_status_accepts_signed_billing_bridge_with_internal_account_fallbac
     customer_surfaces = receipt["authenticated_customer_surfaces"]
     assert customer_surfaces["billing_checks_ok"] is True
     assert customer_surfaces["missing_billing_checks"] == []
-    assert receipt["billing_handoff"]["ready"] is True
-    assert not any(row["area"] == "billing_handoff" for row in receipt["blockers"])
+    assert receipt["status"] == "blocked"
+    assert receipt["billing_handoff"]["ready"] is False
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
+    assert blocker["member_login_token_ready"] is False
+    assert "usable external account lane" in blocker["action"]
 
 
 def test_gold_status_keeps_bridge_guided_login_assist_as_billing_blocker_until_member_handoff_is_ready(tmp_path: Path) -> None:

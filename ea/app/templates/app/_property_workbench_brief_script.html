@@ -197,13 +197,6 @@
         group.dataset.activeDistanceRows = 'true';
         group.dataset.mobileDistanceControlActive = 'true';
       }
-      window.requestAnimationFrame(() => {
-        row.scrollIntoView({
-          block: 'center',
-          inline: 'nearest',
-          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-        });
-      });
     };
     const briefSyncKeywordDistanceSelects = (form) => {
       const activeGroups = new Map();
