@@ -12,6 +12,7 @@ from scripts.propertyquarry_live_mobile_surface_smoke import (
     SEED_FIXTURE_TIMEOUT_SECONDS,
     SEED_FIXTURE_USER_AGENT,
     _resolve_mobile_billing_external_handoff,
+    browser_probe_failure_is_transient,
     _seed_research_detail_headers,
     build_seed_fixture_blocked_receipt,
     build_live_mobile_surface_receipt,
@@ -97,6 +98,13 @@ def test_live_mobile_smoke_limits_browser_probe_to_interactive_routes() -> None:
     assert route_requires_browser_mobile_probe("/app/properties") is False
     assert route_requires_browser_mobile_probe("/app/shortlist") is False
     assert route_requires_browser_mobile_probe("/app/settings/google") is False
+
+
+def test_live_mobile_smoke_retries_only_transient_browser_probe_failures() -> None:
+    assert browser_probe_failure_is_transient({"error": "route_timeout:/app/account"}) is True
+    assert browser_probe_failure_is_transient({"error": "route_worker_no_receipt:/app/account:exitcode=1"}) is True
+    assert browser_probe_failure_is_transient({"error": "TimeoutError: waiting for selector"}) is False
+    assert browser_probe_failure_is_transient({"status_code": 500}) is False
 
 
 def test_live_mobile_smoke_accepts_static_html_probe_for_simple_routes() -> None:

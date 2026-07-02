@@ -1017,7 +1017,7 @@ mobile_smoke_process_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCE
 mobile_research_detail_route="$(effective_env_value PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE)"
 mobile_research_detail_route="${mobile_research_detail_route:-/app/research/perf-candidate-1020?run_id=run-gold-mobile}"
 mobile_seed_research_detail_fixture="$(effective_env_value PROPERTYQUARRY_DEPLOY_MOBILE_SEED_RESEARCH_DETAIL_FIXTURE)"
-mobile_smoke_research_args=(--routes "/app/properties,/app/search,/app/shortlist,/app/agents,/app/alerts,/app/account,/app/billing,/app/settings/access,/app/properties/packets,${mobile_research_detail_route}" --require-research-detail)
+mobile_smoke_research_args=(--routes "/app/properties,/app/search,/app/shortlist,/app/agents,/app/alerts,/app/account,/app/billing,/app/settings/google,/app/settings/access,/app/settings/usage,/app/settings/support,/app/settings/trust,/app/settings/invitations,/app/research,/app/properties/packets,${mobile_research_detail_route}" --require-research-detail)
 if env_truthy "${mobile_seed_research_detail_fixture}"; then
   mobile_smoke_research_args=(--seed-research-detail-fixture)
 fi

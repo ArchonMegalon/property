@@ -783,8 +783,8 @@ def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
     )
     if found > 0:
         if source_work["open"] > 0:
-            return f"{found} homes found · {to_review} left to sort · {source_work['open']} lists left"
-        return f"{found} homes found · {to_review} left to sort"
+            return f"{found} homes found · {to_review} to review · {source_work['open']} lists open"
+        return f"{found} homes found · {to_review} to review"
     if provider_total > 0:
         return "Preparing lists."
     return "Preparing lists."
@@ -941,9 +941,9 @@ def _property_run_synthetic_progress_events(
     to_review = listing_work["to_review"]
     if found_total > 0:
         if source_work["open"] > 0:
-            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} left to sort · {source_work['open']} lists left.")
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} to review · {source_work['open']} lists open.")
         else:
-            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} left to sort.")
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} to review.")
 
     if ranked > 0:
         add("source_shortlist", f"{_property_run_count_label(ranked, 'matching home')} ready.")
@@ -993,7 +993,7 @@ def _property_run_current_progress_message(
         progress_parts.append(provider_label)
     if fraction_label:
         progress_parts.append(fraction_label)
-    if aggregate_label and aggregate_label.lower() not in {"0 homes found · 0 left to sort", "checking"}:
+    if aggregate_label and aggregate_label.lower() not in {"0 homes found · 0 to review", "0 homes found · 0 left to sort", "checking"}:
         progress_parts.append(aggregate_label)
 
     if step in {"source_ranking", "source_shortlist", "source_assessing", "source_low_fit_ranked", "source_discovery_penalty"}:
@@ -1409,7 +1409,7 @@ def build_property_run_reliability_snapshot(
     if results_total > 0:
         result_label = f"{results_total} matching result{'s' if results_total != 1 else ''} ready"
     elif listing_total > 0:
-        result_label = f"{listing_total} homes found · {to_review_total} left to sort"
+        result_label = f"{listing_total} homes found · {to_review_total} to review"
     filtered_label = ""
     if filtered_total > 0:
         filtered_label = f"{filtered_total} outside the current brief"
@@ -1435,12 +1435,14 @@ def _compact_run_message(value: object) -> str:
         return "Waiting for the first list."
     text = re.sub(
         r"^Reviewing homes\.\s+(\d+)\s+checked so far\.?$",
-        r"\1 homes found · 0 left to sort",
+        r"\1 homes found · 0 to review",
         text,
         flags=re.IGNORECASE,
     )
     text = re.sub(r"\b(\d+)\s+homes?\s+reviewed\b", r"\1 homes found", text, flags=re.IGNORECASE)
-    text = re.sub(r"\b(\d+)\s+reviewed so far\b", r"\1 left to sort", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(\d+)\s+reviewed so far\b", r"\1 to review", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bleft to sort\b", "to review", text, flags=re.IGNORECASE)
+    text = re.sub(r"\blists left\b", "lists open", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(\d+)\s+providers\b", r"\1 lists", text, flags=re.IGNORECASE)
     text = re.sub(r"\bprovider update\b", "list update", text, flags=re.IGNORECASE)
     candidate_match = re.search(r"(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
@@ -1880,7 +1882,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     found_total = listing_work["found"]
     to_review_total = listing_work["to_review"]
     checked_label = (
-        f"{found_total} homes found · {to_review_total} left to sort"
+        f"{found_total} homes found · {to_review_total} to review"
         if found_total > 0
         else "checking"
     )
@@ -1888,7 +1890,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
         f"{provider_display_total} lists selected" if provider_display_total > 0 else checked_label
     )
     if found_total > 0 and source_work["open"] > 0:
-        scan_label = f"{found_total} homes found · {to_review_total} left to sort · {source_work['open']} lists left"
+        scan_label = f"{found_total} homes found · {to_review_total} to review · {source_work['open']} lists open"
     no_floorplans = _positive_int(summary.get("filtered_floorplan_total"))
     current_step = str(payload.get("current_step") or "").strip().lower()
     packet_prepared = _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total"))
@@ -1926,7 +1928,7 @@ def build_property_run_live_board_snapshot(
     message_text = str(payload.get("message") or "").strip().lower()
 
     aggregate_label = (
-        f"{found_total} homes found · {to_review_total} left to sort"
+        f"{found_total} homes found · {to_review_total} to review"
         if found_total > 0
         else "checking"
     )

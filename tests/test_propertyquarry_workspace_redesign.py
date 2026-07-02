@@ -3036,7 +3036,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "Could not load property search status." not in visible_message
-    assert "179 homes found · 0 left to sort" in visible_message
+    assert "179 homes found · 0 to review" in visible_message
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
         response.text,
@@ -3049,7 +3049,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "179" in visible_source
     assert "29 lists" in visible_source
     assert "Found" in visible_source
-    assert "Left to sort" in visible_source
+    assert "To review" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
 
 
@@ -3090,7 +3090,7 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "70 homes found · 0 left to sort · 180 lists left" in visible_message
+    assert "70 homes found · 0 to review · 180 lists open" in visible_message
 
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
@@ -3099,11 +3099,11 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     )
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
-    assert "180 lists left" in visible_source
+    assert "180 / 250 lists open" in visible_source
     assert "70 / 250 checked" in visible_source
     assert "Found" in visible_source
     assert "70" in visible_source
-    assert "Left to sort" in visible_source
+    assert "To review" in visible_source
     assert "0" in visible_source
     assert "Reviewed" not in visible_source
 
@@ -3143,7 +3143,7 @@ def test_propertyquarry_running_panel_does_not_treat_listing_total_as_reviewed(m
 
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
-    assert "70 homes found · 70 left to sort · 180 lists left" in visible
+    assert "70 homes found · 70 to review · 180 lists open" in visible
     assert "Reviewed" not in visible
 
 
@@ -3179,7 +3179,7 @@ def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "102 homes found · 0 left to sort" in visible_message
+    assert "102 homes found · 0 to review" in visible_message
     assert "Now: RE/MAX Austria" not in visible_message
 
 
@@ -3226,7 +3226,7 @@ def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_ra
     assert "Searching" in rendered_html
     assert "179 homes found" in rendered_html
     assert "Found" in rendered_html
-    assert "Left to sort" in rendered_html
+    assert "To review" in rendered_html
     assert "Altbau near U6" not in rendered_html
     assert "Leading right now. Can still change before the search finishes." not in rendered_html
     assert "Could not load property search status." not in rendered_html
@@ -5268,8 +5268,8 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     )
 
     assert snapshot["status_label"] == "Running"
-    assert snapshot["status_note"] == "102 homes found · 0 left to sort"
-    assert snapshot["message"] == "102 homes found · 0 left to sort"
+    assert snapshot["status_note"] == "102 homes found · 0 to review"
+    assert snapshot["message"] == "102 homes found · 0 to review"
 
 
 def test_property_surface_state_builds_filtered_total_from_summary_components() -> None:
@@ -9229,7 +9229,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "25 homes found · 0 left to sort · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "25 homes found · 0 to review · Willhaben · 25 / 60"
     assert "156 scans" not in snapshot["summary_label"]
     assert snapshot["phase_label"] == "Playground: Sigmund-Freud-Park playground is 830 m away. Limit 400 m."
     assert snapshot["source_count_label"] == "25 / 60"
@@ -10625,7 +10625,7 @@ def test_property_search_status_replaces_internal_suppression_only_compact_event
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert "Willhaben: suppressed_generic_listing_page." not in messages
-    assert any("179 homes found" in message and "0 left to sort" in message for message in messages)
+    assert any("179 homes found" in message and "0 to review" in message for message in messages)
 
 
 def test_property_search_status_replaces_stale_status_refresh_noise(monkeypatch) -> None:
@@ -10713,7 +10713,7 @@ def test_property_search_status_hides_active_source_fetch_suppression_receipt_no
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert not any("suppressed_source_fetch_forbidden" in message for message in messages)
     assert "12 lists selected for this search." in messages
-    assert any("42 homes found · 0 left to sort" in message for message in messages)
+    assert any("42 homes found · 0 to review" in message for message in messages)
 
 
 def test_property_search_status_replaces_raw_provider_failure_with_repair_copy(monkeypatch) -> None:
@@ -10854,7 +10854,7 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     messages = [str(event.get("message") or "") for event in events]
     assert "9 lists selected for this search." in messages
     assert "Lists: 1 checked, 1 running, 7 queued of 9." in messages
-    assert "42 homes found · 30 left to sort · 8 lists left." in messages
+    assert "42 homes found · 30 to review · 8 lists open." in messages
     assert "3 homes outside the current brief." in messages
 
 
@@ -10925,7 +10925,7 @@ def test_property_search_status_appends_current_progress_event_after_stale_start
     assert response.status_code == 200
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Starting property search run." not in messages
-    assert any("Willhaben · 3 / 10" in message and "179 homes found · 0 left to sort" in message for message in messages)
+    assert any("Willhaben · 3 / 10" in message and "179 homes found · 0 to review" in message for message in messages)
 
 
 def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources(monkeypatch) -> None:
@@ -13637,7 +13637,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "estimateRunEtaLabel" in script_body
     assert "formatEta" in script_body
     assert "displayRunMessage" in script_body
-    assert "${found} homes found · ${toReview} left to sort" in script_body
+    assert "${found} homes found · ${toReview} to review" in script_body
     assert "Nothing waiting to review" not in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body
@@ -14257,7 +14257,7 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert "Searching" in live.text
     assert 'data-pqx-progress-board' in live.text
     assert 'data-pqx-progress-eta' in live.text
-    assert "97 lists left" in live.text
+    assert "97 / 117 lists open" in live.text
     assert "20 / 117 checked" in live.text
     assert "179 homes found" in live.text
     assert 'class="pqx-live-review-bars"' in live.text
@@ -15108,13 +15108,14 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
 
 def test_propertyquarry_live_progress_derives_provider_count_before_source_variants() -> None:
     script = _read_workbench_bundle()
+    helper = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_helpers.py").read_text(encoding="utf-8")
 
     assert "const providerDisplayTotalForRun = (runPayload, summary = null) =>" in script
     assert "Array.isArray(runPayload?.brief?.providers)" in script
-    assert "else if (rawStatus === 'starting') progressPct = 26;" in script
-    assert "else if (rawStatus === 'warming') progressPct = 42;" in script
-    assert "statusLabel = 'Preparing';" in script
-    assert "['Running', 'Starting', 'Preparing', 'Repairing']" in script
+    assert 'if raw_status == "starting"' in helper
+    assert 'if raw_status == "warming"' in helper
+    assert 'return "Preparing"' in helper
+    assert 'status_label in {"Running", "Starting", "Preparing", "Repairing"}' in helper
     assert "Array.isArray(data?.brief?.providers)" in script
     assert "const rawProviderSourceKey" in script
     assert "sourceProviders.add(identity);" in script
@@ -15122,7 +15123,7 @@ def test_propertyquarry_live_progress_derives_provider_count_before_source_varia
     assert "const providerTotal = Number(summary.provider_total || 0);" not in script
     assert "const selectedProviderTotal = Array.isArray(runPayload?.selected_platforms) ? runPayload.selected_platforms.length : 0;" not in script
     assert "progress || 12" not in script
-    assert "statusLabel === 'Starting' ? Math.max(3, Math.min(progress || 3, 6))" in script
+    assert 'max(8, min(run_progress, 24)) if status_label == "Starting" else 0' in helper
 
 
 def test_propertyquarry_live_progress_hides_malformed_run_eta_labels(monkeypatch) -> None:
@@ -17654,7 +17655,7 @@ def test_propertyquarry_run_script_compacts_candidate_progress_to_fraction() -> 
     bundle = _read_workbench_bundle()
     assert "const compactRunMessage = (value) => {" in bundle
     assert "return `${candidateMatch[1]} / ${candidateMatch[2]}`;" in bundle
-    assert "return `Now: ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction} · ${scanLabel}`;" in bundle
+    assert "return `${scanLabel}${noPlan > 0 ? ` · ${noPlan} floorplans pending` : ''}`;" in bundle
 
 
 def test_propertyquarry_run_script_parses_compact_provider_fraction_line() -> None:

@@ -163,6 +163,29 @@ def test_propertyquarry_deploy_wrapper_resolves_live_smoke_identity_from_env_fil
     assert "--principal-id \"${live_presentation_e2e_principal_id}\"" in script
 
 
+def test_propertyquarry_deploy_mobile_smoke_covers_customer_app_surfaces() -> None:
+    script = _read("scripts/deploy_propertyquarry.sh")
+
+    for route in (
+        "/app/properties",
+        "/app/search",
+        "/app/shortlist",
+        "/app/agents",
+        "/app/alerts",
+        "/app/account",
+        "/app/billing",
+        "/app/settings/google",
+        "/app/settings/access",
+        "/app/settings/usage",
+        "/app/settings/support",
+        "/app/settings/trust",
+        "/app/settings/invitations",
+        "/app/research",
+        "/app/properties/packets",
+    ):
+        assert route in script
+
+
 def test_propertyquarry_deploy_wrapper_stays_property_only() -> None:
     script = _read("scripts/deploy_propertyquarry.sh").lower()
 

@@ -300,7 +300,7 @@
 {% set checked_label = (found_total|string ~ ' homes found') if found_total > 0 else 'checking' %}
 {% set source_progress_label = source_done_total|string ~ ' / ' ~ source_variant_total|string ~ ' checked' if source_variant_total > 0 and source_done_total > 0 else '' %}
 {% if source_variant_total > 0 %}
-{% set scan_count_label = source_open_total|string ~ ' lists left' %}
+{% set scan_count_label = source_open_total|string ~ ' / ' ~ source_variant_total|string ~ ' lists open' %}
 {% elif provider_display_total > 0 %}
 {% set scan_count_label = provider_display_total|string ~ ' lists selected' %}
 {% elif source_completed > 0 or source_total > 0 %}
@@ -320,15 +320,16 @@
 {% set progress_has_repair_copy = status|lower == 'failed' or progress_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
 {% set progress_customer_message = (reliability.get('customer_status_message') or summary.get('customer_status_message') or '')|trim %}
 {% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
+{% set progress_message_display = progress_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'lists open')|replace('Lists left', 'Lists open') %}
 {% set progress_message_display_lower = progress_message_display|lower %}
 {% set progress_compact_found_message = found_total|string ~ ' homes found' %}
-{% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ to_review_total|string ~ ' left to sort' %}
+{% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ to_review_total|string ~ ' to review' %}
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or 'scoring enriched candidate' in progress_message_display_lower or 'ranking homes' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
     {% if source_open_total > 0 %}
-      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' left to sort · ' ~ source_open_total ~ ' lists left' %}
+      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review · ' ~ source_open_total ~ ' lists open' %}
     {% else %}
-      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' left to sort' %}
+      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review' %}
     {% endif %}
   {% elif provider_display_total > 0 %}
   {% set progress_message_display = 'Preparing lists.' %}
@@ -353,8 +354,8 @@
 	  <div class="pqx-source-progress" data-pqx-source-progress>
 	    <div class="pqx-source-progress-head">
 			      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-					      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} left to sort{% elif found_total %}0 left to sort{% elif provider_display_total %}{{ provider_display_total }} lists selected{% else %}Waiting for first listings{% endif %}</span>
-					      {% if found_total %}<span hidden>{{ to_review_total }} homes left to sort</span>{% endif %}
+					      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total %}0 to review{% elif provider_display_total %}{{ provider_display_total }} lists selected{% else %}Waiting for first listings{% endif %}</span>
+					      {% if found_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
 				    </div>
 				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first list.' }}</span>
 				    <div class="pqx-live-review-bars" aria-label="Search totals">
@@ -364,12 +365,12 @@
 		        <em><u style="--progress: {{ found_bar_pct }}"></u></em>
 		      </span>
 		      <span>
-			        <b>Left to sort</b>
+			        <b>To review</b>
 		        <i>{{ to_review_total or 0 }}</i>
 		        <em><u style="--progress: {{ to_review_bar_pct }}"></u></em>
 		      </span>
 		      <span>
-			        <b>Lists left</b>
+			        <b>Lists open</b>
 		        <i>{{ source_open_total or 0 }}</i>
 		        <em><u style="--progress: {{ ((source_open_total * 100) // source_variant_total) if source_variant_total > 0 and source_open_total > 0 else 0 }}"></u></em>
 		      </span>
@@ -5940,14 +5941,12 @@
       min-width: 0;
       max-width: 100%;
       overflow: visible;
-      margin-top: 14px;
-      padding: 12px;
-      border: 1px solid color-mix(in srgb, var(--pq-blue) 18%, var(--pq-line));
-      border-radius: 10px;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(245, 249, 253, 0.94)),
-        color-mix(in srgb, var(--pq-blue) 4%, var(--pq-paper));
-      box-shadow: 0 8px 24px rgba(34, 43, 54, 0.06);
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--pq-paper) 92%, white);
+      box-shadow: none;
     }
     .pqx-progress-board strong,
     .pqx-progress-board span {
@@ -5970,10 +5969,10 @@
     }
     .pqx-pulse-line {
       position: relative;
-      height: 4px;
+      height: 2px;
       overflow: hidden;
       border-radius: 999px;
-      background: color-mix(in srgb, var(--pq-blue) 12%, white);
+      background: color-mix(in srgb, var(--pq-ink) 8%, white);
     }
     .pqx-pulse-line::after {
       content: "";
@@ -5981,7 +5980,7 @@
       inset: 0 auto 0 -34%;
       width: 34%;
       border-radius: inherit;
-      background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--pq-blue) 80%, white), transparent);
+      background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--pq-blue) 54%, white), transparent);
       animation: pqxPulseSlide 2.8s ease-in-out infinite;
     }
     .pqx-progress-board[data-progress-state="processed"] .pqx-pulse-line::after,
@@ -5994,7 +5993,7 @@
     }
     .pqx-progress-meter {
       position: relative;
-      height: 8px;
+      height: 4px;
       border-radius: 999px;
       background: color-mix(in srgb, var(--pq-blue) 10%, white);
       overflow: hidden;
@@ -6010,8 +6009,8 @@
     }
 	    .pqx-progress-meter.under-source {
 	      margin-top: 2px;
-	      height: 6px;
-	      background: color-mix(in srgb, var(--pq-blue) 10%, white);
+	      height: 3px;
+	      background: color-mix(in srgb, var(--pq-ink) 7%, white);
 	      box-shadow: none;
 	    }
 	    .pqx-progress-meter.under-source .pqx-progress-meter-fill {
@@ -6022,11 +6021,11 @@
 	    .pqx-source-progress {
 	      grid-area: sources;
 	      display: grid;
-	      gap: 8px;
-	      padding: 12px;
-	      border: 1px solid color-mix(in srgb, var(--pq-blue) 10%, var(--pq-line));
-	      border-radius: 12px;
-	      background: rgba(255, 255, 255, 0.72);
+	      gap: 7px;
+	      padding: 0;
+	      border: 0;
+	      border-radius: 0;
+	      background: transparent;
 	    }
     .pqx-source-progress-head {
       display: flex;
@@ -6038,18 +6037,18 @@
 	    .pqx-source-progress .pqx-small {
 	      color: var(--pq-muted);
 	      font-size: 11px;
-	      letter-spacing: .02em;
-	      text-transform: uppercase;
+	      letter-spacing: 0;
+	      text-transform: none;
 	    }
 		    .pqx-live-review-bars {
 		      display: grid;
 		      grid-template-columns: repeat(3, minmax(0, 1fr));
-		      gap: 1px;
+		      gap: 8px;
 		      margin-top: 2px;
 		      overflow: hidden;
-		      border: 1px solid color-mix(in srgb, var(--pq-blue) 10%, var(--pq-line));
-		      border-radius: 10px;
-		      background: color-mix(in srgb, var(--pq-blue) 10%, var(--pq-line));
+		      border: 0;
+		      border-radius: 0;
+		      background: transparent;
 		    }
 		    .pqx-live-review-bars span {
 		      display: grid;
@@ -6057,10 +6056,10 @@
 		      gap: 4px 8px;
 		      align-items: baseline;
 		      min-width: 0;
-		      padding: 8px 10px;
-		      border: 0;
-		      border-radius: 0;
-		      background: rgba(255, 255, 255, 0.82);
+		      padding: 7px 9px;
+		      border: 1px solid color-mix(in srgb, var(--pq-ink) 8%, var(--pq-line));
+		      border-radius: 10px;
+		      background: rgba(255, 255, 255, 0.7);
 		    }
 	    .pqx-live-review-bars b,
 	    .pqx-live-review-bars i {
@@ -6069,9 +6068,9 @@
 	    }
 	    .pqx-live-review-bars b {
 	      color: var(--pq-muted);
-	      font-weight: 760;
-	      text-transform: uppercase;
-	      letter-spacing: .04em;
+	      font-weight: 700;
+	      text-transform: none;
+	      letter-spacing: 0;
 	    }
 	    .pqx-live-review-bars i {
 	      justify-self: end;
@@ -6082,7 +6081,7 @@
 		    .pqx-live-review-bars em {
 		      grid-column: 1 / -1;
 		      display: block;
-		      height: 4px;
+		      height: 2px;
 		      overflow: hidden;
 		      border-radius: 999px;
 		      background: color-mix(in srgb, var(--pq-blue) 8%, white);
@@ -10678,15 +10677,16 @@
           {% set live_has_repair_copy = run_status == 'failed' or live_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
           {% set live_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
           {% set live_run_message_display = live_safe_message if live_has_repair_copy and live_safe_message else live_run_message_raw %}
+          {% set live_run_message_display = live_run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'lists open')|replace('Lists left', 'Lists open') %}
           {% set live_run_message_display_lower = live_run_message_display|lower %}
           {% set live_compact_found_message = live_found_total|string ~ ' homes found' %}
-	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_to_review_total|string ~ ' left to sort' %}
+	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_to_review_total|string ~ ' to review' %}
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or 'scoring enriched candidate' in live_run_message_display_lower or 'ranking homes' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
 		          {% if live_found_total %}
 		            {% if live_source_open_total > 0 %}
-				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' left to sort · ' ~ live_source_open_total ~ ' lists left' %}
+				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review · ' ~ live_source_open_total ~ ' lists open' %}
 			            {% else %}
-				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' left to sort' %}
+				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review' %}
 		            {% endif %}
 		          {% elif live_provider_total > 0 %}
 			          {% set live_run_message_display = 'Preparing lists.' %}
@@ -10707,7 +10707,7 @@
 	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
 	                  <div><strong>Lists</strong><small>{% if live_source_total %}{{ live_source_done_total }} / {{ live_source_total }} checked{% else %}Preparing{% endif %}</small></div>
 	                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
-			                <div><strong>Left to sort</strong><small>{{ live_to_review_total }} homes</small></div>
+			                <div><strong>To review</strong><small>{{ live_to_review_total }} homes</small></div>
 	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
 	              </div>
           {% if live_preview %}

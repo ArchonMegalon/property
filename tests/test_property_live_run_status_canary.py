@@ -76,7 +76,7 @@ def test_live_run_status_canary_receipt_passes_for_active_run() -> None:
                     {
                         "step": "source_fetching",
                         "status": "in_progress",
-                        "message": "Willhaben · 1 / 10 · 24 homes found · 0 left to sort",
+                        "message": "Willhaben · 1 / 10 · 24 homes found · 0 to review",
                     }
                 ],
             }
@@ -89,7 +89,7 @@ def test_live_run_status_canary_receipt_passes_for_active_run() -> None:
                 {
                     "step": "source_shortlist",
                     "status": "in_progress",
-                    "message": "Shortlist ready · 1 home · Willhaben · 24 homes found · 0 left to sort",
+                    "message": "Shortlist ready · 1 home · Willhaben · 24 homes found · 0 to review",
                 }
             ],
         }
@@ -98,9 +98,9 @@ def test_live_run_status_canary_receipt_passes_for_active_run() -> None:
         return {
             "status_code": 200,
             "text": """
-            <div class="pqx-note" data-pqx-run-message>Willhaben · 1 / 10 · 24 homes found · 0 left to sort</div>
+            <div class="pqx-note" data-pqx-run-message>Willhaben · 1 / 10 · 24 homes found · 0 to review</div>
             <div class="pqx-event-list" data-pqx-run-events>
-              <div class="pqx-event-card"><strong>Checking listings</strong><span class="pqx-note">Willhaben · 1 / 10 · 24 homes found · 0 left to sort</span></div>
+              <div class="pqx-event-card"><strong>Checking listings</strong><span class="pqx-note">Willhaben · 1 / 10 · 24 homes found · 0 to review</span></div>
             </div>
             """,
         }
@@ -124,7 +124,7 @@ def test_live_run_status_canary_receipt_passes_for_active_run() -> None:
     assert receipt["status"] == "pass"
     assert receipt["failed_checks"] == []
     assert receipt["run_id"] == "run-live-canary"
-    assert receipt["page_run_message"] == "Willhaben · 1 / 10 · 24 homes found · 0 left to sort"
+    assert receipt["page_run_message"] == "Willhaben · 1 / 10 · 24 homes found · 0 to review"
     assert receipt["page_event_cards"][0]["label"] in CUSTOMER_EVENT_LABELS
 
 
@@ -149,7 +149,7 @@ def test_live_run_status_canary_receipt_fails_for_noisy_page_events() -> None:
                 {
                     "step": "source_fetching",
                     "status": "in_progress",
-                    "message": "Willhaben · 1 / 10 · 24 homes found · 0 left to sort",
+                    "message": "Willhaben · 1 / 10 · 24 homes found · 0 to review",
                 }
             ],
         }
@@ -208,7 +208,7 @@ def test_live_run_status_canary_retries_page_until_customer_trail_appears() -> N
                 {
                     "step": "source_fetching",
                     "status": "in_progress",
-                    "message": "Willhaben · 1 / 10 · 24 homes found · 0 left to sort",
+                    "message": "Willhaben · 1 / 10 · 24 homes found · 0 to review",
                 }
             ],
         }
@@ -222,9 +222,9 @@ def test_live_run_status_canary_retries_page_until_customer_trail_appears() -> N
         return {
             "status_code": 200,
             "text": """
-            <div class="pqx-note" data-pqx-run-message>Willhaben · 1 / 10 · 24 homes found · 0 left to sort</div>
+            <div class="pqx-note" data-pqx-run-message>Willhaben · 1 / 10 · 24 homes found · 0 to review</div>
             <div class="pqx-event-list" data-pqx-run-events>
-              <div class="pqx-event-card"><strong>Checking listings</strong><span class="pqx-note">Willhaben · 1 / 10 · 24 homes found · 0 left to sort</span></div>
+              <div class="pqx-event-card"><strong>Checking listings</strong><span class="pqx-note">Willhaben · 1 / 10 · 24 homes found · 0 to review</span></div>
             </div>
             """,
         }

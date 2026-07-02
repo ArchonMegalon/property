@@ -1411,9 +1411,11 @@
       let text = String(value || '').trim();
       if (!text) return 'Waiting for the first list.';
       text = text
-        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes found · 0 left to sort')
+        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes found · 0 to review')
         .replace(/\b(\d+)\s+homes?\s+reviewed\b/ig, '$1 homes found')
-        .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 left to sort')
+        .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 to review')
+        .replace(/\bleft to sort\b/ig, 'to review')
+        .replace(/\blists left\b/ig, 'lists open')
         .replace(/\b(\d+)\s+providers\b/ig, '$1 lists')
         .replace(/\bprovider update\b/ig, 'list update');
       const candidateMatch = text.match(/(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
@@ -1983,7 +1985,7 @@
       };
 	    };
 	    const runSourceWorkLabel = (counts, providerDisplayTotal = 0) => {
-	      if (counts?.total > 0) return `${Math.max(0, Number(counts.open || 0))} lists left`;
+	      if (counts?.total > 0) return `${Math.max(0, Number(counts.open || 0))} / ${Math.max(0, Number(counts.total || 0))} lists open`;
 	      if (providerDisplayTotal > 0) return `${providerDisplayTotal} lists selected`;
 	      return 'Search warming up';
 	    };
@@ -2017,16 +2019,16 @@
     };
 	    const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '') => {
 	      if (counts?.total > 0) return `${counts.done} / ${counts.total} checked`;
-	      if (found > 0 && toReview > 0) return `${toReview} left to sort`;
-	      if (found > 0) return '0 left to sort';
+	      if (found > 0 && toReview > 0) return `${toReview} to review`;
+	      if (found > 0) return '0 to review';
 	      return fallback || 'Waiting for first listings';
     };
 	    const runFoundQueueMessage = (found, toReview, sourceWork) => {
 	      if (!(found > 0)) return '';
 	      if (sourceWork?.open > 0) {
-	        return `${found} homes found · ${toReview} left to sort · ${sourceWork.open} lists left`;
+	        return `${found} homes found · ${toReview} to review · ${sourceWork.open} lists open`;
 	      }
-	      return `${found} homes found · ${toReview} left to sort`;
+	      return `${found} homes found · ${toReview} to review`;
 	    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
@@ -2058,7 +2060,7 @@
       const listingWork = runListingWorkCounts(summary);
       const found = listingWork.found;
       const toReview = listingWork.toReview;
-      const checkedLabel = found > 0 ? `${found} homes found · ${toReview} left to sort` : 'checking';
+      const checkedLabel = found > 0 ? `${found} homes found · ${toReview} to review` : 'checking';
 	      const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
 	        ? `${completedSources} / ${sourceVariantTotal} checked`
 	        : '';
@@ -2124,7 +2126,7 @@
 	      }).join('') || '<div class="pqx-empty">Waiting for the next useful update.</div>';
     };
     const displayRunMessage = (runPayload) => {
-      const raw = String(runPayload?.message || '').trim();
+      const raw = compactRunMessage(runPayload?.message || '');
       const lowered = raw.toLowerCase();
       const summary = runPayload?.summary || {};
       const status = String(runPayload?.status || summary?.status || '').trim().toLowerCase();
@@ -2140,7 +2142,7 @@
       const providers = Number(summary.provider_total || summary.source_variant_total || 0);
       const sourceWork = runSourceWorkCounts(summary, status);
       const compactFoundMessage = `${found} homes found`;
-      const compactQueueMessage = `${found} homes found · ${toReview} left to sort`;
+      const compactQueueMessage = `${found} homes found · ${toReview} to review`;
       if (replacementRunId) {
         return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
       }
@@ -2573,12 +2575,12 @@
 		              <em><u style="--progress: ${escapeHtml(foundBarPct)}"></u></em>
 		            </span>
 	            <span>
-              <b>Left to sort</b>
+              <b>To review</b>
 		              <i>${escapeHtml(toReview || 0)}</i>
 		              <em><u style="--progress: ${escapeHtml(toReviewBarPct)}"></u></em>
 		            </span>
 		            <span>
-	              <b>Lists left</b>
+	              <b>Lists open</b>
 		              <i>${escapeHtml(sourceWork.open || 0)}</i>
 		              <em><u style="--progress: ${escapeHtml(listLeftPct)}"></u></em>
 		            </span>

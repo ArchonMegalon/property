@@ -737,7 +737,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
                 "shard_count": shard_count,
                 "status_label": status_label,
                 "progress_pct": progress,
-                "tone": "done" if progress >= 100 and source_row and status_label in {"Done", "Repaired"} else ("active" if status_label in {"Running", "Starting", "Repairing"} else ("queued" if status_label in {"Up next"} else "idle")),
+                "tone": "done" if progress >= 100 and source_row and status_label in {"Done", "Repaired"} else ("active" if status_label in {"Running", "Starting", "Preparing", "Repairing"} else ("queued" if status_label in {"Up next"} else "idle")),
             }
         )
 

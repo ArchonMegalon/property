@@ -11,7 +11,7 @@
 	        {% set run_source_total_head = (run_summary_head.get('source_variant_total') or run_summary_head.get('sources_total') or run_sources|length or 0)|int %}
 	        {% set run_source_completed_head = (run_summary_head.get('sources_completed') or run_summary_head.get('completed_sources') or 0)|int %}
 	        {% set run_source_left_head = run_source_total_head - run_source_completed_head if run_source_total_head > run_source_completed_head else 0 %}
-	        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head %}{{ run_found_head }} found · {{ run_to_review_head }} left to sort · {{ run_source_left_head }} lists left{% elif run_found_head %}{{ run_found_head }} found · {{ run_to_review_head }} left to sort{% else %}Waiting for first listings{% endif %}</div>
+	        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head %}{{ run_found_head }} found · {{ run_to_review_head }} to review · {{ run_source_left_head }} lists open{% elif run_found_head %}{{ run_found_head }} found · {{ run_to_review_head }} to review{% else %}Waiting for first listings{% endif %}</div>
       </div>
       <div class="pqx-inline-actions">
         {% if run_active %}
@@ -54,15 +54,16 @@
     {% set run_has_repair_copy = status|lower == 'failed' or run_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
     {% set run_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
     {% set run_message_display = run_safe_message if run_has_repair_copy and run_safe_message else run_message_raw %}
+    {% set run_message_display = run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'lists open')|replace('Lists left', 'Lists open') %}
     {% set run_message_display_lower = run_message_display|lower %}
     {% set run_compact_found_message = run_found_total|string ~ ' homes found' %}
-    {% set run_compact_queue_message = run_found_total|string ~ ' homes found · ' ~ run_to_review_total|string ~ ' left to sort' %}
+    {% set run_compact_queue_message = run_found_total|string ~ ' homes found · ' ~ run_to_review_total|string ~ ' to review' %}
 	    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or 'scoring enriched candidate' in run_message_display_lower or 'ranking homes' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] or (run_found_total and run_message_display == run_compact_found_message) or (run_found_total and run_message_display == run_compact_queue_message) %}
 	      {% if run_found_total %}
 	        {% if run_source_open_total > 0 %}
-	          {% set run_message_display = run_found_total ~ ' homes found · ' ~ run_to_review_total ~ ' left to sort · ' ~ run_source_open_total ~ ' lists left' %}
+	          {% set run_message_display = run_found_total ~ ' homes found · ' ~ run_to_review_total ~ ' to review · ' ~ run_source_open_total ~ ' lists open' %}
 	        {% else %}
-	          {% set run_message_display = run_found_total ~ ' homes found · ' ~ run_to_review_total ~ ' left to sort' %}
+	          {% set run_message_display = run_found_total ~ ' homes found · ' ~ run_to_review_total ~ ' to review' %}
 	        {% endif %}
       {% elif run_provider_total %}
       {% set run_message_display = 'Preparing lists.' %}
@@ -84,7 +85,7 @@
         {% set event_step = (event.get('step') or '')|lower %}
         {% set event_message = event.get('message') or '' %}
         {% set event_message_lower = event_message|lower %}
-        {% set event_message_display = event_message|replace('homes reviewed', 'homes found')|replace('home reviewed', 'home found')|replace('reviewed so far', 'left to sort')|replace('providers', 'lists')|replace('provider update', 'list update') %}
+        {% set event_message_display = event_message|replace('homes reviewed', 'homes found')|replace('home reviewed', 'home found')|replace('reviewed so far', 'to review')|replace('providers', 'lists')|replace('provider update', 'list update') %}
         {% if visible_event_count.value < 10 and not ('suppressed_generic_listing_page' in event_message_lower or 'could not load property search status' in event_message_lower or 'checking run status' in event_message_lower or 'starting property search run' in event_message_lower or (event_step == 'status_refresh')) %}
         {% set visible_event_count.value = visible_event_count.value + 1 %}
         {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}

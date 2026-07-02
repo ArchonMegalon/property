@@ -291,6 +291,13 @@ def route_requires_browser_mobile_probe(route: str) -> bool:
     return route_path in {"/app/search", "/app/account"} or route_is_research_detail(route)
 
 
+def browser_probe_failure_is_transient(metrics: dict[str, Any]) -> bool:
+    error = str(metrics.get("error") or "").strip()
+    if not error:
+        return False
+    return error.startswith(("route_timeout:", "route_worker_no_receipt:"))
+
+
 def routes_require_api_auth(routes: tuple[str, ...]) -> bool:
     return any(str(route or "").split("?", 1)[0].strip().startswith("/app/") for route in routes)
 
@@ -1205,7 +1212,15 @@ def build_live_mobile_surface_receipt(
                 _log_smoke_progress(f"failed {route}: {type(exc).__name__}: {exc}")
             continue
         try:
-            status_code, metrics = _collect_route_metrics_in_worker(route, url)
+            status_code = 0
+            metrics: dict[str, Any] = {}
+            for attempt in range(2):
+                status_code, metrics = _collect_route_metrics_in_worker(route, url)
+                if not browser_probe_failure_is_transient(metrics):
+                    break
+                if attempt == 0:
+                    _log_smoke_progress(f"retrying {route} after browser probe timeout")
+                    time.sleep(1)
             checks = evaluate_mobile_metrics(route, metrics)
             rows.append(
                 {
