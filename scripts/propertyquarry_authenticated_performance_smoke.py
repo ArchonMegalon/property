@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
@@ -72,6 +73,22 @@ FORBIDDEN_CUSTOMER_NOISE = (
     "follow-up artifacts",
     "proof of value",
     "operator center",
+)
+
+FORBIDDEN_VISIBLE_INTERNAL_COPY = (
+    "current best so far",
+    "decision support",
+    "dossier",
+    "evidence",
+    "magic fit",
+    "magicfit",
+    "no source completed",
+    "proof",
+    "provider webpage",
+    "run ranking",
+    "source completed",
+    "suppressed_generic_listing_page",
+    "verified",
 )
 
 SHARED_TOP_NAV_LABELS = (
@@ -182,6 +199,17 @@ def _asset_text(client: TestClient, path: str) -> str:
     if response.status_code != 200:
         return ""
     return response.text or ""
+
+
+def _visible_text(body: str) -> str:
+    without_hidden = re.sub(
+        r"<script.*?</script>|<style.*?</style>|<template.*?</template>",
+        " ",
+        str(body or ""),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    without_tags = re.sub(r"<[^>]+>", " ", without_hidden)
+    return re.sub(r"\s+", " ", html.unescape(without_tags)).strip()
 
 
 def _workbench_css_path_for_route(path: str, body: str) -> str:
@@ -478,7 +506,7 @@ def _synthetic_candidate(*, saved_from_run_id: str = "") -> dict[str, object]:
         "score": 91,
         "fit_summary": "Transit, area, layout and budget fit the seeded brief.",
         "match_reasons": ["1020 Vienna matches the seeded search area.", "The synthetic listing keeps route and layout data compact."],
-        "mismatch_reasons": ["Operating-cost evidence still needs a provider document."],
+        "mismatch_reasons": ["Operating costs are still missing from the listing."],
         "property_facts": {
             "postal_code": "1020",
             "postal_name": "1020 Vienna",
@@ -646,6 +674,8 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
             duration_ms = retry_duration_ms
     body = response.text or ""
     lowered_body = body.lower()
+    visible_body = _visible_text(body)
+    lowered_visible_body = visible_body.lower()
     css_body = ""
     if path != "/app/billing":
         css_body = _asset_text(client, _workbench_css_path_for_route(path, body))
@@ -660,6 +690,11 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         for phrase in FORBIDDEN_CUSTOMER_NOISE
         if phrase in lowered_body
     ]
+    visible_internal_hits = [
+        phrase
+        for phrase in FORBIDDEN_VISIBLE_INTERNAL_COPY
+        if phrase in lowered_visible_body
+    ]
     billing_fail_closed_ok = path == "/app/billing" and response.status_code == 503
     checks = [
         {"name": "status_ok", "ok": response.status_code == 200 or billing_handoff_redirect_ok or billing_fail_closed_ok},
@@ -667,6 +702,11 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         {"name": "contains_propertyquarry", "ok": "PropertyQuarry" in body or billing_handoff_redirect_ok},
         {"name": "no_generic_ea_copy", "ok": "Executive Assistant" not in body and "Morning Memo" not in body},
         {"name": "no_customer_jargon", "ok": not noise_hits, "detail": ", ".join(noise_hits[:5])},
+        {
+            "name": "no_visible_internal_proof_copy",
+            "ok": not visible_internal_hits,
+            "detail": ", ".join(visible_internal_hits[:5]),
+        },
     ]
     if billing_handoff_redirect_ok:
         checks.append(

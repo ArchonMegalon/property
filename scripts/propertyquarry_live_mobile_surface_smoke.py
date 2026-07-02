@@ -309,7 +309,7 @@ def seeded_research_detail_payload() -> dict[str, Any]:
         "score": 91,
         "fit_summary": "Transit, area, layout and budget fit the seeded brief.",
         "match_reasons": ["1020 Vienna matches the seeded search area.", "The synthetic listing keeps route and layout data compact."],
-        "mismatch_reasons": ["Operating-cost evidence still needs a provider document."],
+        "mismatch_reasons": ["Operating costs are still missing from the listing."],
         "saved_from_run_id": "run-gold-mobile",
         "property_facts": {
             "postal_code": "1020",

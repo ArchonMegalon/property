@@ -48,6 +48,7 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     for route in routes.values():
         check_names = {str(check["name"]): bool(check["ok"]) for check in route["checks"]}
         route_path = str(route["path"]).split("?", 1)[0]
+        assert check_names["no_visible_internal_proof_copy"]
         if route_path == "/app/billing" and (
             check_names.get("billing_external_handoff_redirect") or check_names.get("billing_fail_closed_recovery")
         ):
@@ -75,8 +76,8 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert any(check["name"] == "research_visual_cards_present" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_visual_requests_honest" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_no_fake_visual_ready" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
-    assert any(check["name"] == "research_confirmed_listing_facts" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
-    assert any(check["name"] == "research_confirmed_price_signal" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
+    assert any(check["name"] == "research_listing_facts" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
+    assert any(check["name"] == "research_listed_price_signal" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_ranking_only_no_compare_cards" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_mobile_open_property_compact_layout" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_mobile_visual_frame_compact" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
@@ -162,6 +163,7 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"account_single_logout_action"' in result.stdout
     assert '"rybbit_taxonomy_events_only"' in result.stdout
     assert '"rybbit_no_private_payload"' in result.stdout
+    assert '"no_visible_internal_proof_copy"' in result.stdout
 
 
 def test_property_authenticated_performance_smoke_script_writes_receipt(tmp_path) -> None:
