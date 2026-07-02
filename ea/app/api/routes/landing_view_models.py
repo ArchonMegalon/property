@@ -3476,7 +3476,29 @@ def app_section_payload(
         selected_location_values = _csv_values(property_preferences.get("location_query"))
     selected_keyword_values = _csv_values(property_preferences.get("keywords"))
     selected_avoid_keyword_values = _csv_values(property_preferences.get("avoid_keywords"))
-    raw_keyword_preference_map = dict(property_preferences.get("keyword_preferences") or {}) if isinstance(property_preferences.get("keyword_preferences"), dict) else {}
+    raw_keyword_preference_map: dict[str, str] = {}
+    if isinstance(property_preferences.get("keyword_preferences"), dict):
+        raw_keyword_preference_map.update(
+            {
+                str(key or "").strip().lower(): str(value or "").strip().lower()
+                for key, value in dict(property_preferences.get("keyword_preferences") or {}).items()
+                if str(key or "").strip() and str(value or "").strip()
+            }
+        )
+    raw_keyword_preference_json = str(property_preferences.get("keyword_preferences_json") or "").strip()
+    if raw_keyword_preference_json:
+        try:
+            parsed_keyword_preference_json = json.loads(raw_keyword_preference_json)
+        except Exception:
+            parsed_keyword_preference_json = {}
+        if isinstance(parsed_keyword_preference_json, dict):
+            raw_keyword_preference_map.update(
+                {
+                    str(key or "").strip().lower(): str(value or "").strip().lower()
+                    for key, value in dict(parsed_keyword_preference_json or {}).items()
+                    if str(key or "").strip() and str(value or "").strip()
+                }
+            )
     region_options = _property_region_options(str(property_preferences.get("country_code") or "AT"))
     if not selected_region_code and region_options:
         selected_region_code = str(region_options[0].get("value") or "").strip().lower()
@@ -3565,7 +3587,7 @@ def app_section_payload(
     }
     for option in keyword_options:
         option_value = str(option.get("value") or "").strip()
-        state = str(raw_keyword_preference_map.get(option_value) or "").strip().lower()
+        state = str(raw_keyword_preference_map.get(option_value.lower()) or "").strip().lower()
         distance_state = "500"
         if option_value == "playground nearby":
             if state not in {"avoid", "nice_to_have", "important", "must_have"}:
@@ -3577,7 +3599,7 @@ def app_section_payload(
                     playground_distance = 0
                 if option_value in selected_avoid_keyword_values:
                     state = "avoid"
-                elif raw_keyword_preference_map and playground_importance in {"must_have", "important", "nice_to_have"}:
+                elif playground_importance in {"must_have", "important", "nice_to_have"}:
                     state = playground_importance
                 else:
                     state = "any"
@@ -3590,7 +3612,7 @@ def app_section_payload(
                     subway_distance = 0
                 if option_value in selected_avoid_keyword_values:
                     state = "avoid"
-                elif raw_keyword_preference_map and subway_distance:
+                elif subway_distance:
                     if subway_distance <= 250:
                         state = "must_have"
                     elif subway_distance <= 500:
@@ -3611,9 +3633,9 @@ def app_section_payload(
                 stored_importance = str(property_preferences.get(importance_field) or "").strip().lower() if importance_field else ""
                 if option_value in selected_avoid_keyword_values:
                     state = "avoid"
-                elif raw_keyword_preference_map and stored_importance in {"must_have", "important", "nice_to_have"}:
+                elif stored_importance in {"must_have", "important", "nice_to_have"}:
                     state = stored_importance
-                elif raw_keyword_preference_map and stored_distance:
+                elif stored_distance:
                     if stored_distance <= 250:
                         state = "must_have"
                     elif stored_distance <= 500:

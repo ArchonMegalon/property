@@ -180,6 +180,8 @@ def test_property_mobile_search_header_and_district_picker_stay_compact() -> Non
     assert "setConditionalWrapVisibility(adjacentAreaRadiusUnitWrap, showAdjacentAreaRadiusFields, 'area_scope');" in workbench_script
     assert "const saveWhatMattersButtons = [...form.querySelectorAll('[data-pqx-save-what-matters]')];" in workbench_script
     assert "const loadWhatMattersButtons = [...form.querySelectorAll('[data-pqx-load-what-matters]')];" in workbench_script
+    assert "keyword_preferences_json" in workbench_script
+    assert "const keywordPreferenceStateMapFromSaved = (preferences) => {" in workbench_script
     assert "progress.hidden = isMobileSearch;" in workbench_script
     assert "const saveHidden = isMobileSearch;" in workbench_script
     assert "next.dataset.pqxStepMode = isFinalStep ? 'launch' : 'advance';" in workbench_script
@@ -3525,6 +3527,38 @@ def test_propertyquarry_search_route_disables_unimplemented_providers() -> None:
     assert '"value": "community_signals_at"' in html
     assert '"search_ready": false' in html
     assert 'Coming soon' in html
+
+
+def test_propertyquarry_search_route_restores_keyword_preferences_from_saved_json() -> None:
+    client = build_property_client(principal_id="pq-what-matters-save-load")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    save = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "keyword_preferences": {"playground nearby": "nice_to_have"},
+            "max_distance_to_playground_m": 500,
+            "max_distance_to_playground_importance": "nice_to_have",
+        },
+    )
+    assert save.status_code == 200
+
+    response = client.get("/app/search", headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    html = response.text
+
+    assert re.search(
+        r'<select name="keyword_preference__playground nearby"[^>]*>.*?<option value="nice_to_have" selected>',
+        html,
+        re.S,
+    )
+    assert re.search(
+        r'<select name="keyword_distance__playground nearby"[^>]*>.*?<option value="500" selected>',
+        html,
+        re.S,
+    )
 
 
 def test_propertyquarry_localhost_brand_uses_request_origin_for_public_base() -> None:

@@ -3621,7 +3621,7 @@
       const adjacentAreaRadiusValueWrap = form.querySelector('[data-property-field-name="adjacent_area_radius_value"]');
       const adjacentAreaRadiusUnitWrap = form.querySelector('[data-property-field-name="adjacent_area_radius_unit"]');
       const customLocationField = form.querySelector('[name="custom_location_query"]');
-      const whatMattersFieldSelector = '[data-property-field-step="children"]';
+      const whatMattersPanelSelector = '[data-property-what-matters-panel]';
       const locationMapPicker = form.querySelector('[data-location-map-picker]');
       const locationMapDialog = form.querySelector('[data-location-map-dialog]');
       const locationMapOpenButton = form.querySelector('[data-location-map-open]');
@@ -4370,9 +4370,258 @@
         });
         syncKeywordDistanceSelects(form);
       };
+      const whatMattersFieldRoots = () => {
+        const roots = [];
+        const panel = form.querySelector(whatMattersPanelSelector);
+        if (panel) roots.push(panel);
+        form.querySelectorAll('[data-property-field-step="children"]').forEach((node) => {
+          if (!panel || !panel.contains(node)) roots.push(node);
+        });
+        return roots;
+      };
+      const forEachWhatMattersField = (callback) => {
+        const seen = new Set();
+        whatMattersFieldRoots().forEach((fieldRoot) => {
+          fieldRoot.querySelectorAll('input, select, textarea').forEach((field) => {
+            if (seen.has(field)) return;
+            seen.add(field);
+            callback(field);
+          });
+        });
+      };
+      const findWhatMattersFieldsByName = (name) => {
+        const fields = [];
+        const seen = new Set();
+        whatMattersFieldRoots().forEach((fieldRoot) => {
+          fieldRoot.querySelectorAll(`[name="${CSS.escape(String(name))}"]`).forEach((field) => {
+            if (seen.has(field)) return;
+            seen.add(field);
+            fields.push(field);
+          });
+        });
+        return fields;
+      };
+      const keywordDistancePreferenceKey = (keywordValue) => ({
+        'playground nearby': 'max_distance_to_playground_m',
+        'library nearby': 'max_distance_to_library_m',
+        'zoo nearby': 'max_distance_to_zoo_m',
+        'public pool nearby': 'max_distance_to_public_pool_m',
+        'medical care nearby': 'max_distance_to_medical_care_m',
+        'supermarket nearby': 'max_distance_to_supermarket_m',
+        'market nearby': 'max_distance_to_market_m',
+        'Baumarkt nearby': 'max_distance_to_hardware_store_m',
+        'hardware store nearby': 'max_distance_to_hardware_store_m',
+        'shopping center nearby': 'max_distance_to_shopping_center_m',
+        'flaniermeile nearby': 'max_distance_to_shopping_street_m',
+        'shopping street nearby': 'max_distance_to_shopping_street_m',
+        'theatre nearby': 'max_distance_to_theatre_m',
+        'pharmacy nearby': 'max_distance_to_medical_care_m',
+        'underground nearby': 'max_distance_to_subway_m',
+      }[String(keywordValue || '').trim()] || '');
+      const keywordImportancePreferenceKey = (keywordValue) => ({
+        'playground nearby': 'max_distance_to_playground_importance',
+        'library nearby': 'max_distance_to_library_importance',
+        'zoo nearby': 'max_distance_to_zoo_importance',
+        'public pool nearby': 'max_distance_to_public_pool_importance',
+        'medical care nearby': 'max_distance_to_medical_care_importance',
+        'supermarket nearby': 'max_distance_to_supermarket_importance',
+        'market nearby': 'max_distance_to_market_importance',
+        'Baumarkt nearby': 'max_distance_to_hardware_store_importance',
+        'hardware store nearby': 'max_distance_to_hardware_store_importance',
+        'shopping center nearby': 'max_distance_to_shopping_center_importance',
+        'flaniermeile nearby': 'max_distance_to_shopping_street_importance',
+        'shopping street nearby': 'max_distance_to_shopping_street_importance',
+        'theatre nearby': 'max_distance_to_theatre_importance',
+        'pharmacy nearby': 'max_distance_to_medical_care_importance',
+        'underground nearby': 'max_distance_to_subway_importance',
+      }[String(keywordValue || '').trim()] || '');
+      const csvPreferenceValueSet = (value) => new Set(
+        String(value || '')
+          .split(',')
+          .map((item) => String(item || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
+      const normalizeKeywordPreferenceState = (value) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (normalized === 'hard' || normalized === 'required' || normalized === 'strict') return 'must_have';
+        if (normalized === 'preferred') return 'important';
+        if (normalized === 'neutral') return 'any';
+        return normalized;
+      };
+      const keywordPreferenceStateMapFromSaved = (preferences) => {
+        const states = new Map();
+        const applyEntries = (source) => {
+          if (!source || typeof source !== 'object') return;
+          Object.entries(source).forEach(([key, value]) => {
+            const keyword = String(key || '').trim().toLowerCase();
+            const state = normalizeKeywordPreferenceState(value);
+            if (!keyword || !state) return;
+            states.set(keyword, state);
+          });
+        };
+        applyEntries(preferences?.keyword_preferences);
+        const serialized = String(preferences?.keyword_preferences_json || '').trim();
+        if (serialized) {
+          try {
+            applyEntries(JSON.parse(serialized));
+          } catch (_error) {
+            return states;
+          }
+        }
+        return states;
+      };
+      const nearbyKeywordPreferenceStateFromDistance = (distance) => {
+        const parsedDistance = Number.parseInt(String(distance || ''), 10);
+        if (!Number.isFinite(parsedDistance) || parsedDistance <= 0) return 'any';
+        if (parsedDistance <= 250) return 'must_have';
+        if (parsedDistance <= 500) return 'important';
+        return 'nice_to_have';
+      };
+      const keywordPreferenceStateFromSaved = (
+        preferences,
+        keywordValue,
+        keywordPreferenceStateMap = keywordPreferenceStateMapFromSaved(preferences),
+        selectedKeywordValues = csvPreferenceValueSet(preferences?.keywords),
+        selectedAvoidKeywordValues = csvPreferenceValueSet(preferences?.avoid_keywords),
+      ) => {
+        const normalizedKeyword = String(keywordValue || '').trim().toLowerCase();
+        if (!normalizedKeyword) return 'any';
+        const explicitState = normalizeKeywordPreferenceState(keywordPreferenceStateMap.get(normalizedKeyword) || '');
+        if ([
+          'avoid',
+          'nice_to_have',
+          'important',
+          'must_have',
+          'low',
+          'medium',
+          'high',
+        ].includes(explicitState)) {
+          return explicitState;
+        }
+        const nearbyImportanceKey = keywordImportancePreferenceKey(keywordValue);
+        const nearbyImportance = normalizeKeywordPreferenceState(nearbyImportanceKey ? preferences?.[nearbyImportanceKey] : '');
+        const nearbyDistance = preferences?.[keywordDistancePreferenceKey(keywordValue)];
+        if (selectedAvoidKeywordValues.has(normalizedKeyword)) return 'avoid';
+        if (normalizedKeyword === 'playground nearby' && ['must_have', 'important', 'nice_to_have'].includes(nearbyImportance)) {
+          return nearbyImportance;
+        }
+        if (normalizedKeyword === 'underground nearby') {
+          const distanceState = nearbyKeywordPreferenceStateFromDistance(nearbyDistance);
+          return distanceState === 'any' ? 'any' : distanceState;
+        }
+        if ([
+          'library nearby',
+          'zoo nearby',
+          'public pool nearby',
+          'medical care nearby',
+          'supermarket nearby',
+          'market nearby',
+          'baumarkt nearby',
+          'hardware store nearby',
+          'shopping center nearby',
+          'flaniermeile nearby',
+          'shopping street nearby',
+          'theatre nearby',
+          'pharmacy nearby',
+        ].includes(normalizedKeyword)) {
+          if (['must_have', 'important', 'nice_to_have'].includes(nearbyImportance)) return nearbyImportance;
+          return nearbyKeywordPreferenceStateFromDistance(nearbyDistance);
+        }
+        if (normalizedKeyword === 'good air quality') return preferences?.prefer_good_air_quality ? 'important' : 'any';
+        if (normalizedKeyword === 'klimaerwaermungsfit') return preferences?.prefer_heat_resilient_home ? 'important' : 'any';
+        if (normalizedKeyword === 'avoid noise-risk area') return preferences?.avoid_noise_risk_area ? 'avoid' : 'any';
+        if (normalizedKeyword === 'high-speed internet') return preferences?.require_high_speed_internet ? 'must_have' : 'any';
+        if (normalizedKeyword === 'low crime area') return preferences?.prefer_low_crime_area ? 'important' : 'any';
+        if (normalizedKeyword === 'water and groundwater check') return preferences?.require_drinking_water_quality_research ? 'important' : 'any';
+        if (normalizedKeyword === 'parking pressure check') {
+          const storedPressure = String(preferences?.parking_pressure_preference || preferences?.parking_pressure_tolerance || '').trim().toLowerCase();
+          if (storedPressure === 'low' || storedPressure === 'medium' || storedPressure === 'high') return storedPressure;
+          return preferences?.require_parking_pressure_check ? 'medium' : 'any';
+        }
+        if (normalizedKeyword === 'avoid septic risk') return preferences?.avoid_cesspit_or_septic_risk ? 'avoid' : 'any';
+        if (normalizedKeyword === 'winter driving check') return preferences?.require_winter_access_research ? 'important' : 'any';
+        if (normalizedKeyword === 'avoid flood-risk area') return preferences?.avoid_flood_risk_area ? 'avoid' : 'any';
+        if (normalizedKeyword === 'barrier-free') return preferences?.require_barrier_free ? 'must_have' : 'any';
+        if (selectedKeywordValues.has(normalizedKeyword)) return 'must_have';
+        return 'any';
+      };
+      const schoolPreferenceStateFromSaved = (preferences, schoolValue) => {
+        const selectedStages = Array.isArray(preferences?.school_stage_preferences) ? preferences.school_stage_preferences : [];
+        const selected = selectedStages.map((item) => String(item || '').trim().toLowerCase()).includes(String(schoolValue || '').trim().toLowerCase());
+        if (!selected) return 'any';
+        const priority = String(preferences?.school_evidence_priority || '').trim().toLowerCase();
+        if (priority === 'very_important' || priority === 'must_have') return 'must_have';
+        if (priority === 'important') return 'important';
+        return 'nice_to_have';
+      };
+      const whatMattersSnapshotFromPreferences = (preferences) => {
+        const source = preferences && typeof preferences === 'object' ? preferences : {};
+        const keywordPreferenceStateMap = keywordPreferenceStateMapFromSaved(source);
+        const selectedKeywordValues = csvPreferenceValueSet(source.keywords);
+        const selectedAvoidKeywordValues = csvPreferenceValueSet(source.avoid_keywords);
+        const snapshot = {};
+        forEachWhatMattersField((field) => {
+          if (!(field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement)) return;
+          const name = String(field.name || '').trim();
+          if (!name) return;
+          if (name.startsWith('keyword_preference__')) {
+            const keywordValue = String(field.getAttribute('data-keyword-value') || name.replace(/^keyword_preference__/, '')).trim();
+            snapshot[name] = keywordPreferenceStateFromSaved(
+              source,
+              keywordValue,
+              keywordPreferenceStateMap,
+              selectedKeywordValues,
+              selectedAvoidKeywordValues,
+            );
+            return;
+          }
+          if (name.startsWith('keyword_distance__')) {
+            const keywordValue = String(field.getAttribute('data-keyword-value') || name.replace(/^keyword_distance__/, '')).trim();
+            const preferenceKey = keywordDistancePreferenceKey(keywordValue);
+            if (preferenceKey && source[preferenceKey] !== undefined && source[preferenceKey] !== null && String(source[preferenceKey]).trim()) {
+              snapshot[name] = String(source[preferenceKey]);
+            }
+            return;
+          }
+          if (name.startsWith('school_preference__')) {
+            const schoolValue = String(field.getAttribute('data-school-value') || name.replace(/^school_preference__/, '')).trim();
+            snapshot[name] = schoolPreferenceStateFromSaved(source, schoolValue);
+            return;
+          }
+          if (name.startsWith('school_distance__')) {
+            const preferenceKey = String(field.getAttribute('data-distance-field') || '').trim();
+            if (preferenceKey && source[preferenceKey] !== undefined && source[preferenceKey] !== null && String(source[preferenceKey]).trim()) {
+              snapshot[name] = String(source[preferenceKey]);
+            }
+            return;
+          }
+          if (source[name] === undefined) return;
+          if (field instanceof HTMLInputElement && field.type === 'checkbox') {
+            snapshot[name] = Boolean(source[name]);
+          } else {
+            snapshot[name] = String(source[name] ?? '');
+          }
+        });
+        return snapshot;
+      };
+      const loadSavedWhatMattersSnapshot = async () => {
+        const endpoint = String(meta.preferences_endpoint || data.endpoints?.preferences || '').trim();
+        if (!endpoint) return null;
+        const response = await fetch(endpoint, {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: { accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not load saved what matters.'));
+        const preferences = payload && typeof payload === 'object' && payload.property_search_preferences && typeof payload.property_search_preferences === 'object'
+          ? payload.property_search_preferences
+          : payload;
+        return whatMattersSnapshotFromPreferences(preferences);
+      };
       const captureWhatMattersSnapshot = () => {
         const snapshot = {};
-        form.querySelectorAll(`${whatMattersFieldSelector} input, ${whatMattersFieldSelector} select, ${whatMattersFieldSelector} textarea`).forEach((field) => {
+        forEachWhatMattersField((field) => {
           if (!(field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement)) return;
           const name = String(field.name || '').trim();
           if (!name) return;
@@ -4391,7 +4640,7 @@
       const applyWhatMattersSnapshot = (snapshot) => {
         if (!snapshot || typeof snapshot !== 'object') return;
         Object.entries(snapshot).forEach(([name, value]) => {
-          const fields = [...form.querySelectorAll(`${whatMattersFieldSelector} [name="${CSS.escape(String(name))}"]`)];
+          const fields = findWhatMattersFieldsByName(name);
           if (!fields.length) return;
           if (fields[0] instanceof HTMLInputElement && fields[0].type === 'checkbox') {
             if (String(name) === 'school_stage_preferences') {
@@ -4944,10 +5193,19 @@
         });
       });
       loadWhatMattersButtons.forEach((button) => {
-        button.addEventListener('click', () => {
-          applyWhatMattersSnapshot(savedWhatMattersSnapshot);
+        button.addEventListener('click', async () => {
           const status = root.querySelector('[data-property-inline-status]');
           const error = root.querySelector('[data-property-inline-error]');
+          if (status) status.textContent = 'Loading saved what matters...';
+          if (error) error.textContent = '';
+          let snapshot = savedWhatMattersSnapshot;
+          try {
+            snapshot = await loadSavedWhatMattersSnapshot() || savedWhatMattersSnapshot;
+          } catch (err) {
+            if (error) error.textContent = err instanceof Error ? err.message : 'Could not load saved what matters.';
+          }
+          applyWhatMattersSnapshot(snapshot);
+          savedWhatMattersSnapshot = captureWhatMattersSnapshot();
           if (error) error.textContent = '';
           if (status) status.textContent = 'Loaded saved what matters.';
           closeWhatMattersActionMenu(button);
