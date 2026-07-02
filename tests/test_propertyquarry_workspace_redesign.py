@@ -2224,6 +2224,9 @@ def test_propertyquarry_workbench_asks_for_furniture_style_at_visual_request_tim
     assert "diorama_style_hint: dioramaStyleHint" in script
     assert "Only this generated visual changes. Your search brief stays as it is." in script
     assert "normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour'" in script
+    assert "data-pqx-visual-style-selected-label" in script
+    assert "Choose a style for this" in script
+    assert "${action} · ${styleLabel}" in script
 
 
 def test_propertyquarry_magicfit_scene_cache_is_furniture_style_aware(monkeypatch) -> None:
@@ -18917,6 +18920,8 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     assert 'data-prd-style-option' in rendered_html
     assert "Choose the look" in rendered_html
     assert "This is only for the generated visual. It does not change the search brief." in rendered_html
+    assert "data-prd-style-selected-label" in rendered_html
+    assert "Selected" in rendered_html
     assert "Warm Scandinavian" in rendered_html
     assert "Trump gold" in rendered_html
     assert 'data-pw-visual-request="flythrough"' in rendered_html

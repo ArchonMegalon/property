@@ -358,6 +358,7 @@
                   <button class="pqx-visual-style-option${selected ? ' is-selected' : ''}" type="button" data-pqx-visual-style-option data-style-value="${escapeHtml(value)}" aria-pressed="${selected ? 'true' : 'false'}">
                     <span class="pqx-visual-style-swatch" style="background:${escapeHtml(String(row?.example_tone || 'linear-gradient(135deg, #f5efe3, #d8c4a0)').trim())};" aria-hidden="true"></span>
                     <span><strong>${escapeHtml(String(row?.label || value || 'Default style').trim())}</strong><small>${escapeHtml(String(row?.example_caption || row?.detail || 'Generated staging style.').trim())}</small></span>
+                    <span class="pqx-visual-style-selected-label" data-pqx-visual-style-selected-label>Selected</span>
                   </button>
                 `;
               }).join('')}
@@ -385,17 +386,28 @@
         .pqx-visual-style-head h2{margin:0;font-size:clamp(1.18rem,2vw,1.55rem);letter-spacing:-.04em}
         .pqx-visual-style-head p{margin:4px 0 0;color:var(--text-soft);font-size:.9rem;line-height:1.35}
         .pqx-visual-style-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:8px}
-        .pqx-visual-style-option{display:grid;grid-template-columns:42px minmax(0,1fr);align-items:center;gap:10px;min-height:72px;padding:9px;border:1px solid var(--line);border-radius:13px;background:var(--panel-2);color:var(--text);text-align:left;cursor:pointer}
-        .pqx-visual-style-option:hover,.pqx-visual-style-option:focus-visible,.pqx-visual-style-option.is-selected{border-color:color-mix(in srgb,var(--gold,#b88a2b) 54%,var(--line));background:color-mix(in srgb,var(--gold,#b88a2b) 10%,var(--panel));outline:none}
+        .pqx-visual-style-option{position:relative;display:grid;grid-template-columns:42px minmax(0,1fr);align-items:center;gap:10px;min-height:72px;padding:9px 72px 9px 9px;border:1px solid var(--line);border-radius:13px;background:var(--panel-2);color:var(--text);text-align:left;cursor:pointer;transition:border-color .16s ease,background .16s ease,box-shadow .16s ease,transform .16s ease}
+        .pqx-visual-style-option:hover,.pqx-visual-style-option:focus-visible{border-color:color-mix(in srgb,var(--gold,#b88a2b) 54%,var(--line));background:color-mix(in srgb,var(--gold,#b88a2b) 10%,var(--panel));outline:none}
+        .pqx-visual-style-option.is-selected{border-color:color-mix(in srgb,var(--gold,#b88a2b) 78%,var(--line));background:linear-gradient(135deg,color-mix(in srgb,var(--gold,#b88a2b) 16%,transparent),transparent 44%),color-mix(in srgb,var(--gold,#b88a2b) 11%,var(--panel));box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--gold,#b88a2b) 45%,transparent);outline:none}
+        .pqx-visual-style-option:active{transform:translateY(1px)}
         .pqx-visual-style-swatch{width:42px;height:42px;border-radius:12px;border:1px solid var(--line)}
+        .pqx-visual-style-selected-label{position:absolute;top:8px;right:8px;display:none;align-items:center;min-height:24px;padding:0 9px;border-radius:999px;background:color-mix(in srgb,var(--gold,#b88a2b) 22%,var(--panel));color:var(--text);font-size:.68rem;font-weight:850;letter-spacing:.04em;text-transform:uppercase}
+        .pqx-visual-style-option.is-selected .pqx-visual-style-selected-label{display:inline-flex}
         .pqx-visual-style-option strong,.pqx-visual-style-option small{display:block}
         .pqx-visual-style-option strong{font-size:.9rem;line-height:1.15}
         .pqx-visual-style-option small{margin-top:3px;color:var(--text-soft);font-size:.76rem;line-height:1.25}
         .pqx-visual-style-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
-        @media(max-width:760px){.pqx-visual-style-dialog{width:calc(100vw - 12px);max-width:calc(100vw - 12px);margin:auto 6px max(6px,env(safe-area-inset-bottom,0px))}.pqx-visual-style-card{max-height:calc(100svh - 18px);overflow-y:auto;padding:12px}.pqx-visual-style-head p{display:none}.pqx-visual-style-options{grid-template-columns:1fr}.pqx-visual-style-option{min-height:58px}}
+        @media(max-width:760px){.pqx-visual-style-dialog{width:calc(100vw - 12px);max-width:calc(100vw - 12px);margin:auto 6px max(6px,env(safe-area-inset-bottom,0px))}.pqx-visual-style-card{max-height:calc(100svh - 18px);overflow-y:auto;padding:12px}.pqx-visual-style-head p{display:none}.pqx-visual-style-options{grid-template-columns:1fr}.pqx-visual-style-option{min-height:58px;padding-right:84px}}
       `;
       visualStyleDialog.prepend(style);
       document.body.appendChild(visualStyleDialog);
+      const updateConfirmLabel = (requestKind = 'tour') => {
+        const confirm = visualStyleDialog?.querySelector('[data-pqx-visual-style-confirm]');
+        if (!confirm) return;
+        const action = String(requestKind || '').trim().toLowerCase() === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour';
+        const styleLabel = selectedFurnitureStyleLabel();
+        confirm.textContent = styleLabel ? `${action} · ${styleLabel}` : action;
+      };
       visualStyleDialog.querySelectorAll('[data-pqx-visual-style-option]').forEach((button) => {
         button.addEventListener('click', () => {
           const nextValue = String(button.getAttribute('data-style-value') || '').trim();
@@ -405,6 +417,8 @@
             option.classList.toggle('is-selected', isSelected);
             option.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
           });
+          updateConfirmLabel(visualStyleDialog?.getAttribute('data-pqx-visual-style-kind') || 'tour');
+          setVisualRequestStatus(`${selectedFurnitureStyleLabel()} selected.`);
         });
       });
       visualStyleDialog.querySelector('[data-pqx-visual-style-confirm]')?.addEventListener('click', () => {
@@ -448,7 +462,9 @@
         });
       }
       const confirm = dialog.querySelector('[data-pqx-visual-style-confirm]');
-      if (confirm) confirm.textContent = normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour';
+      dialog.setAttribute('data-pqx-visual-style-kind', normalizedKind);
+      if (confirm) confirm.textContent = `${normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour'} · ${selectedFurnitureStyleLabel()}`;
+      setVisualRequestStatus(`Choose a style for this ${normalizedKind === 'flythrough' ? 'walkthrough' : '3D tour'}.`);
       if (visualStyleResolver) {
         visualStyleResolver(null);
         visualStyleResolver = null;

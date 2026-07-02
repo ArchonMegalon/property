@@ -1554,31 +1554,62 @@
     gap: 8px;
   }
   .prd-style-option {
+    position: relative;
     display: grid;
     grid-template-columns: 42px minmax(0, 1fr);
     align-items: center;
     gap: 10px;
     min-height: 72px;
-    padding: 9px;
+    padding: 9px 72px 9px 9px;
     border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
     border-radius: 13px;
     background: color-mix(in srgb, var(--panel-2) 76%, var(--panel));
     color: var(--text);
     text-align: left;
     cursor: pointer;
+    transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
   }
   .prd-style-option:hover,
-  .prd-style-option:focus-visible,
-  .prd-style-option.is-selected {
+  .prd-style-option:focus-visible {
     border-color: color-mix(in srgb, var(--prd-gold) 54%, var(--line));
     background: color-mix(in srgb, var(--prd-gold) 10%, var(--panel));
     outline: none;
+  }
+  .prd-style-option.is-selected {
+    border-color: color-mix(in srgb, var(--prd-gold) 78%, var(--line));
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--prd-gold) 16%, transparent), transparent 44%),
+      color-mix(in srgb, var(--prd-gold) 11%, var(--panel));
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--prd-gold) 45%, transparent);
+    outline: none;
+  }
+  .prd-style-option:active {
+    transform: translateY(1px);
   }
   .prd-style-swatch {
     width: 42px;
     height: 42px;
     border-radius: 12px;
     border: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
+  }
+  .prd-style-selected-label {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: none;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--prd-gold) 22%, var(--panel));
+    color: var(--text);
+    font-size: 0.68rem;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .prd-style-option.is-selected .prd-style-selected-label {
+    display: inline-flex;
   }
   .prd-style-option strong,
   .prd-style-option small {
@@ -2412,6 +2443,7 @@
     }
     .prd-style-option {
       min-height: 58px;
+      padding-right: 84px;
     }
     .prd-side-stack .object-feedback {
       max-height: min(52svh, 440px);
@@ -3823,6 +3855,7 @@
           <strong>{{ style.get('label') or style_value }}</strong>
           <small>{{ style.get('example_caption') or style.get('detail') or 'Generated staging style' }}</small>
         </span>
+        <span class="prd-style-selected-label" data-prd-style-selected-label>Selected</span>
       </button>
       {% endfor %}
     </div>
@@ -3849,6 +3882,9 @@
   const visualStyleOptions = Array.from(document.querySelectorAll('[data-prd-style-option]'));
   const visualStyleConfirm = document.querySelector('[data-prd-style-confirm]');
   const visualStyleCancelButtons = Array.from(document.querySelectorAll('[data-prd-style-cancel]'));
+  const visualStyleKindLabel = (requestKind) => (
+    String(requestKind || '').trim().toLowerCase() === 'flythrough' ? 'walkthrough' : '3D tour'
+  );
   const readVisualStyleOption = (option) => ({
     value: String(option?.getAttribute?.('data-style-value') || '').trim(),
     label: String(option?.getAttribute?.('data-style-label') || '').trim(),
@@ -3864,10 +3900,20 @@
       option.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
     });
   };
+  const updateVisualStyleConfirmLabel = (requestKind) => {
+    if (!visualStyleConfirm) return;
+    const action = String(requestKind || '').trim().toLowerCase() === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour';
+    const styleLabel = String(selectedVisualStyle?.label || '').trim();
+    visualStyleConfirm.textContent = styleLabel ? `${action} · ${styleLabel}` : action;
+  };
   visualStyleOptions.forEach((option) => {
     option.addEventListener('click', () => {
       selectedVisualStyle = readVisualStyleOption(option);
       syncVisualStyleOptions();
+      updateVisualStyleConfirmLabel(visualStyleDialog?.getAttribute('data-prd-visual-style-kind') || 'tour');
+      if (visualRequestStatusNode) {
+        visualRequestStatusNode.textContent = `${selectedVisualStyle.label || 'Style'} selected.`;
+      }
     });
   });
   let pendingVisualStyleResolver = null;
@@ -3899,8 +3945,12 @@
     if (!visualStyleDialog || typeof visualStyleDialog.showModal !== 'function') {
       return Promise.resolve(selectedVisualStyle);
     }
-    if (visualStyleConfirm) visualStyleConfirm.textContent = normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour';
+    visualStyleDialog.setAttribute('data-prd-visual-style-kind', normalizedKind);
+    updateVisualStyleConfirmLabel(normalizedKind);
     syncVisualStyleOptions();
+    if (visualRequestStatusNode) {
+      visualRequestStatusNode.textContent = `Choose a style for this ${visualStyleKindLabel(normalizedKind)}.`;
+    }
     if (pendingVisualStyleResolver) settleVisualStyleChoice(null);
     return new Promise((resolve) => {
       pendingVisualStyleResolver = resolve;
@@ -4133,6 +4183,9 @@
       const dioramaStyleHint = ['tour', 'flythrough'].includes(requestKind)
         ? String(visualStyleChoice?.prompt || visualStyleChoice?.value || '').trim()
         : '';
+      const visualStyleLabel = ['tour', 'flythrough'].includes(requestKind)
+        ? String(visualStyleChoice?.label || '').trim()
+        : '';
       const original = button.textContent || (isWalkthroughRequest ? 'Request walkthrough' : 'Request 3D tour');
       button.disabled = true;
       button.textContent = isWalkthroughRequest ? 'Requesting walkthrough...' : 'Requesting 3D tour...';
@@ -4140,8 +4193,8 @@
         state: 'queued',
         label: isWalkthroughRequest ? 'Walkthrough queued' : '3D tour queued',
         detail: isWalkthroughRequest
-          ? 'Queued. Estimating timing...'
-          : 'Queued. Estimating timing...',
+          ? `Requesting${visualStyleLabel ? ` in ${visualStyleLabel}` : ''}.`
+          : `Requesting${visualStyleLabel ? ` in ${visualStyleLabel}` : ''}.`,
         eta: '',
         progress: 0,
       });

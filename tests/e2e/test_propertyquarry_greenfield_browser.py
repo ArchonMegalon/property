@@ -133,6 +133,21 @@ def _video_frame_brightness(page: Page) -> float:
     )
 
 
+def _choose_research_visual_style(page: Page, *, label: str = "Urban jungle") -> None:
+    dialog = page.locator("[data-prd-visual-style-dialog]").first
+    expect(dialog).to_be_visible(timeout=5000)
+    expect(page.locator("[data-prd-visual-status]")).to_contain_text("Choose a style", timeout=5000)
+    option = dialog.locator("[data-prd-style-option]", has_text=label).first
+    expect(option).to_be_visible()
+    option.click()
+    expect(option).to_have_attribute("aria-pressed", "true")
+    expect(option.locator("[data-prd-style-selected-label]")).to_be_visible()
+    expect(page.locator("[data-prd-visual-status]")).to_contain_text("selected", timeout=5000)
+    confirm = dialog.locator("[data-prd-style-confirm]").first
+    expect(confirm).to_contain_text(label)
+    confirm.click()
+
+
 @pytest.fixture()
 def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict[str, object]]:
     from tests.product_test_helpers import build_product_client, start_workspace
@@ -3857,12 +3872,14 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
 
         request_button = page.get_by_role("button", name=re.compile("Request walkthrough", re.I)).first
         request_button.click()
+        _choose_research_visual_style(page)
         page.wait_for_timeout(500)
         assert len(visual_requests) == 1
         payload = visual_requests[0]
         assert payload["request_kind"] == "flythrough"
         assert payload["auto_deliver"] is False
         assert payload["allow_floorplan_only"] is True
+        assert "urban jungle" in str(payload["diorama_style_hint"]).lower()
         assert payload["run_id"] == "run-42"
         assert str(payload["property_url"]).endswith("/listing-url-only-loft")
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request")
@@ -3935,7 +3952,10 @@ def test_propertyquarry_visual_request_does_not_invent_eta_before_backend_suppli
         assert response is not None and response.ok
         request_button = page.get_by_role("button", name=re.compile("Request walkthrough", re.I)).first
         request_button.click()
+        _choose_research_visual_style(page)
         page.wait_for_timeout(900)
+        assert visual_requests
+        assert "urban jungle" in str(visual_requests[-1].get("diorama_style_hint") or "").lower()
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request", timeout=5000)
         assert (page.locator("[data-prd-visual-eta]").inner_text() or "").strip() == ""
     finally:
@@ -5918,8 +5938,10 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         request_button = page.get_by_role("button", name="Request walkthrough")
         expect(request_button).to_be_visible()
         request_button.click()
+        _choose_research_visual_style(page)
         page.wait_for_timeout(750)
         assert visual_requests, page.locator("body").inner_text()[:1000]
+        assert "urban jungle" in str(visual_requests[-1].get("diorama_style_hint") or "").lower()
         body_after_request = page.locator("body").inner_text()
         assert "Walkthrough queued" in body_after_request, body_after_request[:2000]
 
@@ -5988,6 +6010,7 @@ def test_propertyquarry_visual_request_uses_listing_url_fallback_in_real_browser
         expect(request_button).to_be_visible()
         assert str(request_button.get_attribute("data-property-url") or "").endswith("/listing-url-only-loft")
         request_button.click()
+        _choose_research_visual_style(page)
         page.wait_for_timeout(750)
 
         assert len(visual_requests) == 1
@@ -5995,6 +6018,7 @@ def test_propertyquarry_visual_request_uses_listing_url_fallback_in_real_browser
         assert payload["request_kind"] == "flythrough"
         assert payload["auto_deliver"] is False
         assert payload["allow_floorplan_only"] is True
+        assert "urban jungle" in str(payload["diorama_style_hint"]).lower()
         assert payload["run_id"] == "run-42"
         assert str(payload["property_url"]).endswith("/listing-url-only-loft")
         assert "Walkthrough queued" in page.locator("body").inner_text()
