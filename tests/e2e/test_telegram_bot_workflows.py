@@ -539,18 +539,17 @@ def test_telegram_bot_property_link_e2e_sends_diorama_photo_and_artifact_buttons
     assert sent_photos
     assert viewer_gate_calls[-1] == {
         "matterport": "https://propertyquarry.com/tours/e2e-property-link/control/matterport",
-        "3dvista": "https://propertyquarry.com/tours/e2e-property-link/control/3dvista",
     }
     photo = sent_photos[-1]
     assert photo["principal_id"] == "exec-telegram-e2e-property-link"
     assert photo["photo_ref"] == "https://propertyquarry.com/tours/files/e2e-property-link/diorama-preview.png"
-    assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(photo["caption"])
+    assert "Full bundle ready: white-label 3D tour, flythrough video, and review PDF." in str(photo["caption"])
     buttons = list(photo["url_buttons"] or [])
     flattened = [button for row in buttons for button in row]
-    assert ("Open Matterport", "https://propertyquarry.com/tours/e2e-property-link/control/matterport") in flattened
-    assert ("Open 3DVista", "https://propertyquarry.com/tours/e2e-property-link/control/3dvista") in flattened
+    assert ("Open 3D tour", "https://propertyquarry.com/tours/e2e-property-link/control/matterport") in flattened
+    assert ("Open 3DVista", "https://propertyquarry.com/tours/e2e-property-link/control/3dvista") not in flattened
     assert ("Open Walkthrough", "https://propertyquarry.com/tours/files/e2e-property-link/tour.mp4") in flattened
-    assert any(label == "Open Dossier PDF" for label, _url in flattened)
+    assert any(label == "Open Review PDF" for label, _url in flattened)
 
 
 def test_telegram_bot_property_pdf_upload_e2e_returns_rendered_pdf(

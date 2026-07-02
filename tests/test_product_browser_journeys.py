@@ -1009,7 +1009,7 @@ def test_google_settings_surface_manages_multiple_connected_google_accounts(monk
     assert "Primary inbox updated." not in promoted_page.text
     assert promoted_page.text.index("office@girschele.com") < promoted_page.text.index("tibor@girschele.com")
     assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/disconnect" in promoted_page.text
-    assert "send not yet verified" in promoted_page.text
+    assert "send not checked yet" in promoted_page.text
     reloaded_after_promote = client.get("/app/settings/google")
     assert reloaded_after_promote.status_code == 200
     assert "Primary Google account updated. office@girschele.com" in reloaded_after_promote.text

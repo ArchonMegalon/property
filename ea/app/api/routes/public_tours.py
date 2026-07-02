@@ -4051,12 +4051,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           </div>
           <aside class="card sidebar">
             <h2 class="section-title">Scene navigation</h2>
-            <p class="note">Move through the panorama for spatial feel, validate the circulation on the plan, then return to the packet with a cleaner room-by-room read.</p>
+            <p class="note">Move through the panorama, check the floorplan, then return to the property page with a cleaner room-by-room read.</p>
             <h2 class="section-title">Review route</h2>
             <ol class="brief-list">
               <li>Open the main panorama and get the room proportions.</li>
-              <li>Switch to the floorplan to validate doors, walls, and usable edges.</li>
-              <li>Return to the dossier for risks, questions, and decision context.</li>
+              <li>Switch to the floorplan to check doors, walls, and usable edges.</li>
+              <li>Return to the property page for open questions and next steps.</li>
             </ol>
             <div class="actions">
               <button class="btn" id="prev-link" type="button">Previous</button>
@@ -4153,7 +4153,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           }});
         }} catch (error) {{
           console.error('PropertyQuarry panorama init failed', error);
-          showPanoramaFallback('The white-label panorama viewer could not initialize here. The overview and floorplan lanes stay available so the dossier remains usable on mobile.');
+          showPanoramaFallback('The white-label panorama viewer could not initialize here. The overview and floorplan stay available so the property page remains useful on mobile.');
         }}
       }}
 

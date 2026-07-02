@@ -385,10 +385,10 @@ def _google_account_verification_detail(verification: dict[str, object] | None) 
     if error:
         return error
     if state == "completed":
-        return f"send verified {verified_at[:19]}" if verified_at else "send verified"
+        return f"send checked {verified_at[:19]}" if verified_at else "send checked"
     if state == "failed":
         return f"send check failed {verified_at[:19]}" if verified_at else "send check failed"
-    return "send not yet verified"
+    return "send not checked yet"
 
 
 def _positive_int(value: object) -> int:
@@ -841,7 +841,7 @@ def settings_usage_detail(
         ]
         research_output_items = []
         if int(property_usage["packet_ready_total"] or 0) > 0:
-            research_output_items.append(_object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"))
+            research_output_items.append(_object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Pages"))
         if int(property_usage["tour_ready_total"] or 0) > 0:
             research_output_items.append(_object_detail_row("3D tours ready", str(property_usage["tour_ready_total"]), "Tour"))
         research_output_items.extend(
@@ -914,7 +914,7 @@ def settings_usage_detail(
             usage_sections.append(
                 {
                     "eyebrow": "Research output",
-                    "title": "Dossiers, pages, and 3D tours",
+                    "title": "Property pages and 3D tours",
                     "items": research_output_items,
                 }
             )
@@ -1486,7 +1486,7 @@ def settings_outcomes_detail(
                     "eyebrow": "Follow-up",
                     "title": "Property pages and tours ready",
                     "items": [
-                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
+                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Pages"),
                         _object_detail_row("3D tours ready", str(property_usage["tour_ready_total"]), "Tour"),
                         _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
                         _object_detail_row("First value event", str(outcomes.get("first_value_event") or "pending").replace("_", " "), "Activation"),
@@ -1753,7 +1753,7 @@ def settings_google_detail(
     resolved_account_change_email = str(sync.get("last_account_change_email") or "").strip()
     resolved_account_change_at = str(sync.get("last_account_change_at") or "").strip()
     verify_detail = resolved_verify_error or (
-        f"Verified {resolved_verify_sender} -> {resolved_verify_recipient or resolved_verify_sender}"
+        f"Checked {resolved_verify_sender} -> {resolved_verify_recipient or resolved_verify_sender}"
         if resolved_verify_state == "completed" and resolved_verify_sender
         else "Not recorded"
     )
@@ -2156,7 +2156,7 @@ def settings_trust_detail(
         console_summary=(
             "Source health, recent searches, and account controls in one place."
             if is_property_brand
-            else "Evidence, rules, readiness, provider state, and recent product events make the assistant legible when the office asks why something happened."
+            else "Context, rules, readiness, provider state, and recent product events make the assistant legible when the office asks why something happened."
         ),
         object_kind="Reliability",
         object_title=workspace_summary,
@@ -3190,9 +3190,9 @@ def app_search(
             "eyebrow": "Workspace search",
             "title": f"Results for “{normalized_query}”" if normalized_query else "Search",
             "body": (
-                f"{len(items)} results across people, threads, commitments, decisions, deadlines, evidence, and rules."
+                f"{len(items)} results across people, threads, commitments, decisions, deadlines, context, and rules."
                 if normalized_query
-                else "Search people, threads, commitments, decisions, deadlines, evidence, rules, and handoffs."
+                else "Search people, threads, commitments, decisions, deadlines, context, rules, and handoffs."
             ),
             "items": primary_items if normalized_query else [
                 {
@@ -3224,7 +3224,7 @@ def app_search(
                 else [
                     {"title": "People", "detail": "Search names, roles, themes, or relationship signals.", "tag": "Kind"},
                     {"title": "Decisions and deadlines", "detail": "Search a board item, commitment, due task, or review object directly.", "tag": "Kind"},
-                    {"title": "Evidence and rules", "detail": "Search the explanation layer when you need to check why something happened.", "tag": "Kind"},
+                    {"title": "Context and rules", "detail": "Search the explanation layer when you need to check why something happened.", "tag": "Kind"},
                 ]
             ),
         },

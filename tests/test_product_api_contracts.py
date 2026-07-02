@@ -1751,7 +1751,7 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     assert result["status"] == "sent", result
     assert observed["message_principal_id"] == principal_id
     assert observed["photo_ref"] == "https://propertyquarry.com/tours/files/test-telegram-bundle/scene-01.png"
-    assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
+    assert "Full bundle ready: white-label 3D tour, flythrough video, and review PDF." in str(observed["message_text"])
     assert "Most important facts: 2 rooms · 48 m2 · EUR 1.095 · Floorplan" in str(observed["message_text"])
     flattened_buttons = [button for row in list(observed.get("url_buttons") or []) for button in row]
     assert not any(label == "Open 3D Control" for label, _url in flattened_buttons)
@@ -1898,7 +1898,7 @@ def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_p
 
     assert result["status"] == "sent", result
     assert observed["message_principal_id"] == principal_id
-    assert "Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF." in str(observed["message_text"])
+    assert "Full bundle ready: white-label 3D tour, flythrough video, and review PDF." in str(observed["message_text"])
     assert "video_principal_id" not in observed
     assert "document_principal_id" not in observed
 
@@ -2599,7 +2599,7 @@ def test_deliver_telegram_property_link_bundle_uses_hosted_control_and_direct_ma
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
     assert not any(label == "Open 3D Control" for label, _url in flattened)
     assert ("Open Walkthrough", "https://propertyquarry.com/tours/files/test-direct-targets/tour.mp4") in flattened
-    assert any(label == "Open Dossier PDF" for label, _url in flattened)
+    assert any(label == "Open Review PDF" for label, _url in flattened)
 
 
 def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_sending_assets(monkeypatch, tmp_path: Path) -> None:

@@ -694,7 +694,7 @@ def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tool
     assert "Preview furnished living" in body
     assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
-    assert "Attach the generated still to the PDF dossier" in body
+    assert "Attach the generated still to the review PDF" in body
     assert 'href="{{ object_feedback.get(\'profile_href\') or (\'/app/search\' ~ object_query_suffix) }}">Search brief</a>' in body
 
 
@@ -14066,7 +14066,7 @@ def test_property_delivery_rows_are_customer_outcomes_not_provider_receipts() ->
         for row in rows
     )
 
-    assert "Writing status: ready" in text
+    assert "Writing: ready" in text
     assert "Messages use titled links instead of long raw URLs." in text
     assert "2 review pages, 1 tour, 3 sent updates." in text
     assert "NeuronWriter" not in text
@@ -14089,7 +14089,7 @@ def test_property_artifact_rows_are_readiness_copy_not_receipt_jargon() -> None:
         for row in rows
     )
 
-    assert "Dossier PDF" in text
+    assert "Review PDF" in text
     assert "PDF output must be readable, clean, and free of internal status text." in text
     assert "Real tour links can be shown when available; fake cube viewers stay hidden." in text
     assert "Walkthrough videos stay request-only and must pass visual quality checks before delivery." in text

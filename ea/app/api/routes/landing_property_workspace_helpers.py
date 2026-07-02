@@ -1601,8 +1601,8 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
         writing_status = "ready"
     return [
         {
-            "title": f"Writing status: {writing_status}",
-            "detail": "Dossiers, review pages, and messages stay short, redacted, and tied to the facts already found.",
+            "title": f"Writing: {writing_status}",
+            "detail": "Pages, messages, and links stay short, private, and tied to the facts already found.",
             "tag": "Clean",
         },
         {

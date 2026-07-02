@@ -231,9 +231,9 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
     PropertySurface(
         key="premium_dossier",
         group="generated_artifacts",
-        label="Premium dossier PDF",
+        label="Premium review PDF",
         routes=("/app/api/properties/packets/:publication_id/pdf",),
-        artifacts=("premium dossier HTML", "premium dossier PDF", "appendix PDF"),
+        artifacts=("premium review HTML", "premium review PDF", "appendix PDF"),
     ),
     PropertySurface(
         key="floorplan_and_tour_control",

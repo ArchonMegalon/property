@@ -192,10 +192,10 @@
       </div>
       <div class="detail-row">
         <div>
-          <strong>Evidence</strong>
+          <strong>Signals</strong>
           <small>{{ detail.evidence_refs|length }} supporting refs are attached to this relationship view.</small>
         </div>
-        <div class="detail-tag">Proof</div>
+        <div class="detail-tag">Context</div>
       </div>
     </div>
     <form class="detail-form" method="post" action="/app/actions/people/{{ person.id }}/correct">
@@ -359,7 +359,7 @@
   </section>
 
   <section class="detail-section">
-    <div class="detail-kicker">Evidence</div>
+    <div class="detail-kicker">Context</div>
     <h2>Why the product surfaced this person</h2>
     <div class="detail-list">
       {% if detail.evidence_refs %}
@@ -367,16 +367,16 @@
         <div class="detail-row">
           <div>
             <strong>{{ ref.label }}</strong>
-            <small>{{ ref.note or ref.source_type or "Evidence is attached to this relationship." }}</small>
+            <small>{{ ref.note or ref.source_type or "Context is attached to this relationship." }}</small>
           </div>
-          <div class="detail-tag">{{ ref.source_type|replace("_", " ")|title or "Evidence" }}</div>
+          <div class="detail-tag">{{ ref.source_type|replace("_", " ")|title or "Context" }}</div>
         </div>
         {% endfor %}
       {% else %}
         <div class="detail-row">
           <div>
-            <strong>No evidence refs yet</strong>
-            <small>This relationship is present, but no explicit evidence refs have been projected yet.</small>
+            <strong>No context refs yet</strong>
+            <small>This relationship is present, but no explicit context refs have been projected yet.</small>
           </div>
           <div class="detail-tag">Empty</div>
         </div>

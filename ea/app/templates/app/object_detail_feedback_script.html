@@ -51,7 +51,7 @@
     if (!magicFitPreview) return;
     const imageUrl = String(scene?.image_url || '').trim();
     const summary = String(scene?.summary || '').trim();
-    const sceneType = String(scene?.scene_type || 'visual simulation').replaceAll('_', ' ');
+    const sceneType = String(scene?.scene_type || 'furnished preview').replaceAll('_', ' ');
     if (!imageUrl) {
       clearNode(magicFitPreview);
       return;
@@ -61,7 +61,7 @@
     row.className = 'object-row';
     const textWrap = document.createElement('div');
     appendTextNode(textWrap, 'strong', sceneType);
-    appendTextNode(textWrap, 'small', summary || 'Visual simulation ready for the dossier PDF.');
+    appendTextNode(textWrap, 'small', summary || 'Furnished preview ready for the review PDF.');
     row.appendChild(textWrap);
     appendTextNode(row, 'div', 'Ready').className = 'object-tag';
     magicFitPreview.appendChild(row);
@@ -73,7 +73,7 @@
     appendTextNode(
       magicFitPreview,
       'div',
-      'Visual simulation only. This is generated guidance for the decision dossier, not listing photography.',
+      'Furnished preview only. This is not listing photography.',
     ).className = 'object-copy';
   };
   const renderMagicFitReferenceList = () => {
@@ -234,7 +234,7 @@
       const evidenceRow = document.createElement('div');
       evidenceRow.className = 'object-row';
       const evidenceBody = document.createElement('div');
-      appendTextNode(evidenceBody, 'strong', row?.title || 'Evidence');
+      appendTextNode(evidenceBody, 'strong', row?.title || 'Detail');
       appendTextNode(evidenceBody, 'small', row?.detail || '');
       evidenceRow.appendChild(evidenceBody);
       appendTextNode(evidenceRow, 'div', row?.confidence || row?.source || '').className = 'object-tag';
@@ -432,7 +432,7 @@
     const includeChild = Boolean(root.querySelector('[data-object-magicfit-include-child]')?.checked);
     const childConsent = Boolean(root.querySelector('[data-object-magicfit-child-consent]')?.checked);
     const shareWithPacket = Boolean(root.querySelector('[data-object-magicfit-share]')?.checked);
-    if (magicFitStatus) magicFitStatus.textContent = 'Generating visual simulation...';
+    if (magicFitStatus) magicFitStatus.textContent = 'Creating furnished preview...';
     try {
       const response = await fetch(magicFitCreateEndpoint, {
         method: 'POST',
@@ -456,13 +456,13 @@
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(body.detail || 'Could not generate the visual simulation.'));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not create the furnished preview.'));
       payload.magic_fit_scene = body;
       renderMagicFitPreview(body);
       renderMagicFitReferenceList();
-      if (magicFitStatus) magicFitStatus.textContent = 'Visual simulation ready. The next dossier PDF render can include this still.';
+      if (magicFitStatus) magicFitStatus.textContent = 'Furnished preview ready. The next review PDF can include this still.';
     } catch (error) {
-      if (magicFitStatus) magicFitStatus.textContent = error instanceof Error ? error.message : 'Could not generate the visual simulation.';
+      if (magicFitStatus) magicFitStatus.textContent = error instanceof Error ? error.message : 'Could not create the furnished preview.';
     }
   });
   root.querySelectorAll('[data-object-clippy-prompt]').forEach((button) => {

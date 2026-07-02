@@ -32887,7 +32887,7 @@ class ProductService:
                 "pending_reasons": pending_reasons,
             }
         summary_lines = [title]
-        summary_lines.append("Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF.")
+        summary_lines.append("Full bundle ready: white-label 3D tour, flythrough video, and review PDF.")
         if fit_summary:
             summary_lines.append(fit_summary)
         elif fit_score > 0:
@@ -32990,7 +32990,7 @@ class ProductService:
                 second_row.append(("Open Walkthrough", deep_flythrough_url))
         safe_public_pdf_url = _autologin_button_url(public_pdf_url)
         if safe_public_pdf_url:
-            second_row.append(("Open Dossier PDF", safe_public_pdf_url))
+            second_row.append(("Open Review PDF", safe_public_pdf_url))
         if second_row:
             url_buttons.append(second_row[:2])
         third_row: list[tuple[str, str]] = []
@@ -43246,7 +43246,7 @@ class ProductService:
             limit=320,
         )
         prompt = (
-            f"Create a photorealistic interior lifestyle still for a property decision dossier. "
+            f"Create a photorealistic furnished preview for a property review. "
             f"Scene: {scene}. Room: {room}. Property: {title}. "
             f"Render the space fully staged, furnished, and coherent with the architecture. "
             f"Style: {style}. "

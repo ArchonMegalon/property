@@ -472,7 +472,7 @@
         : (body.email_delivery_status === 'failed'
           ? (body.verification_code
             ? `Email delivery is not configured cleanly on this host. Use code ${body.verification_code} to continue locally.`
-            : `Email delivery is not configured cleanly on this host yet. A verified sender is required before this flow can send mail.`)
+            : `Email delivery is not configured cleanly on this host yet. A checked sender is required before this flow can send mail.`)
           : (body.verification_code
             ? `Verification ready. Use code ${body.verification_code} or the magic link for ${body.email}.`
             : `Verification ready for ${body.email}. Continue with the code or magic link.`));

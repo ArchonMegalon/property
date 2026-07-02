@@ -180,7 +180,7 @@ def property_artifact_provider_lanes() -> tuple[PropertyArtifactProviderLane, ..
 def required_artifact_receipt_rows() -> tuple[dict[str, str], ...]:
     return (
         {
-            "title": "Dossier PDF",
+            "title": "Review PDF",
             "detail": "PDF output must be readable, clean, and free of internal status text.",
             "tag": "Required",
         },

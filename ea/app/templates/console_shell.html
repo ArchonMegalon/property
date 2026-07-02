@@ -1001,19 +1001,19 @@
 {% elif current_nav == 'evidence' %}
 <section class="console-support-grid">
   <section class="console-panel">
-    <div class="console-kicker">Evidence</div>
+    <div class="console-kicker">Context</div>
     <h2>{{ c0.title if c0 else console_title }}</h2>
     <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
     {% if c0 and c0['items'] %}
-      {{ rows(c0['items'], 'Evidence', 'These are the refs and signals currently shaping the current account view.') }}
+      {{ rows(c0['items'], 'Context', 'These are the refs and signals currently shaping the current account view.') }}
     {% endif %}
   </section>
   <section class="console-panel">
-    <div class="console-kicker">Evidence trail</div>
+    <div class="console-kicker">Context trail</div>
     <h2>{{ c1.title if c1 else 'Topics around those people' }}</h2>
     <p class="console-copy">{{ c1.body if c1 and c1.body else 'People and topics stay connected so commitment work makes sense on sight.' }}</p>
     {% if c1 and c1['items'] %}
-      {{ rows(c1['items'], 'Topic', 'This is the context that keeps the evidence attached to real office work.') }}
+      {{ rows(c1['items'], 'Topic', 'This is the context that keeps this account view attached to real office work.') }}
     {% endif %}
   </section>
 </section>
