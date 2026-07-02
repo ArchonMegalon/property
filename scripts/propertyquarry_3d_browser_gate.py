@@ -13,7 +13,7 @@ from typing import Any
 
 
 DEFAULT_DEMO_SLUG = "luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557"
-DEFAULT_PROVIDERS = ("matterport",)
+DEFAULT_PROVIDERS = ("matterport", "3dvista")
 FAILURE_PATTERNS = (
     "violates the following content security policy",
     "refused to display",

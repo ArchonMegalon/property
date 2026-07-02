@@ -66,6 +66,30 @@ def _write_equirectangular_image(path: Path) -> None:
     image.save(path, format="JPEG")
 
 
+def _clean_3dvista_proof() -> dict[str, object]:
+    return {
+        "three_d_vista_white_label_proof": {
+            "source_project": "propertyquarry",
+            "private_viewer_verified": True,
+            "non_trial_export_verified": True,
+            "propertyquarry_tour_metadata": True,
+            "trial_branding_checked": True,
+            "trial_branding_present": False,
+        },
+        "three_d_vista_browser_render_proof": {
+            "provider": "3dvista",
+            "status": "pass",
+            "rendered_viewer": True,
+        },
+    }
+
+
+def _clean_3dvista_private_viewer_proof() -> dict[str, object]:
+    proof = _clean_3dvista_proof()
+    proof.pop("three_d_vista_browser_render_proof", None)
+    return proof
+
+
 def test_best_tour_root_prefers_fresher_runtime_snapshot(tmp_path: Path) -> None:
     sparse = tmp_path / "sparse"
     rich = tmp_path / "rich"
@@ -183,7 +207,7 @@ def test_property_tour_control_verifier_cli_loads_krpano_license_defaults(
 
 
 def test_property_tour_control_verifier_accepts_private_receipt_3dvista_without_url_leak(tmp_path: Path) -> None:
-    _write_tour(tmp_path, "private-3dvista", {})
+    _write_tour(tmp_path, "private-3dvista", _clean_3dvista_proof())
     private_receipt = tmp_path / "private-3dvista" / "tour.private.json"
     private_receipt.write_text(
         json.dumps({"three_d_vista_url": "https://example.3dvista.com/tours/PRIVATE3D/index.html"}),
@@ -357,7 +381,7 @@ def test_property_tour_control_verifier_reports_all_verified_provider_modes(
     _write_tour(
         tmp_path,
         "3dvista-tour",
-        {"three_d_vista_entry_relpath": "3dvista/index.html"},
+        {"three_d_vista_entry_relpath": "3dvista/index.html", **_clean_3dvista_proof()},
         {
             "3dvista/index.html": "<html><script src='runtime/app.js'></script><div>3DVista shell</div></html>",
             "3dvista/runtime/app.js": "window.TDVPlayer = true;",
@@ -414,7 +438,7 @@ def test_property_tour_control_verifier_does_not_count_failed_live_probe_as_read
     _write_tour(
         tmp_path,
         "3dvista-tour",
-        {"three_d_vista_entry_relpath": "3dvista/index.html"},
+        {"three_d_vista_entry_relpath": "3dvista/index.html", **_clean_3dvista_private_viewer_proof()},
         {"3dvista/index.html": "<html><script src='tdvplayer.js'></script><div>tourviewer</div></html>"},
     )
 
@@ -434,6 +458,61 @@ def test_property_tour_control_verifier_does_not_count_failed_live_probe_as_read
     assert "3dvista" not in receipt["ready_provider_modes"]
     assert "3dvista" in receipt["missing_provider_modes"]
     assert receipt["tours"][0]["controls"][0]["status"] == "probe_failed"
+
+
+def test_property_tour_control_verifier_rejects_wrong_provider_live_probe_marker(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_tour(
+        tmp_path,
+        "3dvista-tour",
+        {"three_d_vista_entry_relpath": "3dvista/index.html", **_clean_3dvista_private_viewer_proof()},
+        {"3dvista/index.html": "<html><script src='tdvplayer.js'></script><div>tourviewer</div></html>"},
+    )
+
+    def _wrong_provider_probe(*_args, **_kwargs) -> dict[str, object]:
+        return {"http_status": 200, "body_markers": {"matterport": True, "3dvista": False}}
+
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _wrong_provider_probe)
+
+    receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+    )
+
+    assert receipt["status"] == "fail"
+    assert receipt["provider_counts"]["3dvista"] == 0
+    assert "3dvista" not in receipt["ready_provider_modes"]
+    assert receipt["tours"][0]["controls"][0]["status"] == "probe_failed"
+
+
+def test_property_tour_control_verifier_counts_successful_3dvista_live_probe(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_tour(
+        tmp_path,
+        "3dvista-tour",
+        {"three_d_vista_entry_relpath": "3dvista/index.html", **_clean_3dvista_private_viewer_proof()},
+        {"3dvista/index.html": "<html><script src='tdvplayer.js'></script><div>tourviewer</div></html>"},
+    )
+
+    def _successful_3dvista_probe(*_args, **_kwargs) -> dict[str, object]:
+        return {"http_status": 200, "body_markers": {"3dvista": True}}
+
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _successful_3dvista_probe)
+
+    receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["provider_counts"]["3dvista"] == 1
+    assert receipt["ready_provider_modes"] == ["3dvista"]
 
 
 def test_property_tour_control_verifier_rejects_magicfit_placeholder_video(tmp_path: Path) -> None:

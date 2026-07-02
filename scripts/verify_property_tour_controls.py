@@ -263,6 +263,44 @@ def _three_d_vista_white_label_evidence(payload: dict[str, object]) -> dict[str,
     }
 
 
+def _three_d_vista_private_viewer_ready(payload: dict[str, object]) -> bool:
+    raw_payload = payload.get("three_d_vista_white_label_proof")
+    proof_payload = raw_payload if isinstance(raw_payload, dict) else {}
+    evidence = _three_d_vista_white_label_evidence(payload)
+    return (
+        evidence.get("source_project") == "propertyquarry"
+        and bool(evidence.get("private_viewer_verified"))
+        and bool(evidence.get("non_trial_export_verified"))
+        and bool(evidence.get("propertyquarry_tour_metadata"))
+        and bool(evidence.get("trial_branding_checked"))
+        and not _truthy(proof_payload.get("trial_branding_present"))
+    )
+
+
+def _three_d_vista_browser_render_ready(payload: dict[str, object]) -> bool:
+    for key in (
+        "three_d_vista_browser_render_proof",
+        "threedvista_browser_render_proof",
+        "3dvista_browser_render_proof",
+        "browser_render_proof",
+    ):
+        proof = payload.get(key)
+        if not isinstance(proof, dict):
+            continue
+        provider = str(proof.get("provider") or proof.get("viewer_provider") or "3dvista").strip().lower()
+        if provider not in {"3dvista", "3d_vista", "three_d_vista"}:
+            continue
+        status = str(proof.get("status") or proof.get("result") or "").strip().lower()
+        if status not in {"pass", "ready", "rendered"}:
+            continue
+        if _truthy(proof.get("rendered_viewer") or proof.get("viewer_rendered") or proof.get("browser_rendered")):
+            return True
+        checks = list(proof.get("checks") or [])
+        if checks and all(isinstance(row, dict) and row.get("ok") is True for row in checks):
+            return True
+    return False
+
+
 def _three_d_vista_cross_project_warning(source_projects: set[str]) -> str:
     non_property_projects = sorted(
         project for project in source_projects if project and project != "propertyquarry"
@@ -642,6 +680,22 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
             reason = "missing_3dvista_export"
             action = "run import_3dvista_export.py with a verified 3DVista export or add an allowlisted 3dvista.com URL"
         rows.append({"provider": "3dvista", "reason": reason, "action": action})
+    elif not _three_d_vista_private_viewer_ready(payload):
+        rows.append(
+            {
+                "provider": "3dvista",
+                "reason": "3dvista_private_viewer_proof_missing",
+                "action": "attach PropertyQuarry private-viewer proof before exposing the 3DVista control route",
+            }
+        )
+    elif not _three_d_vista_browser_render_ready(payload):
+        rows.append(
+            {
+                "provider": "3dvista",
+                "reason": "3dvista_browser_render_proof_missing",
+                "action": "live-probe the 3DVista control route in a browser and persist a passing render proof",
+            }
+        )
 
     pano2vr_entry = _pano2vr_entry_relpath(payload)
     pano2vr_entry_ready = _local_html_asset_has_marker(
@@ -734,11 +788,13 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
         three_d_vista_entry,
         markers=THREE_D_VISTA_FORBIDDEN_PREMIUM_MARKERS,
     )
-    if three_d_vista_url or (three_d_vista_entry_ready and not three_d_vista_trial_branded):
+    three_d_vista_private_ready = _three_d_vista_private_viewer_ready(payload)
+    three_d_vista_browser_ready = _three_d_vista_browser_render_ready(payload)
+    if three_d_vista_private_ready and (three_d_vista_url or (three_d_vista_entry_ready and not three_d_vista_trial_branded)):
         rows.append(
             {
                 "provider": "3dvista",
-                "status": "ready",
+                "status": "ready" if three_d_vista_browser_ready else "probe_required",
                 "control_path": f"/tours/{slug}/control/3dvista",
                 "evidence": "allowlisted_3dvista_url" if three_d_vista_url else "local_3dvista_export_entry",
             }
@@ -920,13 +976,18 @@ def _probe_url(url: str, *, timeout_seconds: float, provider: str = "") -> dict[
                     "ffprobe": ffprobe_markers,
                 }
             body = response.read(80_000).decode("utf-8", errors="replace")
-            generic_3d_control_ready = "3D Tour" in body and "Load 3D tour" in body
+            body_lower = body.lower()
+            has_3d_shell = "3d tour" in body_lower
             return {
                 "http_status": int(getattr(response, "status", 0) or 0),
                 "body_markers": {
-                    "matterport": generic_3d_control_ready,
-                    "3dvista": generic_3d_control_ready,
-                    "pano2vr": generic_3d_control_ready,
+                    "matterport": has_3d_shell and "my.matterport.com/show/" in body_lower,
+                    "3dvista": has_3d_shell
+                    and (
+                        "/tours/3dvista/" in body_lower
+                        or "3dvista.com" in body_lower
+                    ),
+                    "pano2vr": has_3d_shell and "/tours/pano2vr/" in body_lower,
                     "krpano": "krpano" in body and "krpano-license" in body,
                 },
             }
@@ -984,7 +1045,9 @@ def build_property_tour_control_receipt(
                 control["probe"] = probe
                 playback_markers = dict(probe.get("playback_markers") or {})
                 playback_failed = bool(playback_markers) and not all(bool(value) for value in playback_markers.values())
-                if int(probe.get("http_status") or 0) != 200 or playback_failed:
+                body_markers = dict(probe.get("body_markers") or {})
+                marker_failed = bool(body_markers) and provider in body_markers and not bool(body_markers.get(provider))
+                if int(probe.get("http_status") or 0) != 200 or playback_failed or marker_failed:
                     control["status"] = "probe_failed"
                     failed_probes += 1
                 elif str(control.get("status") or "").strip().lower() == "probe_required":

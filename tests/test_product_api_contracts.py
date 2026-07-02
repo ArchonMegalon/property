@@ -26042,7 +26042,7 @@ def test_public_tour_control_supports_3dvista_same_tour_layer_state() -> None:
     assert 'data-provider-layer="as_listed"' in html
     assert 'data-provider-layer="lived_in"' in html
     assert "https://client.3dvista.com/tours/top22/index.html?startmedia=lived_in&amp;skin=staged#scene=living-room" in html
-    assert "Staged layer" in html
+    assert "Styled view." in html
 
 
 def test_public_tour_control_rejects_matterport_lookalike_domain() -> None:

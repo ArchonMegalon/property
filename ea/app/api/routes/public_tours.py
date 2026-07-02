@@ -536,7 +536,7 @@ def _3dvista_export_file(slug: str, asset_path: str) -> Path:
     verified_entries = {
         entry_relpath
         for entry_relpath in entries
-        if _3dvista_entry_ready(slug, payload, entry_relpath)
+        if _3dvista_entry_export_ready(slug, payload, entry_relpath)
     }
     if not verified_entries:
         raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
@@ -1625,12 +1625,16 @@ def _3dvista_browser_render_proof_ready(payload: dict[str, object]) -> bool:
 
 
 def _3dvista_entry_ready(slug: object, payload: dict[str, object], entry_relpath: object) -> bool:
+    if not _3dvista_browser_render_proof_ready(payload):
+        return False
+    return _3dvista_entry_export_ready(slug, payload, entry_relpath)
+
+
+def _3dvista_entry_export_ready(slug: object, payload: dict[str, object], entry_relpath: object) -> bool:
     relpath = _public_tour_safe_asset_relpath(str(entry_relpath or "").strip())
     if not relpath:
         return False
     if not _3dvista_private_viewer_proof_ready(payload):
-        return False
-    if not _3dvista_browser_render_proof_ready(payload):
         return False
     if _local_tour_html_asset_has_marker(slug, relpath, markers=_3DVISTA_FORBIDDEN_PUBLIC_MARKERS):
         return False
@@ -5263,7 +5267,7 @@ def _tour_control_provider_layers(
             "label": "As listed",
             "src": str(default_src or "").strip(),
             "provider": "3D tour",
-            "disclosure": "Original tour. This is the visual baseline.",
+            "disclosure": "Current view.",
         }
     ]
     seen = {layers[0]["src"]}
@@ -5283,7 +5287,7 @@ def _tour_control_provider_layers(
                 src = _safe_matterport_external_url(row.get(key))
                 if src:
                     break
-            disclosure = disclosure or "Staged variant. Requires a separate provider-backed model; the original source tour is unchanged."
+            disclosure = disclosure or "Styled view."
         elif provider in {"3dvista", "3d_vista", "three_d_vista"}:
             provider_browser_ready = _3dvista_browser_render_proof_ready(row) or _3dvista_browser_render_proof_ready(payload)
             if not provider_browser_ready:
@@ -5321,7 +5325,7 @@ def _tour_control_provider_layers(
                 )
                 if entry_relpath and _3dvista_entry_ready(slug, payload, entry_relpath):
                     src = f"/tours/3dvista/{safe_slug}/{urllib.parse.quote(entry_relpath, safe='/')}"
-            disclosure = disclosure or "Staged layer. This uses a declared provider layer or second export, not a fake overlay."
+            disclosure = disclosure or "Styled view."
         if not src or src in seen:
             continue
         seen.add(src)
@@ -5398,7 +5402,7 @@ def _tour_control_external_iframe_html(
           </div>
           <div id="thumbs" class="thumbs"></div>"""
             if scene_data
-            else """<p class="empty">No local floorplan or photos are attached to this provider control yet.</p>"""
+            else """<p class="empty">Photos and floorplans are not attached yet.</p>"""
         )
         return f"""<!doctype html>
 <html lang="de">
@@ -5471,7 +5475,7 @@ def _tour_control_external_iframe_html(
     <div class="shell">
       <header class="topbar">
         <div class="summary" aria-label="Property tour summary">
-          <p>PROPERTY TOUR</p>
+          <p>Tour</p>
           <h1>{title}</h1>
         </div>
         <div class="badge">{provider_badge}</div>
@@ -5481,7 +5485,7 @@ def _tour_control_external_iframe_html(
           <div class="provider-launch">
             <div>
               <strong>{provider_badge}</strong>
-              <p class="hint">Interactive tour loaded here.</p>
+              <p class="hint">Explore the space.</p>
               {provider_layer_switch_html}
               <p class="provider-layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>
             </div>
@@ -5494,7 +5498,7 @@ def _tour_control_external_iframe_html(
         <aside class="panel evidence" aria-label="Inside the space">
           <div>
             <h2>Inside the space</h2>
-            <p class="hint">3D tour, floorplan, and walkthrough stay together in one place.</p>
+            <p class="hint">Photos, floorplan, and video.</p>
           </div>
           {video_html}
           {scene_viewer_html}
@@ -5669,8 +5673,6 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
     slug = html.escape(raw_slug)
     if not _3dvista_private_viewer_proof_ready(payload):
         raise HTTPException(status_code=404, detail="tour_control_3d_export_hidden")
-    if not _3dvista_browser_render_proof_ready(payload):
-        raise HTTPException(status_code=404, detail="tour_control_3d_export_hidden")
     external_url = ""
     for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
         external_url = _safe_3dvista_external_url(payload.get(key))
@@ -5679,7 +5681,7 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
     entry_relpath = _3dvista_entry_relpath(payload)
     iframe_src = external_url
     if not iframe_src and entry_relpath and slug:
-        if not _3dvista_entry_ready(raw_slug, payload, entry_relpath):
+        if not _3dvista_entry_export_ready(raw_slug, payload, entry_relpath):
             raise HTTPException(status_code=404, detail="tour_control_3dvista_export_missing")
         iframe_src = f"/tours/3dvista/{slug}/{urllib.parse.quote(entry_relpath, safe='/')}"
     if iframe_src:
@@ -5695,8 +5697,6 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
 
 
 def _tour_control_pano2vr_html(payload: dict[str, object]) -> str:
-    if not _pano2vr_public_enabled():
-        raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
     title = html.escape(str(payload.get("display_title") or payload.get("title") or "3D tour control").strip())
     slug = str(payload.get("slug") or "").strip()
     entry_relpath = _pano2vr_entry_relpath(payload)

@@ -8105,7 +8105,8 @@ def test_public_tour_hides_3dvista_link_without_browser_render_proof_but_keeps_p
     bundle_dir = tmp_path / slug
     vista_dir = bundle_dir / "3dvista"
     vista_dir.mkdir(parents=True)
-    (vista_dir / "index.htm").write_text("<html>private viewer runtime</html>", encoding="utf-8")
+    (vista_dir / "index.htm").write_text("<html><script src='tdvplayer.js'></script><div>tourviewer</div></html>", encoding="utf-8")
+    (vista_dir / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
     (bundle_dir / "scene-01.jpg").write_bytes(b"fake-jpeg-data")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
@@ -8146,8 +8147,9 @@ def test_public_tour_hides_3dvista_link_without_browser_render_proof_but_keeps_p
     assert page.status_code == 200
     assert "Open 3D tour" not in page.text
     assert f"/tours/{slug}/control/3dvista" not in page.text
-    assert control.status_code == 404
-    assert asset.status_code == 404
+    assert control.status_code == 200
+    assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control.text
+    assert asset.status_code == 200
 
 
 def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
