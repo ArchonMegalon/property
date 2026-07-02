@@ -363,6 +363,7 @@
                 `;
               }).join('')}
             </div>
+            <p class="pqx-visual-style-current" data-pqx-visual-style-current>${escapeHtml(selectedFurnitureStyleLabel())} selected</p>
             <div class="pqx-visual-style-actions">
               <button class="pqx-button" type="button" data-pqx-visual-style-cancel>Cancel</button>
               <button class="pqx-button pqx-primary" type="button" data-pqx-visual-style-confirm>Continue</button>
@@ -396,6 +397,7 @@
         .pqx-visual-style-option strong,.pqx-visual-style-option small{display:block}
         .pqx-visual-style-option strong{font-size:.9rem;line-height:1.15}
         .pqx-visual-style-option small{margin-top:3px;color:var(--text-soft);font-size:.76rem;line-height:1.25}
+        .pqx-visual-style-current{margin:0;min-height:34px;padding:8px 10px;border:1px solid color-mix(in srgb,var(--gold,#b88a2b) 32%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--gold,#b88a2b) 9%,var(--panel));color:var(--text);font-size:.82rem;font-weight:760}
         .pqx-visual-style-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
         @media(max-width:760px){.pqx-visual-style-dialog{width:calc(100vw - 12px);max-width:calc(100vw - 12px);margin:auto 6px max(6px,env(safe-area-inset-bottom,0px))}.pqx-visual-style-card{max-height:calc(100svh - 18px);overflow-y:auto;padding:12px}.pqx-visual-style-head p{display:none}.pqx-visual-style-options{grid-template-columns:1fr}.pqx-visual-style-option{min-height:58px;padding-right:84px}}
       `;
@@ -403,10 +405,11 @@
       document.body.appendChild(visualStyleDialog);
       const updateConfirmLabel = (requestKind = 'tour') => {
         const confirm = visualStyleDialog?.querySelector('[data-pqx-visual-style-confirm]');
-        if (!confirm) return;
+        const current = visualStyleDialog?.querySelector('[data-pqx-visual-style-current]');
         const action = String(requestKind || '').trim().toLowerCase() === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour';
         const styleLabel = selectedFurnitureStyleLabel();
-        confirm.textContent = styleLabel ? `${action} · ${styleLabel}` : action;
+        if (confirm) confirm.textContent = styleLabel ? `${action} · ${styleLabel}` : action;
+        if (current) current.textContent = styleLabel ? `${styleLabel} selected` : 'Style selected';
       };
       visualStyleDialog.querySelectorAll('[data-pqx-visual-style-option]').forEach((button) => {
         button.addEventListener('click', () => {
@@ -417,6 +420,11 @@
             option.classList.toggle('is-selected', isSelected);
             option.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
           });
+          try {
+            button.focus({ preventScroll: true });
+          } catch (_error) {
+            button.focus();
+          }
           updateConfirmLabel(visualStyleDialog?.getAttribute('data-pqx-visual-style-kind') || 'tour');
           setVisualRequestStatus(`${selectedFurnitureStyleLabel()} selected.`);
         });

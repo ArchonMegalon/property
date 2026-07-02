@@ -2225,6 +2225,8 @@ def test_propertyquarry_workbench_asks_for_furniture_style_at_visual_request_tim
     assert "Only this generated visual changes. Your search brief stays as it is." in script
     assert "normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour'" in script
     assert "data-pqx-visual-style-selected-label" in script
+    assert "data-pqx-visual-style-current" in script
+    assert "${styleLabel} selected" in script
     assert "Choose a style for this" in script
     assert "${action} · ${styleLabel}" in script
     research = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")

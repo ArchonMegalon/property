@@ -34962,6 +34962,11 @@ class ProductService:
                             candidate_row["flythrough_repair_queued_at"] = str(visual_state.get("flythrough_repair_queued_at") or "").strip()
                         if "flythrough_repair_started_at" in visual_state:
                             candidate_row["flythrough_repair_started_at"] = str(visual_state.get("flythrough_repair_started_at") or "").strip()
+                        if "diorama_style_hint" in visual_state:
+                            candidate_row["diorama_style_hint"] = _compact_diorama_style_hint(
+                                str(visual_state.get("diorama_style_hint") or ""),
+                                max_length=180,
+                            )
                         mutated = True
                     updated_candidates.append(candidate_row)
                 source[key] = updated_candidates
@@ -35070,6 +35075,10 @@ class ProductService:
                 "flythrough_status": str(candidate_row.get("flythrough_status") or "").strip().lower(),
                 "flythrough_reason": str(candidate_row.get("flythrough_reason") or "").strip(),
                 "blocked_reason": str(candidate_row.get("blocked_reason") or "").strip(),
+                "diorama_style_hint": _compact_diorama_style_hint(
+                    str(candidate_row.get("diorama_style_hint") or ""),
+                    max_length=180,
+                ),
             }
 
         for candidate in list(summary.get("ranked_candidates") or []):
@@ -36191,6 +36200,11 @@ class ProductService:
                 if isinstance(getattr(latest_followup, "returned_payload_json", None), dict)
                 else {}
             )
+            followup_input = (
+                dict(getattr(latest_followup, "input_json", {}) or {})
+                if isinstance(getattr(latest_followup, "input_json", None), dict)
+                else {}
+            )
             followup_status = str(getattr(latest_followup, "status", "") or "").strip().lower()
             followup_resolution = str(getattr(latest_followup, "resolution", "") or "").strip().lower()
             created_at = str(getattr(latest_followup, "created_at", "") or "").strip()
@@ -36234,6 +36248,10 @@ class ProductService:
                     or followup_payload.get("detail")
                     or ""
                 ).strip(),
+                "diorama_style_hint": _compact_diorama_style_hint(
+                    str(followup_payload.get("diorama_style_hint") or followup_input.get("diorama_style_hint") or ""),
+                    max_length=180,
+                ),
             }
 
         tour_url = str(matched_candidate.get("tour_url") or "").strip()
@@ -36297,6 +36315,10 @@ class ProductService:
                 blocked_reason = live_progress_reason
         if live_progress_updated_at:
             request_status_updated_at = live_progress_updated_at
+        visual_style_hint = _compact_diorama_style_hint(
+            str(matched_candidate.get("diorama_style_hint") or ""),
+            max_length=180,
+        )
         latest_followup = self._latest_property_tour_followup(
             principal_id=normalized_principal,
             property_url=str(matched_candidate.get("property_url") or normalized_property_url).strip(),
@@ -36311,6 +36333,16 @@ class ProductService:
                 if isinstance(getattr(latest_followup, "returned_payload_json", None), dict)
                 else {}
             )
+            followup_input = (
+                dict(getattr(latest_followup, "input_json", {}) or {})
+                if isinstance(getattr(latest_followup, "input_json", None), dict)
+                else {}
+            )
+            if not visual_style_hint:
+                visual_style_hint = _compact_diorama_style_hint(
+                    str(followup_payload.get("diorama_style_hint") or followup_input.get("diorama_style_hint") or ""),
+                    max_length=180,
+                )
             if followup_status in {"returned", "completed"} and followup_resolution:
                 request_status_updated_at = str(getattr(latest_followup, "updated_at", "") or "").strip() or request_status_updated_at
                 followup_reason = str(
@@ -36529,6 +36561,7 @@ class ProductService:
             "poll_after_seconds": 10 if status_value == "repairing" or _property_tour_status_is_pending(status_value) else 0,
             "tour_media_mode": "stored_visual_state",
             "personal_fit_assessment": {},
+            "diorama_style_hint": visual_style_hint,
         }
 
     def _maybe_advance_property_search_run_finalization(

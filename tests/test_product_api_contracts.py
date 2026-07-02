@@ -14087,6 +14087,9 @@ def test_property_visual_status_falls_back_to_followup_when_run_candidate_identi
                 "status_label": "3D tour queued",
                 "status_detail": "Queued. This page updates automatically.",
             },
+            input_json={
+                "diorama_style_hint": "urban jungle staging with plants",
+            },
         ),
     )
     monkeypatch.setattr(ProductService, "_repair_stalled_property_visual_request", lambda self, **kwargs: False)
@@ -14100,11 +14103,12 @@ def test_property_visual_status_falls_back_to_followup_when_run_candidate_identi
         property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/queued-fallback",
     )
 
-    assert body["status"] in {"pending", "queued", "processing"}
-    assert body["status_label"] in {"3D tour queued", "3D tour rendering"}
+    assert body["status"] in {"pending", "queued", "processing", "repairing"}
+    assert body["status_label"] in {"3D tour queued", "3D tour rendering", "3D tour in progress"}
     assert body["status_detail"] != "No media request is open for this home yet."
     assert body["poll_after_seconds"] == 10
     assert body["property_url"] == "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/queued-fallback"
+    assert body["diorama_style_hint"] == "urban jungle staging with plants"
 
 
 def test_property_visual_request_queue_preserves_original_requested_timestamp(monkeypatch) -> None:
