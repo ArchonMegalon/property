@@ -323,7 +323,7 @@ PUBLIC_TRUST_PAGES = {
         "band": (
             {
                 "title": "Run problems",
-                "body": "Include the run ID, source label, candidate title, and what looked wrong: area, listing mode, price, media, packet, or repair status.",
+                "body": "Include the run ID, source label, candidate title, and what looked wrong: area, listing mode, price, media, review file, or repair status.",
             },
             {
                 "title": "Data requests",
