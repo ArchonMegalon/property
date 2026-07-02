@@ -40,6 +40,42 @@ DEFAULT_BILLING_WORKER_ROUTES = (
     ("/account/upgrade", "https://propertyquarry.com/pricing", "pricing-redirect"),
 )
 
+PUBLIC_HTML_ROUTES = {
+    "/",
+    "/security",
+    "/pricing",
+    "/privacy",
+    "/terms",
+    "/support",
+    "/imprint",
+    "/cookies",
+    "/subprocessors",
+    "/refunds",
+    "/disclaimers",
+    "/register",
+    "/sign-in",
+    "/app/properties",
+}
+
+FORBIDDEN_VISIBLE_INTERNAL_COPY = (
+    "current best so far",
+    "decision support",
+    "dossier",
+    "evidence",
+    "magic fit",
+    "magicfit",
+    "no source completed",
+    "packet",
+    "proof",
+    "provider webpage",
+    "release checks",
+    "run ranking",
+    "source completed",
+    "source trail",
+    "suppressed_generic_listing_page",
+    "verified",
+)
+
 
 def _compact_snippet(text: str, *, limit: int = 180) -> str:
     return re.sub(r"\s+", " ", str(text or "")[:limit]).strip()
@@ -147,6 +183,14 @@ def fetch_url(url: str, *, timeout_seconds: float, follow_redirects: bool = True
 def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> list[tuple[str, bool]]:
     checks: list[tuple[str, bool]] = []
     visible_text = _visible_text(text)
+    lowered_visible = visible_text.lower()
+    if path in PUBLIC_HTML_ROUTES:
+        checks.append(
+            (
+                "no_visible_internal_proof_copy",
+                not any(term in lowered_visible for term in FORBIDDEN_VISIBLE_INTERNAL_COPY),
+            )
+        )
     if path in {
         "/",
         "/security",
@@ -171,7 +215,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
         )
     if path == "/":
         checks.append(("home_has_main_copy", "Search once. See the right homes. Decide faster." in text))
-        checks.append(("home_no_visible_proof_noise", "proof" not in visible_text.lower()))
+        checks.append(("home_no_visible_proof_noise", "proof" not in lowered_visible))
         checks.append(("home_no_legacy_proof_component", "pq-proof" not in text.lower()))
     elif path == "/security":
         checks.extend(
@@ -197,7 +241,6 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             )
         )
     elif path == "/sign-in":
-        lowered_visible = visible_text.lower()
         google_active = 'href="/sign-in/google"' in text and "Continue with Google" in text
         google_unavailable = 'href="/sign-in/google"' not in text and "Google unavailable" in text
         facebook_active = 'href="/sign-in/facebook"' in text and "Continue with Facebook" in text

@@ -161,7 +161,7 @@ PRICING_TIERS = (
 )
 
 DOC_LINKS = (
-    {"title": "Docs", "href": "/docs", "body": "Product references for search, ranking, evidence, sharing, and account setup."},
+    {"title": "Docs", "href": "/docs", "body": "Product references for search, ranking, checks, sharing, and account setup."},
     {"title": "Integrations", "href": "/integrations", "body": "Connection details for Google identity, notifications, and later delivery options."},
     {"title": "Support", "href": "/support", "body": "Help for failed runs, wrong-area matches, missing facts, billing, and deletion requests."},
 )
@@ -172,7 +172,7 @@ PUBLIC_TRUST_PAGES = {
         "nav": "privacy",
         "title": "Privacy",
         "kicker": "Data protection",
-        "summary": "PropertyQuarry keeps search preferences, listing evidence, generated media, and shared links scoped to the property decision they support.",
+        "summary": "PropertyQuarry keeps search preferences, listing context, generated media, and shared links scoped to the property decision they support.",
         "band": (
             {
                 "title": "Data stays contextual",
@@ -180,14 +180,14 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "title": "Sharing is explicit",
-                "body": "Public packet and tour links are separate publication events. They should expose only the redacted manifest needed for review.",
+                "body": "Shared property pages and tour links are separate publication events. They should expose only the redacted details needed for review.",
             },
         ),
         "sections": (
             {
                 "eyebrow": "Account data",
                 "title": "What the product stores",
-                "body": "The app can store account identity, saved search preferences, run history, shortlist decisions, feedback, generated packets, tour history, and delivery settings.",
+                "body": "The app can store account identity, saved search preferences, run history, shortlist decisions, feedback, generated review files, tour history, and delivery settings.",
                 "items": (
                     "Exact addresses, documents, and internal source URLs stay private unless a user explicitly shares a redacted page or file.",
                     "Preference learning is used to improve ranking for the account and must stay separable from cross-customer analytics.",
@@ -212,7 +212,7 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "question": "Can a shared tour reveal the original listing URL?",
-                "answer": "Public tours should use a narrow public manifest. Private listing URLs and exact-location evidence stay out of public tour files.",
+                "answer": "Public tours should use a narrow public manifest. Private listing URLs and exact-location details stay out of public tour files.",
             },
         ),
     },
@@ -239,7 +239,7 @@ PUBLIC_TRUST_PAGES = {
                 "body": "Users should provide truthful search settings, respect provider rights, and verify important facts before contacting, renting, buying, or investing.",
                 "items": (
                     "Do not use the product to bypass provider access restrictions or scrape at abusive volume.",
-                    "Do not publish private packets, documents, or generated media without the rights to do so.",
+                    "Do not publish private pages, documents, or generated media without the rights to do so.",
                     "Do not rely on generated visuals as measured floorplans or construction documentation.",
                 ),
             },
@@ -257,7 +257,7 @@ PUBLIC_TRUST_PAGES = {
         "faqs": (
             {
                 "question": "Is a score a recommendation to buy or rent?",
-                "answer": "No. A score is a ranking signal based on the current brief and available evidence. The final decision remains with the user.",
+                "answer": "No. A score is a ranking signal based on the current brief and available listing details. The final decision remains with the user.",
             },
             {
                 "question": "Can generated tours replace a viewing?",
@@ -310,7 +310,7 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "question": "Where should urgent data or wrong-area issues go?",
-                "answer": "Use Support and include the affected URL or run ID. That gives the repair workflow enough evidence to reproduce the issue.",
+                "answer": "Use Support and include the affected URL or run ID. That gives the repair workflow enough detail to reproduce the issue.",
             },
         ),
     },
@@ -458,7 +458,7 @@ PUBLIC_TRUST_PAGES = {
         "nav": "disclaimers",
         "title": "Disclaimers",
         "kicker": "Generated and inferred content",
-        "summary": "Generated visuals, summaries, scores, and investment views are evidence-linked aids. They are not replacements for official documents or professional advice.",
+        "summary": "Generated visuals, summaries, scores, and investment views are decision aids. They are not replacements for official documents or professional advice.",
         "band": (
             {
                 "title": "Generated visualization",
@@ -471,9 +471,9 @@ PUBLIC_TRUST_PAGES = {
         ),
         "sections": (
             {
-                "eyebrow": "Evidence",
+                "eyebrow": "Checks",
                 "title": "Check before deciding",
-                "body": "PropertyQuarry should show uncertainty, missing facts, source trail, and repair status so users can decide what still needs manual review.",
+                "body": "PropertyQuarry should show uncertainty, missing facts, and repair status so users can decide what still needs manual review.",
                 "items": (
                     "Verify price, operating costs, availability, and eligibility with the provider.",
                     "Verify legal, financial, tax, zoning, and construction questions with qualified professionals.",

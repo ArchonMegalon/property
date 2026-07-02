@@ -96,6 +96,8 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
 
     assert receipt["status"] == "pass"
     assert receipt["failed_count"] == 0
+    rows = {row["path"]: row for row in receipt["checks"]}
+    assert any(check["name"] == "no_visible_internal_proof_copy" and check["ok"] is True for check in rows["/privacy"]["checks"])
 
 
 def test_live_public_smoke_checks_billing_worker_redirects_without_network() -> None:
@@ -207,6 +209,22 @@ def test_live_public_smoke_fails_legacy_home_proof_component_without_network() -
     row = receipt["checks"][0]
     assert row["path"] == "/"
     assert any(check["name"] == "home_no_legacy_proof_component" and check["ok"] is False for check in row["checks"])
+
+
+def test_live_public_smoke_fails_visible_internal_copy_on_public_routes_without_network() -> None:
+    receipt = build_live_public_smoke_receipt(
+        routes=("/privacy",),
+        fetcher=lambda url, _timeout: _fake_response(
+            "PropertyQuarry Privacy Public tours should use a narrow public manifest. "
+            "Listing evidence and packet proof should stay visible here.",
+            final_url=url,
+        ),
+    )
+
+    assert receipt["status"] == "fail"
+    row = receipt["checks"][0]
+    assert row["path"] == "/privacy"
+    assert any(check["name"] == "no_visible_internal_proof_copy" and check["ok"] is False for check in row["checks"])
 
 
 def test_live_public_smoke_fails_weak_pwa_manifest_without_network() -> None:
