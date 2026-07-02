@@ -593,6 +593,20 @@ def _magicfit_local_video_ready(bundle_dir: Path, payload: dict[str, object]) ->
     return _magicfit_provider_declared(payload) and _local_video_asset_is_playable(bundle_dir, _magicfit_video_relpath(payload))
 
 
+def _tour_payload_is_disabled_fallback(payload: dict[str, object]) -> bool:
+    scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
+    creation_mode = str(payload.get("creation_mode") or "").strip().lower()
+    control_mode = str(payload.get("control_mode") or "").strip().lower()
+    if scene_strategy in {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}:
+        return True
+    if creation_mode == "hosted_listing_fallback":
+        return True
+    if control_mode in {"walkable_3d", "internal_walkable_3d"}:
+        return True
+    scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
+    return any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes)
+
+
 def _load_provider_receipt(bundle_dir: Path) -> dict[str, object]:
     receipt_path = bundle_dir / "tour.private.json"
     if not receipt_path.is_file():
@@ -629,6 +643,8 @@ def _payload_with_private_provider_receipt(bundle_dir: Path, payload: dict[str, 
 
 def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
+    if _tour_payload_is_disabled_fallback(payload):
+        return rows
 
     matterport_candidate = any(
         str(payload.get(key) or "").strip()
@@ -757,6 +773,8 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
 
 def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, object]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    if _tour_payload_is_disabled_fallback(payload):
+        return rows
     matterport_url = ""
     for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
         matterport_url = _safe_http_url(payload.get(key), allowed_hosts=("matterport.com",))

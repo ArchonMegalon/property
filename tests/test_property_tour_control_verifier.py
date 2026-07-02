@@ -716,13 +716,7 @@ def test_property_tour_control_verifier_marks_photo_gallery_as_not_3d(tmp_path: 
     }
     assert receipt["tours"][0]["blocked_reason"] == "gallery_only_not_3d"
     assert receipt["tours"][0]["controls"] == []
-    assert {row["provider"] for row in receipt["tours"][0]["missing_evidence"]} == {
-        "matterport",
-        "3dvista",
-        "pano2vr",
-        "krpano",
-        "magicfit",
-    }
+    assert receipt["tours"][0]["missing_evidence"] == []
     assert {row["provider"] for row in receipt["next_required_actions"]} == {
         "matterport",
         "3dvista",
