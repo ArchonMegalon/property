@@ -3122,9 +3122,13 @@ def test_propertyquarry_running_panel_explains_page_preparation_queue_without_ov
             "status_url": f"/app/api/signals/property/search/run/{run_id}",
             "status": "in_progress",
             "progress": 93,
+            "eta_label": "under 1 min",
+            "current_step": "source_review_packet_failed",
             "message": "Review page preparation timed out after 20s for TABORSTRASSE.",
             "summary": {
                 "status": "in_progress",
+                "progress": 93,
+                "eta_label": "under 1 min",
                 "provider_total": 27,
                 "source_variant_total": 231,
                 "sources_total": 231,
@@ -3149,6 +3153,9 @@ def test_propertyquarry_running_panel_explains_page_preparation_queue_without_ov
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
     assert "30 homes found · property pages are still being prepared · 8 provider checks left" in visible
+    eta_match = re.search(r'<span class="pqx-small pqx-progress-eta"[^>]*>(?P<eta>.*?)</span>', response.text, re.S)
+    assert eta_match
+    assert html.unescape(re.sub(r"<[^>]+>", " ", eta_match.group("eta"))).strip() == "93% · details updating"
     assert "8 / 231 provider checks left" in visible
     assert "223 provider checks left" not in visible
     assert "Review page preparation timed out" not in visible
@@ -13684,6 +13691,9 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "estimateRunEtaLabel" in script_body
     assert "formatEta" in script_body
     assert "displayRunMessage" in script_body
+    assert "details updating" in script_body
+    assert "source_review_packet_failed" in script_body
+    assert script_body.count("const reviewed = listingWork.scanned;") == 1
     assert "${found} homes found · ${toReview} to review" in script_body
     assert "Nothing waiting to review" not in script_body
     assert "data-pqx-progress-eta" in body

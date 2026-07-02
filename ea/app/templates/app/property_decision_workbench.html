@@ -323,8 +323,9 @@
 {% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
 {% set progress_message_display = progress_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'provider checks left')|replace('Lists left', 'Provider checks left')|replace('lists open', 'provider checks left')|replace('Lists open', 'Provider checks left') %}
 {% set progress_message_display_lower = progress_message_display|lower %}
-{% set progress_prepared_total = ((summary.get('review_created_total') or 0)|int) + ((summary.get('review_existing_total') or 0)|int) %}
-{% if found_total > 0 and progress_prepared_total <= 0 and ('review page preparation timed out' in progress_message_display_lower or 'reviewing candidate' in progress_message_display_lower or (summary.get('current_step') or run.get('current_step') or '')|lower == 'source_review_packet') %}
+{% set progress_current_step = (summary.get('current_step') or run.get('current_step') or '')|lower %}
+{% set progress_detail_preparing = found_total > 0 and ('review page preparation timed out' in progress_message_display_lower or 'reviewing candidate' in progress_message_display_lower or progress_current_step in ['source_review_packet', 'source_review_packet_failed']) %}
+{% if progress_detail_preparing %}
   {% if source_open_total > 0 %}
     {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared · ' ~ source_open_total ~ ' provider checks left' %}
   {% else %}
@@ -353,11 +354,26 @@
 {% if reliability_message_display and ('could not load property search status' in reliability_message_lower or 'checking run status' in reliability_message_lower or 'suppressed_generic_listing_page' in reliability_message_lower or reliability_message_lower == 'starting') %}
   {% set reliability_message_display = progress_message_display %}
 {% endif %}
+{% if status in ['processed', 'completed', 'completed_partial'] %}
+  {% set progress_eta_display = '100% · complete' %}
+{% elif status == 'failed' %}
+  {% set progress_eta_display = 'stopped' %}
+{% elif progress_detail_preparing and run_progress > 0 %}
+  {% set progress_eta_display = run_progress|string ~ '% · details updating' %}
+{% elif run_progress > 0 and eta_label %}
+  {% set progress_eta_display = run_progress|string ~ '% · ' ~ eta_label %}
+{% elif run_progress > 0 %}
+  {% set progress_eta_display = run_progress|string ~ '% · estimating' %}
+{% elif eta_label %}
+  {% set progress_eta_display = 'starting · ' ~ eta_label %}
+{% else %}
+  {% set progress_eta_display = 'estimating' %}
+{% endif %}
 <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
   <div class="pqx-concierge-pulse">
     <div class="pqx-progress-headline">
       <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed', 'completed_partial'] %}Results ready{% elif status == 'failed' %}Paused{% else %}Searching{% endif %}</strong>
-      <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{% if status in ['processed', 'completed', 'completed_partial'] %}100% · complete{% elif status == 'failed' %}stopped{% elif run_progress > 0 and eta_label %}{{ run_progress }}% · {{ eta_label }}{% elif run_progress > 0 %}{{ run_progress }}% · estimating{% elif eta_label %}starting · {{ eta_label }}{% else %}estimating{% endif %}</span>
+      <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{{ progress_eta_display }}</span>
     </div>
     <div class="pqx-pulse-line" aria-hidden="true"></div>
   </div>

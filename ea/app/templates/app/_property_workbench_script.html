@@ -2035,15 +2035,14 @@
       const listingWork = runListingWorkCounts(summary);
       const found = listingWork.found;
       if (!(found > 0)) return '';
-      const prepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
       const currentStep = String(summary.current_step || '').trim().toLowerCase();
       const lowered = String(rawMessage || summary.message || '').trim().toLowerCase();
-      const waitingOnPages = prepared <= 0
-        && (
-          lowered.includes('review page preparation timed out')
-          || lowered.includes('reviewing candidate')
-          || currentStep === 'source_review_packet'
-        );
+      const waitingOnPages = (
+        lowered.includes('review page preparation timed out')
+        || lowered.includes('reviewing candidate')
+        || currentStep === 'source_review_packet'
+        || currentStep === 'source_review_packet_failed'
+      );
       if (!waitingOnPages) return '';
       const sourceWork = runSourceWorkCounts(summary, status);
       return `${found} homes found · property pages are still being prepared${sourceWork.open > 0 ? ` · ${sourceWork.open} provider checks left` : ''}`;
@@ -2155,7 +2154,11 @@
       const sourceWork = runSourceWorkCounts(summary, status);
       const compactFoundMessage = `${found} homes found`;
       const compactQueueMessage = `${found} homes found · ${toReview} to review`;
-      const detailQueueMessage = runDetailQueueMessage(summary, status, raw);
+      const detailQueueMessage = runDetailQueueMessage(
+        { ...summary, current_step: runPayload?.current_step || summary.current_step },
+        status,
+        raw,
+      );
       if (replacementRunId) {
         return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
       }
@@ -2514,6 +2517,18 @@
       if (status === 'failed') return 'failed';
       if (status === 'cancelled') return 'stopped';
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
+      const currentStep = String(runPayload?.current_step || summary?.current_step || '').trim().toLowerCase();
+      const rawMessage = String(runPayload?.message || summary?.message || '').trim().toLowerCase();
+      const detailPreparing = (
+        (runListingWorkCounts(summary).found > 0)
+        && (
+          rawMessage.includes('review page preparation timed out')
+          || rawMessage.includes('reviewing candidate')
+          || currentStep === 'source_review_packet'
+          || currentStep === 'source_review_packet_failed'
+        )
+      );
+      if (detailPreparing && progress > 0) return `${Math.round(progress)}% · details updating`;
       const nowMs = Date.now();
       const runId = String(runPayload?.run_id || '').trim();
       const signature = [
@@ -2557,6 +2572,11 @@
       const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
       const progressFill = status === 'processed' || status === 'completed' || status === 'completed_partial' ? 100 : (progress > 0 ? progress : 4);
+      const detailQueueMessage = runDetailQueueMessage(
+        { ...summary, current_step: runPayload?.current_step || summary.current_step },
+        status,
+        runPayload?.message || '',
+      );
       const sourceMeta = runSourceMetaLabel(
         sourceWork,
         found,
@@ -2577,7 +2597,7 @@
 			            <strong data-pqx-radar-count>${escapeHtml(scanCountLabel)}</strong>
 			            <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
 		          </div>
-		          <span class="pqx-note">${escapeHtml(runFoundQueueMessage(found, toReview, sourceWork) || 'Waiting for homes.')}</span>
+		          <span class="pqx-note">${escapeHtml(detailQueueMessage || runFoundQueueMessage(found, toReview, sourceWork) || 'Waiting for homes.')}</span>
 	          <div class="pqx-live-review-bars" aria-label="Search totals">
 		            <span>
 		              <b>Found</b>
