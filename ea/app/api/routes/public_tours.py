@@ -5210,6 +5210,10 @@ def _safe_matterport_external_url(value: object) -> str:
         model_id = parsed.path.rsplit("/", 1)[-1].strip()
         if re.fullmatch(r"[A-Za-z0-9_-]{6,32}", model_id):
             return f"https://my.matterport.com/show/?m={urllib.parse.quote(model_id)}"
+    if host == "my.matterport.com" and parsed.path.startswith("/models/"):
+        model_id = parsed.path.rsplit("/", 1)[-1].strip()
+        if re.fullmatch(r"[A-Za-z0-9_-]{6,32}", model_id):
+            return f"https://my.matterport.com/show/?m={urllib.parse.quote(model_id)}"
     return normalized
 
 

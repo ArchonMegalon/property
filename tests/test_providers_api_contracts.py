@@ -73,6 +73,10 @@ def test_public_tour_matterport_discover_url_normalizes_to_embeddable_show_url()
         _safe_matterport_external_url("https://discover.matterport.com/space/uoRT7VqgY7E")
         == "https://my.matterport.com/show/?m=uoRT7VqgY7E"
     )
+    assert (
+        _safe_matterport_external_url("https://my.matterport.com/models/PcXQfDidkkp")
+        == "https://my.matterport.com/show/?m=PcXQfDidkkp"
+    )
 
 
 def test_clickrank_only_runs_on_public_marketing_and_editorial_routes() -> None:
