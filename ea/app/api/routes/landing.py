@@ -5588,18 +5588,12 @@ def property_research_packet(
         visual_status_line = live_flythrough_detail or "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
         visual_status_line = live_flythrough_detail or "Walkthrough rendering."
-    elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable"}:
-        visual_status_line = live_flythrough_detail or _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason)
     elif hosted_tour_ready and tour_url:
         visual_status_line = str(research_media.get("status_detail") or "3D tour available.").strip()
-    elif tour_url and not hosted_tour_ready:
-        visual_status_line = "Hosted viewer unavailable."
     elif tour_status in {"queued", "pending"}:
         visual_status_line = "3D tour queued."
     elif tour_status in {"processing", "running", "in_progress", "started"}:
         visual_status_line = "3D tour rendering."
-    elif tour_status in {"blocked", "failed", "skipped", "not_applicable"}:
-        visual_status_line = _property_visual_unavailable_detail(request_kind="tour", reason=str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip())
     overview_rows = [
         {"label": "Price", "value": price_summary or "Price on request"},
         {"label": "Area", "value": f"{area_summary} m²" if area_summary else "Not listed"},

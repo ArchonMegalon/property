@@ -19107,6 +19107,14 @@ def test_property_research_packet_terminal_walkthrough_reason_is_not_rendered_as
     assert "Walkthrough queued" not in rendered_html
     assert "Request walkthrough" in rendered_html
     assert "Walkthrough not available yet." in rendered_html
+    rail_match = re.search(
+        r'<div\s+class="prd-visual-rail(?P<class_suffix>[^"]*)".*?<p class="prd-visual-status"[^>]*>(?P<status>.*?)</p>',
+        packet.text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert rail_match is not None
+    assert "is-active" not in rail_match.group("class_suffix")
+    assert "Walkthrough not available yet." not in rail_match.group("status")
     assert 'data-pw-visual-state="idle"' in rendered_html
     assert 'disabled aria-disabled="true"' not in rendered_html
     assert "fit_below_threshold" not in rendered_html
