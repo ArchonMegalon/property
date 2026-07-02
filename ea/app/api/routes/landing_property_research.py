@@ -611,6 +611,11 @@ def _property_hosted_tour_ready(tour_url: str) -> bool:
     return bool(property_tour_hosting._hosted_property_tour_verified_open_url(tour_url))
 
 
+def _property_hosted_tour_disabled_fallback(tour_url: object) -> bool:
+    payload = property_tour_hosting._hosted_property_tour_payload_for_url(tour_url)
+    return bool(payload and property_tour_hosting._property_tour_payload_is_disabled_fallback(payload))
+
+
 def _hosted_tour_rebuild_detail() -> str:
     return "The hosted tour link is not backed by usable 3D viewer assets yet. Request a rebuild from this page."
 
@@ -640,6 +645,8 @@ def _property_visual_provider_label(value: object) -> str:
 
 def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
     tour_url = str(candidate.get("tour_url") or "").strip()
+    if tour_url and _property_hosted_tour_disabled_fallback(tour_url):
+        tour_url = ""
     vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
     review_url = str(candidate.get("review_url") or "").strip()
     status = str(candidate.get("tour_status") or "").strip().lower()

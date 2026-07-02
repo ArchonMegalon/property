@@ -75,6 +75,7 @@ from app.api.routes.landing_property_research import (
     _property_candidate_ref,
     _property_enriched_candidate_facts,
     _property_fact_rows,
+    _property_hosted_tour_disabled_fallback,
     _property_investment_research_rows,
     _property_lookup_candidate,
     _property_missing_fact_items,
@@ -5185,6 +5186,12 @@ def property_research_packet(
     fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "No fit summary captured.").strip()
     review_url = str(candidate.get("review_url") or "").strip()
     tour_url = str(candidate.get("tour_url") or "").strip()
+    if tour_url and _property_hosted_tour_disabled_fallback(tour_url):
+        candidate = dict(candidate)
+        candidate["tour_url"] = ""
+        if str(candidate.get("tour_status") or "").strip().lower() in {"created", "repairing"}:
+            candidate["tour_status"] = ""
+        tour_url = ""
     property_url = str(
         candidate.get("property_url")
         or candidate.get("listing_url")

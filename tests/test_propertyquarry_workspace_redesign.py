@@ -8728,6 +8728,35 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert ready_payload["walkthrough_status_detail"] == "Walkthrough is available on this page."
 
 
+def test_property_research_media_ignores_disabled_fallback_tour_record(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: "",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_payload_for_url",
+        lambda _url: {
+            "creation_mode": "hosted_floorplan_tour",
+            "scene_strategy": "floorplan_hosted",
+        },
+    )
+
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "tour_url": "https://propertyquarry.com/tours/disabled-floorplan",
+            "tour_status": "repairing",
+            "property_url": "https://example.test/listing",
+        }
+    )
+
+    assert payload["has_live_viewer"] is False
+    assert payload["hosted_ready"] is False
+    assert payload["status_label"] == "3D tour unavailable"
+    assert payload["primary_href"] == ""
+
+
 def test_property_research_media_uses_generic_label_for_verified_controls(monkeypatch) -> None:
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
@@ -18937,6 +18966,82 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     assert "3D tour not available yet." in rendered_html
     assert "Walkthrough not available yet." in rendered_html
     assert '>Open 3D tour</a>' not in rendered_html
+
+
+def test_property_research_packet_treats_disabled_fallback_tour_as_requestable(monkeypatch) -> None:
+    principal_id = "pq-research-disabled-fallback-requestable"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    candidate = {
+        "title": "Disabled fallback apartment",
+        "summary": "EUR 1,450 · 61 m² · 1060 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/disabled-fallback-1",
+        "source_ref": "property-scout:disabled-fallback-1",
+        "tour_url": "https://propertyquarry.com/tours/disabled-floorplan",
+        "tour_status": "repairing",
+        "property_facts": {
+            "price_eur": 1450.0,
+            "area_m2": 61.0,
+            "rooms": 2,
+            "postal_name": "1060 Wien",
+            "has_floorplan": True,
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1060 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: "",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_payload_for_url",
+        lambda _url: {
+            "creation_mode": "hosted_floorplan_tour",
+            "scene_strategy": "floorplan_hosted",
+        },
+    )
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "Willhaben | Austria | Rent | 1060 Vienna",
+        }
+    )
+    packet = client.get(f"/app/research/{packet_ref}", params={"run_id": "run-disabled-fallback"}, headers={"host": "propertyquarry.com"})
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+
+    assert '>Request 3D tour</button>' in rendered_html
+    assert "Rebuild 3D tour" not in rendered_html
+    assert "3D tour needs rebuild" not in rendered_html
+    assert "Hosted viewer unavailable" not in rendered_html
 
 
 def test_property_research_packet_terminal_walkthrough_reason_is_not_rendered_as_queued(monkeypatch) -> None:
