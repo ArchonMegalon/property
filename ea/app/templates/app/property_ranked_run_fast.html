@@ -384,10 +384,27 @@
     const summary = payload && typeof payload.summary === 'object' && payload.summary ? payload.summary : {};
     const status = text(payload.status || summary.status, 'loading').replace(/_/g, ' ');
     const listings = number(summary.listing_total || summary.raw_listing_total);
-    const providers = number(summary.sources_total || (Array.isArray(summary.sources) ? summary.sources.length : 0));
+    const providerTotal = number(
+      summary.source_variant_total
+      || summary.provider_total
+      || summary.sources_total
+      || (Array.isArray(summary.sources) ? summary.sources.length : 0)
+    );
+    const providerDone = number(
+      summary.sources_completed
+      || summary.completed_sources_total
+      || summary.source_completed_total
+      || summary.providers_completed
+      || 0
+    );
     const parts = [];
     parts.push(`${candidates.length} ranked ${candidates.length === 1 ? 'home' : 'homes'}`);
-    if (providers) parts.push(`${providers} ${providers === 1 ? 'provider' : 'providers'}`);
+    if (providerTotal) {
+      const providerLabel = providerDone > 0 && providerDone <= providerTotal
+        ? `${providerDone}/${providerTotal}`
+        : `${providerTotal}`;
+      parts.push(`${providerLabel} ${providerTotal === 1 ? 'provider' : 'providers'}`);
+    }
     if (listings) parts.push(`${listings} checked`);
     return { status, detail: parts.join(' · ') };
   };

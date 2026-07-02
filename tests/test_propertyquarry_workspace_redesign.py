@@ -4025,6 +4025,17 @@ def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint()
     assert "data-property-decision-workbench" not in response.text
 
 
+def test_propertyquarry_fast_ranked_run_uses_provider_progress_fraction() -> None:
+    template = (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_ranked_run_fast.html"
+    ).read_text(encoding="utf-8")
+
+    assert "summary.source_variant_total" in template
+    assert "summary.sources_completed" in template
+    assert "`${providerDone}/${providerTotal}`" in template
+    assert "summary.sources_total || (Array.isArray(summary.sources) ? summary.sources.length : 0)" not in template
+
+
 def test_propertyquarry_root_redirects_signed_in_users_to_search(monkeypatch) -> None:
     principal_id = "pq-root-search-redirect"
     client = build_property_client(principal_id=principal_id)
@@ -8809,7 +8820,7 @@ def test_property_research_media_treats_krpano_only_bundle_as_needing_rebuild(mo
     assert payload["status_detail"] == "The hosted tour link is not backed by usable 3D viewer assets yet. Request a rebuild from this page."
 
 
-def test_property_research_media_hides_generated_reconstruction_fallbacks(monkeypatch) -> None:
+def test_property_research_media_uses_generated_reconstruction_as_first_party_tour(monkeypatch) -> None:
     monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
@@ -8828,12 +8839,14 @@ def test_property_research_media_hides_generated_reconstruction_fallbacks(monkey
     )
 
     assert payload["hosted_ready"] is False
+    assert payload["generated_reconstruction_ready"] is True
     assert payload["has_live_viewer"] is False
     assert payload["embed_href"] == ""
-    assert payload.get("generated_reconstruction_href", "") == ""
-    assert payload.get("generated_reconstruction_walkthrough_href", "") == ""
-    assert payload.get("generated_reconstruction_label", "") == ""
-    assert payload.get("generated_reconstruction_status_detail", "") == ""
+    assert payload["primary_href"] == "https://propertyquarry.com/tours/files/generated-tour/generated-reconstruction/viewer.html"
+    assert payload["primary_label"] == "Open 3D tour"
+    assert payload["provider_label"] == "3D tour"
+    assert payload["provider_key"] == "generated_reconstruction"
+    assert payload["status_label"] == "3D tour available"
 
 
 def test_property_research_media_uses_generic_vendor_tour_copy(monkeypatch) -> None:
@@ -19269,7 +19282,7 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     assert 'data-pw-visual-request="tour"' not in rendered_html
 
 
-def test_property_research_packet_hides_generated_reconstruction_visual_option(monkeypatch) -> None:
+def test_property_research_packet_opens_generated_reconstruction_as_3d_tour(monkeypatch) -> None:
     principal_id = "pq-research-packet-generated-reconstruction"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -19338,12 +19351,12 @@ def test_property_research_packet_hides_generated_reconstruction_visual_option(m
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert 'data-prd-visual-card="generated_reconstruction"' not in packet.text
-    assert 'href="https://propertyquarry.com/tours/files/generated-reconstruction-loft/generated-reconstruction/viewer.html"' not in rendered_html
-    assert ">Open generated model</a>" not in rendered_html
-    assert ">Open generated walkthrough</a>" not in rendered_html
-    assert 'data-pw-visual-request="tour"' in rendered_html
+    assert 'href="https://propertyquarry.com/tours/files/generated-reconstruction-loft/generated-reconstruction/viewer.html"' in rendered_html
+    assert ">Open 3D tour</a>" in rendered_html
+    assert 'data-pw-visual-request="tour"' not in rendered_html
     assert 'data-prd-visual-card="tour"' in packet.text
-    assert "Hosted viewer unavailable. Rebuild it here." in rendered_html
+    assert "3D tour is available on this page." in rendered_html
+    assert "Hosted viewer unavailable. Rebuild it here." not in rendered_html
 
 
 def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(monkeypatch) -> None:

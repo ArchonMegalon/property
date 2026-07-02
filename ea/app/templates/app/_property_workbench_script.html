@@ -1095,6 +1095,9 @@
         };
       }
       const resolvedTourUrl = directHostedTourUrl(
+        payload?.verified_tour_url,
+        payload?.open_tour_url,
+        payload?.generated_reconstruction_url,
         payload?.tour_url,
         payload?.vendor_tour_url,
       );

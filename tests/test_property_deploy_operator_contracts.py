@@ -434,7 +434,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "build_propertyquarry_magicfit_promo.py" not in dockerfile
 
 
-def test_property_web_dockerfile_excludes_native_reconstruction_and_browser_payloads() -> None:
+def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_browser_payloads() -> None:
     dockerfile = _read("ea/Dockerfile.property-web")
 
     assert "COPY . /tmp/src" not in dockerfile
@@ -446,7 +446,7 @@ def test_property_web_dockerfile_excludes_native_reconstruction_and_browser_payl
     assert "COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py" in dockerfile
     assert "COPY scripts/discover_property_tour_exports.py /app/scripts/discover_property_tour_exports.py" in dockerfile
     assert "COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py" in dockerfile
-    assert "COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py" not in dockerfile
+    assert "COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py" in dockerfile
     assert "COPY scripts/verify_property_tour_vendor_tooling.py /app/scripts/verify_property_tour_vendor_tooling.py" not in dockerfile
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" not in dockerfile
     assert "python -m playwright install --with-deps chromium" not in dockerfile

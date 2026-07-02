@@ -5501,12 +5501,12 @@ def generated_source_specs(
     require_floorplan = bool(normalized_preferences.get("require_floorplan"))
     requested_platforms = [normalize_property_platform(item) for item in (selected_platforms or ())]
     effective_platforms = [item for item in requested_platforms if item and item != "all"]
-    if not effective_platforms:
+    if not effective_platforms or "all" in requested_platforms:
         effective_platforms = list(
-            default_platforms_for_country_listing_mode(
-                country_code,
-                listing_mode,
-                property_type=property_type,
+            selectable_property_platform_keys(
+                country_code=country_code,
+                listing_mode=listing_mode,
+                include_distressed_sale_signals=normalized_preferences.get("include_distressed_sale_signals"),
             )
         )
     explicit_location_queries = _explicit_location_query_variants(normalized_preferences)

@@ -5457,7 +5457,8 @@ def property_research_packet(
         gallery_items = filtered_gallery_items
     flythrough_url = str(research_media.get("walkthrough_href") or "").strip()
     hosted_tour_ready = bool(research_media.get("hosted_ready"))
-    tour_action_href = str(research_media.get("primary_href") or "").strip() if hosted_tour_ready else ""
+    generated_reconstruction_ready = bool(research_media.get("generated_reconstruction_ready"))
+    tour_action_href = str(research_media.get("primary_href") or "").strip() if (hosted_tour_ready or generated_reconstruction_ready) else ""
     tour_status = str(candidate.get("tour_status") or "").strip().lower()
     flythrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
     terminal_tour_status = _property_visual_terminal_status_for_reason(
@@ -5534,9 +5535,9 @@ def property_research_packet(
     hero_actions: list[dict[str, object]] = []
     if property_url:
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
-    if hosted_tour_ready and tour_action_href:
+    if (hosted_tour_ready or generated_reconstruction_ready) and tour_action_href:
         hero_actions.append({"href": tour_action_href, "label": str(research_media.get("primary_label") or "Open 3D tour").strip(), "external": False})
-    elif tour_url and not hosted_tour_ready and property_url:
+    elif tour_url and not hosted_tour_ready and not generated_reconstruction_ready and property_url:
         hero_actions.append({"kind": "tour", "label": "Rebuild 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Hosted viewer unavailable. Rebuild it here."})
     elif tour_status in {"queued", "pending"} and property_url:
         hero_actions.append({"kind": "tour", "label": "3D tour queued", "property_url": property_url, "state": "pending", "progress_pct": max(tour_progress_pct, 14), "eta_label": tour_eta_label, "status_detail": "Still queued. Taking longer than usual." if tour_eta_label.startswith("delayed") else f"Queued{f' · about {eta_raw} min' if eta_raw else ''}."})
@@ -5588,7 +5589,7 @@ def property_research_packet(
         visual_status_line = live_flythrough_detail or "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
         visual_status_line = live_flythrough_detail or "Walkthrough rendering."
-    elif hosted_tour_ready and tour_url:
+    elif (hosted_tour_ready or generated_reconstruction_ready) and tour_url:
         visual_status_line = str(research_media.get("status_detail") or "3D tour available.").strip()
     elif tour_status in {"queued", "pending"}:
         visual_status_line = "3D tour queued."

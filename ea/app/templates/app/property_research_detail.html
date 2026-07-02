@@ -4083,13 +4083,19 @@
       };
     }
     const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
-    const verifiedTourUrl = String(payload?.verified_tour_url || (rawTourState === 'ready' ? payload?.tour_url : '') || '').trim();
-    const state = String(verifiedTourUrl ? 'ready' : payload?.status || payload?.tour_status || 'pending').trim().toLowerCase();
-    const retryableTerminal = visualTerminalStates.includes(state) && !verifiedTourUrl;
+    const openTourUrl = String(
+      payload?.verified_tour_url
+      || payload?.open_tour_url
+      || payload?.generated_reconstruction_url
+      || (rawTourState === 'ready' ? payload?.tour_url : '')
+      || ''
+    ).trim();
+    const state = String(openTourUrl ? 'ready' : payload?.status || payload?.tour_status || 'pending').trim().toLowerCase();
+    const retryableTerminal = visualTerminalStates.includes(state) && !openTourUrl;
     return {
       state: retryableTerminal ? 'idle' : state,
       label: String(
-        verifiedTourUrl
+        openTourUrl
           ? 'Open 3D tour'
           : (
               retryableTerminal
@@ -4097,7 +4103,7 @@
                 : (payload?.status_label || fallbackLabel || '3D tour queued')
             )
       ).trim(),
-      href: verifiedTourUrl,
+      href: openTourUrl,
       detail: String(payload?.status_detail || '').trim(),
       eta: String(payload?.eta_label || '').trim(),
       progress: Number(payload?.progress_pct || 0) || 0,

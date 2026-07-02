@@ -148,6 +148,7 @@ from app.product.property_tour_hosting import (
     _hosted_property_tour_preview_image_url,
     _hosted_property_tour_public_base_url,
     _hosted_property_tour_slug,
+    _hosted_property_tour_slug as _make_hosted_property_tour_slug,
     _hosted_property_tour_verified_provider,
     _hosted_property_tour_verified_open_url,
     _hosted_property_tour_walkthrough_asset_url,
@@ -162,6 +163,7 @@ from app.product.property_tour_hosting import (
     _property_tour_generated_preview_url,
     _property_tour_payload_is_disabled_fallback,
     _property_tour_provider_host_kind,
+    _public_tour_dir,
     _public_app_base_url,
     _resolve_property_tour_urls,
     _safe_live_property_tour_url,
@@ -310,6 +312,7 @@ from app.services.property_market_catalog import (
     location_options_for_country_region,
     region_options_for_country,
     resolve_country_code,
+    selectable_property_platform_keys,
     property_platform_keys,
     property_provider_access_level,
     property_provider_for_platform,
@@ -801,12 +804,16 @@ def _property_search_execution_platforms(
     if not normalized_platforms:
         normalized_platforms = _normalize_property_search_platform_inputs(payload.get("selected_platforms"))
     if not normalized_platforms:
-        normalized_platforms = tuple(
-            default_platforms_for_country_listing_mode(
-                country_code,
-                listing_mode,
-                property_type=payload.get("property_type"),
-            )
+        normalized_platforms = selectable_property_platform_keys(
+            country_code=country_code,
+            listing_mode=listing_mode,
+            include_distressed_sale_signals=payload.get("include_distressed_sale_signals"),
+        )
+    elif "all" in normalized_platforms:
+        normalized_platforms = selectable_property_platform_keys(
+            country_code=country_code,
+            listing_mode=listing_mode,
+            include_distressed_sale_signals=payload.get("include_distressed_sale_signals"),
         )
     normalized_platforms = _property_search_platforms_with_family_toggles(
         normalized_platforms,
@@ -16309,6 +16316,194 @@ def _ensure_hosted_property_tour_url(structured_output: dict[str, object]) -> di
     return normalized
 
 
+def _property_reconstruction_asset_suffix(*, url: str, content_type: str = "") -> str:
+    suffix = _hosted_property_tour_asset_suffix(url=url, content_type=content_type).lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}:
+        suffix = ".jpg"
+    return suffix
+
+
+def _download_property_reconstruction_image(url: str, target_dir: Path, *, stem: str) -> Path | None:
+    normalized_url = _safe_live_property_tour_url(url)
+    if not normalized_url:
+        return None
+    initial_suffix = _property_reconstruction_asset_suffix(url=normalized_url)
+    initial_path = (target_dir / f"{stem}{initial_suffix}").resolve()
+    if target_dir.resolve() not in initial_path.parents:
+        return None
+    try:
+        content_type = _download_public_tour_asset_with_type(normalized_url, initial_path)
+        final_suffix = _property_reconstruction_asset_suffix(url=normalized_url, content_type=content_type)
+        final_path = (target_dir / f"{stem}{final_suffix}").resolve()
+        if target_dir.resolve() not in final_path.parents:
+            return None
+        if final_path != initial_path:
+            initial_path.rename(final_path)
+        return final_path if final_path.is_file() and final_path.stat().st_size > 0 else None
+    except Exception:
+        with contextlib.suppress(Exception):
+            initial_path.unlink(missing_ok=True)
+        return None
+
+
+def _property_reconstruction_script_path() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "scripts" / "generate_property_reconstruction.py"
+        if candidate.exists():
+            return candidate.resolve()
+    return (_repo_root() / "scripts" / "generate_property_reconstruction.py").resolve()
+
+
+def _write_generated_reconstruction_property_tour_bundle(
+    *,
+    principal_id: str,
+    title: str,
+    listing_id: str,
+    property_url: str,
+    variant_key: str,
+    media_urls: list[str] | tuple[str, ...],
+    floorplan_urls: list[str] | tuple[str, ...],
+    property_facts_json: dict[str, object],
+    source_host: str,
+    source_ref: str = "",
+    external_id: str = "",
+    recipient_email: str = "",
+    diorama_style_hint: str = "",
+) -> dict[str, object]:
+    normalized_floorplans = [
+        _safe_live_property_tour_url(value)
+        for value in list(floorplan_urls or [])
+        if _safe_live_property_tour_url(value)
+    ]
+    normalized_media = [
+        _safe_live_property_tour_url(value)
+        for value in list(media_urls or [])
+        if _safe_live_property_tour_url(value) and _safe_live_property_tour_url(value) not in set(normalized_floorplans)
+    ]
+    if not normalized_floorplans and not normalized_media:
+        raise RuntimeError("reconstruction_source_assets_missing")
+    public_dir = _public_tour_dir()
+    base_url = _hosted_property_tour_public_base_url()
+    slug = _make_hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+    tour_url = f"{base_url}/{slug}"
+    bundle_dir = public_dir / slug
+    existing_payload = _existing_hosted_property_tour_payload(slug)
+    if existing_payload and _hosted_property_tour_generated_reconstruction_asset_url(tour_url):
+        return existing_payload
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    facts = dict(property_facts_json or {})
+    facts.update(
+        {
+            "has_floorplan": bool(facts.get("has_floorplan") or normalized_floorplans),
+            "floorplan_count": max(int(facts.get("floorplan_count") or 0), len(normalized_floorplans)),
+            "floorplan_urls_json": normalized_floorplans,
+            "tour_media_mode": "generated_reconstruction",
+            "source_media_count": len(normalized_media),
+            "address_lines": [str(source_host or "").strip()] if source_host and not facts.get("address_lines") else facts.get("address_lines", []),
+        }
+    )
+    display_title = compact_text(title, fallback="Property 3D tour", limit=180)
+    payload = dict(existing_payload or {})
+    payload.update(
+        {
+            "slug": slug,
+            "hosted_url": tour_url,
+            "public_url": tour_url,
+            "principal_id": str(principal_id or "").strip(),
+            "listing_url": property_url,
+            "property_url": property_url,
+            "source_ref": str(source_ref or "").strip(),
+            "external_id": str(external_id or "").strip(),
+            "recipient_email": str(recipient_email or "").strip().lower(),
+            "title": f"{display_title} - generated 3D tour",
+            "display_title": display_title,
+            "tour_title": f"{display_title} - generated 3D tour",
+            "tour_id": payload.get("tour_id"),
+            "variant_key": variant_key,
+            "variant_label": "generated reconstruction",
+            "scene_strategy": "generated_reconstruction",
+            "scene_count": max(1, len(normalized_media) + int(bool(normalized_floorplans))),
+            "facts": facts,
+            "brief": {
+                "theme_name": "generated_reconstruction",
+                "tour_style": "floorplan_photo_reconstruction",
+                "audience": "property_screening",
+                "creative_brief": "Build a first-party 3D screening viewer from the source floorplan and listing photos.",
+                "call_to_action": "Use the generated model to understand the layout before deciding whether to view.",
+            },
+            "editor_url": "",
+            "crezlo_public_url": "",
+            "scenes": payload.get("scenes") or [],
+            "generated_at": _now_iso(),
+            "creation_mode": "generated_reconstruction_tour",
+        }
+    )
+    manifest_path = bundle_dir / "tour.json"
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    script_path = _property_reconstruction_script_path()
+    if not script_path.exists():
+        raise RuntimeError("property_reconstruction_script_missing")
+    with tempfile.TemporaryDirectory(prefix="propertyquarry-reconstruction-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        floorplan_path: Path | None = None
+        for index, floorplan_url in enumerate(normalized_floorplans[:3], start=1):
+            floorplan_path = _download_property_reconstruction_image(floorplan_url, tmp_path, stem=f"floorplan-{index:02d}")
+            if floorplan_path is not None:
+                break
+        photo_paths: list[Path] = []
+        for index, media_url in enumerate(normalized_media[:8], start=1):
+            photo_path = _download_property_reconstruction_image(media_url, tmp_path, stem=f"photo-{index:02d}")
+            if photo_path is not None:
+                photo_paths.append(photo_path)
+        if floorplan_path is None and not photo_paths:
+            raise RuntimeError("reconstruction_source_assets_unavailable")
+        command = [
+            _runtime_python_executable(),
+            str(script_path),
+            "--slug",
+            slug,
+            "--skip-video",
+        ]
+        if floorplan_path is not None:
+            command.extend(["--floorplan", str(floorplan_path)])
+        else:
+            command.append("--infer-floorplan-from-photos")
+        for photo_path in photo_paths:
+            command.extend(["--photo", str(photo_path)])
+        style_label = compact_text(str(diorama_style_hint or "").strip(), fallback="", limit=80)
+        if style_label:
+            command.extend(["--style-label", style_label])
+        completed = subprocess.run(
+            command,
+            cwd=str(script_path.parent.parent if script_path.parent.name == "scripts" else _repo_root()),
+            capture_output=True,
+            text=True,
+            timeout=max(120, int(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_TIMEOUT_SECONDS") or "240")),
+            check=False,
+        )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "property_reconstruction_generation_failed:"
+            + compact_text((completed.stderr or completed.stdout or "").strip(), fallback="generator failed", limit=260)
+        )
+    try:
+        generated_payload_raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        generated_payload_raw = {}
+    generated_payload = generated_payload_raw if isinstance(generated_payload_raw, dict) else {}
+    generated_reconstruction = (
+        generated_payload.get("generated_reconstruction")
+        if isinstance(generated_payload.get("generated_reconstruction"), dict)
+        else {}
+    )
+    viewer_relpath = str(generated_reconstruction.get("viewer_relpath") or "").strip().replace("\\", "/").lstrip("/")
+    viewer_path = (bundle_dir / viewer_relpath).resolve() if viewer_relpath else bundle_dir / "__missing_viewer__"
+    bundle_root = bundle_dir.resolve()
+    if not viewer_relpath or bundle_root not in viewer_path.parents or not viewer_path.is_file():
+        raise RuntimeError("property_reconstruction_viewer_missing")
+    return generated_payload
+
+
 def _feelestate_json_rpc(method: str, params: list[object]) -> dict[str, object]:
     request = urllib.request.Request(
         "https://cms.feelestate.com/json",
@@ -30740,6 +30935,7 @@ class ProductService:
         enforce_360_media: bool = True,
         suppress_human_followup: bool = False,
         walkthrough_provider_key: str = "",
+        diorama_style_hint: str = "",
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         property_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
@@ -30763,6 +30959,7 @@ class ProductService:
                 allow_floorplan_only=allow_floorplan_only,
                 enforce_360_media=enforce_360_media,
                 suppress_human_followup=suppress_human_followup,
+                diorama_style_hint=diorama_style_hint,
             )
         packet = _load_willhaben_property_packet(normalized_url)
         variant = self._selected_willhaben_tour_variant(packet=packet, variant_key=variant_key)
@@ -30939,75 +31136,25 @@ class ProductService:
                     return payload
                 except Exception:
                     pass
-        if source_floorplan_urls:
+        if source_floorplan_urls or source_media_urls:
             try:
-                structured_output = _write_hosted_floorplan_property_tour_bundle(
-                    principal_id=principal_id,
-                    title=title,
-                    listing_id=listing_id,
-                    property_url=normalized_url,
-                    variant_key=resolved_variant_key,
-                    floorplan_urls=source_floorplan_urls,
-                    property_facts_json=property_facts_json,
-                    source_host=source_host,
-                    source_ref=resolved_source_ref,
-                    external_id=resolved_external_id,
-                    recipient_email=resolved_recipient_email,
-                )
-                tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
-                payload = {
-                    "generated_at": generated_at,
-                    "status": "created",
-                    "property_url": normalized_url,
-                    "title": title,
-                    "listing_id": listing_id,
-                    "variant_key": resolved_variant_key,
-                    "artifact_id": "",
-                    "execution_session_id": "",
-                    "connector_binding_id": "",
-                    "tour_url": tour_url,
-                    "vendor_tour_url": vendor_tour_url,
-                    "editor_url": "",
-                    "delivery_email": resolved_recipient_email,
-                    "delivery_status": "skipped" if not auto_deliver else "",
-                    "blocked_reason": "",
-                    "human_task_id": "",
-                    "source_ref": resolved_source_ref,
-                    "external_id": resolved_external_id,
-                    "tour_media_mode": "floorplan_hosted",
-                    "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
-                    "personal_fit_assessment": dict(personal_fit_assessment or {}),
-                    "creation_mode": "hosted_floorplan_tour",
-                }
-                try:
-                    self._record_product_event(
-                        principal_id=principal_id,
-                        event_type="willhaben_property_tour_created",
-                        payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
-                        source_id=resolved_source_ref,
-                        dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-created",
-                    )
-                except Exception:
-                    pass
-                return payload
-            except Exception:
-                pass
-        if source_media_urls:
-            try:
-                structured_output = _write_hosted_photo_gallery_property_tour_bundle(
+                structured_output = _write_generated_reconstruction_property_tour_bundle(
                     principal_id=principal_id,
                     title=title,
                     listing_id=listing_id,
                     property_url=normalized_url,
                     variant_key=resolved_variant_key,
                     media_urls=source_media_urls,
+                    floorplan_urls=source_floorplan_urls,
                     property_facts_json=property_facts_json,
                     source_host=source_host,
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
                     recipient_email=resolved_recipient_email,
+                    diorama_style_hint=diorama_style_hint,
                 )
                 tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                generated_reconstruction_url = _hosted_property_tour_generated_reconstruction_asset_url(tour_url)
                 payload = {
                     "generated_at": generated_at,
                     "status": "created",
@@ -31027,10 +31174,12 @@ class ProductService:
                     "human_task_id": "",
                     "source_ref": resolved_source_ref,
                     "external_id": resolved_external_id,
-                    "tour_media_mode": "flat_images",
+                    "tour_media_mode": "generated_reconstruction",
+                    "generated_reconstruction_url": generated_reconstruction_url,
+                    "open_tour_url": generated_reconstruction_url,
                     "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
                     "personal_fit_assessment": dict(personal_fit_assessment or {}),
-                    "creation_mode": "hosted_photo_gallery_tour",
+                    "creation_mode": "generated_reconstruction_tour",
                 }
                 try:
                     self._record_product_event(
@@ -31232,7 +31381,7 @@ class ProductService:
                     return payload
                 except Exception:
                     blocked_reason = "pure_360_assets_unavailable"
-            if source_floorplan_urls and blocked_reason in {
+            if (source_floorplan_urls or source_media_urls) and blocked_reason in {
                 "crezlo_property_tour_not_configured",
                 "browseract_connector_unconfigured",
                 "listing_media_missing",
@@ -31240,80 +31389,23 @@ class ProductService:
                 "pure_360_assets_unavailable",
             }:
                 try:
-                    structured_output = _write_hosted_floorplan_property_tour_bundle(
-                        principal_id=principal_id,
-                        title=title,
-                        listing_id=listing_id,
-                        property_url=normalized_url,
-                        variant_key=resolved_variant_key,
-                        floorplan_urls=source_floorplan_urls,
-                        property_facts_json=property_facts_json,
-                        source_host=source_host,
-                        source_ref=resolved_source_ref,
-                        external_id=resolved_external_id,
-                        recipient_email=resolved_recipient_email,
-                    )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
-                    payload = {
-                        "generated_at": generated_at,
-                        "status": "created",
-                        "property_url": normalized_url,
-                        "title": title,
-                        "listing_id": listing_id,
-                        "variant_key": resolved_variant_key,
-                        "artifact_id": "",
-                        "execution_session_id": "",
-                        "connector_binding_id": resolved_binding_id,
-                        "tour_url": tour_url,
-                        "vendor_tour_url": vendor_tour_url,
-                        "editor_url": "",
-                        "delivery_email": resolved_recipient_email,
-                        "delivery_status": "skipped" if not auto_deliver else "",
-                        "blocked_reason": "",
-                        "human_task_id": "",
-                        "source_ref": resolved_source_ref,
-                        "external_id": resolved_external_id,
-                        "tour_media_mode": "floorplan_hosted",
-                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
-                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
-                        "creation_mode": "hosted_floorplan_tour",
-                        "upstream_blocked_reason": blocked_reason,
-                    }
-                    try:
-                        self._record_product_event(
-                            principal_id=principal_id,
-                            event_type="willhaben_property_tour_created",
-                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
-                            source_id=resolved_source_ref,
-                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-created",
-                        )
-                    except Exception:
-                        pass
-                    return payload
-                except Exception:
-                    blocked_reason = "floorplan_assets_unavailable"
-            if source_media_urls and blocked_reason in {
-                "crezlo_property_tour_not_configured",
-                "browseract_connector_unconfigured",
-                "listing_media_missing",
-                "property_tour_execution_failed",
-                "floorplan_assets_unavailable",
-            }:
-                try:
-                    structured_output = _write_hosted_photo_gallery_property_tour_bundle(
+                    structured_output = _write_generated_reconstruction_property_tour_bundle(
                         principal_id=principal_id,
                         title=title,
                         listing_id=listing_id,
                         property_url=normalized_url,
                         variant_key=resolved_variant_key,
                         media_urls=source_media_urls,
+                        floorplan_urls=source_floorplan_urls,
                         property_facts_json=property_facts_json,
                         source_host=source_host,
                         source_ref=resolved_source_ref,
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
+                        diorama_style_hint=diorama_style_hint,
                     )
                     tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    generated_reconstruction_url = _hosted_property_tour_generated_reconstruction_asset_url(tour_url)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -31333,10 +31425,12 @@ class ProductService:
                         "human_task_id": "",
                         "source_ref": resolved_source_ref,
                         "external_id": resolved_external_id,
-                        "tour_media_mode": "flat_images",
+                        "tour_media_mode": "generated_reconstruction",
+                        "generated_reconstruction_url": generated_reconstruction_url,
+                        "open_tour_url": generated_reconstruction_url,
                         "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
                         "personal_fit_assessment": dict(personal_fit_assessment or {}),
-                        "creation_mode": "hosted_photo_gallery_tour",
+                        "creation_mode": "generated_reconstruction_tour",
                         "upstream_blocked_reason": blocked_reason,
                     }
                     try:
@@ -31351,7 +31445,7 @@ class ProductService:
                         pass
                     return payload
                 except Exception:
-                    blocked_reason = "gallery_assets_unavailable"
+                    blocked_reason = "reconstruction_assets_unavailable"
             followup_task_id = ""
             if not suppress_human_followup:
                 followup = self._open_property_tour_followup(
@@ -31781,6 +31875,7 @@ class ProductService:
         allow_floorplan_only: bool = False,
         enforce_360_media: bool = True,
         suppress_human_followup: bool = False,
+        diorama_style_hint: str = "",
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         property_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
@@ -35714,6 +35809,7 @@ class ProductService:
             enforce_360_media=effective_enforce_360_media,
             suppress_human_followup=suppress_human_followup,
             walkthrough_provider_key=walkthrough_provider_key,
+            diorama_style_hint=resolved_style_hint,
         )
         payload = dict(base_result or {})
         payload["request_kind"] = normalized_kind
@@ -35722,11 +35818,16 @@ class ProductService:
         payload["source_ref"] = normalized_source_ref
         payload["diorama_style_hint"] = resolved_style_hint
         verified_tour_url = _hosted_property_tour_verified_open_url(payload.get("tour_url"))
+        generated_reconstruction_url = _hosted_property_tour_generated_reconstruction_asset_url(payload.get("tour_url"))
         if verified_tour_url:
             payload["verified_tour_url"] = verified_tour_url
+        if generated_reconstruction_url:
+            payload["generated_reconstruction_url"] = generated_reconstruction_url
+            payload["open_tour_url"] = generated_reconstruction_url
         created_disabled_fallback = (
             str(payload.get("status") or "").strip().lower() == "created"
             and not verified_tour_url
+            and not generated_reconstruction_url
             and (
                 _property_tour_payload_is_disabled_fallback(payload)
                 or str(payload.get("tour_media_mode") or "").strip().lower() in {"floorplan_hosted", "flat_images"}
@@ -35742,6 +35843,7 @@ class ProductService:
         created_without_verified_open = (
             str(payload.get("status") or "").strip().lower() == "created"
             and not verified_tour_url
+            and not generated_reconstruction_url
             and not str(payload.get("blocked_reason") or "").strip()
         )
         created_has_creation_receipt = bool(
@@ -35828,9 +35930,17 @@ class ProductService:
         else:
             payload["tour_status"] = tour_status or str(payload.get("tour_status") or "").strip().lower()
             verified_tour_url = _hosted_property_tour_verified_open_url(payload.get("tour_url"))
+            generated_reconstruction_url = _hosted_property_tour_generated_reconstruction_asset_url(payload.get("tour_url"))
             if verified_tour_url:
                 payload["verified_tour_url"] = verified_tour_url
+            if generated_reconstruction_url:
+                payload["generated_reconstruction_url"] = generated_reconstruction_url
+                payload["open_tour_url"] = generated_reconstruction_url
+                payload["tour_status"] = "ready"
             if verified_tour_url:
+                status_label = "3D tour available"
+                status_detail = "Available on this page."
+            elif generated_reconstruction_url:
                 status_label = "3D tour available"
                 status_detail = "Available on this page."
             elif str(payload.get("tour_url") or "").strip():
@@ -36126,7 +36236,7 @@ class ProductService:
         status_value = flythrough_status if normalized_kind == "flythrough" else tour_status
         ready_url = flythrough_url if normalized_kind == "flythrough" else tour_url
         if normalized_kind == "tour":
-            ready_url = _hosted_property_tour_verified_open_url(tour_url)
+            ready_url = _hosted_property_tour_verified_open_url(tour_url) or _hosted_property_tour_generated_reconstruction_asset_url(tour_url)
         elif normalized_kind == "flythrough":
             ready_url = _hosted_property_tour_walkthrough_asset_url(tour_url) or _published_walkthrough_asset_url(flythrough_url)
         live_progress = _hosted_property_visual_progress_snapshot(

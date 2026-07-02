@@ -2578,6 +2578,28 @@ def test_austria_generated_source_defaults_use_public_and_cooperative_lanes_for_
 
     assert "public_housing_at" in platforms
     assert "genossenschaften_at" in platforms
+    assert "immowelt_at" in platforms
+    assert "flatbee" in platforms
+
+
+def test_empty_property_provider_selection_expands_to_all_selectable_market_providers() -> None:
+    preferences = {
+        "country_code": "AT",
+        "language_code": "de",
+        "listing_mode": "rent",
+        "location_query": "Vienna",
+    }
+
+    platforms, removed_platforms, removed_details = product_service._property_search_execution_platforms((), preferences)
+    selectable = property_market_catalog.selectable_property_platform_keys(country_code="AT", listing_mode="rent")
+    featured_defaults = property_market_catalog.default_platforms_for_country_listing_mode("AT", "rent")
+
+    assert set(platforms) == set(selectable)
+    assert len(platforms) > len(featured_defaults)
+    assert "immowelt_at" in platforms
+    assert "flatbee" in platforms
+    assert removed_platforms == ()
+    assert removed_details == ()
 
 
 def test_generated_source_specs_use_selected_districts_over_broad_location_query() -> None:
