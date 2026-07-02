@@ -945,9 +945,11 @@ def _blocked_control_reason(payload: dict[str, object]) -> str:
     return "missing_verified_provider_control"
 
 
-def _probe_url(url: str, *, timeout_seconds: float, provider: str = "") -> dict[str, object]:
+def _probe_url(url: str, *, timeout_seconds: float, provider: str = "", host_header: str = "") -> dict[str, object]:
     normalized_provider = str(provider or "").strip().lower()
     request_headers = {"User-Agent": "PropertyQuarry-tour-control-verifier/1.0"}
+    if str(host_header or "").strip():
+        request_headers["Host"] = str(host_header).strip()
     if normalized_provider == "magicfit":
         request_headers["Accept"] = "video/mp4,video/webm,video/*;q=0.9,*/*;q=0.1"
     request = urllib.request.Request(url, method="GET", headers=request_headers)
@@ -1001,6 +1003,7 @@ def build_property_tour_control_receipt(
     *,
     tour_root: Path | None = None,
     base_url: str = "",
+    host_header: str = "",
     live_probe: bool = False,
     timeout_seconds: float = 5.0,
     require_all_provider_modes: bool = False,
@@ -1041,6 +1044,7 @@ def build_property_tour_control_receipt(
                     probe_url,
                     timeout_seconds=timeout_seconds,
                     provider=str(control.get("provider") or ""),
+                    host_header=host_header,
                 )
                 control["probe"] = probe
                 playback_markers = dict(probe.get("playback_markers") or {})
@@ -1185,6 +1189,7 @@ def build_property_tour_control_receipt(
         ],
         "live_probe": bool(live_probe),
         "base_url": base_url if live_probe else "",
+        "host_header": host_header if live_probe else "",
         "require_all_provider_modes": bool(require_all_provider_modes),
         "tours": tours,
         "notes": [
@@ -1219,6 +1224,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Verify PropertyQuarry hosted 3D tour and walkthrough control readiness.")
     parser.add_argument("--tour-root", default="", help="Tour root. Defaults to EA_PUBLIC_TOUR_DIR or state/public_property_tours.")
     parser.add_argument("--base-url", default=os.getenv("PROPERTYQUARRY_TOUR_CONTROL_BASE_URL") or "http://localhost:8097")
+    parser.add_argument("--host-header", default=os.getenv("PROPERTYQUARRY_LIVE_HOST_HEADER") or "propertyquarry.com")
     parser.add_argument("--live-probe", action="store_true", help="Probe ready control paths over HTTP.")
     parser.add_argument("--timeout-seconds", type=float, default=5.0)
     parser.add_argument("--write", default="", help="Optional JSON receipt path.")
@@ -1233,6 +1239,7 @@ def main() -> int:
     receipt = build_property_tour_control_receipt(
         tour_root=Path(args.tour_root) if str(args.tour_root or "").strip() else None,
         base_url=str(args.base_url or "").strip(),
+        host_header=str(args.host_header or "").strip(),
         live_probe=bool(args.live_probe),
         timeout_seconds=float(args.timeout_seconds),
         require_all_provider_modes=bool(args.require_all_provider_modes),

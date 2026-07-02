@@ -85,6 +85,7 @@ if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container
     --tour-root /data/public_property_tours \
     --live-probe \
     --base-url http://127.0.0.1:8097 \
+    --host-header propertyquarry.com \
     --require-all-provider-modes \
     --write /data/artifacts/property-tour-controls-release-gate-live-container.json \
     --summary-only
