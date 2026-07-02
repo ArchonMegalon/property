@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,10 @@ ONEMIN_PROTECTED_ACTION_REASONS = {
 
 def _default_receipt_path() -> Path:
     return DEFAULT_RECEIPT if DEFAULT_RECEIPT.exists() else FALLBACK_RECEIPT
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _row_by_provider(receipt: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -132,6 +137,7 @@ def validate_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
 
 
 def _emit_result(result: dict[str, Any], output_path: str = "") -> None:
+    result.setdefault("generated_at", _utc_now())
     rendered = json.dumps(result, sort_keys=True)
     print(rendered)
     if output_path:

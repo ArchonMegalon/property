@@ -115,6 +115,7 @@ def test_scene_video_provider_refresh_packet_verifier_passes_generated_packet(tm
     receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
 
     assert receipt["status"] == "pass"
+    assert receipt["generated_at"].endswith("Z")
     assert receipt["blockers"] == []
     assert receipt["checked_providers"] == ["magicfit", "omagic"]
     assert receipt["provider_count"] == 2

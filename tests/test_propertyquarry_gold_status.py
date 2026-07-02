@@ -29,6 +29,10 @@ def test_gold_status_cli_keeps_live_container_tour_receipt_as_fallback() -> None
     assert "_completion/smoke/property-live-authenticated-latest.json" in source
     assert "_completion/smoke/property-live-3d-browser-gate-latest.json" in source
     assert "_completion/smoke/property-live-walkthrough-quality-latest.json" in source
+    assert "_completion/scene_video_readiness/release-gate.json" in source
+    assert "_completion/scene_video_readiness/release-gate-verifier.json" in source
+    assert "_completion/scene_video_readiness/provider-refresh-packet.json" in source
+    assert "_completion/scene_video_readiness/provider-refresh-packet-verifier.json" in source
     assert "_completion/smoke/property-live-mobile-surface-with-research-detail-pass.json" not in source
     assert "_completion/tours/property-tour-controls-after-monotonic-counters.json" not in source
 

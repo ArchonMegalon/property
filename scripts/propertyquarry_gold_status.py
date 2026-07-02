@@ -166,6 +166,23 @@ DEFAULT_RECEIPT_PATTERNS = {
     "map_preview_flagship": ("_completion/smoke/property-live-map-preview-flagship*.json",),
     "browser_3d_gate": ("_completion/smoke/property-live-3d-browser-gate*.json",),
     "walkthrough_quality": ("_completion/smoke/property-live-walkthrough-quality*.json",),
+    "scene_video_readiness": (
+        "_completion/scene_video_readiness/release-gate.json",
+        "_completion/scene_video_readiness/PROPERTY_SCENE_VIDEO_READINESS.generated.json",
+        "_completion/scene_video_readiness/property-scene-video-readiness*.json",
+    ),
+    "scene_video_readiness_verifier": (
+        "_completion/scene_video_readiness/release-gate-verifier.json",
+        "_completion/scene_video_readiness/*readiness-verifier*.json",
+    ),
+    "scene_video_provider_refresh_packet": (
+        "_completion/scene_video_readiness/provider-refresh-packet.json",
+        "_completion/scene_video_readiness/property-scene-video-provider-refresh-packet*.json",
+    ),
+    "scene_video_provider_refresh_packet_verifier": (
+        "_completion/scene_video_readiness/provider-refresh-packet-verifier.json",
+        "_completion/scene_video_readiness/*provider-refresh-packet-verifier*.json",
+    ),
 }
 DEFAULT_RECEIPT_FALLBACKS = {
     "performance": "_completion/smoke/property-auth-performance-latest.json",
@@ -189,6 +206,10 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "map_preview_flagship": "_completion/smoke/property-live-map-preview-flagship-latest.json",
     "browser_3d_gate": "_completion/smoke/property-live-3d-browser-gate-latest.json",
     "walkthrough_quality": "_completion/smoke/property-live-walkthrough-quality-latest.json",
+    "scene_video_readiness": "_completion/scene_video_readiness/release-gate.json",
+    "scene_video_readiness_verifier": "_completion/scene_video_readiness/release-gate-verifier.json",
+    "scene_video_provider_refresh_packet": "_completion/scene_video_readiness/provider-refresh-packet.json",
+    "scene_video_provider_refresh_packet_verifier": "_completion/scene_video_readiness/provider-refresh-packet-verifier.json",
 }
 
 _CANONICAL_GOLD_STATUS_LATEST_PATHS = (
@@ -2251,10 +2272,26 @@ def main() -> int:
         map_preview_flagship_receipt_path=Path(args.map_preview_flagship_receipt) if args.map_preview_flagship_receipt else _default_receipt_path("map_preview_flagship"),
         browser_3d_gate_receipt_path=Path(args.browser_3d_gate_receipt) if args.browser_3d_gate_receipt else _default_receipt_path("browser_3d_gate"),
         walkthrough_quality_receipt_path=Path(args.walkthrough_quality_receipt) if args.walkthrough_quality_receipt else _default_receipt_path("walkthrough_quality"),
-        scene_video_readiness_receipt_path=Path(args.scene_video_readiness_receipt) if args.scene_video_readiness_receipt else None,
-        scene_video_readiness_verifier_receipt_path=Path(args.scene_video_readiness_verifier_receipt) if args.scene_video_readiness_verifier_receipt else None,
-        scene_video_provider_refresh_packet_path=Path(args.scene_video_provider_refresh_packet) if args.scene_video_provider_refresh_packet else None,
-        scene_video_provider_refresh_packet_verifier_receipt_path=Path(args.scene_video_provider_refresh_packet_verifier_receipt) if args.scene_video_provider_refresh_packet_verifier_receipt else None,
+        scene_video_readiness_receipt_path=(
+            Path(args.scene_video_readiness_receipt)
+            if args.scene_video_readiness_receipt
+            else _default_receipt_path("scene_video_readiness")
+        ),
+        scene_video_readiness_verifier_receipt_path=(
+            Path(args.scene_video_readiness_verifier_receipt)
+            if args.scene_video_readiness_verifier_receipt
+            else _default_receipt_path("scene_video_readiness_verifier")
+        ),
+        scene_video_provider_refresh_packet_path=(
+            Path(args.scene_video_provider_refresh_packet)
+            if args.scene_video_provider_refresh_packet
+            else _default_receipt_path("scene_video_provider_refresh_packet")
+        ),
+        scene_video_provider_refresh_packet_verifier_receipt_path=(
+            Path(args.scene_video_provider_refresh_packet_verifier_receipt)
+            if args.scene_video_provider_refresh_packet_verifier_receipt
+            else _default_receipt_path("scene_video_provider_refresh_packet_verifier")
+        ),
         repair_canary_receipt_path=Path(args.repair_canary_receipt) if args.repair_canary_receipt else _default_receipt_path("repair_canary"),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt) if args.provider_matrix_receipt else _default_receipt_path("provider_matrix"),
         max_receipt_age_hours=args.max_receipt_age_hours,

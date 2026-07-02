@@ -120,6 +120,7 @@ def test_scene_video_readiness_verifier_cli_fails_on_missing_action(tmp_path: Pa
     assert result.returncode == 1
     body = json.loads(result.stdout)
     assert body["status"] == "fail"
+    assert body["generated_at"].endswith("Z")
     assert "next_action_missing:magicfit:provider_account_visibility_gap" in body["blockers"]
 
 

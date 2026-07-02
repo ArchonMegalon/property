@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,10 @@ SENSITIVE_PATH_RE = re.compile(r"(api[_-]?key|cookie|password|secret|session|tok
 SAFE_ACCOUNT_MERGE_SCRIPT_NAME = "merge_scene_video_provider_accounts_env.py"
 ACCOUNT_JSON_MODE_GUIDANCE = "0o600"
 REQUIRED_EXPECTED_ACCOUNT_COUNTS = {"magicfit": 3, "omagic": 8}
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _default_packet_path() -> Path:
@@ -189,6 +194,7 @@ def verify_packet(packet: dict[str, Any], *, packet_path: str | None = None) -> 
 
     status = "fail" if blockers else "pass"
     receipt: dict[str, Any] = {
+        "generated_at": _utc_now(),
         "status": status,
         "blockers": blockers,
         "checked_providers": sorted(providers),
@@ -212,6 +218,7 @@ def main() -> int:
         receipt = verify_packet(packet, packet_path=str(packet_path))
     except Exception as exc:
         receipt = {
+            "generated_at": _utc_now(),
             "status": "fail",
             "blockers": [f"packet_load_failed:{exc.__class__.__name__}"],
             "checked_providers": [],
