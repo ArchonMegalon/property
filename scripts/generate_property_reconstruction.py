@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
 import shutil
@@ -15,6 +16,7 @@ from PIL import Image, ImageOps
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
+VIEWER_VERSION = "propertyquarry_3d_tour_viewer_v2"
 DISCLOSURE = (
     "Generated reconstruction from floorplan/photos; not a verified Matterport, "
     "3DVista, Pano2VR, krpano, or MagicFit provider export."
@@ -251,67 +253,147 @@ def _viewer_html(*, manifest: dict[str, object]) -> str:
     height_m = manifest["room_dimensions_m"]["height"]
     photos = manifest.get("photos") if isinstance(manifest.get("photos"), list) else []
     style_label = str(manifest.get("style_label") or "").strip()
-    style_copy = f'<p>Interior style: {style_label}</p>' if style_label else ""
+    escaped_style = html.escape(style_label)
+    style_copy = f'<span>{escaped_style}</span>' if escaped_style else ""
+    floorplan_relpath = html.escape(str(dict(manifest.get("floorplan") or {}).get("relpath") or "source-floorplan.jpg"))
     photo_items = "\n".join(
-        f'<img src="{row["relpath"]}" alt="Source photo {index}" loading="lazy">'
+        f'<img src="{html.escape(str(row["relpath"]))}" alt="Room photo {index}" loading="lazy">'
         for index, row in enumerate(photos, start=1)
         if isinstance(row, dict) and row.get("relpath")
     )
-    glb = manifest.get("model", {}).get("glb_relpath") if isinstance(manifest.get("model"), dict) else ""
-    glb_link = f' · <a href="{glb}">Download GLB</a>' if glb else ""
+    photo_section = (
+        f"""
+    <section class="panel" aria-label="Listing photos">
+      <div class="panel-head">
+        <p>Photos</p>
+        <span>{len(photos)}</span>
+      </div>
+      <div class="photos">{photo_items}</div>
+    </section>"""
+        if photo_items
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Generated PropertyQuarry Reconstruction</title>
+  <title>3D tour | PropertyQuarry</title>
   <style>
-    :root {{ color-scheme: light; --ink:#181611; --muted:#70695c; --paper:#f7f3ea; --line:#dfd6c4; --gold:#b88a32; }}
+    :root {{
+      color-scheme: light;
+      --ink:#17130c;
+      --muted:#766d5e;
+      --paper:#f6f0e5;
+      --panel:rgba(255,252,245,.78);
+      --line:rgba(54,42,27,.14);
+      --gold:#a77c2b;
+      --shadow:0 24px 70px rgba(68,47,24,.12);
+    }}
     * {{ box-sizing: border-box; }}
-    body {{ margin:0; font-family: ui-serif, Georgia, serif; background:var(--paper); color:var(--ink); }}
-    main {{ min-height:100vh; display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:24px; padding:24px; }}
-    canvas {{ width:100%; height:min(72vh,720px); border:1px solid var(--line); border-radius:24px; background:linear-gradient(180deg,#fbf8f0,#ebe1cf); touch-action:none; }}
-    aside {{ display:flex; flex-direction:column; gap:16px; }}
-    .card {{ border:1px solid var(--line); border-radius:22px; background:rgba(255,255,255,.58); padding:18px; box-shadow:0 18px 50px rgba(70,52,28,.08); }}
-    h1 {{ margin:0 0 8px; font-size:24px; line-height:1.05; letter-spacing:-.03em; }}
-    p {{ margin:0; color:var(--muted); line-height:1.45; }}
-    .disclosure {{ color:#7f1d1d; font-family:ui-sans-serif, system-ui, sans-serif; font-size:13px; }}
-    .metrics {{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; font-family:ui-sans-serif, system-ui, sans-serif; }}
-    .metrics div {{ border:1px solid var(--line); border-radius:16px; padding:10px; }}
-    .metrics b {{ display:block; font-size:18px; color:var(--ink); }}
+    body {{
+      margin:0;
+      min-height:100vh;
+      font-family:Aptos, ui-sans-serif, system-ui, sans-serif;
+      background:
+        radial-gradient(circle at 18% 10%, rgba(255,255,255,.92), transparent 30%),
+        linear-gradient(135deg,#faf6ed 0%,#efe4d1 48%,#d9c4a5 100%);
+      color:var(--ink);
+    }}
+    main {{ min-height:100vh; display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:18px; padding:18px; }}
+    .stage {{ position:relative; min-height:0; }}
+    canvas {{
+      width:100%;
+      height:calc(100vh - 36px);
+      min-height:520px;
+      border:1px solid var(--line);
+      border-radius:28px;
+      background:linear-gradient(180deg,#fbf8f1,#e6d8bf);
+      box-shadow:var(--shadow);
+      touch-action:none;
+    }}
+    .hud {{
+      position:absolute;
+      top:18px;
+      left:18px;
+      right:18px;
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      pointer-events:none;
+    }}
+    .title-card, .hint-pill {{
+      border:1px solid var(--line);
+      border-radius:22px;
+      background:rgba(255,252,244,.76);
+      backdrop-filter:blur(18px);
+      box-shadow:0 14px 45px rgba(52,36,17,.09);
+    }}
+    .title-card {{ padding:14px 16px; max-width:min(420px,70vw); }}
+    h1 {{ margin:0; font-family:Georgia, ui-serif, serif; font-size:clamp(28px,4vw,54px); line-height:.92; letter-spacing:-.055em; }}
+    .title-card p {{ margin:8px 0 0; color:var(--muted); font-size:14px; line-height:1.35; }}
+    .hint-pill {{ padding:10px 13px; color:var(--muted); font-size:13px; white-space:nowrap; }}
+    aside {{ display:flex; flex-direction:column; gap:12px; min-width:0; }}
+    .panel {{ border:1px solid var(--line); border-radius:24px; background:var(--panel); padding:14px; box-shadow:0 16px 44px rgba(60,40,18,.08); }}
+    .panel-head {{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }}
+    .panel-head p, .panel-head span {{ margin:0; color:var(--muted); font-size:13px; }}
+    .panel-head p {{ color:var(--ink); font-weight:700; }}
+    .facts {{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }}
+    .facts div {{ border:1px solid var(--line); border-radius:18px; padding:11px 10px; background:rgba(255,255,255,.42); }}
+    .facts b {{ display:block; font-family:Georgia, ui-serif, serif; font-size:21px; line-height:1; letter-spacing:-.04em; }}
+    .facts span {{ display:block; margin-top:5px; color:var(--muted); font-size:12px; }}
+    .style-pill {{ display:inline-flex; margin-top:10px; padding:8px 10px; border-radius:999px; background:rgba(167,124,43,.1); color:#6c4c16; font-size:13px; }}
+    .floorplan, .photos img {{ width:100%; border:1px solid var(--line); border-radius:18px; object-fit:cover; background:white; }}
+    .floorplan {{ aspect-ratio:4/3; }}
     .photos {{ display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }}
-    .photos img, .floorplan {{ width:100%; border-radius:14px; border:1px solid var(--line); object-fit:cover; }}
     .photos img {{ aspect-ratio:1; }}
-    .floorplan {{ aspect-ratio:4/3; background:white; }}
-    a {{ color:var(--ink); text-decoration-thickness:1px; text-underline-offset:4px; }}
-    @media (max-width: 800px) {{ main {{ display:block; padding:12px; }} aside {{ margin-top:12px; }} canvas {{ height:62vh; border-radius:18px; }} }}
+    .note {{ margin:0; color:var(--muted); font-size:13px; line-height:1.4; }}
+    @media (max-width: 880px) {{
+      main {{ display:block; padding:10px; }}
+      canvas {{ height:68vh; min-height:430px; border-radius:22px; }}
+      aside {{ margin-top:10px; }}
+      .hud {{ top:12px; left:12px; right:12px; }}
+      .hint-pill {{ display:none; }}
+      .title-card {{ max-width:86vw; padding:12px 13px; }}
+      .title-card p {{ font-size:13px; }}
+    }}
   </style>
 </head>
 <body>
 <main>
-  <canvas id="scene" width="1400" height="900" aria-label="Generated 3D room model preview"></canvas>
+  <section class="stage">
+    <canvas id="scene" width="1400" height="900" aria-label="3D layout preview"></canvas>
+    <div class="hud">
+      <div class="title-card">
+        <h1>3D tour</h1>
+        <p>Move around the layout before deciding whether to visit.</p>
+      </div>
+      <div class="hint-pill">Drag to rotate</div>
+    </div>
+  </section>
   <aside>
-    <section class="card">
-      <h1>Generated reconstruction</h1>
-      <p class="disclosure">{DISCLOSURE}</p>
-      {style_copy}
+    <section class="panel">
+      <div class="panel-head">
+        <p>Layout preview</p>
+        <span>approx.</span>
+      </div>
+      <p class="note">Built from the floorplan and listing photos. Use it for orientation; confirm dimensions at the viewing.</p>
+      {f'<span class="style-pill">{style_copy}</span>' if style_copy else ''}
     </section>
-    <section class="card metrics" aria-label="Room dimensions">
+    <section class="panel facts" aria-label="Approximate room dimensions">
       <div><b>{width_m}</b><span>m wide</span></div>
       <div><b>{depth_m}</b><span>m deep</span></div>
       <div><b>{height_m}</b><span>m high</span></div>
     </section>
-    <section class="card">
-      <p>Floorplan source</p>
-      <img class="floorplan" src="{manifest["floorplan"]["relpath"]}" alt="Source floorplan">
+    <section class="panel">
+      <div class="panel-head">
+        <p>Floorplan</p>
+        <span>source</span>
+      </div>
+      <img class="floorplan" src="{floorplan_relpath}" alt="Floorplan">
     </section>
-    <section class="card">
-      <p>Source photos</p>
-      <div class="photos">{photo_items}</div>
-    </section>
-    <section class="card">
-      <p><a href="model.obj">Download OBJ</a>{glb_link} · receipt stored with operator artifacts</p>
-    </section>
+    {photo_section}
   </aside>
 </main>
 <script>
@@ -347,7 +429,7 @@ function draw() {{
       face.slice(0,4).forEach((i,n)=>{{ const [x,y]=projected[i]; n?ctx.lineTo(x,y):ctx.moveTo(x,y); }});
       ctx.closePath(); ctx.fillStyle=face[4]; ctx.fill(); ctx.strokeStyle='rgba(38,31,20,.28)'; ctx.lineWidth=2; ctx.stroke();
     }});
-  ctx.fillStyle='rgba(24,22,17,.72)'; ctx.font='28px Georgia'; ctx.fillText('drag to inspect generated room volume', 34, 52);
+  ctx.fillStyle='rgba(24,22,17,.56)'; ctx.font='24px Georgia'; ctx.fillText('drag to rotate', 34, 52);
 }}
 canvas.addEventListener('pointerdown', e => {{ dragging=true; lastX=e.clientX; lastY=e.clientY; canvas.setPointerCapture(e.pointerId); }});
 canvas.addEventListener('pointermove', e => {{ if(!dragging) return; yaw += (e.clientX-lastX)*0.008; pitch = Math.max(-.7, Math.min(.8, pitch+(e.clientY-lastY)*0.006)); lastX=e.clientX; lastY=e.clientY; draw(); }});
@@ -382,7 +464,7 @@ def _write_walkthrough(target: Path, images: list[Path], *, style_label: str = "
         draw.line((0, viewport_h - 90, sheet_w, viewport_h - 90), fill=(202, 188, 160), width=3)
         labels: list[str] = []
         for index, image_path in enumerate(images):
-            label = "floorplan overview" if index == 0 else f"source photo {index:02d}"
+            label = "Floorplan" if index == 0 else f"Room view {index:02d}"
             labels.append(label)
             x = 80 + index * (tile_w + gap)
             y = 120 + (index % 2) * 44
@@ -397,36 +479,39 @@ def _write_walkthrough(target: Path, images: list[Path], *, style_label: str = "
                 card.paste(normalized, (paste_x, paste_y))
                 card_draw.text((18, 14), label, fill=(55, 45, 34))
                 sheet.paste(card, (x, y))
-        headline = "Generated reconstruction walkthrough - continuous review path"
+        headline = "Walkthrough"
         if style_label:
             headline = f"{headline} - {style_label}"
         draw.text((80, 44), headline, fill=(42, 35, 25))
-        draw.text((80, viewport_h - 62), DISCLOSURE, fill=(126, 30, 30))
+        draw.text((80, viewport_h - 62), "Layout preview from listing media. Confirm details at the viewing.", fill=(96, 72, 38))
         sheet.save(sheet_path, format="JPEG", quality=92)
         x_expr = f"if(gt(iw,{viewport_w}),(iw-{viewport_w})*n/{max(frame_count - 1, 1)},0)"
-        result = subprocess.run(
-            [
-                ffmpeg,
-                "-y",
-                "-loop",
-                "1",
-                "-i",
-                str(sheet_path),
-                "-t",
-                str(duration_seconds),
-                "-vf",
-                f"crop={viewport_w}:{viewport_h}:x='{x_expr}':y=0,format=yuv420p",
-                "-r",
-                str(fps),
-                "-movflags",
-                "+faststart",
-                str(target),
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-loop",
+                    "1",
+                    "-i",
+                    str(sheet_path),
+                    "-t",
+                    str(duration_seconds),
+                    "-vf",
+                    f"crop={viewport_w}:{viewport_h}:x='{x_expr}':y=0,format=yuv420p",
+                    "-r",
+                    str(fps),
+                    "-movflags",
+                    "+faststart",
+                    str(target),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            return {"status": "failed", "reason": "ffmpeg_timeout"}
     if result.returncode != 0:
         return {"status": "failed", "reason": (result.stderr or "ffmpeg_failed")[-500:]}
     duration = _video_duration_seconds(target)
@@ -565,7 +650,7 @@ def main() -> int:
             "mtl_sha256": _sha256(output_dir / "model.mtl"),
             "glb_export": glb_export,
         },
-        "viewer": {"relpath": "viewer.html"},
+        "viewer": {"relpath": "viewer.html", "version": VIEWER_VERSION},
         "walkthrough": walkthrough,
     }
     if glb_export.get("status") == "generated":
@@ -584,6 +669,7 @@ def main() -> int:
     generated_reconstruction = {
         "provider": "propertyquarry_generated_reconstruction",
         "generated_at": generated_at,
+        "viewer_version": VIEWER_VERSION,
         "viewer_relpath": f"{base_relpath}/viewer.html",
         "model_relpath": f"{base_relpath}/model.obj",
         "material_relpath": f"{base_relpath}/model.mtl",

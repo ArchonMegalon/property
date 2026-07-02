@@ -331,6 +331,7 @@ _PROPERTY_SCOUT_EXTRACT_FLOORPLAN_URLS_FROM_ARCHIVE_IMPL = _property_scout_extra
 _PROPERTY_SCOUT_EXTRACT_FLOORPLAN_URLS_IMPL = _property_scout_extract_floorplan_urls
 _PROPERTY_SCOUT_EXTRACT_GALLERY_FLOORPLAN_URLS_IMPL = _property_scout_extract_gallery_floorplan_urls
 _PROPERTY_SCOUT_EXTRACT_SOURCE_VIRTUAL_TOUR_URL_IMPL = _property_scout_extract_source_virtual_tour_url
+_PROPERTY_RECONSTRUCTION_VIEWER_VERSION = "propertyquarry_3d_tour_viewer_v2"
 
 
 def _sync_property_listing_extractor_runtime_compat() -> None:
@@ -16388,7 +16389,16 @@ def _write_generated_reconstruction_property_tour_bundle(
     tour_url = f"{base_url}/{slug}"
     bundle_dir = public_dir / slug
     existing_payload = _existing_hosted_property_tour_payload(slug)
-    if existing_payload and _hosted_property_tour_generated_reconstruction_asset_url(tour_url):
+    existing_reconstruction = (
+        existing_payload.get("generated_reconstruction")
+        if isinstance(existing_payload.get("generated_reconstruction"), dict)
+        else {}
+    )
+    if (
+        existing_payload
+        and _hosted_property_tour_generated_reconstruction_asset_url(tour_url)
+        and str(existing_reconstruction.get("viewer_version") or "").strip() == _PROPERTY_RECONSTRUCTION_VIEWER_VERSION
+    ):
         return existing_payload
     bundle_dir.mkdir(parents=True, exist_ok=True)
     facts = dict(property_facts_json or {})

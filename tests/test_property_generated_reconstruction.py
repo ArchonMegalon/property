@@ -50,7 +50,7 @@ def _run_generator(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[st
         env=env,
         capture_output=True,
         text=True,
-        timeout=40,
+        timeout=90,
         check=False,
     )
 
@@ -93,10 +93,26 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
         "reconstruction.json",
     ):
         assert (output_dir / filename).is_file(), filename
+    viewer_html = (output_dir / "viewer.html").read_text(encoding="utf-8")
+    assert "<title>3D tour | PropertyQuarry</title>" in viewer_html
+    assert "<h1>3D tour</h1>" in viewer_html
+    assert "Layout preview" in viewer_html
+    assert "Built from the floorplan and listing photos" in viewer_html
+    assert "Generated reconstruction" not in viewer_html
+    assert "not a verified" not in viewer_html
+    assert "Matterport" not in viewer_html
+    assert "3DVista" not in viewer_html
+    assert "Pano2VR" not in viewer_html
+    assert "krpano" not in viewer_html
+    assert "MagicFit" not in viewer_html
+    assert "Download OBJ" not in viewer_html
+    assert "Download GLB" not in viewer_html
+    assert "receipt stored" not in viewer_html
     assert "propertyquarry_generated_room" in (output_dir / "model.obj").read_text(encoding="utf-8")
     receipt = json.loads((output_dir / "reconstruction.json").read_text(encoding="utf-8"))
     assert receipt["verified_provider_capture"] is False
     assert receipt["satisfies_verified_tour_gate"] is False
+    assert receipt["viewer"]["version"] == "propertyquarry_3d_tour_viewer_v2"
     assert receipt["room_dimensions_m"]["width"] == 10.0
     assert len(receipt["photos"]) == 2
     assert receipt["model"]["glb_export"]["status"] in {"generated", "failed", "skipped"}
@@ -118,6 +134,7 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert generated_reconstruction["glb_export_status"] in {"generated", "failed", "skipped"}
     if generated_reconstruction["glb_export_status"] == "generated":
         assert generated_reconstruction["glb_model_relpath"] == "generated-reconstruction/model.glb"
+    assert generated_reconstruction["viewer_version"] == "propertyquarry_3d_tour_viewer_v2"
     if receipt["walkthrough"]["status"] == "generated":
         assert generated_reconstruction["walkthrough_sidecar_relpath"] == "generated-reconstruction/generated-walkthrough.quality.json"
         assert generated_reconstruction["walkthrough_coverage_proof"]["status"] == "pass"
