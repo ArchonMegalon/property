@@ -2227,6 +2227,9 @@ def test_propertyquarry_workbench_asks_for_furniture_style_at_visual_request_tim
     assert "data-pqx-visual-style-selected-label" in script
     assert "Choose a style for this" in script
     assert "${action} · ${styleLabel}" in script
+    research = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
+    assert "const readableErrorDetail = (detail, fallback) => {" in research
+    assert "throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not request the visual.'))" in research
 
 
 def test_propertyquarry_magicfit_scene_cache_is_furniture_style_aware(monkeypatch) -> None:

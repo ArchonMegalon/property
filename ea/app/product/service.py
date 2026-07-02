@@ -35461,9 +35461,10 @@ class ProductService:
             requested_status = str(
                 result.get("flythrough_status") if request_kind == "flythrough" else result.get("tour_status") or ""
             ).strip().lower()
-            requested_url = str(
+            raw_requested_url = str(
                 result.get("flythrough_url") if request_kind == "flythrough" else result.get("tour_url") or ""
             ).strip()
+            requested_url = raw_requested_url if request_kind == "flythrough" else _hosted_property_tour_verified_open_url(raw_requested_url)
             requested_reason = str(
                 result.get("flythrough_reason") if request_kind == "flythrough" else result.get("blocked_reason") or ""
             ).strip()
@@ -35472,7 +35473,7 @@ class ProductService:
                 reason=requested_reason,
             )
             if resolution == "created":
-                if requested_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
+                if _property_tour_status_is_pending(requested_status):
                     resolution = requested_status
                 elif requested_status in {"ready", "blocked", "failed", "skipped", "not_applicable"}:
                     resolution = requested_status
@@ -35723,6 +35724,21 @@ class ProductService:
         verified_tour_url = _hosted_property_tour_verified_open_url(payload.get("tour_url"))
         if verified_tour_url:
             payload["verified_tour_url"] = verified_tour_url
+        created_disabled_fallback = (
+            str(payload.get("status") or "").strip().lower() == "created"
+            and not verified_tour_url
+            and (
+                _property_tour_payload_is_disabled_fallback(payload)
+                or str(payload.get("tour_media_mode") or "").strip().lower() in {"floorplan_hosted", "flat_images"}
+            )
+        )
+        if created_disabled_fallback:
+            payload["status"] = "blocked"
+            payload["tour_status"] = "blocked"
+            payload["blocked_reason"] = "property_tour_fallback_disabled"
+            payload["tour_url"] = ""
+            payload["vendor_tour_url"] = ""
+            payload["verified_tour_url"] = ""
         created_without_verified_open = (
             str(payload.get("status") or "").strip().lower() == "created"
             and not verified_tour_url

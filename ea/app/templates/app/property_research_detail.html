@@ -3882,6 +3882,18 @@
   const visualStyleOptions = Array.from(document.querySelectorAll('[data-prd-style-option]'));
   const visualStyleConfirm = document.querySelector('[data-prd-style-confirm]');
   const visualStyleCancelButtons = Array.from(document.querySelectorAll('[data-prd-style-cancel]'));
+  const readableErrorDetail = (detail, fallback) => {
+    if (Array.isArray(detail)) {
+      return detail.map((item) => readableErrorDetail(item, '')).filter(Boolean).join(' ');
+    }
+    if (detail && typeof detail === 'object') {
+      const direct = detail.message || detail.msg || detail.code || detail.type || detail.error || '';
+      if (direct) return readableErrorDetail(direct, fallback);
+      try { return JSON.stringify(detail); } catch (_error) { return fallback; }
+    }
+    const raw = String(detail || '').trim();
+    return raw || fallback;
+  };
   const visualStyleKindLabel = (requestKind) => (
     String(requestKind || '').trim().toLowerCase() === 'flythrough' ? 'walkthrough' : '3D tour'
   );
@@ -4218,7 +4230,7 @@
           }),
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(String(payload.detail || payload.error || 'Could not request the visual.'));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not request the visual.'));
         syncVisualButtons(requestKind, payload);
         const nextState = visualStateFromPayload(requestKind, payload, original);
         scheduleVisualStatusPoll(requestKind, {

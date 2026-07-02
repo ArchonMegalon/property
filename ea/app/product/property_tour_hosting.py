@@ -378,7 +378,7 @@ def _property_tour_payload_is_disabled_fallback(structured_output: dict[str, obj
     control_mode = str(normalized.get("control_mode") or "").strip().lower()
     if scene_strategy in {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}:
         return True
-    if creation_mode == "hosted_listing_fallback":
+    if creation_mode in {"hosted_listing_fallback", "hosted_floorplan_tour", "hosted_photo_gallery_tour"}:
         return True
     if control_mode in {"walkable_3d", "internal_walkable_3d"}:
         return True

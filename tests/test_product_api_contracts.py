@@ -14253,6 +14253,53 @@ def test_request_property_visual_asset_keeps_explicit_workbench_floorplan(monkey
     assert result["diorama_style_hint"] == "playful Trump-style gold maximalist penthouse staging"
 
 
+def test_request_property_visual_asset_blocks_disabled_floorplan_fallback(monkeypatch) -> None:
+    principal_id = "property-visual-request-blocks-floorplan-fallback"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    def _fake_create_willhaben_property_tour(self, **kwargs: object) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        return {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Fallback floorplan workbench request",
+            "variant_key": "layout_first",
+            "tour_url": "https://propertyquarry.com/tours/fallback-floorplan",
+            "tour_status": "created",
+            "blocked_reason": "",
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "external_id": str(kwargs.get("external_id") or ""),
+            "tour_media_mode": "floorplan_hosted",
+            "creation_mode": "hosted_floorplan_tour",
+            "human_task_id": "",
+            "delivery_email": "",
+            "delivery_status": "created",
+            "editor_url": "",
+        }
+
+    monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+
+    result = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/fallback-floorplan-1",
+        request_kind="tour",
+        source_ref="willhaben:fallback-floorplan-1",
+        run_id="run-fallback-floorplan-1",
+        candidate_ref="candidate-fallback-floorplan-1",
+        auto_deliver=False,
+        queue_async_request=False,
+        allow_floorplan_only=True,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["tour_status"] == "blocked"
+    assert result["blocked_reason"] == "property_tour_fallback_disabled"
+    assert result["tour_url"] == ""
+
+
 def test_request_property_visual_asset_surfaces_terminal_walkthrough_render_failure(monkeypatch) -> None:
     principal_id = "property-visual-request-terminal-flythrough"
     client = build_product_client(principal_id=principal_id)
@@ -15435,6 +15482,62 @@ def test_property_tour_followup_tasks_keep_pending_when_visual_is_still_processi
     assert updated_task is not None
     assert updated_task.status == "pending"
     assert updated_task.resolution == ""
+
+
+def test_property_tour_followup_tasks_do_not_resolve_unverified_tour_url_as_ready(monkeypatch) -> None:
+    principal_id = "property-tour-followup-unverified-url"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Unverified tour URL",
+            "variant_key": str(kwargs.get("variant_key") or "layout_first"),
+            "request_kind": "tour",
+            "run_id": str(kwargs.get("run_id") or ""),
+            "candidate_ref": str(kwargs.get("candidate_ref") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "tour_url": "https://propertyquarry.com/tours/disabled-floorplan-fallback",
+            "tour_status": "repairing",
+            "status_label": "3D tour needs attention",
+        },
+    )
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/unverified-url-1",
+        title="Unverified tour URL",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:unverified-url-1",
+        external_id="unverified-url-1",
+        connector_binding_id="binding-1",
+        request_kind="tour",
+        run_id="run-unverified-url-1",
+        candidate_ref="candidate-unverified-url-1",
+        allow_floorplan_only=True,
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 0
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(task.human_task_id, principal_id=principal_id)
+    assert updated_task is not None
+    assert updated_task.status != "returned"
+    assert updated_task.resolution != "ready"
 
 
 def test_property_tour_followup_tasks_process_fresh_user_queued_visual(monkeypatch) -> None:
