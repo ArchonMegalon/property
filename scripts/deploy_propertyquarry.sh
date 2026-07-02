@@ -566,14 +566,14 @@ max_thread_nice_for_pid() {
     fi
   done < <(timeout 3 ps -T -o ni= -p "${host_pid}" 2>/dev/null || true)
   if [[ -z "${max_nice}" ]]; then
-    max_nice="$(ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+    max_nice="$(timeout 3 ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true)"
   fi
   printf '%s' "${max_nice}"
 }
 
 main_process_nice_for_pid() {
   local host_pid="$1"
-  ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true
+  timeout 3 ps -o ni= -p "${host_pid}" 2>/dev/null | tr -d '[:space:]' || true
 }
 
 process_cgroup_for_pid() {
