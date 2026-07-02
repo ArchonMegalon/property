@@ -20,7 +20,7 @@ import app.product.service as product_service
 import app.product.property_search_storage as property_search_storage
 import app.product.property_investment_external_data as property_investment_external_data
 from app.api.routes.product_api_contracts import PropertySearchRunStatusOut
-from app.api.routes.product_api_delivery import _property_search_payload_with_status_url
+from app.api.routes.product_api_delivery import _property_search_apply_response_display_totals, _property_search_payload_with_status_url
 from app.api.routes.landing_property_workspace_payload import _property_distance_evidence_rows
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_exact_location_probe, _property_candidate_url_has_location_probe, _property_search_location_hints
@@ -2172,6 +2172,42 @@ def test_property_search_run_status_derives_display_total_for_old_default_all_ru
     assert int(summary.get("provider_display_total") or 0) == expected_total
     assert int(status.get("provider_display_total") or 0) == expected_total
     assert int(summary.get("source_variant_display_total") or 0) == expected_total
+
+
+def test_property_search_status_response_guard_derives_default_all_display_total() -> None:
+    expected_total = len(property_market_catalog.selectable_property_platform_keys(country_code="AT", listing_mode="rent"))
+
+    payload = _property_search_apply_response_display_totals(
+        {
+            "run_id": "old-default-all-run",
+            "status": "processed",
+            "selected_platforms": [],
+            "summary": {
+                "provider_total": 1,
+                "source_variant_total": 2,
+                "sources_total": 2,
+                "sources_completed": 2,
+                "sources": [
+                    {
+                        "platform": "willhaben",
+                        "source_scope_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                        "status": "completed",
+                    },
+                    {
+                        "platform": "willhaben",
+                        "source_scope_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "status": "completed",
+                    },
+                ],
+            },
+        }
+    )
+
+    summary = dict(payload.get("summary") or {})
+    assert payload["provider_display_total"] == expected_total
+    assert payload["source_variant_display_total"] == expected_total
+    assert summary["provider_display_total"] == expected_total
+    assert summary["source_variant_display_total"] == expected_total
 
 
 def test_property_search_run_status_lightweight_fixes_inflated_provider_total(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -288,6 +288,12 @@
       const html = document.documentElement;
       const body = document.body;
       if (!html || !body) return;
+      const restorePageScroll = (value) => {
+        const restoreY = Math.max(0, Number(value || 0));
+        window.scrollTo(0, restoreY);
+        document.documentElement.scrollTop = restoreY;
+        document.body.scrollTop = restoreY;
+      };
       if (open) {
         if (html.dataset.pqxLocationMapOpen !== 'true') {
           previousHtmlOverflow = html.style.overflow || '';
@@ -315,8 +321,12 @@
         body.style.top = previousBodyTop;
         body.style.width = previousBodyWidth;
         body.style.touchAction = previousBodyTouchAction;
-        window.scrollTo(0, scrollY);
-        window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
+        restorePageScroll(scrollY);
+        window.requestAnimationFrame(() => {
+          restorePageScroll(scrollY);
+          window.requestAnimationFrame(() => restorePageScroll(scrollY));
+        });
+        window.setTimeout(() => restorePageScroll(scrollY), 80);
       }
     };
     const findDistrict = (event) => {

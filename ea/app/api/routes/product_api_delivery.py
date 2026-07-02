@@ -98,7 +98,9 @@ from app.services.property_market_catalog import (
     normalize_property_type as property_normalize_property_type,
     normalize_country_code as property_normalize_country_code,
     provider_options as property_provider_options,
+    property_provider_for_platform,
     resolve_country_code as property_resolve_country_code,
+    selectable_property_platform_keys as property_selectable_platform_keys,
 )
 
 router = APIRouter(prefix="/app/api", tags=["product"])
@@ -135,6 +137,121 @@ _PAYFUNNELS_CANCELLED_STATUSES = {"cancelled", "canceled", "voided"}
 _PAYFUNNELS_REFUNDED_STATUSES = {"refunded", "partially_refunded"}
 _PROPERTY_SEARCH_TERMINAL_STATUSES = {"processed", "completed", "completed_partial", "failed", "cancelled", "noop"}
 _PROPERTY_SEARCH_LIGHTWEIGHT_SOURCE_LIMIT = 24
+
+
+def _property_search_response_int(value: object) -> int:
+    try:
+        parsed = int(float(str(value or "").strip()))
+    except Exception:
+        parsed = 0
+    return parsed if parsed > 0 else 0
+
+
+def _property_search_response_scope(summary: dict[str, object], payload: dict[str, object]) -> tuple[str, str]:
+    sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    for candidate in (
+        summary.get("country_code"),
+        payload.get("country_code"),
+        dict(payload.get("property_search_preferences") or {}).get("country_code")
+        if isinstance(payload.get("property_search_preferences"), dict)
+        else "",
+        dict(payload.get("preferences") or {}).get("country_code") if isinstance(payload.get("preferences"), dict) else "",
+    ):
+        country = property_resolve_country_code(candidate)
+        if country:
+            break
+    else:
+        country = ""
+        for source in sources:
+            pushdown = dict(source.get("provider_filter_pushdown") or {}) if isinstance(source.get("provider_filter_pushdown"), dict) else {}
+            for section in ("applied", "requested"):
+                section_payload = dict(pushdown.get(section) or {}) if isinstance(pushdown.get(section), dict) else {}
+                country = property_resolve_country_code(section_payload.get("country_code")) or ""
+                if country:
+                    break
+            if country:
+                break
+            platform = str(source.get("platform") or source.get("provider_key") or "").strip()
+            provider = property_provider_for_platform(platform) if platform else None
+            country = str(getattr(provider, "country_code", "") or "").strip().upper()
+            if country:
+                break
+    for candidate in (
+        summary.get("listing_mode"),
+        payload.get("listing_mode"),
+        dict(payload.get("property_search_preferences") or {}).get("listing_mode")
+        if isinstance(payload.get("property_search_preferences"), dict)
+        else "",
+        dict(payload.get("preferences") or {}).get("listing_mode") if isinstance(payload.get("preferences"), dict) else "",
+    ):
+        mode_text = str(candidate or "").strip()
+        if mode_text:
+            return country, property_normalize_listing_mode(mode_text)
+    for source in sources:
+        pushdown = dict(source.get("provider_filter_pushdown") or {}) if isinstance(source.get("provider_filter_pushdown"), dict) else {}
+        for section in ("applied", "requested"):
+            section_payload = dict(pushdown.get(section) or {}) if isinstance(pushdown.get(section), dict) else {}
+            mode_text = str(section_payload.get("listing_mode") or "").strip()
+            if mode_text:
+                return country, property_normalize_listing_mode(mode_text)
+        scope_label = str(source.get("source_scope_label") or source.get("source_label") or "").strip().lower()
+        if re.search(r"\b(buy|sale|purchase|kauf)\b", scope_label):
+            return country, "buy"
+        if re.search(r"\b(rent|miete|miet)\b", scope_label):
+            return country, "rent"
+    return country, "rent"
+
+
+def _property_search_apply_response_display_totals(payload: dict[str, object]) -> dict[str, object]:
+    normalized = dict(payload or {})
+    summary = dict(normalized.get("summary") or {}) if isinstance(normalized.get("summary"), dict) else {}
+    if not summary:
+        return normalized
+    selected_platforms = [
+        str(value or "").strip().lower()
+        for value in list(normalized.get("selected_platforms") or summary.get("selected_platforms") or [])
+        if str(value or "").strip()
+    ]
+    selected_platform_count = len(dict.fromkeys(selected_platforms))
+    display_total = max(
+        _property_search_response_int(normalized.get("provider_display_total")),
+        _property_search_response_int(summary.get("provider_display_total")),
+        _property_search_response_int(summary.get("provider_total")),
+        selected_platform_count,
+    )
+    if selected_platform_count <= 0:
+        country, listing_mode = _property_search_response_scope(summary, normalized)
+        if country:
+            try:
+                display_total = max(
+                    display_total,
+                    len(
+                        property_selectable_platform_keys(
+                            country_code=country,
+                            listing_mode=listing_mode,
+                            include_distressed_sale_signals=summary.get("include_distressed_sale_signals"),
+                        )
+                    ),
+                )
+            except Exception:
+                pass
+    source_display_total = max(
+        _property_search_response_int(normalized.get("source_variant_display_total")),
+        _property_search_response_int(summary.get("source_variant_display_total")),
+        _property_search_response_int(summary.get("source_variant_total") or summary.get("sources_total")),
+        display_total,
+    )
+    if display_total > 0:
+        normalized["provider_display_total"] = display_total
+        summary["provider_display_total"] = display_total
+    if selected_platform_count > 0:
+        normalized["selected_platform_count"] = selected_platform_count
+        summary["selected_platform_count"] = selected_platform_count
+    if source_display_total > 0:
+        normalized["source_variant_display_total"] = source_display_total
+        summary["source_variant_display_total"] = source_display_total
+    normalized["summary"] = summary
+    return normalized
 
 
 def _payfunnels_title_value(pattern: re.Pattern[str], title: str) -> str:
@@ -577,7 +694,7 @@ def _property_search_run_status_payload(
         if lightweight:
             summary = _property_search_compact_source_rows(summary)
         normalized["summary"] = summary
-    return normalized
+    return _property_search_apply_response_display_totals(normalized)
 
 
 def _update_property_search_research_task_payload(

@@ -8396,6 +8396,15 @@ def test_property_workbench_restores_district_map_scroll_lock_synchronously() ->
     assert restore_block.index(immediate_restore) < restore_block.index(frame_restore)
 
 
+def test_property_search_loader_restores_district_map_scroll_targets() -> None:
+    body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_search_loader_script.html").read_text(encoding="utf-8")
+    assert "const restorePageScroll = (value) => {" in body
+    assert "window.scrollTo(0, restoreY);" in body
+    assert "document.documentElement.scrollTop = restoreY;" in body
+    assert "document.body.scrollTop = restoreY;" in body
+    assert "window.setTimeout(() => restorePageScroll(scrollY), 80);" in body
+
+
 def test_property_research_detail_uses_user_facing_visual_and_decision_copy() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
