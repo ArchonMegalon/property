@@ -1904,6 +1904,9 @@ class PropertySearchRunStatusOut(BaseModel):
     message: str = ""
     stages_total: int = 0
     steps_completed: int = 0
+    provider_display_total: int = 0
+    source_variant_display_total: int = 0
+    selected_platform_count: int = 0
     summary: dict[str, object] = Field(default_factory=dict)
     events: list[dict[str, object]] = Field(default_factory=list)
     research_tasks: list[dict[str, object]] = Field(default_factory=list)

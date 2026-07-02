@@ -1827,7 +1827,7 @@
       return text || 'Provider';
     };
     const providerDisplayTotalForRun = (runPayload, summary = null) => {
-      const explicitDisplayTotal = Number(runPayload?.provider_display_total || 0);
+      const explicitDisplayTotal = Number(runPayload?.provider_display_total || summary?.provider_display_total || 0);
       if (Number.isFinite(explicitDisplayTotal) && explicitDisplayTotal > 0) {
         return explicitDisplayTotal;
       }
@@ -2006,6 +2006,10 @@
       };
 	    };
 	    const runSourceWorkLabel = (counts, providerDisplayTotal = 0) => {
+	      if (counts?.total > 0 && providerDisplayTotal > counts.total) {
+	        const done = Math.max(0, Number(counts.done || 0), Number(counts.total || 0) - Number(counts.open || 0));
+	        return `${Math.min(done, providerDisplayTotal)} / ${Math.max(0, Number(providerDisplayTotal || 0))} provider checks`;
+	      }
 	      if (counts?.total > 0) return `${Math.max(0, Number(counts.open || 0))} / ${Math.max(0, Number(counts.total || 0))} provider checks left`;
 	      if (providerDisplayTotal > 0) return `${providerDisplayTotal} provider checks selected`;
 	      return 'Search warming up';

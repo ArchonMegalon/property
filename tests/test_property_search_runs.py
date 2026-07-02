@@ -2114,6 +2114,66 @@ def test_property_search_run_status_fixes_inflated_provider_total_when_source_ro
     assert int(dict(status.get("summary") or {}).get("provider_total") or 0) == 3
 
 
+def test_property_search_run_status_derives_display_total_for_old_default_all_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-run-provider-display-old-default"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"provider-display-old-{uuid.uuid4().hex}"
+    compact_run = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "processed",
+        "selected_platforms": [],
+        "summary": {
+            "status": "processed",
+            "provider_total": 1,
+            "sources_total": 2,
+            "source_variant_total": 2,
+            "sources_completed": 2,
+            "brief_snapshot_status": "old_run",
+            "sources": [
+                {
+                    "platform": "willhaben",
+                    "source_label": "Willhaben",
+                    "source_scope_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                    "status": "completed",
+                },
+                {
+                    "platform": "willhaben",
+                    "source_label": "Willhaben",
+                    "source_scope_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                    "status": "completed",
+                },
+            ],
+        },
+    }
+
+    def _fake_load_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
+        if str(run_id or "").strip() == compact_run["run_id"] and str(principal_id or "").strip() == compact_run["principal_id"]:
+            return dict(compact_run)
+        return None
+
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", _fake_load_compact_record)
+
+    status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=run_id,
+        lightweight=True,
+    )
+
+    assert status is not None
+    summary = dict(status.get("summary") or {})
+    expected_total = len(property_market_catalog.selectable_property_platform_keys(country_code="AT", listing_mode="rent"))
+    assert int(summary.get("provider_total") or 0) == 1
+    assert int(summary.get("source_variant_total") or 0) == 2
+    assert int(summary.get("sources_completed") or 0) == 2
+    assert int(summary.get("provider_display_total") or 0) == expected_total
+    assert int(status.get("provider_display_total") or 0) == expected_total
+    assert int(summary.get("source_variant_display_total") or 0) == expected_total
+
+
 def test_property_search_run_status_lightweight_fixes_inflated_provider_total(monkeypatch: pytest.MonkeyPatch) -> None:
     principal_id = "exec-property-run-provider-count-lightweight"
     client = build_property_client(principal_id=principal_id)
@@ -15489,6 +15549,9 @@ def test_property_search_status_api_preserves_backfilled_updated_at() -> None:
             "generated_at": "2026-06-25T15:00:00+00:00",
             "updated_at": None,
             "run_id": "status-api-timestamp-run",
+            "provider_display_total": 35,
+            "source_variant_display_total": 35,
+            "selected_platform_count": 0,
             "summary": {"updated_at": "2026-06-25T15:09:37.641749+00:00"},
         },
         canonical=False,
@@ -15497,6 +15560,9 @@ def test_property_search_status_api_preserves_backfilled_updated_at() -> None:
 
     assert payload["updated_at"] == "2026-06-25T15:09:37.641749+00:00"
     assert response.updated_at == "2026-06-25T15:09:37.641749+00:00"
+    assert response.provider_display_total == 35
+    assert response.source_variant_display_total == 35
+    assert response.selected_platform_count == 0
 
 
 def test_property_search_run_schema_ready_does_not_backfill_existing_compact_columns(monkeypatch: pytest.MonkeyPatch) -> None:

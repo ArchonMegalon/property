@@ -4031,8 +4031,11 @@ def test_propertyquarry_fast_ranked_run_uses_provider_progress_fraction() -> Non
     ).read_text(encoding="utf-8")
 
     assert "summary.source_variant_total" in template
+    assert "provider_display_total" in template
+    assert "source_variant_display_total" in template
     assert "summary.sources_completed" in template
-    assert "`${providerDone}/${providerTotal}`" in template
+    assert "providerDone > 0 && providerDone < providerTotal" in template
+    assert "provider checks" in template
     assert "summary.sources_total || (Array.isArray(summary.sources) ? summary.sources.length : 0)" not in template
 
 

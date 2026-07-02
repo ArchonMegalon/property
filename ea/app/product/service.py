@@ -37270,6 +37270,52 @@ class ProductService:
             summary: dict[str, object],
             selected_platforms: tuple[str, ...] | set[str] | list[str] | tuple | set | list,
         ) -> tuple[dict[str, object], list[dict[str, object]]]:
+            def _infer_country_code() -> str:
+                for candidate in (
+                    summary.get("country_code"),
+                    payload.get("country_code"),
+                    dict(payload.get("property_search_preferences") or {}).get("country_code")
+                    if isinstance(payload.get("property_search_preferences"), dict)
+                    else "",
+                    dict(payload.get("preferences") or {}).get("country_code") if isinstance(payload.get("preferences"), dict) else "",
+                ):
+                    resolved = resolve_country_code(candidate)
+                    if resolved:
+                        return resolved
+                for source in sources:
+                    platform = str(source.get("platform") or source.get("provider_key") or "").strip()
+                    provider = property_provider_for_platform(platform) if platform else None
+                    provider_country = str(getattr(provider, "country_code", "") or "").strip().upper()
+                    if provider_country:
+                        return provider_country
+                return ""
+
+            def _infer_listing_mode() -> str:
+                for candidate in (
+                    summary.get("listing_mode"),
+                    payload.get("listing_mode"),
+                    dict(payload.get("property_search_preferences") or {}).get("listing_mode")
+                    if isinstance(payload.get("property_search_preferences"), dict)
+                    else "",
+                    dict(payload.get("preferences") or {}).get("listing_mode") if isinstance(payload.get("preferences"), dict) else "",
+                ):
+                    text = str(candidate or "").strip().lower()
+                    if text:
+                        return normalize_listing_mode(text)
+                for source in sources:
+                    for pushdown_key in ("applied", "requested"):
+                        pushdown = source.get("provider_filter_pushdown")
+                        pushdown_part = dict(pushdown.get(pushdown_key) or {}) if isinstance(pushdown, dict) and isinstance(pushdown.get(pushdown_key), dict) else {}
+                        text = str(pushdown_part.get("listing_mode") or "").strip().lower()
+                        if text:
+                            return normalize_listing_mode(text)
+                    scope_label = str(source.get("source_scope_label") or source.get("source_label") or "").strip().lower()
+                    if re.search(r"\b(buy|sale|purchase|kauf)\b", scope_label):
+                        return "buy"
+                    if re.search(r"\b(rent|miete|miet)\b", scope_label):
+                        return "rent"
+                return "rent"
+
             normalized_platforms = {
                 str(platform or "").strip().lower()
                 for platform in list(selected_platforms or [])
@@ -37304,8 +37350,49 @@ class ProductService:
                     or explicit_provider_total >= source_count_hint
                 ):
                     summary["provider_total"] = selected_platform_count
+            display_provider_total = max(
+                _coerce_non_negative_int(payload.get("provider_display_total")),
+                _coerce_non_negative_int(summary.get("provider_display_total")),
+                _coerce_non_negative_int(summary.get("provider_total")),
+                selected_platform_count,
+            )
+            country_code = _infer_country_code()
+            listing_mode = _infer_listing_mode()
+            if country_code and not normalized_platforms:
+                try:
+                    catalog_platforms = selectable_property_platform_keys(
+                        country_code=country_code,
+                        listing_mode=listing_mode,
+                        include_distressed_sale_signals=(
+                            summary.get("include_distressed_sale_signals")
+                            or payload.get("include_distressed_sale_signals")
+                            or (
+                                dict(payload.get("property_search_preferences") or {}).get("include_distressed_sale_signals")
+                                if isinstance(payload.get("property_search_preferences"), dict)
+                                else False
+                            )
+                        ),
+                    )
+                except Exception:
+                    catalog_platforms = ()
+                display_provider_total = max(display_provider_total, len(catalog_platforms))
+            if display_provider_total > 0:
+                summary["provider_display_total"] = display_provider_total
+                payload["provider_display_total"] = display_provider_total
+            if selected_platform_count > 0:
+                summary["selected_platform_count"] = selected_platform_count
+                payload["selected_platform_count"] = selected_platform_count
             if source_count_hint and not _coerce_non_negative_int(summary.get("source_variant_total") or 0):
                 summary["source_variant_total"] = source_count_hint
+            source_variant_display_total = max(
+                _coerce_non_negative_int(payload.get("source_variant_display_total")),
+                _coerce_non_negative_int(summary.get("source_variant_display_total")),
+                _coerce_non_negative_int(summary.get("source_variant_total") or summary.get("sources_total")),
+                display_provider_total,
+            )
+            if source_variant_display_total > 0:
+                summary["source_variant_display_total"] = source_variant_display_total
+                payload["source_variant_display_total"] = source_variant_display_total
             payload["summary"] = summary
             return summary, sources
 

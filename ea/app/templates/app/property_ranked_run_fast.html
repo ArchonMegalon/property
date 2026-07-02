@@ -384,26 +384,32 @@
     const summary = payload && typeof payload.summary === 'object' && payload.summary ? payload.summary : {};
     const status = text(payload.status || summary.status, 'loading').replace(/_/g, ' ');
     const listings = number(summary.listing_total || summary.raw_listing_total);
-    const providerTotal = number(
+    const sourceActualTotal = number(
       summary.source_variant_total
-      || summary.provider_total
       || summary.sources_total
       || (Array.isArray(summary.sources) ? summary.sources.length : 0)
+    );
+    const providerTotal = Math.max(
+      number(payload.provider_display_total || summary.provider_display_total),
+      number(payload.source_variant_display_total || summary.source_variant_display_total),
+      sourceActualTotal,
+      number(summary.provider_total)
     );
     const providerDone = number(
       summary.sources_completed
       || summary.completed_sources_total
       || summary.source_completed_total
       || summary.providers_completed
+      || (sourceActualTotal && ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'].includes(text(payload.status || summary.status, '').toLowerCase()) ? sourceActualTotal : 0)
       || 0
     );
     const parts = [];
     parts.push(`${candidates.length} ranked ${candidates.length === 1 ? 'home' : 'homes'}`);
     if (providerTotal) {
-      const providerLabel = providerDone > 0 && providerDone <= providerTotal
+      const providerLabel = providerDone > 0 && providerDone < providerTotal
         ? `${providerDone}/${providerTotal}`
         : `${providerTotal}`;
-      parts.push(`${providerLabel} ${providerTotal === 1 ? 'provider' : 'providers'}`);
+      parts.push(`${providerLabel} provider checks`);
     }
     if (listings) parts.push(`${listings} checked`);
     return { status, detail: parts.join(' · ') };

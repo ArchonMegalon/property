@@ -288,7 +288,7 @@
 {% set source_waiting_total = source_waiting_raw if source_waiting_raw > 0 else 0 %}
 {% set source_open_total = source_waiting_total + source_active_total %}
 {% set provider_total = (summary.get('provider_total') or 0)|int %}
-{% set provider_display_total = (run.get('provider_display_total') or provider_total)|int %}
+{% set provider_display_total = (run.get('provider_display_total') or summary.get('provider_display_total') or provider_total)|int %}
 {% set raw_listing_total = (summary.get('found_listing_total') if summary.get('found_listing_total') is not none else (summary.get('raw_listing_total') or 0))|int %}
 {% set listing_total = (summary.get('listing_total') or 0)|int %}
 {% set reviewed_total = ((run.get('summary') or {}).get('scanned_listing_total') if (run.get('summary') or {}).get('scanned_listing_total') is not none else ((run.get('summary') or {}).get('reviewed_listing_total') or 0))|int %}
@@ -301,7 +301,11 @@
 {% set checked_label = (found_total|string ~ ' homes found') if found_total > 0 else 'checking' %}
 {% set source_progress_label = '' %}
 {% if source_variant_total > 0 %}
+{% if provider_display_total > source_variant_total %}
+{% set scan_count_label = source_done_total|string ~ ' / ' ~ provider_display_total|string ~ ' provider checks' %}
+{% else %}
 {% set scan_count_label = source_open_total|string ~ ' / ' ~ source_variant_total|string ~ ' provider checks left' %}
+{% endif %}
 {% elif provider_display_total > 0 %}
 {% set scan_count_label = provider_display_total|string ~ ' provider checks selected' %}
 {% elif source_completed > 0 or source_total > 0 %}
@@ -10754,7 +10758,7 @@
           {% set live_preview_candidates = (run_summary.get('ranked_candidates') or []) %}
           {% set live_preview = live_preview_candidates[0] if live_preview_candidates else None %}
 	          {% set live_run_message_raw = (run.get('message') or '')|trim %}
-          {% set live_provider_total = (run_summary.get('provider_total') or run_summary.get('source_variant_total') or 0)|int %}
+          {% set live_provider_total = (run.get('provider_display_total') or run_summary.get('provider_display_total') or run_summary.get('provider_total') or run_summary.get('source_variant_total') or 0)|int %}
           {% set live_source_total = (run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
           {% set live_source_counts = namespace(done=0, active=0) %}
           {% for source in run_sources %}
@@ -10818,7 +10822,7 @@
 	            <div class="pqx-pref-list">
 	              <div class="pqx-pref-row">
 	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
-	                  <div><strong>Checks left</strong><small>{% if live_source_total %}{{ live_source_open_total }} / {{ live_source_total }} left{% else %}Preparing{% endif %}</small></div>
+	                  <div><strong>Checks</strong><small>{% if live_source_total and live_provider_total > live_source_total %}{{ live_source_done_total }} / {{ live_provider_total }}{% elif live_source_total %}{{ live_source_open_total }} / {{ live_source_total }} left{% else %}Preparing{% endif %}</small></div>
 	                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
 			                <div><strong>To review</strong><small>{{ live_to_review_total }} homes</small></div>
 	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
@@ -11916,7 +11920,7 @@
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
-              {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_total') or run_sources|length or run_summary.get('sources_total') or 0)|int %}
+              {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_display_total') or run_summary.get('provider_total') or run_sources|length or run_summary.get('sources_total') or 0)|int %}
 	              {% set homes_checked_total = (run_summary.get('found_listing_total') if run_summary.get('found_listing_total') is not none else (run_summary.get('raw_listing_total') or run_summary.get('scanned_listing_total') or run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0))|int %}
 	              <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
 	              <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
@@ -11953,7 +11957,7 @@
             <div class="pqx-empty-next-status">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
               <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>
-                {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_total') or 0)|int %}
+                {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_display_total') or run_summary.get('provider_total') or 0)|int %}
                 {% set variant_display_total = (run.get('source_variant_display_total') or run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
                 {% set homes_checked = (run_summary.get('listing_total') or run_summary.get('raw_listing_total') or 0)|int %}
               {% if provider_display_total > 0 and variant_display_total > provider_display_total %}
