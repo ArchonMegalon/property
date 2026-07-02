@@ -12451,6 +12451,27 @@ def test_property_alert_review_open_timeout_returns_failed_payload(monkeypatch) 
     assert any(row["event_type"] == "property_alert_review_open_timeout" for row in recorded)
 
 
+def test_property_search_inline_review_packet_limit_is_bounded(monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_SEARCH_INLINE_REVIEW_PACKET_LIMIT", raising=False)
+    monkeypatch.delenv("EA_PROPERTY_SEARCH_INLINE_REVIEW_PACKET_LIMIT", raising=False)
+
+    assert product_service._property_search_inline_review_packet_limit() == 3
+    assert product_service._property_search_should_prepare_inline_review_packet(row_index=1, inline_limit=3) is True
+    assert product_service._property_search_should_prepare_inline_review_packet(row_index=3, inline_limit=3) is True
+    assert product_service._property_search_should_prepare_inline_review_packet(row_index=4, inline_limit=3) is False
+
+    monkeypatch.setenv("PROPERTYQUARRY_SEARCH_INLINE_REVIEW_PACKET_LIMIT", "1")
+    assert product_service._property_search_inline_review_packet_limit() == 1
+    assert product_service._property_search_should_prepare_inline_review_packet(row_index=2, inline_limit=1) is False
+
+    monkeypatch.setenv("PROPERTYQUARRY_SEARCH_INLINE_REVIEW_PACKET_LIMIT", "0")
+    assert product_service._property_search_inline_review_packet_limit() == 0
+    assert product_service._property_search_should_prepare_inline_review_packet(row_index=1, inline_limit=0) is False
+
+    monkeypatch.setenv("PROPERTYQUARRY_SEARCH_INLINE_REVIEW_PACKET_LIMIT", "500")
+    assert product_service._property_search_inline_review_packet_limit() == 50
+
+
 def test_property_search_run_status_survives_registry_loss_via_persisted_record(monkeypatch) -> None:
     principal_id = "exec-property-search-run-persisted"
     client = build_property_client(principal_id=principal_id)

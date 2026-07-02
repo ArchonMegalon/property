@@ -2382,6 +2382,33 @@ def _property_search_review_open_timeout_seconds() -> float:
     return _state_property_search_review_open_timeout_seconds(default_seconds=20.0)
 
 
+def _property_search_inline_review_packet_limit() -> int:
+    raw_value = str(
+        os.getenv("PROPERTYQUARRY_SEARCH_INLINE_REVIEW_PACKET_LIMIT")
+        or os.getenv("EA_PROPERTY_SEARCH_INLINE_REVIEW_PACKET_LIMIT")
+        or ""
+    ).strip()
+    if not raw_value:
+        return 3
+    try:
+        parsed = int(float(raw_value))
+    except Exception:
+        return 3
+    return max(0, min(parsed, 50))
+
+
+def _property_search_should_prepare_inline_review_packet(*, row_index: int, inline_limit: int) -> bool:
+    try:
+        normalized_index = int(row_index)
+    except Exception:
+        return False
+    try:
+        normalized_limit = int(inline_limit)
+    except Exception:
+        normalized_limit = 0
+    return normalized_index > 0 and normalized_limit > 0 and normalized_index <= normalized_limit
+
+
 def _property_search_run_is_stale(state: dict[str, object]) -> bool:
     liveness_state = dict(state)
     event_times: list[datetime] = []
@@ -37383,6 +37410,7 @@ class ProductService:
                                         "source_total",
                                         "source_variant_total",
                                         "reviewed_listing_total",
+                                        "review_deferred_total",
                                         "raw_listing_total",
                                         "listing_total",
                                         "ranked_total",
@@ -39312,6 +39340,7 @@ class ProductService:
         duplicate_listing_total = 0
         review_created_total = 0
         review_existing_total = 0
+        review_deferred_total = 0
         notified_total = 0
         email_notified_total = 0
         tour_created_total = 0
@@ -41706,6 +41735,7 @@ class ProductService:
 
             created_for_source = 0
             existing_for_source = 0
+            deferred_for_source = 0
             notified_for_source = 0
             email_notified_for_source = 0
             tour_created_for_source = 0
@@ -41717,6 +41747,7 @@ class ProductService:
             watch_notified_for_source = 0
             notification_budget_suppressed_for_source = 0
             notification_score_suppressed_for_source = 0
+            inline_review_packet_limit = _property_search_inline_review_packet_limit()
             top_watch_candidate: dict[str, object] | None = (
                 dict(top_watch_candidate_for_source)
                 if isinstance(top_watch_candidate_for_source, dict) and top_watch_candidate_for_source
@@ -41766,25 +41797,35 @@ class ProductService:
                 tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
                 flythrough_result: dict[str, object] = {"status": "skipped", "video_url": "", "reason": "fit_below_threshold"}
 
-                opened = self._open_property_alert_review_with_timeout(
-                    principal_id=principal_id,
-                    title=title,
-                    summary=summary,
-                    source_ref=source_ref,
-                    external_id=property_url,
-                    counterparty=source_label,
-                    account_email=account_email,
-                    property_url=property_url,
-                    actor=actor,
-                    notify_telegram=False,
-                    candidate_properties=candidate_properties,
-                    personal_fit_assessment=assessment,
-                    preference_person_id=source_preference_person_id,
-                    tour_url=str(tour_result.get("tour_url") or "").strip(),
-                    requested_location_hints=source_location_hints,
-                    requested_country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
-                    requested_region_code=str(request_preferences.get("region_code") or "").strip(),
-                )
+                if _property_search_should_prepare_inline_review_packet(
+                    row_index=row_index,
+                    inline_limit=inline_review_packet_limit,
+                ):
+                    opened = self._open_property_alert_review_with_timeout(
+                        principal_id=principal_id,
+                        title=title,
+                        summary=summary,
+                        source_ref=source_ref,
+                        external_id=property_url,
+                        counterparty=source_label,
+                        account_email=account_email,
+                        property_url=property_url,
+                        actor=actor,
+                        notify_telegram=False,
+                        candidate_properties=candidate_properties,
+                        personal_fit_assessment=assessment,
+                        preference_person_id=source_preference_person_id,
+                        tour_url=str(tour_result.get("tour_url") or "").strip(),
+                        requested_location_hints=source_location_hints,
+                        requested_country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
+                        requested_region_code=str(request_preferences.get("region_code") or "").strip(),
+                    )
+                else:
+                    opened = {
+                        "status": "deferred",
+                        "reason": "property_alert_review_deferred",
+                        "review_reused": False,
+                    }
                 opened_status = str(opened.get("status") or "").strip().lower()
                 if opened_status in {"opened", "existing"}:
                     _report(
@@ -41793,6 +41834,9 @@ class ProductService:
                         status="in_progress",
                         steps_delta=1,
                     )
+                elif opened_status == "deferred":
+                    deferred_for_source += 1
+                    review_deferred_total += 1
                 else:
                     _report(
                         step="source_review_packet_failed",
@@ -41981,7 +42025,7 @@ class ProductService:
                 and top_watch_candidate is not None
             ):
                 if not str(top_watch_candidate.get("review_url") or "").strip():
-                    opened = self._open_property_alert_review(
+                    opened = self._open_property_alert_review_with_timeout(
                         principal_id=principal_id,
                         title=str(top_watch_candidate.get("title") or "").strip(),
                         summary=str(top_watch_candidate.get("summary") or "").strip(),
@@ -42000,10 +42044,11 @@ class ProductService:
                         requested_country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
                         requested_region_code=str(request_preferences.get("region_code") or "").strip(),
                     )
-                    if str(opened.get("status") or "").strip() == "opened":
+                    opened_status = str(opened.get("status") or "").strip().lower()
+                    if opened_status == "opened":
                         created_for_source += 1
                         review_created_total += 1
-                    else:
+                    elif opened_status == "existing":
                         existing_for_source += 1
                         review_existing_total += 1
                     top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
@@ -42195,6 +42240,7 @@ class ProductService:
                     "scan_truncated": scan_truncated,
                     "review_created_total": created_for_source,
                     "review_existing_total": existing_for_source,
+                    "review_deferred_total": deferred_for_source,
                     "notified_total": notified_for_source,
                     "email_notified_total": email_notified_for_source,
                     "tour_created_total": tour_created_for_source,
@@ -42555,6 +42601,7 @@ class ProductService:
             "enable_action_readiness_research": enable_action_readiness_research,
             "review_created_total": review_created_total,
             "review_existing_total": review_existing_total,
+            "review_deferred_total": review_deferred_total,
             "notified_total": notified_total,
             "email_notified_total": email_notified_total,
             "notification_budget": {
