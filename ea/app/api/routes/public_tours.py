@@ -1951,7 +1951,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <main>
       <h1>3D cube fallback blocked</h1>
       <p>No. This generated cube fallback is not allowed to masquerade as a real 3D tour.</p>
-      <p>Provide a real provider-backed 3D export instead.</p>
+      <p>Add a real 3D tour instead.</p>
       <p><code>{safe_title}</code></p>
     </main>
   </body>
@@ -2061,7 +2061,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
   <body>
     <main>
       <h1>3D cube fallback blocked</h1>
-      <p>No. This generated cube fallback is not allowed to masquerade as a real 3D tour. Provide a real provider-backed 3D export instead.</p>
+      <p>No. This generated cube fallback is not allowed to masquerade as a real 3D tour. Add a real 3D tour instead.</p>
       <p><code>{safe_title}</code></p>
     </main>
   </body>
@@ -5375,7 +5375,7 @@ def _tour_control_external_iframe_html(
         video_provider_attr = html.escape(video_provider or "attached_media")
         video_walkthrough_attr = "true" if video_is_magicfit else "false"
         video_html = (
-            f"""<div class="video-card" data-video-provider="{video_provider_attr}" data-provider-backed-walkthrough="{video_walkthrough_attr}">
+            f"""<div class="video-card" data-video-provider="{video_provider_attr}" data-walkthrough-ready="{video_walkthrough_attr}">
               <div class="card-label">{html.escape(video_label)}</div>
               <video id="tour-video" controls playsinline preload="metadata" poster="{html.escape(first_scene.get("image_url", ""))}">
                 <source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}">
