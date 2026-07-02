@@ -1162,27 +1162,27 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         try:
             if property_tour_hosting._hosted_property_tour_has_3dvista_export(bundle_tour_url):
                 verified_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/3dvista"
-                tour_label = "3D tour ready"
+                tour_label = "3D tour available"
             elif property_tour_hosting._hosted_property_tour_has_matterport_export(bundle_tour_url):
                 verified_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/matterport"
-                tour_label = "3D tour ready"
+                tour_label = "3D tour available"
         except Exception:
             verified_tour_href = ""
         if not verified_tour_href:
             verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(bundle_tour_url)
             if verified_tour_href:
-                tour_label = "3D tour ready"
+                tour_label = "3D tour available"
         if not verified_tour_href:
             continue
         targets = {
             "demo_href": _propertyquarry_public_href(bundle_tour_url),
             "tour_href": _propertyquarry_public_href(verified_tour_href),
-            "tour_label": tour_label or "3D tour ready",
+            "tour_label": tour_label or "3D tour available",
         }
         walkthrough_asset_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(bundle_tour_url)
         if walkthrough_asset_href:
             targets["walkthrough_href"] = _propertyquarry_public_href(walkthrough_asset_href)
-            targets["walkthrough_label"] = "Walkthrough ready"
+            targets["walkthrough_label"] = "Walkthrough available"
         score = 0
         score += 100 if targets.get("walkthrough_href") else 0
         score += 80 if "/control/3dvista" in targets.get("tour_href", "") else 0
@@ -5240,9 +5240,9 @@ def property_research_packet(
         requested=bool(int(investment or 0)),
     )
     ooda_summary_rows = [
-        _object_detail_row("Why it fits", _clean_property_candidate_copy(match_reasons[0]), "Match")
+        _object_detail_row("Best point", _clean_property_candidate_copy(match_reasons[0]), "Match")
         if match_reasons
-        else _object_detail_row("Why it fits", _clean_property_candidate_copy(fit_summary) or "This home matches the current brief.", "Match"),
+        else _object_detail_row("Best point", _clean_property_candidate_copy(fit_summary) or "This home matches the current brief.", "Match"),
         _object_detail_row(
             "Best reason to act",
             _clean_property_candidate_copy(str(decision_rows[0].get("detail") or fit_summary).strip())
@@ -5576,7 +5576,7 @@ def property_research_packet(
         hero_actions.append({"href": str(candidate.get("packet_url") or review_url or "").strip(), "label": "Copy page link", "copy": True})
     visual_status_line = ""
     if flythrough_url:
-        visual_status_line = str(research_media.get("walkthrough_status_detail") or "Walkthrough is ready on this page.").strip()
+        visual_status_line = str(research_media.get("walkthrough_status_detail") or "Walkthrough is available on this page.").strip()
     elif flythrough_status in {"queued", "pending"}:
         visual_status_line = live_flythrough_detail or "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
@@ -5584,7 +5584,7 @@ def property_research_packet(
     elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable"}:
         visual_status_line = live_flythrough_detail or _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason)
     elif hosted_tour_ready and tour_url:
-        visual_status_line = str(research_media.get("status_detail") or "3D tour ready.").strip()
+        visual_status_line = str(research_media.get("status_detail") or "3D tour available.").strip()
     elif tour_url and not hosted_tour_ready:
         visual_status_line = "Hosted viewer unavailable."
     elif tour_status in {"queued", "pending"}:
@@ -5666,8 +5666,8 @@ def property_research_packet(
                 "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("energy_rows") or [])],
             },
             {
-                "eyebrow": "Before you decide",
-                "title": "What still needs an answer",
+                "eyebrow": "Check next",
+                "title": "Still to confirm",
                 "items": (missing_rows + investment_risk_rows)[:10] or [_object_detail_row("No blocker recorded", "The current file does not show a blocking gap beyond normal due diligence.", "Clear")],
             },
             {
@@ -5676,14 +5676,14 @@ def property_research_packet(
                 "items": decision_rows,
             },
             {
-                "eyebrow": "Local context",
-                "title": "Local details beyond the listing",
+                "eyebrow": "Area",
+                "title": "Area notes",
                 "items": (official_evidence_rows[:4] + official_posture_rows[:3] + future_research_rows[:3] + provenance_rows[:3])
                 or [_object_detail_row("No local context attached yet", "Broader neighbourhood and public-data context is not attached to this property yet.", "Pending")],
             },
             {
                 "eyebrow": "Ask next",
-                "title": "Questions worth sending now",
+                "title": "Questions to ask",
                 "items": agent_question_rows + ([_object_detail_row("Next household question", next_best_question, "Next")] if next_best_question else []),
             },
         ]

@@ -20,7 +20,7 @@
       <div class="pqx-title" style="margin-bottom:12px;">
         <span>{{ hero_kicker or 'Research pages' }}</span>
         <h1>{{ hero_title or 'Open the strongest homes first.' }}</h1>
-        <p class="pqx-note">{{ hero_summary or 'Hosted property pages and 3D tours stay primary. Raw portal links remain secondary.' }}</p>
+        <p class="pqx-note">{{ hero_summary or 'Property pages and 3D tours are ready first.' }}</p>
       </div>
       {% if hero_actions %}
       <div class="pqx-actions" style="margin:0 0 12px;">
@@ -78,13 +78,13 @@
       {% set tour_status = (tour.get('status') or '')|lower %}
       {% set tour_pending = tour_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
       {% set tour_progress = tour.get('progress_pct') if tour.get('progress_pct') is not none else (100 if tour.get('url') else 0) %}
-      {% set tour_tooltip = (tour.get('detail') or tour.get('label') or 'Tour is on the way.') ~ ((' · ETA ' ~ tour.get('eta_label')) if tour.get('eta_label') else '') %}
+      {% set tour_tooltip = (tour.get('detail') or tour.get('label') or 'Preparing 3D tour.') ~ ((' · ETA ' ~ tour.get('eta_label')) if tour.get('eta_label') else '') %}
       {% set walkthrough = candidate.get('flythrough') or {} %}
       {% set walkthrough_status = (walkthrough.get('status') or '')|lower %}
       {% set walkthrough_pending = walkthrough_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
       {% set walkthrough_progress = walkthrough.get('progress_pct') if walkthrough.get('progress_pct') is not none else (100 if walkthrough.get('url') else 0) %}
-      {% set walkthrough_label = walkthrough.get('label') or ('Walkthrough ready' if walkthrough.get('url') else ('Walkthrough queued' if walkthrough_pending else 'Request walkthrough')) %}
-      {% set walkthrough_tooltip = (walkthrough.get('detail') or ('Walkthrough ready' if walkthrough.get('url') else 'Request a walkthrough when the listing deserves deeper screening.')) ~ ((' · ETA ' ~ walkthrough.get('eta_label')) if walkthrough.get('eta_label') else '') %}
+      {% set walkthrough_label = walkthrough.get('label') or ('Walkthrough available' if walkthrough.get('url') else ('Walkthrough queued' if walkthrough_pending else 'Request walkthrough')) %}
+      {% set walkthrough_tooltip = (walkthrough.get('detail') or ('Walkthrough available' if walkthrough.get('url') else 'Request when you want a guided walkthrough.')) ~ ((' · ETA ' ~ walkthrough.get('eta_label')) if walkthrough.get('eta_label') else '') %}
       {% set tour_provider_label = tour.get('provider_label') or '' %}
       {% set walkthrough_provider_label = walkthrough.get('provider_label') or '' %}
       {% set visual_delivery_note = '' %}
@@ -152,10 +152,10 @@
               <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('market_delta_display') }}</span>
               {% endif %}
               {% if tour.get('url') %}
-              <a class="pqx-result-fact pqx-result-tour-link" href="{{ tour.get('url') }}" title="{{ tour.get('detail') or '3D tour ready' }}" aria-label="3D tour ready" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">3D tour ready</a>
+              <a class="pqx-result-fact pqx-result-tour-link" href="{{ tour.get('url') }}" title="{{ tour.get('detail') or '3D tour available' }}" aria-label="3D tour available" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">3D tour available</a>
               {% endif %}
               {% if walkthrough.get('url') %}
-              <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}" title="{{ walkthrough.get('detail') or 'Walkthrough ready' }}" aria-label="Walkthrough ready">Walkthrough ready</a>
+              <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}" title="{{ walkthrough.get('detail') or 'Walkthrough available' }}" aria-label="Walkthrough available">Walkthrough available</a>
               {% endif %}
             </span>
           </span>

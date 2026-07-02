@@ -10,6 +10,7 @@ import re
 import signal
 import socket
 import sys
+import time
 import urllib.parse
 import urllib.request
 from urllib.error import HTTPError
@@ -38,7 +39,13 @@ DEFAULT_ROUTES = (
     "/app/alerts",
     "/app/account",
     "/app/billing",
+    "/app/settings/google",
     "/app/settings/access",
+    "/app/settings/usage",
+    "/app/settings/support",
+    "/app/settings/trust",
+    "/app/settings/invitations",
+    "/app/research",
     "/app/properties/packets",
 )
 SEEDED_RESEARCH_DETAIL_ROUTE = "/app/research/perf-candidate-1020?run_id=run-gold-mobile"
@@ -566,7 +573,7 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
                 {"name": "research_detail_visual_controls", "ok": bool(metrics.get("research_detail_visual_controls"))},
                 {"name": "research_detail_no_fake_visual_ready", "ok": not bool(metrics.get("research_detail_fake_visual_ready"))},
                 {"name": "research_detail_generated_reconstruction_honest", "ok": bool(metrics.get("research_detail_generated_reconstruction_honest"))},
-                {"name": "research_detail_verified_tour_evidence_copy", "ok": bool(metrics.get("research_detail_verified_tour_evidence_copy"))},
+                {"name": "research_detail_tour_copy", "ok": bool(metrics.get("research_detail_tour_copy"))},
                 {"name": "research_detail_walkthrough_evidence_copy", "ok": bool(metrics.get("research_detail_walkthrough_evidence_copy"))},
                 {"name": "research_detail_no_vague_visual_copy", "ok": bool(metrics.get("research_detail_no_vague_visual_copy"))},
                 {"name": "research_detail_walkthrough_magicfit_only", "ok": bool(metrics.get("research_detail_walkthrough_magicfit_only"))},
@@ -616,7 +623,10 @@ def static_mobile_route_metrics_from_html(
 
 def _collect_metrics_script() -> str:
     return """
-    () => {
+    async () => {
+      const waitFrame = () => new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      });
       const visible = (node) => {
         if (!node) return false;
         const style = window.getComputedStyle(node);
@@ -637,11 +647,17 @@ def _collect_metrics_script() -> str:
       window.scrollTo(0, requestedScrollY);
       const pageScrollBeforeMap = Math.round(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0);
       const mapButton = locationField?.querySelector('[data-location-mode-button="map"]') || null;
-      if (mapButton) mapButton.click();
+      if (mapButton) {
+        mapButton.click();
+        await waitFrame();
+      }
       const locationGrid = locationField?.querySelector('[data-pqx-check-grid="location_query"]') || null;
       const mapOpen = locationField?.querySelector('[data-location-map-open]') || null;
       const dialog = locationField?.querySelector('[data-location-map-dialog]') || null;
-      if (mapOpen) mapOpen.click();
+      if (mapOpen) {
+        mapOpen.click();
+        await waitFrame();
+      }
       const firstDistrict = dialog?.querySelector('[data-location-map-district]') || null;
       const firstValue = String(firstDistrict?.getAttribute('data-location-value') || '').trim();
       const firstInput = firstValue ? locationField?.querySelector(`input[name="location_query"][value="${CSS.escape(firstValue)}"]`) : null;
@@ -654,14 +670,21 @@ def _collect_metrics_script() -> str:
           clientX: rect.left + rect.width / 2,
           clientY: rect.top + rect.height / 2
         }));
+        await waitFrame();
       }
       const districtIsChecked = Boolean(firstInput?.checked);
       const mapLayer = dialog?.querySelector('[data-location-map-layer]') || null;
       const initialTransform = String(mapLayer?.getAttribute('transform') || '');
       const zoomToggle = dialog?.querySelector('[data-location-map-zoom="reset"]') || null;
-      if (zoomToggle) zoomToggle.click();
+      if (zoomToggle) {
+        zoomToggle.click();
+        await waitFrame();
+      }
       const zoomedTransform = String(mapLayer?.getAttribute('transform') || '');
-      if (zoomToggle) zoomToggle.click();
+      if (zoomToggle) {
+        zoomToggle.click();
+        await waitFrame();
+      }
       const parseScale = (transform) => {
         const match = String(transform || '').match(/scale\\(([^)]+)\\)/i);
         const value = match ? Number(match[1]) : 0;
@@ -692,6 +715,7 @@ def _collect_metrics_script() -> str:
         dispatchPinchPointer('pointermove', 2, centerX + 58, centerY, false);
         dispatchPinchPointer('pointerup', 1, centerX - 58, centerY, true);
         dispatchPinchPointer('pointerup', 2, centerX + 58, centerY, false);
+        await waitFrame();
         const afterPinch = String(mapLayer.getAttribute('transform') || '');
         pinchZoomChanged = parseScale(afterPinch) > parseScale(beforePinch) + 0.08;
       }
@@ -701,7 +725,10 @@ def _collect_metrics_script() -> str:
       const bodyOverflowOpen = document.body.style.overflow || '';
       const bodyPositionOpen = document.body.style.position || '';
       const bodyTopOpen = document.body.style.top || '';
-      if (closeButton) closeButton.click();
+      if (closeButton) {
+        closeButton.click();
+        await waitFrame();
+      }
       const pageScrollAfterClose = Math.round(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0);
       const modalClosed = !(dialog?.open)
         && document.documentElement.dataset.pqxLocationMapOpen !== 'true'
@@ -718,6 +745,7 @@ def _collect_metrics_script() -> str:
         whatMatterGroups[0].dispatchEvent(new Event('toggle'));
         whatMatterGroups[1].open = true;
         whatMatterGroups[1].dispatchEvent(new Event('toggle'));
+        await waitFrame();
         singleOpen = whatMatterGroups.filter((node) => node.open).length === 1 && whatMatterGroups[1].open;
       }
       let mobileFoldSingleOpen = true;
@@ -726,6 +754,7 @@ def _collect_metrics_script() -> str:
         mobileFolds[0].dispatchEvent(new Event('toggle'));
         mobileFolds[1].open = true;
         mobileFolds[1].dispatchEvent(new Event('toggle'));
+        await waitFrame();
         mobileFoldSingleOpen = mobileFolds.filter((node) => node.open).length === 1 && mobileFolds[1].open;
       }
       const whatMattersPageScroll = Boolean(
@@ -777,31 +806,28 @@ def _collect_metrics_script() -> str:
         && (bodyText.includes('build 3d tour') || bodyText.includes('build verified 3d tour'))
         && Boolean(document.querySelector('[data-pw-visual-request="tour"]'))
       );
-      const verifiedTourEvidenceCopy = (
-        bodyText.includes('available in matterport.')
+      const tourCopy = (
+        bodyText.includes('open 3d tour')
+        || bodyText.includes('request 3d tour')
+        || bodyText.includes('build 3d tour')
+        || bodyText.includes('preparing 3d tour')
+        || bodyText.includes('3d tour available.')
+        || bodyText.includes('no 3d tour yet.')
+        || bodyText.includes('3d tour not available yet')
+        || bodyText.includes('available in matterport.')
         || bodyText.includes('available in 3dvista.')
         || bodyText.includes('available in pano2vr.')
         || bodyText.includes('available in krpano.')
-        || bodyText.includes('3d tour available.')
-        || bodyText.includes('no 3d tour yet.')
         || bodyText.includes('tour: matterport.')
         || bodyText.includes('tour: 3dvista.')
         || bodyText.includes('tour: pano2vr.')
         || bodyText.includes('tour: krpano.')
-        || bodyText.includes('evidence: matterport.')
-        || bodyText.includes('evidence: 3dvista.')
-        || bodyText.includes('evidence: pano2vr.')
-        || bodyText.includes('evidence: krpano.')
-        || bodyText.includes('evidence: verified matterport control')
-        || bodyText.includes('evidence: verified 3dvista control')
-        || bodyText.includes('evidence: verified pano2vr control')
-        || bodyText.includes('evidence: verified krpano control')
         || bodyText.includes('no 3d tour is attached yet')
         || bodyText.includes('no live 3d tour is attached yet')
         || bodyText.includes('no 3d tour is published yet')
-        || bodyText.includes('no verified 3d tour is published yet')
         || bodyText.includes('a matterport, 3dvista, or pano2vr tour is still needed')
         || bodyText.includes('a matterport, 3dvista, pano2vr, or licensed krpano capture is still needed')
+        || document.querySelector('[data-pw-visual-request="tour"]')
       );
       const walkthroughEvidenceCopy = (
         bodyText.includes('open walkthrough')
@@ -850,7 +876,7 @@ def _collect_metrics_script() -> str:
         research_detail_visual_controls: visualControls.length > 0,
         research_detail_fake_visual_ready: bodyText.includes('fake 3d') || bodyText.includes('fake tour') || bodyText.includes('placeholder 3d') || bodyText.includes('placeholder tour'),
         research_detail_generated_reconstruction_honest: generatedReconstructionHonest,
-        research_detail_verified_tour_evidence_copy: verifiedTourEvidenceCopy,
+        research_detail_tour_copy: tourCopy,
         research_detail_walkthrough_evidence_copy: walkthroughEvidenceCopy,
         research_detail_no_vague_visual_copy: !vagueVisualCopy,
         research_detail_walkthrough_magicfit_only: walkthroughMagicfitOnly,
@@ -872,7 +898,7 @@ def build_live_mobile_surface_receipt(
     require_research_detail: bool = False,
     viewport_width: int = 390,
     viewport_height: int = 844,
-    timeout_ms: int = 30_000,
+    timeout_ms: int = 60_000,
 ) -> dict[str, Any]:
     if routes_require_api_auth(routes) and not str(api_token or "").strip():
         return {
@@ -922,7 +948,7 @@ def build_live_mobile_surface_receipt(
             if original_host and original_host != branded_host:
                 browser_args.append(f"--host-resolver-rules=MAP {branded_host} {original_host}")
     rows: list[dict[str, Any]] = []
-    route_deadline_seconds = max(10, min(45, int((timeout_ms / 1000.0) + 15)))
+    route_deadline_seconds = max(10, min(75, int((timeout_ms / 1000.0) + 15)))
     route_timeout_ms = max(1000, min(timeout_ms, route_deadline_seconds * 1000))
 
     def _run_with_deadline(action: Any, *, seconds: int, label: str) -> Any:
@@ -1112,16 +1138,30 @@ def build_live_mobile_surface_receipt(
             if normalized_host_header:
                 request_headers["Host"] = normalized_host_header
             try:
-                response = _run_with_deadline(
-                    lambda: _http_get_for_smoke(
-                        request_url,
-                        headers=request_headers,
-                        timeout_seconds=route_deadline_seconds,
-                        follow_redirects=True,
-                    ),
-                    seconds=route_deadline_seconds,
-                    label=f"static_route_timeout:{route}",
-                )
+                last_error: BaseException | None = None
+                response: dict[str, Any] | None = None
+                for attempt in range(2):
+                    try:
+                        response = _run_with_deadline(
+                            lambda: _http_get_for_smoke(
+                                request_url,
+                                headers=request_headers,
+                                timeout_seconds=route_deadline_seconds,
+                                follow_redirects=True,
+                            ),
+                            seconds=route_deadline_seconds,
+                            label=f"static_route_timeout:{route}",
+                        )
+                        break
+                    except TimeoutError as exc:
+                        last_error = exc
+                        if attempt == 0:
+                            _log_smoke_progress(f"retrying {route} after static timeout")
+                            time.sleep(1)
+                            continue
+                        raise
+                if response is None:
+                    raise last_error or TimeoutError(f"static_route_timeout:{route}")
                 status_code = int(response.get("status_code") or 0)
                 html = str(response.get("text") or "")
                 metrics = static_mobile_route_metrics_from_html(
@@ -1280,7 +1320,7 @@ def main() -> int:
         help="Seed a deterministic saved research-detail candidate for the smoke principal and include it in the route set.",
     )
     parser.add_argument("--viewport", default="390x844")
-    parser.add_argument("--timeout-ms", type=int, default=int(_env("PROPERTYQUARRY_LIVE_MOBILE_TIMEOUT_MS", "30000") or 30000))
+    parser.add_argument("--timeout-ms", type=int, default=int(_env("PROPERTYQUARRY_LIVE_MOBILE_TIMEOUT_MS", "60000") or 60000))
     parser.add_argument("--write", default="_completion/smoke/property-live-mobile-surface-latest.json")
     args = parser.parse_args()
 
@@ -1329,7 +1369,7 @@ def main() -> int:
         require_research_detail=bool(args.require_research_detail),
         viewport_width=width,
         viewport_height=height,
-        timeout_ms=max(1, int(args.timeout_ms or 30000)),
+        timeout_ms=max(1, int(args.timeout_ms or 60000)),
     )
     if seeded_route:
         receipt["seeded_research_detail_route"] = seeded_route

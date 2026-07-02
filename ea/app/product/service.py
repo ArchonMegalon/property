@@ -17648,7 +17648,7 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         request_kind="flythrough",
         status="ready",
         progress_pct=100,
-        detail="Walkthrough is ready on this page.",
+        detail="Walkthrough is available on this page.",
         provider_key="magicfit",
         step_index=max(planned_segments, len(segment_paths)),
         step_total=max(planned_segments, len(segment_paths)),
@@ -18109,7 +18109,7 @@ def _render_onemin_property_flythrough_into_hosted_tour(
         request_kind="flythrough",
         status="ready",
         progress_pct=100,
-        detail="Walkthrough is ready on this page.",
+        detail="Walkthrough is available on this page.",
         provider_key="onemin_i2v",
         step_index=max(planned_segments, len(segment_paths)),
         step_total=max(planned_segments, len(segment_paths)),
@@ -18508,7 +18508,7 @@ def _render_mootion_property_flythrough_into_hosted_tour(
         request_kind="flythrough",
         status="ready",
         progress_pct=100,
-        detail="Walkthrough is ready on this page.",
+        detail="Walkthrough is available on this page.",
         provider_key="mootion",
     )
     return render_log
@@ -35747,8 +35747,8 @@ class ProductService:
                     reason=str(payload.get("flythrough_reason") or "").strip(),
                 )
                 if flythrough_url:
-                    status_label = "Walkthrough ready"
-                    status_detail = "Walkthrough is ready on this page."
+                    status_label = "Walkthrough available"
+                    status_detail = "Walkthrough is available on this page."
                 elif flythrough_status in {"rendered", "existing"}:
                     payload["flythrough_status"] = "blocked"
                     flythrough_status = "blocked"
@@ -35788,8 +35788,8 @@ class ProductService:
             if verified_tour_url:
                 payload["verified_tour_url"] = verified_tour_url
             if verified_tour_url:
-                status_label = "3D tour ready"
-                status_detail = "Ready on this page."
+                status_label = "3D tour available"
+                status_detail = "Available on this page."
             elif str(payload.get("tour_url") or "").strip():
                 payload["tour_status"] = "repairing"
                 status_label = "3D tour needs attention"
@@ -36232,7 +36232,7 @@ class ProductService:
         if ready_url:
             status_value = "ready"
             status_label = "Open walkthrough" if normalized_kind == "flythrough" else "Open 3D tour"
-            status_detail = "Walkthrough is ready on this page." if normalized_kind == "flythrough" else "3D tour is ready. Open it here."
+            status_detail = "Walkthrough is available on this page." if normalized_kind == "flythrough" else "3D tour is available. Open it here."
         elif status_value in {"queued", "pending"}:
             status_label = "Walkthrough queued" if normalized_kind == "flythrough" else "3D tour queued"
             status_detail = (

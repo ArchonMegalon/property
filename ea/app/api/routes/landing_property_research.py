@@ -699,8 +699,8 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     vendor_tour_provider = property_tour_hosting._property_tour_provider_host_kind(vendor_tour_url) if vendor_tour_url else ""
     walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
     if hosted_tour_ready:
-        status_label = "3D tour ready"
-        status_detail = "3D tour is ready on this page. Open it before leaving for the listing."
+        status_label = "3D tour available"
+        status_detail = "3D tour is available on this page."
     elif tour_url:
         status_label = "3D tour needs rebuild"
         status_detail = _hosted_tour_rebuild_detail()
@@ -750,7 +750,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "walkthrough_provider_label": "Walkthrough" if walkthrough_provider or walkthrough_ready else "",
         "walkthrough_provider_key": walkthrough_provider,
         "walkthrough_status_detail": (
-            "Walkthrough is ready on this page."
+            "Walkthrough is available on this page."
             if walkthrough_ready
             else (
                 live_walkthrough_detail

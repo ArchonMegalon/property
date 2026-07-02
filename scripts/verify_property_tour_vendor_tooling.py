@@ -670,9 +670,9 @@ def build_vendor_tooling_receipt(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify PropertyQuarry desktop vendor tooling readiness for 3DVista/Pano2VR.")
-    parser.add_argument("--drop-dir", default=str(_default_drop_dir()))
-    parser.add_argument("--tour-root", default=str(_default_tour_root()))
-    parser.add_argument("--wine-prefix", default=str(_default_wine_prefix()))
+    parser.add_argument("--drop-dir", default="")
+    parser.add_argument("--tour-root", default="")
+    parser.add_argument("--wine-prefix", default="")
     parser.add_argument("--installer-root", action="append", default=[])
     parser.add_argument(
         "--runtime-container",
@@ -687,10 +687,13 @@ def main() -> int:
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
 
+    drop_dir = Path(args.drop_dir).expanduser() if str(args.drop_dir or "").strip() else _default_drop_dir()
+    tour_root = Path(args.tour_root).expanduser() if str(args.tour_root or "").strip() else _default_tour_root()
+    wine_prefix = Path(args.wine_prefix).expanduser() if str(args.wine_prefix or "").strip() else _default_wine_prefix()
     receipt = build_vendor_tooling_receipt(
-        drop_dir=Path(args.drop_dir).expanduser(),
-        tour_root=Path(args.tour_root).expanduser(),
-        wine_prefix=Path(args.wine_prefix).expanduser(),
+        drop_dir=drop_dir,
+        tour_root=tour_root,
+        wine_prefix=wine_prefix,
         installer_roots=_installer_search_roots(args.installer_root),
         runtime_container=str(args.runtime_container or "").strip(),
         runtime_only=bool(args.runtime_only),

@@ -2123,7 +2123,7 @@ def property_workspace_payload(
             provider_label = _visual_provider_label(provider_key) if provider_key else "3D tour"
             if verified_tour_url:
                 verified_provider_keys = {"matterport", "3dvista", "pano2vr", "krpano"}
-                status_detail = "3D tour is live on this page."
+                status_detail = "3D tour is available on this page."
                 visual_runtime = _visual_runtime_payload(
                     candidate,
                     request_kind="tour",
@@ -2132,7 +2132,7 @@ def property_workspace_payload(
                 )
                 return {
                     "status": "ready",
-                    "label": "3D tour ready",
+                    "label": "3D tour available",
                     "url": verified_tour_url,
                     "embed_url": verified_tour_url,
                     "eta_label": visual_runtime["eta_label"],
@@ -2306,7 +2306,7 @@ def property_workspace_payload(
                 status="ready",
                 ready_url=open_url,
             )
-            ready_detail = "Walkthrough ready"
+            ready_detail = "Walkthrough available"
             return {
                 "status": "ready",
                 "label": "Open walkthrough",
@@ -2316,7 +2316,7 @@ def property_workspace_payload(
                 "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
-                "status_detail": "Walkthrough is ready on this page.",
+                "status_detail": "Walkthrough is available on this page.",
                 "recovery_label": "",
             }
         if status in {"queued", "pending"}:

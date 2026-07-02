@@ -934,12 +934,12 @@
       if (!link) {
         link = document.createElement('a');
         link.className = 'pqx-result-fact pqx-result-tour-link';
-        link.textContent = '3D tour ready';
+        link.textContent = '3D tour available';
         facts.appendChild(link);
       }
       link.setAttribute('href', resolvedTourUrl);
-      link.setAttribute('title', '3D tour ready');
-      link.setAttribute('aria-label', '3D tour ready');
+      link.setAttribute('title', '3D tour available');
+      link.setAttribute('aria-label', '3D tour available');
     };
     const reconcileShortlistArchive = (candidateRef = '') => {
       if (!shortlistSurface) return false;
@@ -1275,7 +1275,7 @@
         if (!candidate.tour || typeof candidate.tour !== 'object') candidate.tour = {};
         candidate.tour.url = nextTourUrl;
         candidate.tour.status = nextTourStatus;
-        candidate.tour.label = nextTourUrl ? '3D tour ready' : (payload.status_label || candidate.tour.label || '');
+        candidate.tour.label = nextTourUrl ? '3D tour available' : (payload.status_label || candidate.tour.label || '');
         candidate.tour.eta_label = '';
         candidate.tour.embed_url = nextTourUrl;
         candidate.tour.deep_link = nextTourUrl;
@@ -1288,12 +1288,12 @@
         candidate.flythrough_status = nextFlythroughStatus;
         const flythroughEtaLabel = String(payload.eta_label || '').trim();
         const flythroughDetail = nextFlythroughUrl
-          ? 'Walkthrough ready'
+          ? 'Walkthrough available'
           : (String(payload.status_detail || '').trim()
             || (nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending'
               ? 'Queued. Estimating timing...'
               : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus)
-                ? 'Walkthrough is rendering now.'
+                ? 'Preparing walkthrough.'
                 : '')));
         const nextProgressRaw = Number(payload.progress_pct);
         const nextProgress = Number.isFinite(nextProgressRaw)
@@ -1411,9 +1411,9 @@
       let text = String(value || '').trim();
       if (!text) return 'Waiting for the first list.';
       text = text
-        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes found · 0 to review')
+        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes found · 0 left to sort')
         .replace(/\b(\d+)\s+homes?\s+reviewed\b/ig, '$1 homes found')
-        .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 to review')
+        .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 left to sort')
         .replace(/\b(\d+)\s+providers\b/ig, '$1 lists')
         .replace(/\bprovider update\b/ig, 'list update');
       const candidateMatch = text.match(/(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
@@ -1455,7 +1455,7 @@
         const fractionMatch = String(segments[segments.length - 1] || '').match(/^(\d+)\s*\/\s*(\d+)$/);
         if (!fractionMatch) continue;
         const prefixText = segments.slice(0, -2).join(' ').toLowerCase();
-        if (!['provider', 'homes found', 'homes reviewed', 'to review', 'checking'].some((token) => prefixText.includes(token))) continue;
+        if (!['provider', 'homes found', 'homes reviewed', 'to review', 'left to sort', 'checking'].some((token) => prefixText.includes(token))) continue;
         return {
           raw: text,
           fraction: `${fractionMatch[1]} / ${fractionMatch[2]}`,
@@ -2017,16 +2017,16 @@
     };
 	    const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '') => {
 	      if (counts?.total > 0) return `${counts.done} / ${counts.total} checked`;
-	      if (found > 0 && toReview > 0) return `${toReview} to review`;
-	      if (found > 0) return '0 to review';
+	      if (found > 0 && toReview > 0) return `${toReview} left to sort`;
+	      if (found > 0) return '0 left to sort';
 	      return fallback || 'Waiting for first listings';
     };
 	    const runFoundQueueMessage = (found, toReview, sourceWork) => {
 	      if (!(found > 0)) return '';
 	      if (sourceWork?.open > 0) {
-	        return `${found} homes found · ${toReview} to review · ${sourceWork.open} lists left`;
+	        return `${found} homes found · ${toReview} left to sort · ${sourceWork.open} lists left`;
 	      }
-	      return `${found} homes found · ${toReview} to review`;
+	      return `${found} homes found · ${toReview} left to sort`;
 	    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
@@ -2058,7 +2058,7 @@
       const listingWork = runListingWorkCounts(summary);
       const found = listingWork.found;
       const toReview = listingWork.toReview;
-      const checkedLabel = found > 0 ? `${found} homes found · ${toReview} to review` : 'checking';
+      const checkedLabel = found > 0 ? `${found} homes found · ${toReview} left to sort` : 'checking';
 	      const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
 	        ? `${completedSources} / ${sourceVariantTotal} checked`
 	        : '';
@@ -2140,7 +2140,7 @@
       const providers = Number(summary.provider_total || summary.source_variant_total || 0);
       const sourceWork = runSourceWorkCounts(summary, status);
       const compactFoundMessage = `${found} homes found`;
-      const compactQueueMessage = `${found} homes found · ${toReview} to review`;
+      const compactQueueMessage = `${found} homes found · ${toReview} left to sort`;
       if (replacementRunId) {
         return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
       }
@@ -2321,7 +2321,7 @@
           <span class="pqx-note">${escapeHtml(row?.description || 'Public data layer')}</span>
           <div class="pqx-source-metrics">
             <span>Layer <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'data')}</b></span>
-            <span><b>Available</b></span>
+            <span><b>Ready</b></span>
           </div>
         </article>
       `).join('');
@@ -2540,8 +2540,8 @@
       const toReviewBarPct = toReview > 0 ? Math.round((toReview / reviewDenominator) * 100) : 0;
       const layout = Number(summary.filtered_floorplan_total || 0);
       const title = status === 'processed' || status === 'completed' || status === 'completed_partial'
-        ? 'Results are ready'
-        : (status === 'failed' ? 'Search interrupted' : 'Search in progress');
+        ? 'Results ready'
+        : (status === 'failed' ? 'Paused' : 'Searching');
       const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
       const progressFill = status === 'processed' || status === 'completed' || status === 'completed_partial' ? 100 : (progress > 0 ? progress : 4);
@@ -2566,14 +2566,14 @@
 			            <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
 		          </div>
 		          <span class="pqx-note">${escapeHtml(runFoundQueueMessage(found, toReview, sourceWork) || 'Waiting for homes.')}</span>
-	          <div class="pqx-live-review-bars" aria-label="Live search totals">
+	          <div class="pqx-live-review-bars" aria-label="Search totals">
 		            <span>
-		              <b>Homes found</b>
+		              <b>Found</b>
 		              <i>${escapeHtml(found || 0)}</i>
 		              <em><u style="--progress: ${escapeHtml(foundBarPct)}"></u></em>
 		            </span>
 	            <span>
-              <b>To review</b>
+              <b>Left to sort</b>
 		              <i>${escapeHtml(toReview || 0)}</i>
 		              <em><u style="--progress: ${escapeHtml(toReviewBarPct)}"></u></em>
 		            </span>
@@ -2730,10 +2730,10 @@
         const tourPending = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'].includes(tourStatus);
         const tourLabel = String(
           tour.label || (tourUrl
-            ? '3D tour ready'
+            ? '3D tour available'
             : (tourPending ? '3D tour queued' : 'Request 3D tour'))
         ).trim();
-        const tourDetail = String(tour.detail || (tourUrl ? '3D tour ready' : 'Tour is on the way.')).trim();
+        const tourDetail = String(tour.detail || (tourUrl ? '3D tour available' : 'Preparing 3D tour.')).trim();
         const tourEta = String(tour.eta_label || '').trim();
         const tourTooltip = [tourDetail, tourEta ? `ETA ${tourEta}` : ''].filter(Boolean).join(' · ');
         const tourProgressRaw = Number(tour.progress_pct);
@@ -2746,11 +2746,11 @@
         const flythroughPending = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'].includes(flythroughStatus);
         const flythroughLabel = String(
           flythrough.label || (flythroughUrl
-            ? 'Walkthrough ready'
+            ? 'Walkthrough available'
             : (flythroughPending ? 'Walkthrough queued' : 'Request walkthrough'))
         ).trim();
         const flythroughDetail = String(
-          flythrough.detail || (flythroughUrl ? 'Walkthrough ready' : 'Request a walkthrough when the listing deserves deeper screening.')
+          flythrough.detail || (flythroughUrl ? 'Walkthrough available' : 'Request when you want a guided walkthrough.')
         ).trim();
         const flythroughEta = String(flythrough.eta_label || '').trim();
         const flythroughTooltip = [flythroughDetail, flythroughEta ? `ETA ${flythroughEta}` : ''].filter(Boolean).join(' · ');
@@ -2761,10 +2761,10 @@
         const factChips = [
           layout ? `<span class="pqx-result-fact">${escapeHtml(layout)}</span>` : '',
           tourUrl
-            ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}" title="${escapeHtml(tourDetail || '3D tour ready')}" aria-label="3D tour ready">3D tour ready</a>`
+            ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}" title="${escapeHtml(tourDetail || '3D tour available')}" aria-label="3D tour available">3D tour available</a>`
             : '',
           flythroughUrl
-            ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughDetail || 'Walkthrough ready')}" aria-label="Walkthrough ready">Walkthrough ready</a>`
+            ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughDetail || 'Walkthrough available')}" aria-label="Walkthrough available">Walkthrough available</a>`
             : '',
         ].filter(Boolean).join('');
         const actions = [
@@ -5669,7 +5669,7 @@
     const renderEvidenceCard = (card) => {
       const evidenceStateLabel = (state) => {
         const normalized = String(state || '').trim().toLowerCase();
-        if (normalized === 'verified') return 'Available';
+        if (normalized === 'verified') return 'Ready';
         if (normalized === 'unavailable') return 'Not yet';
         return normalized ? normalized.replaceAll('_', ' ') : 'Not yet';
       };

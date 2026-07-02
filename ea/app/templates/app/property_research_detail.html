@@ -3,8 +3,8 @@
 {% macro prd_tag_label(value) -%}
   {%- set label = (value or '')|string|trim -%}
   {%- set lowered = label|lower -%}
-  {%- if lowered in ['verified', 'evidence'] -%}Available
-  {%- elif 'proof' in lowered -%}Source
+  {%- if lowered in ['verified', 'evidence'] -%}Ready
+  {%- elif 'proof' in lowered -%}Note
   {%- else -%}{{ label }}
   {%- endif -%}
 {%- endmacro %}
@@ -3002,9 +3002,9 @@
     {% for action in visual_actions.items %}
       {% set action_label = (action.get('label') or '')|lower %}
       {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': ('3D tour' if action.get('href') else '3D tour pending'), 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open the tour or rebuild it from this page.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': '3D tour', 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open or request the tour here.', 'action': action}] %}
       {% elif action.get('kind') == 'flythrough' or 'walkthrough' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': ('Walkthrough ready' if action.get('href') else 'Walkthrough pending'), 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': 'Walkthrough', 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open or request the walkthrough here.', 'action': action}] %}
       {% endif %}
     {% endfor %}
     {% set visual_status = namespace(active=None) %}
@@ -3053,11 +3053,11 @@
       <section class="prd-visual-console" aria-label="Visual review controls">
         <div class="prd-visual-toolbar">
           <div class="prd-visual-heading">
-            <div class="prd-kicker">3D and walkthrough</div>
-            <p class="prd-copy">Open or request visuals from here.</p>
+            <div class="prd-kicker">Visuals</div>
+            <p class="prd-copy">Tours and walkthroughs.</p>
           </div>
           {% if research_media.get('show_status_line') %}
-          <span class="prd-status-badge">{{ research_media.get('status_label') or 'Review ready' }}</span>
+          <span class="prd-status-badge">{{ research_media.get('status_label') or 'Ready' }}</span>
           {% endif %}
         </div>
         {% if primary_visual_actions.items %}
@@ -3073,9 +3073,9 @@
             {% if visual_card.get('key') == 'tour' %}
             <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
               {% if action.get('href') %}
-              3D tour ready.
+              3D tour available.
               {% else %}
-              No 3D tour yet.
+              3D tour not available yet.
               {% endif %}
             </p>
             {% elif visual_card.get('key') == 'walkthrough' %}
@@ -3083,7 +3083,7 @@
               {% if action.get('href') %}
               Walkthrough available.
               {% else %}
-              No walkthrough yet.
+              Walkthrough not available yet.
               {% endif %}
             </p>
             {% endif %}
@@ -3223,19 +3223,11 @@
               {% if research_location_preview.get('caption') %}
               <div class="prd-map-meta">{{ research_location_preview.get('caption') }}</div>
               {% endif %}
+              {% if research_location_preview.get('map_url') %}
               <div class="prd-map-actions">
-                <button
-                  class="console-action"
-                  type="button"
-                  data-prd-map-open
-                  data-prd-map-src="{{ research_location_preview.get('image_url') }}"
-                  data-prd-map-title="{{ research_location_preview.get('title') }}"
-                  data-prd-map-overlay='{{ (research_location_preview.get("district_rows") or [])|tojson }}'
-                >Open overlay</button>
-                {% if research_location_preview.get('map_url') %}
-                <a class="console-action" href="{{ research_location_preview.get('map_url') }}" target="_blank" rel="noopener noreferrer">Open map</a>
-                {% endif %}
+                <a class="console-action" href="{{ research_location_preview.get('map_url') }}" target="_blank" rel="noopener noreferrer">Map</a>
               </div>
+              {% endif %}
             </div>
           </div>
         </section>
@@ -3480,16 +3472,16 @@
       <details class="prd-collapse">
         <summary>
           <span>
-            <span class="prd-kicker">Area context</span>
-            <strong>Area context</strong>
+            <span class="prd-kicker">Area</span>
+            <strong>Area</strong>
           </span>
           <span class="prd-tag">Optional</span>
         </summary>
         <div class="prd-collapse-body">
           {% if research_evidence_overlay_rows or research_official_evidence_rows or research_official_posture_rows or research_future_research_rows or research_provenance_rows %}
           <section class="prd-stack">
-            <h2 class="prd-section-title">Area context</h2>
-            <p class="prd-section-copy">Saved map layers and public sources appear here when they are available for this address.</p>
+            <h2 class="prd-section-title">Area</h2>
+            <p class="prd-section-copy">Map layers and local notes appear here when available.</p>
             <div class="object-list">
               {% for row in research_evidence_overlay_rows[:8] %}
               <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span></div>
@@ -3511,7 +3503,7 @@
           {% endif %}
           {% if research_timeline_rows %}
           <section class="prd-stack">
-            <h2 class="prd-section-title">Timeline and follow-up</h2>
+            <h2 class="prd-section-title">Notes</h2>
             <div class="object-list">
               {% for item in research_timeline_rows[:6] %}
               <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(item.get('tag')) }}</span></div>
@@ -3526,7 +3518,7 @@
     <aside class="prd-side-stack">
       {% if research_ranked_run_rows %}
       <section class="prd-panel" data-research-ranking-list>
-        <h2>Ranking from this run</h2>
+        <h2>More from this search</h2>
         <div class="object-list">
           {% for row in research_ranked_run_rows %}
           <div class="object-row">

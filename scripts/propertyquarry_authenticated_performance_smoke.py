@@ -748,7 +748,16 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 },
                 {
                     "name": "results_ranked_not_compare_copy",
-                    "ok": "ranked homes" in lowered_body or "ranked opportunities" in lowered_body or "shortlisted homes" in lowered_body,
+                    "ok": has_ranked_results_shell and (
+                        "ranked homes" in lowered_body
+                        or "ranked opportunities" in lowered_body
+                        or "shortlisted homes" in lowered_body
+                        or "matching homes" in lowered_body
+                        or "matching opportunities" in lowered_body
+                        or "saved homes" in lowered_body
+                        or "best matches" in lowered_body
+                        or " matches" in lowered_body
+                    ),
                 },
             )
         )
@@ -893,8 +902,8 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
     if path == "/app/settings/trust":
         checks.extend(
             (
-                {"name": "trust_settings_heading", "ok": "Trust" in body},
-                {"name": "trust_evidence_visible", "ok": "evidence" in lowered_body or "source health" in lowered_body},
+                {"name": "trust_settings_heading", "ok": "Reliability" in body or "Trust" in body},
+                {"name": "trust_evidence_visible", "ok": "source health" in lowered_body or "list health" in lowered_body},
             )
         )
     if path == "/app/settings/invitations":

@@ -2068,7 +2068,7 @@ def settings_trust_detail(
             page_title="PropertyQuarry reliability",
             current_nav="settings",
             console_title="Reliability",
-            console_summary="Evidence, rules, source health, and recent activity explain why a result is trustworthy.",
+            console_summary="Source health, recent searches, and account controls in one place.",
             object_kind="Reliability",
             object_title=workspace_summary,
             object_summary=(
@@ -2082,8 +2082,8 @@ def settings_trust_detail(
                 {"label": "3D tours", "value": str(property_usage["tour_ready_total"])},
                 {"label": "Plan", "value": str(billing.get("current_plan_label") or billing.get("current_plan_key") or "Free").replace("_", " ").title()},
             ],
-            object_sidebar_title="Why this is reliable",
-            object_sidebar_copy="Reliability comes from clear results, list health, retry state, and account controls.",
+            object_sidebar_title="What this checks",
+            object_sidebar_copy="List health, retry state, and account controls stay visible here.",
             object_sidebar_rows=[
                 _object_detail_row("Summary", workspace_summary, "Summary"),
                 _object_detail_row("Account", readiness_detail_label, "Account"),
@@ -2091,7 +2091,7 @@ def settings_trust_detail(
                 _object_detail_row("Recovery", str(property_usage["repair_status"]), "Lists"),
                 _object_detail_row("List failures", str(property_usage["failed_source_total"]), "Lists"),
                 _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
-                _object_detail_row("Blocked actions", ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:4]) or "No blocked actions", "Rules"),
+                _object_detail_row("Unavailable", ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:4]) or "Nothing blocked", "Access"),
             ],
             object_sections=[
                 {
@@ -2108,17 +2108,17 @@ def settings_trust_detail(
                 },
                 {
                     "eyebrow": "Controls",
-                    "title": "Rules and retention",
+                    "title": "Settings and retention",
                     "items": [
                         _object_detail_row("Matches", str(property_usage["ranked_total"]), "Summary"),
-                        _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), "Rules"),
+                        _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), "Settings"),
                         _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Lists"),
-                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
+                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Pages"),
                         _object_detail_row("Export data", "Download your account, searches, saved results, and preference records.", "Data", href="/app/api/property/account/export?download=1", action_href="/app/api/property/account/export?download=1", action_label="Export data", action_method="get"),
                     ],
                 },
                 {
-                    "eyebrow": "Recent search evidence",
+                    "eyebrow": "Recent searches",
                     "title": "Recent run outcomes",
                     "items": [
                         _object_detail_row(
@@ -2128,7 +2128,7 @@ def settings_trust_detail(
                             href=row["href"],
                         )
                         for row in list(property_usage["latest_rows"])
-                    ] or [_object_detail_row("No searches yet", "Launch a search to create the first evidence record.", "Search", href="/app/search")],
+                    ] or [_object_detail_row("No searches yet", "Launch a search to create the first run.", "Search", href="/app/search")],
                 },
             ],
         )
@@ -2154,20 +2154,20 @@ def settings_trust_detail(
         current_nav="settings",
         console_title="Reliability",
         console_summary=(
-            "Evidence, rules, source health, and recent activity explain why a result is trustworthy."
+            "Source health, recent searches, and account controls in one place."
             if is_property_brand
             else "Evidence, rules, readiness, provider state, and recent product events make the assistant legible when the office asks why something happened."
         ),
         object_kind="Reliability",
         object_title=workspace_summary,
-        object_summary=f"{trust.get('evidence_count') or 0} evidence items · {trust.get('rule_count') or 0} rules",
+        object_summary=f"{trust.get('evidence_count') or 0} checks · {trust.get('rule_count') or 0} settings",
         object_meta=[
-            {"label": "Evidence linked", "value": str(trust.get("evidence_count") or 0)},
-            {"label": "Rules", "value": str(trust.get("rule_count") or 0)},
+            {"label": "Checks", "value": str(trust.get("evidence_count") or 0)},
+            {"label": "Settings", "value": str(trust.get("rule_count") or 0)},
             {"label": "Data retention", "value": str(trust.get("audit_retention") or "standard")},
         ],
-        object_sidebar_title="Why this is reliable",
-        object_sidebar_copy="Reliability comes from clear rules, list health, and recent account activity.",
+        object_sidebar_title="What this checks",
+        object_sidebar_copy="List health, recent activity, and account controls stay visible here.",
         object_sidebar_rows=[
             _object_detail_row("Summary", workspace_summary if workspace_summary != "Trust" else "No trust summary yet.", "Summary"),
             _object_detail_row("Account", readiness_detail_label, "Account"),
@@ -2190,11 +2190,11 @@ def settings_trust_detail(
                     ],
                 },
             {
-                "eyebrow": "Trust controls",
-                "title": "Evidence, rules, and retention",
+                "eyebrow": "Controls",
+                "title": "Settings and retention",
                 "items": [
-                    _object_detail_row("Evidence linked", str(trust.get("evidence_count") or 0), "Evidence"),
-                    _object_detail_row("Rule count", str(trust.get("rule_count") or 0), "Rules"),
+                    _object_detail_row("Checks", str(trust.get("evidence_count") or 0), "Checks"),
+                    _object_detail_row("Settings", str(trust.get("rule_count") or 0), "Settings"),
                     _object_detail_row("Data retention", str(trust.get("audit_retention") or "standard"), "Data"),
                     _object_detail_row("Delivery", str(reliability.get("delivery") or "watch"), "Delivery"),
                     _object_detail_row("Access", str(reliability.get("access") or "watch"), "Access"),
@@ -2217,7 +2217,7 @@ def settings_trust_detail(
                     [
                         _object_detail_row(
                             "Summary",
-                            str(public_help_grounding.get("summary") or "Help content compiles from mirrored trust and release notes."),
+                            str(public_help_grounding.get("summary") or "Help content is built from product notes and recent changes."),
                             "Grounding",
                         )
                     ]

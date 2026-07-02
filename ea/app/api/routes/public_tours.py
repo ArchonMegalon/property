@@ -2550,7 +2550,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     rooms_legacy_chip_html = f'<div class="chip">{rooms}</div>' if rooms else '<div class="chip">Rooms under research</div>'
     area_legacy_chip_html = f'<div class="chip">{area} m²</div>' if area_display else f'<div class="chip">{area}</div>'
     rent_legacy_chip_html = f'<div class="chip">{rent}</div>' if rent else ""
-    availability_legacy_chip_html = f'<div class="chip">Available: {availability}</div>' if availability else ""
+    availability_legacy_chip_html = f'<div class="chip">{availability}</div>' if availability else ""
     decision_rows = _decision_rows()
     personalized_positive, personalized_caution, personalized_unknowns = _personalized_priority_rows()
     highlight_lines = personalized_positive or good_fit_reasons[:4] or _feature_highlights()
@@ -2586,7 +2586,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         if isinstance(facts.get("nearest_subway_m"), (int, float)):
             research_fragments.append("underground distance")
         if research_fragments:
-            completed_research_line = f"Source research already filled: {', '.join(research_fragments)}."
+            completed_research_line = f"Saved details: {', '.join(research_fragments)}."
     if is_pure_360_cube and source_virtual_tour_url:
         fit_score_chip = f'<div class="chip">Fit {fit_score}/100</div>' if fit_score is not None else ""
         recommendation_chip = f'<div class="chip">{recommendation}</div>' if recommendation else ""
@@ -2630,7 +2630,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 note = f"Preference excludes {avoided}." if avoided else "Heating preference stored."
                 requirement_rows.append(("Heating", heating_value, status, note))
             elif key in {"require_floorplan", "requires_floorplan_for_remote_review"}:
-                requirement_rows.append(("Floor plan", "Available" if has_floorplan else "Missing", "Match" if has_floorplan else "Unknown", "Remote layout review depends on this."))
+                requirement_rows.append(("Floor plan", "Included" if has_floorplan else "Missing", "Match" if has_floorplan else "Unknown", "Layout review needs this."))
             elif key == "prefer_lift":
                 requirement_rows.append(("Lift", "Present" if has_lift else "Not listed", "Match" if has_lift else "Unknown", "Building access preference."))
             elif key == "prefer_balcony":
@@ -2642,7 +2642,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             requirement_rows.extend(
                 [
                     ("Heating", _fact_text("heating", "heating_type") or "Unknown", "Conflict" if "gas" in _fact_text("heating", "heating_type").lower() else "Check", "Operating-cost and preference fit."),
-                    ("Floor plan", "Available" if has_floorplan else "Missing", "Match" if has_floorplan else "Unknown", "Layout validation."),
+                    ("Floor plan", "Included" if has_floorplan else "Missing", "Match" if has_floorplan else "Unknown", "Layout check."),
                     ("Lift", "Present" if has_lift else "Not listed", "Match" if has_lift else "Unknown", "Access convenience."),
                 ]
             )
@@ -2699,9 +2699,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 value = f"about {int(raw_value)} m"
             else:
                 value = str(raw_value)
-            provenance = "Researched" if key in researched_facts else "Listing"
+            provenance = "Map" if key in researched_facts else "Listing"
             if key in {"street_address", "exact_address"} and "map_lat" in researched_facts:
-                provenance = "Inferred"
+                provenance = "Approx."
             evidence_rows.append((label, value, provenance))
         evidence_html = "".join(
             f'<div class="evidence-row"><div><b>{html.escape(label)}</b><span>{html.escape(value)}</span></div><em class="provenance provenance-{provenance.lower()}">{html.escape(provenance)}</em></div>'
@@ -3296,7 +3296,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           </div>
           <div class="summary-grid">
             <div class="summary-card">
-              <h3>Why it fits</h3>
+              <h3>Highlights</h3>
               <ul>{reasons_html}</ul>
             </div>
             <div class="summary-card">
@@ -3370,10 +3370,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           {shortlist_panel}
           {ranking_read_panel}
           <section id="research" class="panel">
-            <div class="eyebrow">Local context</div>
-            <h2>What we know and what is open</h2>
+            <div class="eyebrow">Area</div>
+            <h2>Local notes</h2>
             <details class="research-card" open>
-              <summary>Completed checks</summary>
+              <summary>Saved details</summary>
               <p class="sub">{html.escape(completed_research_line) if completed_research_line else 'No completed enrichment checks are stored yet.'}</p>
             </details>
             <details class="research-card">
@@ -3381,7 +3381,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
               <div class="evidence-stack" style="margin-top:12px;">{evidence_html}</div>
             </details>
             <details class="research-card">
-              <summary>Open questions</summary>
+              <summary>Still to check</summary>
               <ul>{unknowns_html}</ul>
             </details>
             {detail_request_button}
@@ -3533,7 +3533,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         '<h2>Decision Summary</h2>'
         f'<div class="stat-grid">{pure_decision_rows_html}</div>'
         '<div class="decision-grid">'
-        '<div><h3>Why it fits</h3><ul>' + pure_reasons_html + '</ul></div>'
+        '<div><h3>Highlights</h3><ul>' + pure_reasons_html + '</ul></div>'
         '<div><h3>Decision pressure</h3><ul>' + pure_risks_html + '</ul></div>'
         '<div><h3>Still missing</h3><ul>' + pure_unknowns_html + '</ul></div>'
         '</div>'
@@ -4495,7 +4495,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         '<h2>Decision Summary</h2>'
         f'<div class="stack">{legacy_decision_rows_html}</div>'
         '<div class="stage">'
-        '<div class="panel"><h2>Why it fits</h2><ul>' + legacy_reasons_html + '</ul></div>'
+        '<div class="panel"><h2>Highlights</h2><ul>' + legacy_reasons_html + '</ul></div>'
         '<div class="panel"><h2>Decision pressure</h2><ul>' + legacy_risks_html + '</ul></div>'
         '<div class="panel"><h2>Still missing</h2><ul>' + legacy_unknowns_html + '</ul></div>'
         '</div>'
@@ -5491,10 +5491,10 @@ def _tour_control_external_iframe_html(
           </div>
           <iframe src="{html.escape(iframe_src)}" class="provider-frame" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
         </section>
-        <aside class="panel evidence" aria-label="Tour details">
+        <aside class="panel evidence" aria-label="Inside the space">
           <div>
-            <h2>Tour details</h2>
-            <p class="hint">3D tour, floorplan, and walkthrough stay together so the spatial check does not split across tabs.</p>
+            <h2>Inside the space</h2>
+            <p class="hint">3D tour, floorplan, and walkthrough stay together in one place.</p>
           </div>
           {video_html}
           {scene_viewer_html}
@@ -6117,7 +6117,7 @@ def public_tour_page(
                 request,
                 status_code=404,
                 title="This tour link is no longer available.",
-                summary="Ask the sender to share a fresh apartment-tour link or open PropertyQuarry for the latest property evidence.",
+                summary="Ask the sender to share a fresh apartment-tour link or open PropertyQuarry for the latest property page.",
                 status_label="Tour unavailable",
                 rows=[
                     {

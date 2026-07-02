@@ -177,8 +177,8 @@
               <div class="pqx-evidence-atlas-head">
                 <div class="pqx-evidence-atlas-title">
                   <span class="pqx-small">Area</span>
-                  <strong data-pqx-evidence-atlas-title>Map and surroundings</strong>
-                  <span class="pqx-note" data-pqx-evidence-atlas-caption>Map, climate, schools, traffic, and local notes.</span>
+                  <strong data-pqx-evidence-atlas-title>Area map</strong>
+                  <span class="pqx-note" data-pqx-evidence-atlas-caption>Map and nearby context.</span>
                 </div>
                 <button class="pqx-evidence-atlas-close" type="button" data-pqx-evidence-atlas-close aria-label="Close area layers">×</button>
               </div>
@@ -194,7 +194,7 @@
                 <div class="pqx-evidence-layer-rail" data-pqx-evidence-layer-rail aria-label="Area layers"></div>
                 <div class="pqx-evidence-cache-note" data-pqx-evidence-cache-note hidden></div>
                 <div class="pqx-evidence-atlas-cards" data-pqx-evidence-atlas-cards></div>
-                <div class="pqx-note" data-pqx-evidence-atlas-footer>Unavailable layers stay hidden.</div>
+                <div class="pqx-note" data-pqx-evidence-atlas-footer>Available layers only.</div>
               </aside>
             </div>
           </dialog>
@@ -204,8 +204,8 @@
 <section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
   <div class="pqx-section-head">
     <div>
-      <h2>Open questions</h2>
-      <div class="pqx-note">Only open this when a missing document or floorplan could still change the decision.</div>
+      <h2>Check next</h2>
+      <div class="pqx-note">Open this only if a missing floor plan or document could change your choice.</div>
     </div>
     <span class="pqx-pill warn" data-research-task-count>{{ counts.get('open') or 0 }} open</span>
   </div>
@@ -322,13 +322,13 @@
 {% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
 {% set progress_message_display_lower = progress_message_display|lower %}
 {% set progress_compact_found_message = found_total|string ~ ' homes found' %}
-{% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ to_review_total|string ~ ' to review' %}
+{% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ to_review_total|string ~ ' left to sort' %}
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or 'scoring enriched candidate' in progress_message_display_lower or 'ranking homes' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
     {% if source_open_total > 0 %}
-      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review · ' ~ source_open_total ~ ' lists left' %}
+      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' left to sort · ' ~ source_open_total ~ ' lists left' %}
     {% else %}
-      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review' %}
+      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' left to sort' %}
     {% endif %}
   {% elif provider_display_total > 0 %}
   {% set progress_message_display = 'Preparing lists.' %}
@@ -345,7 +345,7 @@
 <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
   <div class="pqx-concierge-pulse">
     <div class="pqx-progress-headline">
-      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed', 'completed_partial'] %}Results are ready{% elif status == 'failed' %}Search interrupted{% else %}Search in progress{% endif %}</strong>
+      <strong data-pqx-progress-board-title>{% if status in ['processed', 'completed', 'completed_partial'] %}Results ready{% elif status == 'failed' %}Paused{% else %}Searching{% endif %}</strong>
       <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{% if status in ['processed', 'completed', 'completed_partial'] %}100% · complete{% elif status == 'failed' %}stopped{% elif run_progress > 0 and eta_label %}{{ run_progress }}% · {{ eta_label }}{% elif run_progress > 0 %}{{ run_progress }}% · estimating{% elif eta_label %}starting · {{ eta_label }}{% else %}estimating{% endif %}</span>
     </div>
     <div class="pqx-pulse-line" aria-hidden="true"></div>
@@ -353,18 +353,18 @@
 	  <div class="pqx-source-progress" data-pqx-source-progress>
 	    <div class="pqx-source-progress-head">
 			      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-					      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total %}0 to review{% elif provider_display_total %}{{ provider_display_total }} lists selected{% else %}Waiting for first listings{% endif %}</span>
-					      {% if found_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
+					      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} left to sort{% elif found_total %}0 left to sort{% elif provider_display_total %}{{ provider_display_total }} lists selected{% else %}Waiting for first listings{% endif %}</span>
+					      {% if found_total %}<span hidden>{{ to_review_total }} homes left to sort</span>{% endif %}
 				    </div>
 				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first list.' }}</span>
-				    <div class="pqx-live-review-bars" aria-label="Live search totals">
+				    <div class="pqx-live-review-bars" aria-label="Search totals">
 		      <span>
-		        <b>Homes found</b>
+		        <b>Found</b>
 		        <i>{{ found_total or 0 }}</i>
 		        <em><u style="--progress: {{ found_bar_pct }}"></u></em>
 		      </span>
 		      <span>
-			        <b>To review</b>
+			        <b>Left to sort</b>
 		        <i>{{ to_review_total or 0 }}</i>
 		        <em><u style="--progress: {{ to_review_bar_pct }}"></u></em>
 		      </span>
@@ -10680,13 +10680,13 @@
           {% set live_run_message_display = live_safe_message if live_has_repair_copy and live_safe_message else live_run_message_raw %}
           {% set live_run_message_display_lower = live_run_message_display|lower %}
           {% set live_compact_found_message = live_found_total|string ~ ' homes found' %}
-	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_to_review_total|string ~ ' to review' %}
+	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_to_review_total|string ~ ' left to sort' %}
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or 'scoring enriched candidate' in live_run_message_display_lower or 'ranking homes' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
 		          {% if live_found_total %}
 		            {% if live_source_open_total > 0 %}
-				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review · ' ~ live_source_open_total ~ ' lists left' %}
+				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' left to sort · ' ~ live_source_open_total ~ ' lists left' %}
 			            {% else %}
-				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review' %}
+				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' left to sort' %}
 		            {% endif %}
 		          {% elif live_provider_total > 0 %}
 			          {% set live_run_message_display = 'Preparing lists.' %}
@@ -10697,7 +10697,7 @@
           <section class="pqx-card" style="margin-bottom:14px;">
             <div class="pqx-section-head">
               <div>
-                <h2>Live run</h2>
+                <h2>Current search</h2>
                 <div class="pqx-note" data-pqx-run-message>{{ live_run_message_display or 'The current search is still running.' }}</div>
               </div>
 	              <span class="pqx-pill good">{{ run.get('progress') or 0 }}%</span>
@@ -10707,7 +10707,7 @@
 	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
 	                  <div><strong>Lists</strong><small>{% if live_source_total %}{{ live_source_done_total }} / {{ live_source_total }} checked{% else %}Preparing{% endif %}</small></div>
 	                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
-			                <div><strong>To review</strong><small>{{ live_to_review_total }} homes</small></div>
+			                <div><strong>Left to sort</strong><small>{{ live_to_review_total }} homes</small></div>
 	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
 	              </div>
           {% if live_preview %}
@@ -11323,7 +11323,7 @@
                     {% set keyword_groups = [
                       {'key': 'home_basics', 'label': 'Home'},
                       {'key': 'daily_life', 'label': 'Daily life'},
-                      {'key': 'risk_evidence', 'label': 'Before you decide'}
+                      {'key': 'risk_evidence', 'label': 'Checks'}
                     ] %}
                     {% for group in keyword_groups %}
                     {% set group_options = field.options|selectattr('group', 'equalto', group.get('key'))|list %}
@@ -11969,8 +11969,8 @@
                   <th>#</th>
                   <th>Property</th>
                   <th>Media</th>
-                  <th>Fit</th>
-                  <th>Best points</th>
+                  <th>Match</th>
+                  <th>Highlights</th>
                   <th>Open</th>
                 </tr>
               </thead>
@@ -11994,12 +11994,12 @@
                     </div>
                     <div class="pqx-result-trust">
                       <span class="pqx-trust-chip">#{{ candidate.get('rank') or loop.index }}</span>
-                      <span class="pqx-trust-chip">Fit {{ candidate.get('fit_score') or 0 }}/100</span>
+                      <span class="pqx-trust-chip">Match {{ candidate.get('fit_score') or 0 }}/100</span>
                       {% set candidate_facts = candidate.get('property_facts') or {} %}
-                      <span class="pqx-trust-chip">Layout {{ 'on file' if candidate.get('has_floorplan') or candidate.get('floorplan_count') or candidate.get('floorplan_urls_json') or candidate_facts.get('has_floorplan') or candidate_facts.get('floorplan_count') or candidate_facts.get('floorplan_urls_json') else 'missing' }}</span>
+                      <span class="pqx-trust-chip">Floorplan {{ 'yes' if candidate.get('has_floorplan') or candidate.get('floorplan_count') or candidate.get('floorplan_urls_json') or candidate_facts.get('has_floorplan') or candidate_facts.get('floorplan_count') or candidate_facts.get('floorplan_urls_json') else 'missing' }}</span>
                       {% set tour_status = candidate.get('tour_status') or candidate.get('tour', {}).get('status') or '' %}
                       {% if tour_status and tour_status not in ['not_ready', 'not ready', 'pending', 'blocked', 'unavailable', 'suppressed'] %}
-                      <span class="pqx-trust-chip">Tour {{ tour_status|replace('_', ' ')|title }}</span>
+                      <span class="pqx-trust-chip">3D tour {{ tour_status|replace('_', ' ')|title }}</span>
                       {% endif %}
                     </div>
                   </td>
@@ -12131,23 +12131,23 @@
         {% set selected_flythrough_progress = selected_flythrough.get('progress_pct') if selected_flythrough.get('progress_pct') is not none else (100 if selected_flythrough.get('url') else 0) %}
         {% set selected_visual_status = '' %}
         {% if selected_tour_pending %}
-        {% set selected_visual_status = (selected_tour.get('status_detail') or selected_tour.get('detail') or selected_tour.get('label') or '3D tour is on the way.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') %}
+        {% set selected_visual_status = (selected_tour.get('status_detail') or selected_tour.get('detail') or selected_tour.get('label') or 'Preparing 3D tour.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') %}
         {% elif selected_flythrough_pending %}
-        {% set selected_visual_status = (selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') %}
+        {% set selected_visual_status = (selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Preparing walkthrough.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') %}
         {% elif selected_tour.get('status') == 'blocked' %}
         {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('eta_label') or '3D tour not available yet.' %}
         {% elif selected_flythrough.get('status') == 'blocked' %}
         {% set selected_visual_status = selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or 'Walkthrough not available yet.' %}
         {% elif not selected_tour.get('url') and not selected_flythrough.get('url') and selected_visual_property_url and not mobile_is_shortlist_surface %}
-        {% set selected_visual_status = 'Request visuals only when this home stays in the running.' %}
+        {% set selected_visual_status = 'Request when you want a closer look.' %}
         {% endif %}
         {% set mobile_visual_preview = '' %}
         {% if selected_tour.get('url') and selected_flythrough.get('url') %}
-        {% set mobile_visual_preview = '3D tour and walkthrough ready' %}
+        {% set mobile_visual_preview = '3D tour and walkthrough available' %}
         {% elif selected_tour.get('url') %}
-        {% set mobile_visual_preview = '3D tour ready' %}
+        {% set mobile_visual_preview = '3D tour available' %}
         {% elif selected_flythrough.get('url') %}
-        {% set mobile_visual_preview = 'Walkthrough ready' %}
+        {% set mobile_visual_preview = 'Walkthrough available' %}
         {% elif selected_tour_pending %}
         {% set mobile_visual_preview = selected_tour.get('label') or '3D tour in progress' %}
         {% elif selected_flythrough_pending %}
@@ -12253,7 +12253,7 @@
               {% if selected_flythrough.get('url') %}
               <a class="pqx-link-button" href="{{ selected_flythrough.get('url') }}">Open walkthrough</a>
               {% elif selected_flythrough_pending %}
-              <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_flythrough_progress }}%;" title="{{ (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') }}" data-pw-visual-request="flythrough" data-pw-visual-state="{{ selected_flythrough_status or 'queued' }}" data-pw-visual-progress="{{ selected_flythrough_progress }}" data-pw-visual-eta="{{ selected_flythrough.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_flythrough.get('detail') or selected_flythrough.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_flythrough.get('label') or 'Walkthrough queued' }}</button>
+              <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_flythrough_progress }}%;" title="{{ (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Preparing walkthrough.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') }}" data-pw-visual-request="flythrough" data-pw-visual-state="{{ selected_flythrough_status or 'queued' }}" data-pw-visual-progress="{{ selected_flythrough_progress }}" data-pw-visual-eta="{{ selected_flythrough.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_flythrough.get('detail') or selected_flythrough.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_flythrough.get('label') or 'Walkthrough queued' }}</button>
               {% elif selected_visual_property_url and not mobile_is_shortlist_surface %}
               <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-pw-walkthrough-provider="magicfit" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">Request walkthrough</button>
               {% endif %}

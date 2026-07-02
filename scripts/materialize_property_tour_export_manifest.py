@@ -423,7 +423,36 @@ def build_export_manifest(
 
 def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     prepared: list[dict[str, Any]] = []
-    for row in list(manifest.get("imports") or []):
+    rows: list[dict[str, Any]] = [
+        dict(row)
+        for row in list(manifest.get("imports") or [])
+        if isinstance(row, dict)
+    ]
+    prepared_providers = {
+        str(row.get("provider") or "").strip().lower()
+        for row in rows
+        if str(row.get("provider") or "").strip().lower() in IMPORTABLE_PROVIDERS
+    }
+    incoming_root = Path(str(manifest.get("incoming_root") or _incoming_root())).expanduser().resolve()
+    for provider in IMPORTABLE_PROVIDERS:
+        if provider in prepared_providers:
+            continue
+        export_dir = incoming_root / "_operator-import-lane" / _provider_target_subdir(provider)
+        rows.append(
+            {
+                "slug": "_operator-import-lane",
+                "title": "Operator import lane",
+                "provider": provider,
+                "export_dir": str(export_dir),
+                "asset_dir": str(export_dir),
+                "entry": "",
+                "target_subdir": _provider_target_subdir(provider),
+                "reason": "provider_import_lane_ready",
+                "action": _default_missing_action(provider),
+                "current_control_providers": "",
+            }
+        )
+    for row in rows:
         if not isinstance(row, dict):
             continue
         export_dir = Path(str(row.get("export_dir") or "")).expanduser().resolve()

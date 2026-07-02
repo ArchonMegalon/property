@@ -682,7 +682,7 @@
       {% if object_media.get('embed_href') %}
       <iframe src="{{ object_media.get('embed_href') }}" title="Property 3D tour" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
       <div class="object-media-toolbar" aria-label="3D tour status and actions">
-        <div class="object-media-status">{{ object_media.get('status_label') or '3D tour ready' }}</div>
+        <div class="object-media-status">{{ object_media.get('status_label') or '3D tour available' }}</div>
         <div class="object-actions">
           {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 3D tour' }}</a>{% endif %}
           {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open property page' }}</a>{% endif %}

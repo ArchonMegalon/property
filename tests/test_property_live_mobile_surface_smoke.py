@@ -72,7 +72,7 @@ def _base_metrics() -> dict[str, object]:
         "research_detail_visual_controls": True,
         "research_detail_fake_visual_ready": False,
         "research_detail_generated_reconstruction_honest": True,
-        "research_detail_verified_tour_evidence_copy": True,
+        "research_detail_tour_copy": True,
         "research_detail_walkthrough_evidence_copy": True,
         "research_detail_no_vague_visual_copy": True,
         "research_detail_walkthrough_magicfit_only": True,
@@ -268,7 +268,7 @@ def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
             "research_detail_visual_controls": False,
             "research_detail_fake_visual_ready": True,
             "research_detail_generated_reconstruction_honest": False,
-            "research_detail_verified_tour_evidence_copy": False,
+            "research_detail_tour_copy": False,
             "research_detail_walkthrough_evidence_copy": False,
             "research_detail_no_vague_visual_copy": False,
             "research_detail_walkthrough_magicfit_only": False,
@@ -285,7 +285,7 @@ def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
         "research_detail_visual_controls",
         "research_detail_no_fake_visual_ready",
         "research_detail_generated_reconstruction_honest",
-        "research_detail_verified_tour_evidence_copy",
+        "research_detail_tour_copy",
         "research_detail_walkthrough_evidence_copy",
         "research_detail_no_vague_visual_copy",
         "research_detail_walkthrough_magicfit_only",
@@ -355,16 +355,15 @@ def test_live_mobile_smoke_default_routes_cover_representative_customer_surfaces
         "/app/alerts",
         "/app/account",
         "/app/billing",
-        "/app/settings/access",
-        "/app/properties/packets",
-    }.issubset(set(DEFAULT_ROUTES))
-    assert {
         "/app/settings/google",
+        "/app/settings/access",
         "/app/settings/usage",
         "/app/settings/support",
         "/app/settings/trust",
         "/app/settings/invitations",
-    }.isdisjoint(set(DEFAULT_ROUTES))
+        "/app/research",
+        "/app/properties/packets",
+    }.issubset(set(DEFAULT_ROUTES))
 
 
 def test_live_mobile_smoke_blocks_app_routes_without_api_token_before_playwright() -> None:

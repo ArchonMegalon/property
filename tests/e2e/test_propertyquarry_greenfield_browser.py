@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import Browser, BrowserContext, Page, expect, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Page, TimeoutError as PlaywrightTimeoutError, expect, sync_playwright
 
 Config = uvicorn.Config
 Server = uvicorn.Server
@@ -465,6 +465,37 @@ def _issue_browser_workspace_session(
     return access_token
 
 
+def _stub_matterport_provider(context: BrowserContext) -> None:
+    context.route(
+        re.compile(r"^https://my\.matterport\.com/show/?\?.*"),
+        lambda route: route.fulfill(
+            status=200,
+            content_type="text/html",
+            body=(
+                "<!doctype html><html><head><meta charset='utf-8'>"
+                "<title>Matterport fixture</title></head>"
+                "<body style='margin:0;background:#111;color:#fff'>"
+                "<main aria-label='Matterport fixture' "
+                "style='min-height:100vh;display:grid;place-items:center'>"
+                "3D tour fixture"
+                "</main></body></html>"
+            ),
+        ),
+    )
+    context.route(
+        re.compile(r"^https://my\.matterport\.com/api/.*"),
+        lambda route: route.fulfill(
+            status=200,
+            content_type="image/svg+xml",
+            body=(
+                "<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360' "
+                "viewBox='0 0 640 360'><rect width='640' height='360' fill='#1f2a24'/>"
+                "<text x='40' y='190' fill='#f8f1df' font-size='42'>Matterport</text></svg>"
+            ),
+        ),
+    )
+
+
 def _new_public_context(
     browser: Browser,
     *,
@@ -765,8 +796,8 @@ def test_propertyquarry_home_example_media_links_open_real_public_tour_targets(
         page = signed_in.new_page()
         response = page.goto(f"{base_url}/?home=1", wait_until="networkidle")
         assert response is not None and response.ok
-        tour_href = page.get_by_role("link", name="3D tour ready").get_attribute("href")
-        walkthrough_href = page.get_by_role("link", name="Walkthrough ready").get_attribute("href")
+        tour_href = page.get_by_role("link", name="3D tour available").get_attribute("href")
+        walkthrough_href = page.get_by_role("link", name="Walkthrough available").get_attribute("href")
         assert tour_href == f"/tours/{slug}/control/matterport"
         assert walkthrough_href == f"/tours/files/{slug}/tour.mp4"
         assert "#tour-preview" not in page.content()
@@ -1331,7 +1362,7 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="domcontentloaded")
         assert response is not None and response.ok
         content = page.content()
         assert 'data-property-spa-shell' in content
@@ -1346,9 +1377,9 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
         assert "Altbau near U6" in content
         assert "Family flat near Tiergarten" in content
-        assert page.locator("body", has_text="3D tour ready").is_visible()
+        assert page.locator("body", has_text="3D tour available").is_visible()
         assert page.locator("body", has_text="Open property").is_visible()
-        assert "3D tour ready" in content
+        assert "3D tour available" in content
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         page.locator("[data-workbench-row]", has_text="Altbau near U6").locator(".pqx-result-title").click()
@@ -3596,7 +3627,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                     "flythrough_url": "https://propertyquarry.com/tours/files/listing-url-only-loft/walkthrough.mp4",
                     "flythrough_status": "ready",
                     "status_label": "Open walkthrough",
-                    "status_detail": "Walkthrough is ready on this page.",
+                    "status_detail": "Walkthrough is available on this page.",
                     "eta_label": "",
                     "progress_pct": 100,
                     "poll_after_seconds": 0,
@@ -5657,7 +5688,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert len(observed["selected_platforms"]) == 3
         assert page.locator("body", has_text="Altbau near U6").is_visible()
         assert page.locator("body", has_text="Open property").is_visible()
-        assert page.locator("body", has_text="3D tour ready").is_visible()
+        assert page.locator("body", has_text="3D tour available").is_visible()
         page.locator("[data-workbench-row]", has_text="Altbau near U6").locator(".pqx-result-title").click()
         assert "/app/research/" in page.url
         assert urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("run_id", [""])[0] == run_id
@@ -5672,21 +5703,38 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
+    _stub_matterport_provider(context)
     page: Page = context.new_page()
     console_errors: list[str] = []
+    failed_requests: list[str] = []
+    tour_file_responses: list[str] = []
+    error_responses: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    page.on("requestfailed", lambda request: failed_requests.append(f"{request.url} :: {request.failure}"))
+    page.on(
+        "response",
+        lambda response: tour_file_responses.append(f"{response.status} {response.url}")
+        if "/tours/files/" in response.url
+        else None,
+    )
+    page.on(
+        "response",
+        lambda response: error_responses.append(f"{response.status} {response.url}")
+        if response.status >= 400
+        else None,
+    )
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="domcontentloaded")
         assert response is not None and response.ok
         best_match = page.locator("[data-workbench-row]", has_text="Altbau near U6").first
         best_match.wait_for()
-        expect(best_match.get_by_role("link", name="3D tour ready")).to_be_visible()
+        expect(best_match.get_by_role("link", name="3D tour available")).to_be_visible()
         expect(best_match.get_by_role("link", name="Open 3D tour")).to_have_count(0)
-        open_3d_tour = best_match.get_by_role("link", name="3D tour ready")
+        open_3d_tour = best_match.get_by_role("link", name="3D tour available")
         tour_url = str(open_3d_tour.get_attribute("href") or "").strip()
         assert tour_url.endswith("/tours/altbau-u6/control/matterport")
         tour_entry = tour_url if tour_url.startswith("http") else f"{base_url}{tour_url}"
-        response = page.goto(f"{tour_entry}?pane=floorplan-pane", wait_until="networkidle")
+        response = page.goto(f"{tour_entry}?pane=floorplan-pane", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.locator("h1").wait_for()
         assert page.locator("body", has_text="PROPERTY TOUR").is_visible()
@@ -5694,10 +5742,22 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         page.locator('#role-filter button[data-role="floorplan"]').click()
         assert page.locator("#stage-role").inner_text().lower() == "floorplan"
         assert page.locator("#stage-image").is_visible()
+        try:
+            page.wait_for_function(
+                "() => { const image = document.getElementById('stage-image'); return image && !image.hidden && image.complete && image.naturalWidth >= 1000; }",
+                timeout=5000,
+            )
+        except PlaywrightTimeoutError as exc:
+            image_state = page.evaluate(
+                "() => { const image = document.getElementById('stage-image'); return image ? {src: image.src, complete: image.complete, naturalWidth: image.naturalWidth, hidden: image.hidden} : null; }"
+            )
+            raise AssertionError(
+                f"Floorplan image did not decode. state={image_state}; responses={tour_file_responses}; failed={failed_requests}"
+            ) from exc
         natural_width = page.evaluate("() => document.getElementById('stage-image')?.naturalWidth || 0")
         assert natural_width >= 1000
 
-        response = page.goto(f"{tour_entry}?pane=flythrough-pane&autoplay=1", wait_until="networkidle")
+        response = page.goto(f"{tour_entry}?pane=flythrough-pane&autoplay=1", wait_until="domcontentloaded")
         assert response is not None and response.ok
         video = page.locator("#tour-video")
         video.wait_for()
@@ -5722,7 +5782,7 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         assert state["duration"] >= 2.5
         assert _video_frame_brightness(page) > 10.0
         assert page.locator("#tour-video source").get_attribute("type") == "video/mp4"
-        assert not [
+        noisy_console_errors = [
             message
             for message in console_errors
             if "decode" in message.lower()
@@ -5730,6 +5790,8 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
             or "refused" in message.lower()
             or "failed to load resource" in message.lower()
         ]
+        assert not noisy_console_errors, f"console={noisy_console_errors}; responses={error_responses}; failed={failed_requests}"
+        assert failed_requests == []
     finally:
         context.close()
 

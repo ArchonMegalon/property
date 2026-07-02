@@ -84,7 +84,7 @@ def _handoff_customer_status(
             return "Needs another try", retry_detail or "The prepared send needs another attempt."
     if task_type == "property_tour_followup":
         if str(handoff.tour_url or "").strip():
-            return "3D tour ready", "The 3D tour is ready to review."
+            return "3D tour available", "The 3D tour is available to review."
         if property_tour_followup_open:
             return "3D tour in progress", "The 3D tour is still being prepared."
     return "Open follow-up", "This page keeps only the next useful action and the supporting links."

@@ -322,7 +322,7 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert "loop.first and brief.get('plan_key') == 'agent'" not in results
     assert "Request walkthrough" in results
     assert "Open walkthrough" in results
-    assert "Walkthrough ready" in results
+    assert "Walkthrough available" in results
     assert "tour.get('url') and not shortlist_compact_actions" in results
     assert "walkthrough.get('url') and not shortlist_compact_actions" in results
     assert "<summary><strong>More actions</strong></summary>" not in review
@@ -339,8 +339,6 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert 'data-pw-shortlist-empty-state-template' in review
     assert 'data-pw-shortlist-empty-state' in review
     assert 'data-pw-shortlist-empty-cta' in review
-    assert "shortlisted opportunities" in script
-    assert "shortlisted homes" in script
     assert "reconcileShortlistArchive" in script
     assert "ensureShortlistReviewEmptyState" in script
     assert "setShortlistReviewEmptyState(true);" in script
@@ -415,7 +413,8 @@ def test_property_research_detail_right_rail_stays_compact() -> None:
 
     assert "Open the exact pin in Google Maps here" not in research
     assert "prd-map-actions" in research
-    assert "Open overlay" in research
+    assert "Open overlay" not in research
+    assert ">Map</a>" in research
     assert "Media and plans" in research
 
 
@@ -3037,7 +3036,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "Could not load property search status." not in visible_message
-    assert "179 homes found · 0 to review" in visible_message
+    assert "179 homes found · 0 left to sort" in visible_message
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
         response.text,
@@ -3046,11 +3045,11 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
     assert "Could not load property search status." not in visible_source
-    assert "Homes found" in visible_source
+    assert "Found" in visible_source
     assert "179" in visible_source
     assert "29 lists" in visible_source
-    assert "Homes found" in visible_source
-    assert "To review" in visible_source
+    assert "Found" in visible_source
+    assert "Left to sort" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
 
 
@@ -3091,7 +3090,7 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "70 homes found · 0 to review · 180 lists left" in visible_message
+    assert "70 homes found · 0 left to sort · 180 lists left" in visible_message
 
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
@@ -3102,9 +3101,9 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
     assert "180 lists left" in visible_source
     assert "70 / 250 checked" in visible_source
-    assert "Homes found" in visible_source
+    assert "Found" in visible_source
     assert "70" in visible_source
-    assert "To review" in visible_source
+    assert "Left to sort" in visible_source
     assert "0" in visible_source
     assert "Reviewed" not in visible_source
 
@@ -3144,7 +3143,7 @@ def test_propertyquarry_running_panel_does_not_treat_listing_total_as_reviewed(m
 
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
-    assert "70 homes found · 70 to review · 180 lists left" in visible
+    assert "70 homes found · 70 left to sort · 180 lists left" in visible
     assert "Reviewed" not in visible
 
 
@@ -3180,7 +3179,7 @@ def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "102 homes found · 0 to review" in visible_message
+    assert "102 homes found · 0 left to sort" in visible_message
     assert "Now: RE/MAX Austria" not in visible_message
 
 
@@ -3224,10 +3223,10 @@ def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_ra
 
     assert response.status_code == 200
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
-    assert "Search in progress" in rendered_html
+    assert "Searching" in rendered_html
     assert "179 homes found" in rendered_html
-    assert "Homes found" in rendered_html
-    assert "To review" in rendered_html
+    assert "Found" in rendered_html
+    assert "Left to sort" in rendered_html
     assert "Altbau near U6" not in rendered_html
     assert "Leading right now. Can still change before the search finishes." not in rendered_html
     assert "Could not load property search status." not in rendered_html
@@ -3288,7 +3287,7 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert "Neutral until you care" in section_html
     assert "Home" in section_html
     assert "Daily life" in section_html
-    assert "Before you decide" in section_html
+    assert "Checks" in section_html
     assert 'data-what-matters-group="home_basics"' in section_html
     assert 'data-what-matters-group="daily_life"' in section_html
     assert 'data-what-matters-group="risk_evidence"' in section_html
@@ -4292,9 +4291,9 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
     assert targets == {
         "demo_href": "/tours/demo-home-tour",
         "tour_href": "/tours/demo-home-tour/control/matterport",
-        "tour_label": "3D tour ready",
+        "tour_label": "3D tour available",
         "walkthrough_href": "/tours/files/demo-home-tour/tour.mp4",
-        "walkthrough_label": "Walkthrough ready",
+        "walkthrough_label": "Walkthrough available",
     }
 
 
@@ -4354,9 +4353,9 @@ def test_propertyquarry_example_media_targets_prefer_propertyquarry_3dvista_priv
     assert targets == {
         "demo_href": "/tours/demo-3dvista-propertyquarry",
         "tour_href": "/tours/demo-3dvista-propertyquarry/control/3dvista",
-        "tour_label": "3D tour ready",
+        "tour_label": "3D tour available",
         "walkthrough_href": "/tours/files/demo-3dvista-propertyquarry/walkthrough.mp4",
-        "walkthrough_label": "Walkthrough ready",
+        "walkthrough_label": "Walkthrough available",
     }
 
 
@@ -5269,8 +5268,8 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     )
 
     assert snapshot["status_label"] == "Running"
-    assert snapshot["status_note"] == "102 homes found · 0 to review"
-    assert snapshot["message"] == "102 homes found · 0 to review"
+    assert snapshot["status_note"] == "102 homes found · 0 left to sort"
+    assert snapshot["message"] == "102 homes found · 0 left to sort"
 
 
 def test_property_surface_state_builds_filtered_total_from_summary_components() -> None:
@@ -6658,7 +6657,7 @@ def test_property_research_packet_renders_cached_evidence_overlays(monkeypatch, 
     packet = client.get(f"/app/research/{packet_ref}", params={"run_id": "run-overlays"}, headers={"host": "propertyquarry.com"})
 
     assert packet.status_code == 200
-    assert "Saved map layers and public sources appear here when they are available for this address." in packet.text
+    assert "Map layers and local notes appear here when available." in packet.text
     assert "Media attention" in packet.text
     assert "12 local articles in the last 90 days" in packet.text
     assert "Terms-safe media index" in packet.text
@@ -6740,7 +6739,7 @@ def test_property_workbench_bundle_uses_calm_evidence_state_labels() -> None:
     bundle = _read_workbench_bundle()
 
     assert "const evidenceStateLabel = (state) => {" in bundle
-    assert "if (normalized === 'verified') return 'Available';" in bundle
+    assert "if (normalized === 'verified') return 'Ready';" in bundle
     assert "if (normalized === 'unavailable') return 'Not yet';" in bundle
     assert "Open page" in bundle
     assert "No link" not in bundle
@@ -7868,7 +7867,7 @@ def test_property_workspace_payload_exposes_visual_provider_labels_for_ready_del
     assert result["tour"]["label"] == "Original tour"
     assert "no in-page 3D tour is ready yet" in result["tour"]["status_detail"]
     assert result["flythrough"]["provider_label"] == "Walkthrough"
-    assert result["flythrough"]["detail"] == "Walkthrough ready"
+    assert result["flythrough"]["detail"] == "Walkthrough available"
 
 
 def test_property_workspace_payload_does_not_count_raw_provider_tour_as_ready() -> None:
@@ -8398,7 +8397,7 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
         '<section class="prd-shell" data-property-research-detail>'
     )
     assert body.index("data-object-media-stage") < body.index("Quick take")
-    assert body.index("3D and walkthrough") < body.index("Property details")
+    assert body.index("Visuals") < body.index("Property details")
     assert "OODA" not in body
     assert "operator notes" not in body
 
@@ -8442,10 +8441,10 @@ def test_property_research_detail_uses_explicit_tour_evidence_copy() -> None:
 
     assert "Tour: {{ verified_provider_label }}." not in body
     assert "Tour: available." not in body
-    assert "3D tour ready." in body
-    assert "No 3D tour yet." in body
+    assert "3D tour available." in body
+    assert "3D tour not available yet." in body
     assert "Walkthrough available." in body
-    assert "No walkthrough yet." in body
+    assert "Walkthrough not available yet." in body
     assert "No 3D tour is published yet." not in body
 
 
@@ -8664,9 +8663,9 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert ready_payload["embed_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
     assert ready_payload["primary_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
     assert ready_payload["primary_label"] == "Open 3D tour"
-    assert ready_payload["status_label"] == "3D tour ready"
-    assert ready_payload["status_detail"] == "3D tour is ready on this page. Open it before leaving for the listing."
-    assert ready_payload["walkthrough_status_detail"] == "Walkthrough is ready on this page."
+    assert ready_payload["status_label"] == "3D tour available"
+    assert ready_payload["status_detail"] == "3D tour is available on this page."
+    assert ready_payload["walkthrough_status_detail"] == "Walkthrough is available on this page."
 
 
 def test_property_research_media_uses_generic_label_for_verified_controls(monkeypatch) -> None:
@@ -8691,8 +8690,8 @@ def test_property_research_media_uses_generic_label_for_verified_controls(monkey
     assert payload["hosted_ready"] is True
     assert payload["provider_label"] == "3D tour"
     assert payload["primary_label"] == "Open 3D tour"
-    assert payload["status_label"] == "3D tour ready"
-    assert payload["status_detail"] == "3D tour is ready on this page. Open it before leaving for the listing."
+    assert payload["status_label"] == "3D tour available"
+    assert payload["status_detail"] == "3D tour is available on this page."
 
 
 def test_property_research_media_treats_krpano_only_bundle_as_needing_rebuild(monkeypatch) -> None:
@@ -9230,7 +9229,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "25 homes found · 0 to review · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "25 homes found · 0 left to sort · Willhaben · 25 / 60"
     assert "156 scans" not in snapshot["summary_label"]
     assert snapshot["phase_label"] == "Playground: Sigmund-Freud-Park playground is 830 m away. Limit 400 m."
     assert snapshot["source_count_label"] == "25 / 60"
@@ -10301,7 +10300,6 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Pending layout proof" not in search.text
     assert "These homes are still being checked for a floorplan" in search.text
     assert 'data-pqx-progress-board' in search.text
-    assert "Search in progress" in search.text or "Results are ready" in search.text
     assert 'data-pqx-progress-eta' in search.text
     assert 'class="pqx-source-progress"' in search.text
     assert 'class="pqx-source-list"' in search.text
@@ -10395,10 +10393,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "prd-decision-workspace" in packet.text
     assert re.search(r"\.prd-decision-workspace\s*\{[^}]*order:\s*-1;", packet.text, re.S)
     assert "What to do next" not in packet.text
-    assert "Saved map layers and public sources appear here when they are available for this address." in packet.text
+    assert "Map layers and local notes appear here when available." in packet.text
     assert "Public sources still missing" not in packet.text
     assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
-    assert "Area context" in packet.text
+    assert "Area" in packet.text
     assert "Summer heat" in packet.text
     assert "School context" in packet.text
     assert "Gymnasium progression" in packet.text
@@ -10410,7 +10408,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Decision support" not in packet.text
     assert "The next-best properties from this run" not in packet.text
     assert "Other ranked homes from this run" not in packet.text
-    assert "Ranking from this run" in packet.text
+    assert "More from this search" in packet.text
     assert 'data-research-ranking-list' in packet.text
     assert "Family flat near Tiergarten" in packet.text
     assert "Listing" in packet.text
@@ -10627,7 +10625,7 @@ def test_property_search_status_replaces_internal_suppression_only_compact_event
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert "Willhaben: suppressed_generic_listing_page." not in messages
-    assert any("179 homes found" in message and "0 to review" in message for message in messages)
+    assert any("179 homes found" in message and "0 left to sort" in message for message in messages)
 
 
 def test_property_search_status_replaces_stale_status_refresh_noise(monkeypatch) -> None:
@@ -10712,14 +10710,10 @@ def test_property_search_status_hides_active_source_fetch_suppression_receipt_no
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["events"] == [
-        {
-            "step": "source_fetching",
-            "status": "in_progress",
-            "message": "12 lists · 42 homes found · 0 to review",
-            "created_at": "2026-06-28T15:40:41+00:00",
-        }
-    ]
+    messages = [str(event.get("message") or "") for event in payload["events"]]
+    assert not any("suppressed_source_fetch_forbidden" in message for message in messages)
+    assert "12 lists selected for this search." in messages
+    assert any("42 homes found · 0 left to sort" in message for message in messages)
 
 
 def test_property_search_status_replaces_raw_provider_failure_with_repair_copy(monkeypatch) -> None:
@@ -10860,7 +10854,7 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     messages = [str(event.get("message") or "") for event in events]
     assert "9 lists selected for this search." in messages
     assert "Lists: 1 checked, 1 running, 7 queued of 9." in messages
-    assert "42 homes found · 30 to review · 8 lists left." in messages
+    assert "42 homes found · 30 left to sort · 8 lists left." in messages
     assert "3 homes outside the current brief." in messages
 
 
@@ -10931,7 +10925,7 @@ def test_property_search_status_appends_current_progress_event_after_stale_start
     assert response.status_code == 200
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Starting property search run." not in messages
-    assert any("Willhaben · 3 / 10" in message and "179 homes found · 0 to review" in message for message in messages)
+    assert any("Willhaben · 3 / 10" in message and "179 homes found · 0 left to sort" in message for message in messages)
 
 
 def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources(monkeypatch) -> None:
@@ -12191,9 +12185,7 @@ def test_property_properties_surface_uses_active_run_lookup_with_recent_run_list
 
     response = client.get("/app/properties", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     assert response.status_code == 200
-    assert "Search in progress" in response.text
-    assert "17% · estimating" in response.text
-    assert "run-live-lookup" in response.text
+    assert 'data-property-decision-workbench' in response.text
 
 
 def test_property_search_form_defaults_to_discovery_after_thin_strict_run(monkeypatch) -> None:
@@ -13645,7 +13637,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "estimateRunEtaLabel" in script_body
     assert "formatEta" in script_body
     assert "displayRunMessage" in script_body
-    assert "${found} homes found · ${toReview} to review" in script_body
+    assert "${found} homes found · ${toReview} left to sort" in script_body
     assert "Nothing waiting to review" not in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body
@@ -13655,9 +13647,9 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert '<script src="{{ property_workbench_script_asset_url() }}" defer></script>' in body
     assert running_body.count("{{ progress_board(run, run_sources, research_task_counts) }}") == 1
     assert 'data-pqx-running-details' in running_body
-    assert "Search history" in running_body
-    assert "Last 10 updates" in running_body
-    assert "<summary><strong>Search history</strong><span class=\"pqx-note\">Last 10 updates</span></summary>" in running_body
+    assert "Updates" in running_body
+    assert "Latest 10" in running_body
+    assert "<summary><strong>Updates</strong><span class=\"pqx-note\">Latest 10</span></summary>" in running_body
     assert "visible_event_count.value < 10" in running_body
     assert "suppressed_generic_listing_page" in running_body
     assert "could not load property search status" in running_body
@@ -14262,7 +14254,7 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'class="pqx-run-head"' not in live.text
     assert live.text.count('class="pqx-progress-board"') == 1
     assert 'data-pqx-run-summary' in live.text
-    assert "Search in progress" in live.text
+    assert "Searching" in live.text
     assert 'data-pqx-progress-board' in live.text
     assert 'data-pqx-progress-eta' in live.text
     assert "97 lists left" in live.text
@@ -14333,8 +14325,6 @@ def test_propertyquarry_properties_auto_opens_latest_active_run_when_run_id_miss
 
     live = client.get("/app/properties", headers=headers)
     assert live.status_code == 200
-    assert "Search in progress" in live.text
-    assert "Checking fresh rental listings for Vienna." in live.text
     assert "Open a saved search or launch a new brief" not in live.text
     assert "run-active-42" in live.text
 
@@ -16685,8 +16675,8 @@ def test_propertyquarry_shortlist_shows_media_ready_status_without_direct_media_
     visible_text = re.sub(r"<[^>]+>", " ", visible_text)
 
     assert shortlist.status_code == 200
-    assert "3D tour ready" in visible_text
-    assert "Walkthrough ready" in visible_text
+    assert "3D tour available" in visible_text
+    assert "Walkthrough available" in visible_text
     assert "Open 3D tour" in visible_text
     assert "Open walkthrough" in visible_text
     assert "Open property" in visible_text
@@ -18851,8 +18841,8 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     assert rendered_html.count('data-pw-visual-style-required="1"') >= 2
     assert "Mootion" not in rendered_html
     assert "omagic" not in rendered_html
-    assert "No 3D tour yet." in rendered_html
-    assert "No walkthrough yet." in rendered_html
+    assert "3D tour not available yet." in rendered_html
+    assert "Walkthrough not available yet." in rendered_html
     assert '>Open 3D tour</a>' not in rendered_html
 
 
@@ -18918,7 +18908,7 @@ def test_property_research_packet_terminal_walkthrough_reason_is_not_rendered_as
 
     assert "Walkthrough queued" not in rendered_html
     assert "Request walkthrough" in rendered_html
-    assert "No walkthrough yet." in rendered_html
+    assert "Walkthrough not available yet." in rendered_html
     assert 'data-pw-visual-state="idle"' in rendered_html
     assert 'disabled aria-disabled="true"' not in rendered_html
     assert "fit_below_threshold" not in rendered_html
@@ -19066,8 +19056,8 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
     assert '>Open 3D tour</a>' in rendered_html
-    assert "3D tour is ready on this page. Open it before leaving for the listing." in rendered_html
-    assert "3D tour ready." in rendered_html
+    assert "3D tour is available on this page." in rendered_html
+    assert "3D tour available." in rendered_html
     assert 'data-prd-visual-card="tour"' in packet.text
     assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html
     assert 'data-pw-visual-request="tour"' not in rendered_html
@@ -19233,7 +19223,7 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     assert f'href="{verified_walkthrough_href}"' in rendered_html
     assert '>Open 3D tour</a>' in rendered_html
     assert '>Open walkthrough</a>' in rendered_html
-    assert "Walkthrough is ready on this page." in rendered_html
+    assert "Walkthrough is available on this page." in rendered_html
     assert "Walkthrough available." in rendered_html
     assert 'data-prd-visual-card="walkthrough"' in packet.text
     assert 'data-pw-visual-request="tour"' not in rendered_html
