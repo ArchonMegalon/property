@@ -1905,73 +1905,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
     pano2vr_url = _pano2vr_control_url(slug, payload)
     early_scene_strategy = str(payload.get("scene_strategy") or "").strip()
-    if early_scene_strategy == "pure_360_cube" and (matterport_url or three_d_vista_url or pano2vr_url):
-        safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
-        spatial_review = _tour_spatial_review_experience(
-            payload,
-            slug=slug,
-            matterport_url=matterport_url,
-            three_d_vista_url=three_d_vista_url,
-            pano2vr_url=pano2vr_url,
-        )
-        return f"""<!doctype html>
-<html lang="de">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{safe_title}</title>
-    {clickrank_head_snippet(hostname, path)}
-    <style>
-      html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
-      body {{ display: grid; place-items: center; padding: 24px; }}
-      main {{ width: min(760px, 100%); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
-      h1 {{ margin: 0 0 10px; font-size: 24px; letter-spacing: 0; }}
-      p {{ margin: 0 0 16px; color: rgba(247,241,230,.78); line-height: 1.45; }}
-      .eyebrow {{ margin-bottom: 10px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: rgba(247,241,230,.68); }}
-      .actions {{ display: flex; flex-wrap: wrap; gap: 10px; }}
-      a {{ color: #111; background: #f7f1e6; border-radius: 8px; padding: 11px 13px; text-decoration: none; font-weight: 700; }}
-    </style>
-  </head>
-  <body>
-    <main data-spatial-review-mode="{html.escape(spatial_review["mode"])}" data-spatial-review-provider="{html.escape(spatial_review["provider"])}">
-      <div class="eyebrow">PropertyQuarry Tour Access · {html.escape(spatial_review["provenance"])}</div>
-      <h1>{safe_title}</h1>
-      <p>{html.escape(spatial_review["summary"])}</p>
-      <p>Only playable tour controls are shown here.</p>
-      <div class="actions">
-        {f'<a href="{matterport_url}">Open 3D tour</a>' if matterport_url else ''}
-        {f'<a href="{three_d_vista_url}">Open 3D tour</a>' if three_d_vista_url else ''}
-      </div>
-    </main>
-  </body>
-</html>"""
-    if early_scene_strategy == "pure_360_cube" and not matterport_url and not three_d_vista_url:
-        safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
-        return f"""<!doctype html>
-<html lang="de">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{safe_title} - 3D fallback blocked</title>
-    {clickrank_head_snippet(hostname, path)}
-    <style>
-      html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
-      body {{ display: grid; place-items: center; padding: 24px; }}
-      main {{ max-width: 680px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
-      h1 {{ margin: 0 0 10px; font-size: 22px; letter-spacing: 0; }}
-      p {{ margin: 0 0 8px; color: rgba(247,241,230,.78); line-height: 1.45; }}
-      code {{ color: #fff; }}
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>3D cube fallback blocked</h1>
-      <p>No. This generated cube fallback is not allowed to masquerade as a real 3D tour.</p>
-      <p>Add a real 3D tour instead.</p>
-      <p><code>{safe_title}</code></p>
-    </main>
-  </body>
-</html>"""
+    if early_scene_strategy == "pure_360_cube":
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
     control_mode = str(payload.get("control_mode") or "").strip().lower()
     if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
@@ -2056,32 +1991,6 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     video_relpath = str(payload.get("video_relpath") or "").strip()
     video_url = str(payload.get("video_url") or "").strip() or (f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else "")
     video_mime_type = mimetypes.guess_type(urllib.parse.urlparse(video_url).path)[0] or "video/mp4"
-    if is_pure_360_cube and not matterport_url and not three_d_vista_url:
-        safe_title = html.escape(display_title or title or "Property tour")
-        return f"""<!doctype html>
-<html lang="de">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{safe_title} - 3D fallback blocked</title>
-    {clickrank_head_snippet(hostname, path)}
-    <style>
-      html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
-      body {{ display: grid; place-items: center; padding: 24px; }}
-      main {{ max-width: 680px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
-      h1 {{ margin: 0 0 10px; font-size: 22px; letter-spacing: 0; }}
-      p {{ margin: 0; color: rgba(247,241,230,.78); line-height: 1.45; }}
-      code {{ color: #fff; }}
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>3D cube fallback blocked</h1>
-      <p>No. This generated cube fallback is not allowed to masquerade as a real 3D tour. Add a real 3D tour instead.</p>
-      <p><code>{safe_title}</code></p>
-    </main>
-  </body>
-</html>"""
 
     def _trim_text(value: object) -> str:
         return str(value or "").strip()
@@ -5103,19 +5012,12 @@ def public_tour_file(slug: str, asset_path: str):
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     safe_name = PurePosixPath(safe_relpath).name
-    if safe_name == "CUBE_FALLBACK_REMOVED.txt" and bool(payload.get("cube_fallback_removed")):
-        return Response(
-            str(payload.get("cube_fallback_policy") or "No. This generated 3D cube fallback is not allowed.\n"),
-            status_code=200,
-            media_type="text/plain; charset=utf-8",
-            headers=_public_tour_security_headers(cache_control="no-store"),
-        )
     removed_cube_assets = {str(item or "").strip() for item in list(payload.get("removed_cube_assets") or [])}
     if bool(payload.get("cube_fallback_removed")) and (
         safe_name in removed_cube_assets or safe_name.lower().startswith("pq-3d-top22")
     ):
         return Response(
-            "No. This generated 3D cube fallback is not allowed to masquerade as a real 3D tour.\n",
+            "This tour asset is no longer available.\n",
             status_code=410,
             media_type="text/plain; charset=utf-8",
             headers=_public_tour_security_headers(cache_control="no-store"),

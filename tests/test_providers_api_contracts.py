@@ -7813,7 +7813,7 @@ def test_public_tour_removed_cube_file_gate_respects_privacy_mode(
                 "slug": public_slug,
                 "tour_privacy_mode": "anonymous_public",
                 "cube_fallback_removed": True,
-                "cube_fallback_policy": "public cube fallback removal notice",
+                "cube_fallback_policy": "public removal notice",
                 "removed_cube_assets": ["pq-3d-top22.html"],
             }
         ),
@@ -7831,10 +7831,12 @@ def test_public_tour_removed_cube_file_gate_respects_privacy_mode(
     assert "private policy" not in private_removed_asset.text
 
     public_marker = client.get(f"/tours/files/{public_slug}/CUBE_FALLBACK_REMOVED.txt")
-    assert public_marker.status_code == 200
-    assert "public cube fallback removal notice" in public_marker.text
+    assert public_marker.status_code == 404
+    assert "public removal notice" not in public_marker.text
     public_removed_asset = client.get(f"/tours/files/{public_slug}/pq-3d-top22.html")
     assert public_removed_asset.status_code == 410
+    assert "This tour asset is no longer available." in public_removed_asset.text
+    assert "cube fallback" not in public_removed_asset.text.lower()
 
 
 def test_public_tour_routes_drop_untrusted_external_scene_media(

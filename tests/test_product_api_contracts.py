@@ -26688,6 +26688,22 @@ def test_public_tour_control_rejects_removed_cube_viewer() -> None:
     assert exc_info.value.detail == "tour_control_cube_viewer_removed"
 
 
+def test_public_tour_customer_code_has_no_cube_fallback_interstitial_copy() -> None:
+    source = (Path(__file__).resolve().parents[1] / "ea" / "app" / "api" / "routes" / "public_tours.py").read_text(
+        encoding="utf-8"
+    )
+
+    forbidden = (
+        "3D cube fallback blocked",
+        "3D fallback blocked",
+        "generated cube fallback is not allowed",
+        "generated 3D cube fallback",
+        "cube fallback removal notice",
+    )
+    for phrase in forbidden:
+        assert phrase not in source
+
+
 def test_public_tour_control_matterport_requires_real_export() -> None:
     from app.api.routes import public_tours
 
@@ -27758,7 +27774,7 @@ def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_le
     assert 'src="https://example.3dvista.com/tours/private-receipt/index.html"' in control_response.text
 
 
-def test_public_tour_landing_hides_pano2vr_spatial_review_for_cube_payload(
+def test_public_tour_landing_blocks_cube_payload_even_when_pano2vr_entry_exists(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -27772,19 +27788,19 @@ def test_public_tour_landing_hides_pano2vr_spatial_review_for_cube_payload(
         encoding="utf-8",
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
-    html = public_tours._tour_html(
-        {
-            "slug": slug,
-            "display_title": "Pano2VR Spatial Review",
-            "scene_strategy": "pure_360_cube",
-            "pano2vr_entry_relpath": "pano2vr/index.html",
-        }
-    )
 
-    assert "PropertyQuarry Spatial Review" not in html
-    assert "prepared 3d tour" not in html.lower()
-    assert "/tours/pano2vr-spatial-review/control/pano2vr" not in html
-    assert "3D fallback blocked" in html
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_html(
+            {
+                "slug": slug,
+                "display_title": "Pano2VR Spatial Review",
+                "scene_strategy": "pure_360_cube",
+                "pano2vr_entry_relpath": "pano2vr/index.html",
+            }
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_disabled_fallback"
 
 
 def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatch, tmp_path: Path) -> None:
