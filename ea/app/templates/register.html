@@ -406,10 +406,10 @@
       const deliveryLead = deliveryStatus === 'sent'
         ? `A verification email was sent to ${escapeHtml(email)}.`
         : 'No registration email is configured on this host right now.';
-      verifyNote.innerHTML = `${deliveryLead} Use code <code>${escapeHtml(code)}</code> here, or open <a href="${escapeHtml(absoluteMagicLink)}">${escapeHtml(absoluteMagicLink)}</a>.`;
+      verifyNote.innerHTML = `${deliveryLead} Use code <code>${escapeHtml(code)}</code> here, or open <a href="${escapeHtml(absoluteMagicLink)}" rel="noreferrer">the secure verification link</a>.`;
       return;
     }
-    verifyNote.innerHTML = `Check ${escapeHtml(email)} for the verification mail and either open the magic link or enter the 6-digit code from that message here.`;
+    verifyNote.innerHTML = `Check ${escapeHtml(email)} for the verification email and either open the secure verification link or enter the 6-digit code from that message here.`;
   };
 
   const markMilestones = async () => {
@@ -468,14 +468,14 @@
       state.start = body;
       setState();
       startStatus.textContent = body.email_delivery_status === 'sent'
-        ? `Verification email sent to ${body.email}. Open the magic link or enter the 6-digit code from that message.`
+        ? `Verification email sent to ${body.email}. Open the secure verification link or enter the 6-digit code from that message.`
         : (body.email_delivery_status === 'failed'
           ? (body.verification_code
             ? `Email delivery is not configured cleanly on this host. Use code ${body.verification_code} to continue locally.`
             : `Email delivery is not configured cleanly on this host yet. A checked sender is required before this flow can send mail.`)
           : (body.verification_code
-            ? `Verification ready. Use code ${body.verification_code} or the magic link for ${body.email}.`
-            : `Verification ready for ${body.email}. Continue with the code or magic link.`));
+            ? `Verification ready. Use code ${body.verification_code} or the secure verification link for ${body.email}.`
+            : `Verification ready for ${body.email}. Continue with the code or secure verification link.`));
       syncStep();
       renderVerifyNote();
     } catch (error) {

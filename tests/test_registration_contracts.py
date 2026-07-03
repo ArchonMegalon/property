@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import urllib.parse
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -46,6 +47,15 @@ def _clear_google_sign_in(monkeypatch: pytest.MonkeyPatch) -> None:
         "EA_PROVIDER_SECRET_KEY",
     ):
         monkeypatch.delenv(key, raising=False)
+
+
+def test_register_template_uses_named_secure_verification_links() -> None:
+    source = (Path(__file__).resolve().parents[1] / "ea/app/templates/register.html").read_text(encoding="utf-8")
+
+    assert ">${escapeHtml(absoluteMagicLink)}</a>" not in source
+    assert "magic link" not in source.lower()
+    assert "verification mail" not in source.lower()
+    assert "the secure verification link" in source
 
 
 def _id_austria_claims(*, bpk: str = "ZP-MH:test-bpk", subject: str = "id-austria-subject") -> dict[str, object]:
