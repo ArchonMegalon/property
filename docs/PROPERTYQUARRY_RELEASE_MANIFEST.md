@@ -31,13 +31,27 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `3fd23daa0c575f53a3f06ba01ee64535a369c578` |
+| Runtime commit SHA | `2e97447fee0ab8f6c68b61152f481841ddc51a83` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current local release candidate on 2026-07-01 after `3fd23daa`, carrying the premium UI exit gate, authenticated performance smoke hardening, Brilliant Directories fail-closed billing guard, non-root compose posture, refreshed tour receipts, security-posture regression coverage, a thin request-serving web image that keeps native media/render tooling in the render-tools lane, pinned FastAPI/Pydantic/Starlette runtime versions matching the verified local import/test environment, and the minimal proof-copy pass deployed on 2026-07-01 |
+| Deployment ID | current local/live proof candidate on 2026-07-03 after `2e97447f`, carrying the premium mobile/research/search polish, provider-safe walkthrough routing, optional hidden Pano2VR posture, refreshed AT/DE/CR provider matrix, 3D browser gates, walkthrough quality gate, map-preview flagship gate, billing verification refresh, OneMinute-first Responses lane order, and release-security posture checks |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The local/live proof pass on 2026-07-03 verified:
+
+- Commit `2e97447f` is the current runtime candidate for the refreshed flagship-gate pass; the manifest update commit is expected to sit on top of it so release hygiene can prove the tracked candidate through the parent commit.
+- `PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 python3 scripts/property_live_provider_smoke.py --base-url http://127.0.0.1:8097 --country AT --country DE --country CR --execute-search-matrix --search-run-timeout-seconds 30 --write _completion/provider_smoke/production-e2e-provider-matrix-current.refreshing.json` returned `status=pass`, `targeted_search_matrix_status=pass`, `targeted_search_matrix_count=160`, `passed_case_count=160`, `failed_case_count=0`, `strict_case_count=80`, `soft_filter_case_count=80`, `dispatch_acceptance_complete=true`, `status_readback_complete=true`, and `cross_country_sanitization_summary.status_counts={"pass":3}`.
+- The fresh provider matrix was promoted to `_completion/provider_smoke/production-e2e-provider-matrix-current.json` and `_completion/smoke/property-live-provider-latest.json`.
+- `python3 scripts/propertyquarry_live_mobile_surface_smoke.py --base-url http://127.0.0.1:8097 --host-header propertyquarry.com --seed-research-detail-fixture --require-research-detail --write _completion/smoke/property-live-mobile-current.json` returned `status=pass`, `failed_count=0`, and verified the seeded research-detail visual controls, mobile What Matters behavior, district-map modal controls, and account logout sheet.
+- `python3 scripts/propertyquarry_map_preview_flagship_gate.py --base-url http://127.0.0.1:8097 --host-header propertyquarry.com --write _completion/smoke/property-live-map-preview-flagship-current.json` returned `status=pass` with a visible map backdrop and controlled selected-area overlay.
+- `python3 scripts/propertyquarry_3d_browser_gate.py --base-url http://127.0.0.1:8097 --host-header propertyquarry.com --write _completion/smoke/property-live-3d-browser-gate-current.json` returned `status=pass` for Matterport and 3DVista browser-rendered controls.
+- `python3 scripts/propertyquarry_live_presentation_e2e.py --base-url http://127.0.0.1:8097 --host-header propertyquarry.com --write _completion/smoke/property-live-presentation-e2e-current.json` returned `status=pass`, including hero example links, direct Matterport open, 3DVista control, walkthrough video, and research-detail request controls.
+- `python3 scripts/propertyquarry_walkthrough_quality_gate.py --tour-root state/public_property_tours --write _completion/smoke/property-live-walkthrough-quality-current.json` returned `status=pass` for the generated walkthrough coverage/continuity gate.
+- `python3 scripts/verify_brilliant_directories_provider.py` refreshed `_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json`; the billing lane remains configured and ready, while account-login/SSO limitations are still reported explicitly instead of hidden.
+- `python3 scripts/propertyquarry_gold_status.py --write _completion/propertyquarry/gold-status-current.json` now reports all refreshed product/provider/mobile/map/tour/walkthrough/billing/security receipts green and leaves only release hygiene before this manifest commit.
+- Focused local regressions passed for OneMinute-first provider ordering, LTD inventory safety, provider-matrix/gold-status aggregation, live mobile smoke contracts, tour controls/export importers, public tour controls, generated reconstruction, runtime reconstruction, and walkthrough scene-video gates.
 
 The live polish pass on 2026-07-01 verified:
 
