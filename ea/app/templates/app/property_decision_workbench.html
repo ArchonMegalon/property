@@ -11114,7 +11114,7 @@
                 <div class="pqx-previous-metrics">
                   <a class="pqx-previous-open-link" href="{{ previous.get('href') }}"><b>{{ previous.get('ranked_total') or 0 }}</b> ranked</a>
                   {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
-                  {% if previous.get('top_fit_score') %}<span>best <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
+                  {% if previous.get('top_fit_score') %}<span>top match</span>{% endif %}
                   {% if previous.get('is_old_snapshot') %}
                   <span class="pqx-pill warn">Old run</span>
                   {% if previous.get('previous_filtered_total') %}

@@ -99,7 +99,7 @@
         <a class="pqx-previous-open-link" href="/app/search"><b>{{ previous.get('ranked_total') or 0 }}</b> matches</a>
         {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> updates</span>{% endif %}
         {% if previous.get('held_back_total') %}<span><b>{{ previous.get('held_back_total') }}</b> hidden</span>{% endif %}
-        {% if previous.get('top_fit_score') %}<span>top fit <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
+        {% if previous.get('top_fit_score') %}<span>top match</span>{% endif %}
       </div>
     </article>
     {% endfor %}

@@ -6956,7 +6956,7 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
                   <div class="pqx-previous-metrics">
                     <span><b>4</b> ranked</span>
                     <span><b>2</b> sent</span>
-                    <span>best <b>64</b></span>
+                    <span>top match</span>
                   </div>
                   <div class="pqx-note">Best match is still below the shortlist threshold.</div>
                 </div>

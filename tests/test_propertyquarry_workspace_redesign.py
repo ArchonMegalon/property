@@ -14187,6 +14187,7 @@ def test_property_search_agents_can_open_focused_cockpit_view(monkeypatch) -> No
 def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
+    agents_panel = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_search_agents_panel.html").read_text(encoding="utf-8")
     view_model = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
 
     assert "Open the right surface for the next decision." in body
@@ -14200,6 +14201,11 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     assert "pqx-previous-scope-caption" in body
     assert "grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);" in body
     assert "display: flex;" in body
+    assert "best <b>{{ previous.get('top_fit_score') }}</b>" not in body
+    assert "top fit <b>{{ previous.get('top_fit_score') }}</b>" not in body
+    assert "top fit <b>{{ previous.get('top_fit_score') }}</b>" not in agents_panel
+    assert "top match" in body
+    assert "top match" in agents_panel
     assert "<legend>Search flow</legend>" in body
     assert ".pqx-disclosure-summary {" in body
     assert ".pqx-disclosure-icon {" in body
