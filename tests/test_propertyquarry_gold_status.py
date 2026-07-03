@@ -2010,6 +2010,11 @@ def test_gold_status_accepts_signed_billing_bridge_when_vendor_account_lane_need
 
     assert receipt["status"] == "pass"
     assert receipt["billing_handoff"]["ready"] is True
+    assert receipt["billing_handoff"]["ready_via"] == "sso_bridge"
+    assert receipt["billing_handoff"]["direct_account_handoff_usable"] is False
+    assert receipt["billing_handoff"]["signed_handoff_usable"] is True
+    assert receipt["billing_handoff"]["live_smoke_external_handoff_usable"] is True
+    assert receipt["billing_handoff"]["live_smoke_no_second_login"] is True
     assert not any(row["area"] == "billing_handoff" for row in receipt["blockers"])
 
 
@@ -2059,6 +2064,9 @@ def test_gold_status_accepts_member_token_handoff_when_sso_bridge_still_needs_lo
 
     assert receipt["status"] == "pass"
     assert receipt["billing_handoff"]["ready"] is True
+    assert receipt["billing_handoff"]["ready_via"] == "member_login_token"
+    assert receipt["billing_handoff"]["direct_account_handoff_usable"] is False
+    assert receipt["billing_handoff"]["signed_handoff_usable"] is True
     assert receipt["billing_handoff"]["member_login_token"]["ready"] is True
     assert not any(row["area"] == "billing_handoff" for row in receipt["blockers"])
 
@@ -2105,7 +2113,11 @@ def test_gold_status_blocks_when_signed_billing_bridge_is_configured_but_live_su
 
     assert receipt["status"] == "blocked"
     assert receipt["billing_handoff"]["ready"] is False
+    assert receipt["billing_handoff"]["ready_via"] == ""
+    assert receipt["billing_handoff"]["signed_handoff_usable"] is False
     blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
+    assert blocker["ready_via"] == ""
+    assert blocker["signed_handoff_usable"] is False
     assert "usable external account lane" in blocker["action"]
 
 

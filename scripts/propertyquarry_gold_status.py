@@ -917,30 +917,44 @@ def _billing_handoff_ready(
     *,
     authenticated_smoke: dict[str, Any] | None = None,
 ) -> bool:
+    return bool(_billing_handoff_readiness_details(billing_receipt, authenticated_smoke=authenticated_smoke).get("ready"))
+
+
+def _billing_handoff_readiness_details(
+    billing_receipt: dict[str, Any],
+    *,
+    authenticated_smoke: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     handoff = billing_receipt.get("billing_handoff")
     if not isinstance(handoff, dict):
-        return False
+        return {
+            "ready": False,
+            "ready_via": "",
+            "direct_account_handoff_usable": None,
+            "signed_handoff_usable": False,
+            "live_smoke_external_handoff_usable": False,
+            "live_smoke_no_second_login": False,
+            "pricing_placeholder": False,
+        }
     pricing_probe = handoff.get("pricing_surface_probe")
+    pricing_placeholder = isinstance(pricing_probe, dict) and pricing_probe.get("placeholder") is True
     direct_ready = (
         bool(handoff.get("configured"))
         and bool(handoff.get("host_resolves"))
         and handoff.get("account_handoff_usable") is True
         and str(handoff.get("url") or "").strip().startswith("https://")
         and str(billing_receipt.get("status") or "").strip() != "blocked"
-        and not (isinstance(pricing_probe, dict) and pricing_probe.get("placeholder") is True)
+        and not pricing_placeholder
     )
-    if direct_ready:
-        return True
     bridge = billing_receipt.get("billing_sso_bridge")
     member_token_handoff = billing_receipt.get("member_login_token_handoff")
     authenticated_route_row, authenticated_passed_checks, _ = _route_named_checks(
         authenticated_smoke or {},
         "/app/billing",
     )
-    authenticated_external_handoff_usable = bool(authenticated_route_row) and (
-        "billing_external_handoff_usable" in authenticated_passed_checks
-        and "billing_no_second_login" in authenticated_passed_checks
-    )
+    live_external_usable = "billing_external_handoff_usable" in authenticated_passed_checks
+    live_no_second_login = "billing_no_second_login" in authenticated_passed_checks
+    authenticated_external_handoff_usable = bool(authenticated_route_row) and live_external_usable and live_no_second_login
     member_token_ready = (
         isinstance(member_token_handoff, dict)
         and member_token_handoff.get("ready") is True
@@ -949,25 +963,44 @@ def _billing_handoff_ready(
         and str(handoff.get("url") or "").strip().startswith("https://")
         and str(billing_receipt.get("status") or "").strip() != "blocked"
         and (authenticated_external_handoff_usable or not authenticated_route_row)
-        and not (isinstance(pricing_probe, dict) and pricing_probe.get("placeholder") is True)
+        and not pricing_placeholder
     )
-    if member_token_ready:
-        return True
     bridge_session_ready = (
         isinstance(bridge, dict)
         and bridge.get("ready") is True
         and bridge.get("exchange_checked") is True
         and bridge.get("exchange_usable") is True
     )
-    if "billing_bridge_guided_login_assist" in authenticated_passed_checks:
-        return False
+    bridge_guided_login_assist = "billing_bridge_guided_login_assist" in authenticated_passed_checks
     authenticated_bridge_launch = bool(authenticated_route_row) and (
         "billing_bridge_launch" in authenticated_passed_checks
-        and "billing_no_second_login" in authenticated_passed_checks
+        and live_no_second_login
     )
-    if bridge_session_ready and (authenticated_bridge_launch or authenticated_external_handoff_usable):
-        return True
-    return False
+    sso_bridge_ready = (
+        bridge_session_ready
+        and not bridge_guided_login_assist
+        and (authenticated_bridge_launch or authenticated_external_handoff_usable)
+    )
+    ready_via = ""
+    if direct_ready:
+        ready_via = "direct_account"
+    elif member_token_ready:
+        ready_via = "member_login_token"
+    elif sso_bridge_ready:
+        ready_via = "sso_bridge"
+    return {
+        "ready": bool(ready_via),
+        "ready_via": ready_via,
+        "direct_account_handoff_usable": handoff.get("account_handoff_usable"),
+        "signed_handoff_usable": bool(member_token_ready or sso_bridge_ready),
+        "member_login_token_usable": bool(member_token_ready),
+        "sso_bridge_usable": bool(sso_bridge_ready),
+        "live_smoke_external_handoff_usable": bool(authenticated_external_handoff_usable),
+        "live_smoke_no_second_login": bool(authenticated_route_row) and live_no_second_login,
+        "live_smoke_bridge_launch": bool(authenticated_bridge_launch),
+        "bridge_guided_login_assist": bool(bridge_guided_login_assist),
+        "pricing_placeholder": bool(pricing_placeholder),
+    }
 
 
 def _operator_drop_readme_status(
@@ -1246,10 +1279,11 @@ def build_gold_status_receipt(
         )
     )
     export_discovery_ok = export_discovery.get("status") in {"ready", "pass"}
-    billing_ok = billing_receipt_path is None or _billing_handoff_ready(
+    billing_readiness = _billing_handoff_readiness_details(
         billing_receipt,
         authenticated_smoke=authenticated_smoke if authenticated_smoke_receipt_path is not None else None,
     )
+    billing_ok = billing_receipt_path is None or bool(billing_readiness.get("ready"))
     manifest_providers = {
         str(provider or "").strip().lower()
         for provider in list(import_manifest.get("providers") or [])
@@ -1548,6 +1582,10 @@ def build_gold_status_receipt(
                 "member_login_token_error": str(member_token_handoff.get("error") or ""),
                 "member_login_token_next_action": str(member_token_handoff.get("next_action") or ""),
                 "member_login_token_required_env": list(BILLING_MEMBER_TOKEN_REQUIRED_ENV),
+                "ready_via": str(billing_readiness.get("ready_via") or ""),
+                "signed_handoff_usable": bool(billing_readiness.get("signed_handoff_usable")),
+                "live_smoke_external_handoff_usable": bool(billing_readiness.get("live_smoke_external_handoff_usable")),
+                "live_smoke_no_second_login": bool(billing_readiness.get("live_smoke_no_second_login")),
                 "admin_action": BILLING_MEMBER_TOKEN_ADMIN_ACTION,
                 "action": "configure the Brilliant Directories white-label billing host or signed member-login handoff so /app/billing opens a usable external account lane without a second login",
             }
@@ -2142,6 +2180,14 @@ def build_gold_status_receipt(
             "host": str((billing_receipt.get("billing_handoff") or {}).get("host") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
             "host_resolves": bool((billing_receipt.get("billing_handoff") or {}).get("host_resolves")) if isinstance(billing_receipt.get("billing_handoff"), dict) else False,
             "account_handoff_usable": (billing_receipt.get("billing_handoff") or {}).get("account_handoff_usable") if isinstance(billing_receipt.get("billing_handoff"), dict) else None,
+            "direct_account_handoff_usable": billing_readiness.get("direct_account_handoff_usable"),
+            "signed_handoff_usable": bool(billing_readiness.get("signed_handoff_usable")),
+            "ready_via": str(billing_readiness.get("ready_via") or ""),
+            "live_smoke_external_handoff_usable": bool(billing_readiness.get("live_smoke_external_handoff_usable")),
+            "live_smoke_no_second_login": bool(billing_readiness.get("live_smoke_no_second_login")),
+            "live_smoke_bridge_launch": bool(billing_readiness.get("live_smoke_bridge_launch")),
+            "bridge_guided_login_assist": bool(billing_readiness.get("bridge_guided_login_assist")),
+            "pricing_placeholder": bool(billing_readiness.get("pricing_placeholder")),
             "account_handoff_error": str((billing_receipt.get("billing_handoff") or {}).get("account_handoff_error") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
             "required_dns_record": (billing_receipt.get("billing_handoff") or {}).get("required_dns_record") if isinstance(billing_receipt.get("billing_handoff"), dict) and isinstance((billing_receipt.get("billing_handoff") or {}).get("required_dns_record"), dict) else {},
             "next_action": str((billing_receipt.get("billing_handoff") or {}).get("next_action") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
