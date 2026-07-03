@@ -4284,6 +4284,8 @@ def test_propertyquarry_fast_ranked_run_uses_provider_progress_fraction() -> Non
     assert "provider_display_total" in template
     assert "source_variant_display_total" in template
     assert "summary.sources_completed" in template
+    assert "const terminalStatus = ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'].includes" in template
+    assert "const providerDone = terminalStatus && providerTotal > 0 ? providerTotal : rawProviderDone;" in template
     assert "providerDone > 0 && providerDone < providerTotal" in template
     assert "provider checks" in template
     assert "summary.sources_total || (Array.isArray(summary.sources) ? summary.sources.length : 0)" not in template

@@ -8,11 +8,15 @@
         {% set run_raw_found_head = run_summary_head.get('found_listing_total') if run_summary_head.get('found_listing_total') is not none else (run_summary_head.get('raw_listing_total') or run_reviewed_head or run_summary_head.get('listing_total') or 0) %}
         {% set run_found_head = run_raw_found_head if run_raw_found_head > run_reviewed_head else run_reviewed_head %}
 	        {% set run_to_review_head = run_summary_head.get('to_review_listing_total') if run_summary_head.get('to_review_listing_total') is not none else ((run_found_head - run_reviewed_head) if run_found_head > run_reviewed_head else 0) %}
-	        {% set run_provider_display_head = (run.get('provider_display_total') or run_summary_head.get('provider_display_total') or run_summary_head.get('provider_total') or 0)|int %}
+        {% set run_provider_display_head = (run.get('provider_display_total') or run_summary_head.get('provider_display_total') or run_summary_head.get('provider_total') or 0)|int %}
 	        {% set run_source_total_head = (run_summary_head.get('source_variant_total') or run_summary_head.get('sources_total') or run_sources|length or 0)|int %}
 	        {% set run_source_completed_head = (run_summary_head.get('sources_completed') or run_summary_head.get('completed_sources') or 0)|int %}
 	        {% set run_source_check_total_head = run_source_total_head if run_source_total_head > run_provider_display_head else run_provider_display_head %}
 		        {% set run_source_check_done_head = run_source_completed_head if run_source_completed_head > 0 else 0 %}
+		        {% set run_status_head = (run.get('status') or run_summary_head.get('status') or '')|lower %}
+		        {% if run_status_head in ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'] and run_source_check_total_head > 0 %}
+		          {% set run_source_check_done_head = run_source_check_total_head %}
+		        {% endif %}
 		        {% set run_source_check_done_head = run_source_check_done_head if run_source_check_total_head <= 0 or run_source_check_done_head < run_source_check_total_head else run_source_check_total_head %}
 		        {% set run_source_unit_head = 'search pages' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'providers' %}
 		        {% set run_source_check_label_head = run_source_check_done_head|string ~ ' / ' ~ run_source_check_total_head|string ~ ' ' ~ run_source_unit_head if run_source_check_total_head > 0 and run_source_total_head > 0 else '' %}

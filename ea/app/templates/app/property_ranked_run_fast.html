@@ -427,14 +427,16 @@
       sourceActualTotal,
       number(summary.provider_total)
     );
-    const providerDone = number(
+    const terminalStatus = ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'].includes(text(payload.status || summary.status, '').toLowerCase());
+    const rawProviderDone = number(
       summary.sources_completed
       || summary.completed_sources_total
       || summary.source_completed_total
       || summary.providers_completed
-      || (sourceActualTotal && ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'].includes(text(payload.status || summary.status, '').toLowerCase()) ? sourceActualTotal : 0)
+      || (sourceActualTotal && terminalStatus ? sourceActualTotal : 0)
       || 0
     );
+    const providerDone = terminalStatus && providerTotal > 0 ? providerTotal : rawProviderDone;
     const providerLeft = providerTotal > providerDone ? providerTotal - providerDone : 0;
     const sourceUnit = sourceActualTotal > 0 && sourceActualTotal >= providerTotal ? 'search pages' : 'provider checks';
     const parts = [];
