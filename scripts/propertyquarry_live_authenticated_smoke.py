@@ -34,6 +34,16 @@ DEFAULT_ROUTES = (
     "/sign-in",
 )
 MAX_RESPONSE_BODY_BYTES = 900_000
+SENSITIVE_URL_QUERY_KEYS = (
+    "access_token",
+    "code",
+    "id_token",
+    "login_token",
+    "pq_bridge",
+    "refresh_token",
+    "state",
+    "token",
+)
 
 FORBIDDEN_CUSTOMER_NOISE = (
     "billing truth",
@@ -85,12 +95,28 @@ def _decode_body(body: bytes) -> str:
 
 def _json_safe(value: object) -> object:
     if isinstance(value, bytes):
-        return _decode_body(value)
+        return _redact_sensitive_receipt_text(_decode_body(value))
     if isinstance(value, dict):
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
+    if isinstance(value, str):
+        return _redact_sensitive_receipt_text(value)
     return value
+
+
+def _redact_sensitive_receipt_text(value: str) -> str:
+    redacted = re.sub(
+        r"(?i)(/login/token/)[^/?#\s\"'>]+",
+        r"\1[redacted]",
+        str(value or ""),
+    )
+    query_key_pattern = "|".join(re.escape(key) for key in SENSITIVE_URL_QUERY_KEYS)
+    return re.sub(
+        rf"(?i)([?&](?:{query_key_pattern})=)[^&#\s\"'>]+",
+        r"\1[redacted]",
+        redacted,
+    )
 
 
 def _visible_text(text: str) -> str:

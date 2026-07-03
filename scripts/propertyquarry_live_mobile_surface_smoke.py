@@ -68,6 +68,16 @@ BILLING_BRIDGE_GUIDED_LOGIN_MARKERS = (
     "back to propertyquarry",
     "billing lane",
 )
+SENSITIVE_URL_QUERY_KEYS = (
+    "access_token",
+    "code",
+    "id_token",
+    "login_token",
+    "pq_bridge",
+    "refresh_token",
+    "state",
+    "token",
+)
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -113,6 +123,32 @@ def _header_value(headers: dict[str, Any], name: str) -> str:
         if str(key).strip().lower() == wanted:
             return str(value or "").strip()
     return ""
+
+
+def _redact_sensitive_receipt_text(value: object) -> str:
+    redacted = re.sub(
+        r"(?i)(/login/token/)[^/?#\s\"'>]+",
+        r"\1[redacted]",
+        str(value or ""),
+    )
+    query_key_pattern = "|".join(re.escape(key) for key in SENSITIVE_URL_QUERY_KEYS)
+    return re.sub(
+        rf"(?i)([?&](?:{query_key_pattern})=)[^&#\s\"'>]+",
+        r"\1[redacted]",
+        redacted,
+    )
+
+
+def _redact_sensitive_receipt_value(value: Any) -> Any:
+    if isinstance(value, bytes):
+        return _redact_sensitive_receipt_text(value.decode("utf-8", errors="replace"))
+    if isinstance(value, dict):
+        return {str(key): _redact_sensitive_receipt_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_sensitive_receipt_value(item) for item in value]
+    if isinstance(value, str):
+        return _redact_sensitive_receipt_text(value)
+    return value
 
 
 def _log_smoke_progress(message: str) -> None:
@@ -1274,7 +1310,7 @@ def build_live_mobile_surface_receipt(
     failed = [row for row in rows if not row.get("ok")]
     coverage_checks = build_mobile_coverage_checks(routes, require_research_detail=require_research_detail)
     failed_coverage = [row for row in coverage_checks if not row.get("ok")]
-    return {
+    return _redact_sensitive_receipt_value({
         "status": "pass" if not failed and not failed_coverage else "fail",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "base_url": base_url,
@@ -1290,7 +1326,7 @@ def build_live_mobile_surface_receipt(
             "Live mobile smoke checks deployed HTML geometry only; it does not call listing providers.",
             "API token values are never written to this receipt.",
         ],
-    }
+    })
 
 
 def build_seed_fixture_blocked_receipt(
@@ -1302,7 +1338,7 @@ def build_seed_fixture_blocked_receipt(
     viewport_height: int,
     error: str,
 ) -> dict[str, Any]:
-    return {
+    return _redact_sensitive_receipt_value({
         "status": "blocked",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "base_url": base_url,
@@ -1327,7 +1363,7 @@ def build_seed_fixture_blocked_receipt(
             "API token values are never written to this receipt.",
             "When fixture seeding fails, rerun with a known current /app/research/{id}?run_id=... route via --routes or set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE.",
         ],
-    }
+    })
 
 
 def main() -> int:

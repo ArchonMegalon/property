@@ -237,6 +237,57 @@ def test_live_authenticated_smoke_accepts_local_bridge_launch_then_external_bill
     json.dumps(receipt, sort_keys=True)
 
 
+def test_live_authenticated_smoke_redacts_member_token_billing_redirects_without_network() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/app/billing": "",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+        "https://propertyquarry.com/app/api/property/billing/bridge-launch": "",
+    }
+
+    tokenized_location = (
+        "https://billing.propertyquarry.com/login/token/super-secret-member-token/home"
+        "?state=oauth-state&code=oauth-code&pq_bridge=bridge-secret"
+    )
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "/app/api/property/billing/bridge-launch"},
+            )
+        if "/app/api/property/billing/bridge-launch" in url:
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": tokenized_location},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+        billing_handoff_resolver=lambda _host, _port: [(object(),)],
+    )
+
+    assert receipt["status"] == "pass"
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert "super-secret-member-token" not in serialized
+    assert "oauth-state" not in serialized
+    assert "oauth-code" not in serialized
+    assert "bridge-secret" not in serialized
+    assert "/login/token/[redacted]/home" in serialized
+    assert "state=[redacted]" in serialized
+    assert "code=[redacted]" in serialized
+    assert "pq_bridge=[redacted]" in serialized
+
+
 def test_live_authenticated_smoke_rejects_bridge_guided_login_assist_when_vendor_lane_still_requires_login() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,

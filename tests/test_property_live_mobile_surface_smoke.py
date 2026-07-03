@@ -265,6 +265,34 @@ def test_live_mobile_smoke_resolves_signed_bridge_launch_to_external_billing_hos
     }
 
 
+def test_live_mobile_smoke_redacts_sensitive_billing_urls_in_receipts() -> None:
+    redacted = mobile_smoke._redact_sensitive_receipt_value(
+        {
+            "redirect_location": (
+                "https://billing.propertyquarry.com/login/token/mobile-secret/home"
+                "?state=mobile-state&code=mobile-code&pq_bridge=mobile-bridge"
+            ),
+            "nested": [
+                {
+                    "url": "https://billing.propertyquarry.com/sso/propertyquarry?token=session-secret",
+                }
+            ],
+        }
+    )
+    serialized = json.dumps(redacted, sort_keys=True)
+
+    assert "mobile-secret" not in serialized
+    assert "mobile-state" not in serialized
+    assert "mobile-code" not in serialized
+    assert "mobile-bridge" not in serialized
+    assert "session-secret" not in serialized
+    assert "/login/token/[redacted]/home" in serialized
+    assert "state=[redacted]" in serialized
+    assert "code=[redacted]" in serialized
+    assert "pq_bridge=[redacted]" in serialized
+    assert "token=[redacted]" in serialized
+
+
 def test_live_mobile_smoke_accepts_research_and_packets_surfaces_without_search_controls() -> None:
     metrics = _base_metrics()
     metrics.update(
