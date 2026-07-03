@@ -56,20 +56,24 @@ def test_gold_status_defaults_pick_newest_matching_receipt(tmp_path: Path, monke
     assert selected == newer
 
 
-def test_gold_status_tour_control_default_prefers_newer_property_tour_controls_lane(tmp_path: Path, monkeypatch) -> None:
+def test_gold_status_tour_control_default_prefers_complete_live_container_receipt(tmp_path: Path, monkeypatch) -> None:
     from scripts.propertyquarry_gold_status import _default_receipt_path
 
     monkeypatch.chdir(tmp_path)
-    _write_json(
+    live_container = _write_json(
         tmp_path / "_completion" / "tours" / "property-tour-controls-live-container-current.json",
         {"generated_at": "2026-06-26T23:28:00+00:00", "status": "pass"},
     )
-    strict_current = _write_json(
+    _write_json(
         tmp_path / "_completion" / "property_tour_controls" / "strict-current.json",
         {"generated_at": "2026-06-27T11:36:37+00:00", "status": "blocked_missing_provider_modes"},
     )
+    _write_json(
+        tmp_path / "_completion" / "tours" / "property-tour-controls-current.json",
+        {"generated_at": "2026-06-27T12:00:00+00:00", "status": "blocked_missing_provider_modes"},
+    )
 
-    assert _default_receipt_path("tour_control") == strict_current.resolve()
+    assert _default_receipt_path("tour_control") == live_container.resolve()
 
 
 def test_gold_status_defaults_prefer_complete_receipt_over_newer_running_checkpoint(tmp_path: Path, monkeypatch) -> None:
@@ -844,7 +848,7 @@ def _write_hardened_drop_readmes(tmp_path: Path) -> list[dict[str, str]]:
 PropertyQuarry provider export drop folder
 Do not copy placeholder HTML.
 Single-provider dry import example: python /app/scripts/import_3dvista_export.py --slug demo --export-dir drop/3dvista
-Gold only passes when verify_property_tour_controls reports ready provider modes.
+Public gold only passes when verify_property_tour_controls reports ready provider modes.
 Copy the complete 3DVista export folder into this directory.
 The entry must contain tdvplayer.
 """,
@@ -852,7 +856,7 @@ The entry must contain tdvplayer.
 PropertyQuarry provider export drop folder
 Do not copy placeholder HTML.
 Single-provider dry import example: python /app/scripts/import_pano2vr_export.py --slug demo --export-dir drop/pano2vr
-Gold only passes when verify_property_tour_controls reports ready provider modes.
+Public gold only passes when verify_property_tour_controls reports ready provider modes.
 Copy the complete Pano2VR output folder into this directory.
 The entry must contain tour.js.
 """,
@@ -860,7 +864,7 @@ The entry must contain tour.js.
 PropertyQuarry provider export drop folder
 Do not copy placeholder HTML.
 Single-provider dry import example: python /app/scripts/import_krpano_walkable_scene.py --slug demo --panorama drop/krpano/panorama.jpg
-Gold only passes when verify_property_tour_controls reports ready provider modes.
+Public gold only passes when verify_property_tour_controls reports ready provider modes.
 Copy cube-face-1 through cube-face-6 or a real panorama.
 Set KRPANO_LICENSE_DOMAIN=propertyquarry.com before importing.
 """,
@@ -868,7 +872,7 @@ Set KRPANO_LICENSE_DOMAIN=propertyquarry.com before importing.
 PropertyQuarry provider export drop folder
 Do not copy placeholder HTML.
 Single-provider dry import example: python /app/scripts/import_magicfit_walkthrough.py --slug demo --video-path drop/magicfit/magicfit-walkthrough.mp4 --source-receipt drop/magicfit/magicfit-receipt.json
-Gold only passes when verify_property_tour_controls reports ready provider modes.
+Public gold only passes when verify_property_tour_controls reports ready provider modes.
 Copy magicfit-walkthrough.mp4 and magicfit-receipt.json into this directory.
 """,
     }
@@ -2980,7 +2984,7 @@ def test_gold_status_requires_operator_readmes_only_for_manifest_providers(tmp_p
 PropertyQuarry provider export drop folder
 Do not copy placeholder HTML.
 Single-provider dry import example:
-Gold only passes when verify_property_tour_controls reports ready provider modes
+Public gold only passes when verify_property_tour_controls reports ready provider modes
 Copy the complete 3DVista export folder
 tdvplayer
 import_3dvista_export.py
@@ -2989,7 +2993,7 @@ import_3dvista_export.py
 PropertyQuarry provider export drop folder
 Do not copy placeholder HTML.
 Single-provider dry import example:
-Gold only passes when verify_property_tour_controls reports ready provider modes
+Public gold only passes when verify_property_tour_controls reports ready provider modes
 Copy the complete Pano2VR output folder
 tour.js
 import_pano2vr_export.py
@@ -2998,7 +3002,7 @@ import_pano2vr_export.py
 PropertyQuarry provider export drop folder
 Do not copy placeholder HTML.
 Single-provider dry import example:
-Gold only passes when verify_property_tour_controls reports ready provider modes
+Public gold only passes when verify_property_tour_controls reports ready provider modes
 cube-face-1
 KRPANO_LICENSE_DOMAIN=propertyquarry.com
 import_krpano_walkable_scene.py
@@ -3031,7 +3035,7 @@ def test_gold_status_accepts_operator_readme_artifact_fallback(tmp_path: Path) -
 PropertyQuarry provider export drop folder
 Do not copy placeholder HTML.
 Single-provider dry import example:
-Gold only passes when verify_property_tour_controls reports ready provider modes
+Public gold only passes when verify_property_tour_controls reports ready provider modes
 Copy the complete 3DVista export folder
 tdvplayer
 import_3dvista_export.py
@@ -3070,7 +3074,7 @@ def test_gold_status_accepts_operator_readmes_from_import_rows_when_prepared_row
 PropertyQuarry provider export drop folder
 Do not copy placeholder HTML.
 Single-provider dry import example: python /app/scripts/import_magicfit_walkthrough.py --slug demo --video-path drop/magicfit/magicfit-walkthrough.mp4 --source-receipt drop/magicfit/magicfit-receipt.json
-Gold only passes when verify_property_tour_controls reports ready provider modes.
+Public gold only passes when verify_property_tour_controls reports ready provider modes.
 Copy magicfit-walkthrough.mp4 and magicfit-receipt.json into this directory.
 """,
         encoding="utf-8",
@@ -3401,7 +3405,7 @@ def test_gold_status_uses_import_rows_as_operator_drop_fallback_for_missing_magi
 PropertyQuarry provider export drop folder
 Do not copy placeholder HTML.
 Single-provider dry import example: python /app/scripts/import_magicfit_walkthrough.py --slug demo-flat --video-path drop/magicfit/magicfit-walkthrough.mp4 --source-receipt drop/magicfit/magicfit-receipt.json
-Gold only passes when verify_property_tour_controls reports ready provider modes.
+Public gold only passes when verify_property_tour_controls reports ready provider modes.
 Copy magicfit-walkthrough.mp4 and magicfit-receipt.json into this directory.
 """,
         encoding="utf-8",

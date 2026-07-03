@@ -28,7 +28,7 @@ IMPORTABLE_PROVIDERS = ("3dvista", "pano2vr", "krpano", "magicfit")
 PROVIDER_ENTRY_MARKERS = {
     "3dvista": "index.html/index.htm containing tdvplayer, tdvplayerapi, or tourviewer runtime markers",
     "pano2vr": "index.html/index.htm containing ggpkg, ggskin, pano.xml, or tour.js runtime markers",
-    "krpano": "one real 2:1 equirectangular panorama named panorama.jpg/png/webp, or six square cube-face images named cube-face-1..6",
+    "krpano": "one real 2:1 captured/exported equirectangular panorama named panorama.jpg/png/webp, or six real captured/exported square cubemap face images named cube-face-1..6",
     "magicfit": "a playable MagicFit MP4/MOV/WebM plus the matching MagicFit render receipt JSON",
 }
 PROVIDER_DROP_CHECKLISTS = {
@@ -47,9 +47,10 @@ PROVIDER_DROP_CHECKLISTS = {
         "If using a zip, keep the export tree intact inside the archive; unsafe paths and placeholder entries are rejected.",
     ),
     "krpano": (
-        "Copy exactly one real 2:1 panorama named panorama.jpg, panorama.jpeg, panorama.png, or panorama.webp, or provide a six-face cubemap.",
+        "Copy exactly one real captured/exported 2:1 panorama named panorama.jpg, panorama.jpeg, panorama.png, or panorama.webp, or provide a real captured/exported six-face cubemap.",
         "Cubemap filenames must be cube-face-1.jpg/png/webp through cube-face-6.jpg/png/webp.",
         "Panoramas must be at least 1024x512 and close to a 2:1 ratio; cube faces must be square and at least 512x512.",
+        "Do not use generated square patches, listing-photo crops, or fallback cube placeholders as tour evidence.",
         "Set KRPANO_LICENSE_DOMAIN=propertyquarry.com and KRPANO_LICENSE_KEY before importing.",
     ),
     "magicfit": (
@@ -110,7 +111,7 @@ def _default_missing_action(provider: str) -> str:
     if provider == "pano2vr":
         return "run import_pano2vr_export.py with a verified Pano2VR export"
     if provider == "krpano":
-        return "run import_krpano_walkable_scene.py with a real 2:1 panorama or six cube faces and krpano license env"
+        return "run import_krpano_walkable_scene.py with a real captured/exported 2:1 panorama or real captured/exported cubemap faces and krpano license env"
     if provider == "magicfit":
         return "run import_magicfit_walkthrough.py with a playable MagicFit video and matching render receipt"
     return ""
@@ -158,13 +159,14 @@ def _drop_readme_body(*, row: dict[str, Any], provider: str, slug: str, drop_sta
             *[f"- {item}" for item in PROVIDER_DROP_CHECKLISTS[provider]],
             "",
             "Copy the real provider export or asset contents into this directory.",
-            "Do not copy placeholder HTML, flat listing photos, or fake videos; the importers reject unverified entries.",
+            "Do not copy placeholder HTML, flat listing photos, generated cube fallbacks, or fake videos; the importers reject unverified entries.",
             "",
             f"Single-provider dry import example: {_provider_import_example({**row, 'provider': provider, 'slug': slug})}",
             "",
             f"After exports are copied, run: {manifest.get('next_command')}",
             "Then rerun: python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --require-all-provider-modes --summary-only",
-            "Gold only passes when verify_property_tour_controls reports ready provider modes for matterport, 3dvista, pano2vr, krpano, and magicfit.",
+            "Public gold only passes when verify_property_tour_controls reports ready provider modes for matterport, 3dvista, krpano, and magicfit.",
+            "Pano2VR is an optional/internal export lane and must stay hidden unless a clean verified export is deliberately enabled.",
             "",
         ]
     )
@@ -247,10 +249,10 @@ def _drop_preflight(row: dict[str, str]) -> dict[str, Any]:
         panorama = _discover_panorama(export_dir)
         cube_faces = _discover_cube_faces(export_dir)
         if panorama is None and len(cube_faces) != 6:
-            status["missing"] = ["krpano_panorama_or_six_cube_faces"]
+            status["missing"] = ["krpano_real_panorama_or_real_cubemap_faces"]
             return status
         status["status"] = "ready_for_import"
-        status["accepted_entry"] = panorama.name if panorama is not None else "cube-face-1..6"
+        status["accepted_entry"] = panorama.name if panorama is not None else "real-cubemap-face-1..6"
         return status
     if provider == "magicfit":
         video = _discover_video(export_dir)
@@ -415,7 +417,7 @@ def build_export_manifest(
         "next_command": "python /app/scripts/import_property_tour_exports.py --manifest /data/artifacts/property-tour-export-import-manifest.json --write /data/artifacts/property-tour-export-import-receipt.json",
         "notes": [
             "Copy each real provider export or asset into its export_dir before running the import command.",
-            "Do not place placeholder HTML, flat photos, or fake videos in these directories; the hardened importers reject unverified entries.",
+            "Do not place placeholder HTML, flat photos, generated cube fallbacks, or fake videos in these directories; the hardened importers reject unverified entries.",
             "After import, run verify_property_tour_controls.py with --require-all-provider-modes.",
         ],
     }

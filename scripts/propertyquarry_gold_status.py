@@ -96,7 +96,7 @@ COMMON_OPERATOR_DROP_README_TOKENS = (
     ("title", "PropertyQuarry provider export drop folder"),
     ("no_placeholders", "Do not copy placeholder HTML"),
     ("dry_import", "Single-provider dry import example:"),
-    ("gold_gate", "Gold only passes when verify_property_tour_controls reports ready provider modes"),
+    ("gold_gate", "Public gold only passes when verify_property_tour_controls reports ready provider modes"),
 )
 PROVIDER_OPERATOR_DROP_README_TOKENS = {
     "3dvista": (
@@ -359,6 +359,10 @@ def _latest_receipt_path(patterns: tuple[str, ...], *, fallback: str) -> Path:
 
 
 def _default_receipt_path(name: str) -> Path:
+    if name == "tour_control":
+        canonical_path = Path(DEFAULT_RECEIPT_FALLBACKS[name]).expanduser().resolve()
+        if canonical_path.is_file() and _receipt_is_complete_enough(_load_json(canonical_path)):
+            return canonical_path
     return _latest_receipt_path(
         DEFAULT_RECEIPT_PATTERNS[name],
         fallback=DEFAULT_RECEIPT_FALLBACKS[name],
