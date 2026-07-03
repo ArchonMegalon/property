@@ -29,6 +29,7 @@ CUSTOMER_EVENT_LABELS = {
     "Searching providers",
     "Checking details",
     "Checking listings",
+    "Matching homes",
     "Ranking homes",
     "First shortlist",
     "Open property ready",

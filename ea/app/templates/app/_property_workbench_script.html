@@ -1492,7 +1492,7 @@
         .replace(/\bprovider update\b/ig, 'search update')
         .replace(/\blist update\b/ig, 'search update');
       const candidateMatch = text.match(/(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
-      if (candidateMatch) return `${candidateMatch[1]} / ${candidateMatch[2]}`;
+      if (candidateMatch) return `Checking home details ${candidateMatch[1]} / ${candidateMatch[2]}`;
       const shortlistMatch = text.match(/^Built shortlist of\s+\d+\s+listing\(s\)\s+for\s+(.+)\.$/i);
       if (shortlistMatch) return 'Shortlist ready';
       return text;

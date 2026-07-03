@@ -1184,8 +1184,8 @@ def _property_run_customer_event_message(
         prefer_repair_step=True,
     )
     if resolution.startswith("suppressed_"):
-        return safe_message
-    return safe_message or raw_message
+        return _compact_run_message(safe_message)
+    return _compact_run_message(safe_message or raw_message)
 
 
 def property_run_customer_visible_events(
@@ -1568,7 +1568,7 @@ def _compact_run_message(value: object) -> str:
     text = re.sub(r"\blist update\b", "search update", text, flags=re.IGNORECASE)
     candidate_match = re.search(r"(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
     if candidate_match:
-        return f"{candidate_match.group(1)} / {candidate_match.group(2)}"
+        return f"Checking home details {candidate_match.group(1)} / {candidate_match.group(2)}"
     shortlist_match = re.search(r"^Built shortlist of\s+\d+\s+listing\(s\)\s+for\s+(.+)\.$", text, flags=re.IGNORECASE)
     if shortlist_match:
         return "Shortlist ready"
