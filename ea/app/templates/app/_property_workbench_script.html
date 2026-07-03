@@ -2677,9 +2677,6 @@
       const scanCountLabel = runSourceWorkLabel(sourceWork, providerDisplayTotal, summary);
       const reviewDenominator = Math.max(found, reviewed, 1);
       const foundBarPct = (found > 0 || reviewed > 0) ? 100 : 0;
-      const toReviewBarPct = toReview > 0 ? Math.round((toReview / reviewDenominator) * 100) : 0;
-      const detailQueueLabel = 'To review';
-      const detailQueueValue = toReview > 0 ? String(toReview) : '0';
       const layout = Number(summary.filtered_floorplan_total || 0);
       const title = status === 'processed' || status === 'completed' || status === 'completed_partial'
         ? 'Results ready'
@@ -2704,7 +2701,14 @@
 	      const providerCheckTotal = Math.max(0, Number(sourceWork.total || 0), Number(providerDisplayTotal || 0));
 	      const providerCheckDone = providerCheckTotal > 0 ? Math.min(providerCheckTotal, Math.max(0, Number(sourceWork.done || 0))) : 0;
 	      const providerCheckValue = providerCheckTotal > 0 ? `${providerCheckDone} / ${providerCheckTotal}` : '0';
-	      const providerCheckPct = providerCheckTotal > 0 && providerCheckDone > 0 ? Math.round((providerCheckDone / providerCheckTotal) * 100) : 0;
+      const providerCheckPct = providerCheckTotal > 0 && providerCheckDone > 0 ? Math.round((providerCheckDone / providerCheckTotal) * 100) : 0;
+      const sourceLeft = Math.max(0, Number(sourceWork.open || 0));
+      const detailQueueIsSourceBacklog = !(toReview > 0) && Number(sourceWork.total || 0) > 0 && sourceLeft > 0;
+      const detailQueueLabel = detailQueueIsSourceBacklog ? 'Pages left' : 'To review';
+      const detailQueueValue = detailQueueIsSourceBacklog ? String(sourceLeft) : (toReview > 0 ? String(toReview) : '0');
+      const detailQueuePct = detailQueueIsSourceBacklog
+        ? (providerCheckTotal > 0 ? Math.round((sourceLeft / providerCheckTotal) * 100) : 0)
+        : (toReview > 0 ? Math.round((toReview / reviewDenominator) * 100) : 0);
 	      return `
 	        <div class="pqx-concierge-pulse">
 	          <div class="pqx-progress-headline">
@@ -2728,7 +2732,7 @@
 	            <span>
 	              <b>${escapeHtml(detailQueueLabel)}</b>
 			              <i>${escapeHtml(detailQueueValue)}</i>
-		              <em><u style="--progress: ${escapeHtml(toReviewBarPct)}"></u></em>
+		              <em><u style="--progress: ${escapeHtml(detailQueuePct)}"></u></em>
 		            </span>
 		            <span>
 			              <b>Sources</b>

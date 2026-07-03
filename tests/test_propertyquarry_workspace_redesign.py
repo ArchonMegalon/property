@@ -3237,8 +3237,9 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     assert "70 / 250 checked" not in visible_source
     assert "Found" in visible_source
     assert "70" in visible_source
-    assert "To review" in visible_source
-    assert "0" in visible_source
+    assert "Pages left" in visible_source
+    assert "180" in visible_source
+    assert "0 to review" not in visible_source.lower()
     assert "Reviewed" not in visible_source
 
 
@@ -3287,6 +3288,7 @@ def test_propertyquarry_running_panel_explains_page_preparation_queue_without_ov
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
     assert "30 homes found · property pages are still being prepared · 8 search pages left" in visible
+    assert "Pages left" in visible
     eta_match = re.search(r'<span class="pqx-small pqx-progress-eta"[^>]*>(?P<eta>.*?)</span>', response.text, re.S)
     assert eta_match
     assert html.unescape(re.sub(r"<[^>]+>", " ", eta_match.group("eta"))).strip() == "93% · details updating"
@@ -11607,9 +11609,9 @@ def test_property_run_customer_visible_events_keeps_latest_ten_useful_updates() 
 
     messages = [str(event.get("message") or "") for event in events]
     assert len(events) == 10
-    assert "List update 2." not in messages
-    assert "List update 3." in messages
-    assert "List update 11." in messages
+    assert "search update 2." not in messages
+    assert "search update 3." in messages
+    assert "search update 11." in messages
     assert any(message.startswith("Current search update.") for message in messages)
 
 
@@ -14400,6 +14402,8 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "source_review_packet_failed" in script_body
     assert script_body.count("const reviewed = listingWork.scanned;") == 1
     assert "runListingQueueMessage(found, toReview)" in script_body
+    assert "const detailQueueIsSourceBacklog = !(toReview > 0) && Number(sourceWork.total || 0) > 0 && sourceLeft > 0;" in script_body
+    assert "detailQueueIsSourceBacklog ? 'Pages left' : 'To review'" in script_body
     assert "Nothing waiting to review" not in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body

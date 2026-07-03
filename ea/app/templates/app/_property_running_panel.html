@@ -16,7 +16,8 @@
 		        {% set run_source_check_done_head = run_source_check_done_head if run_source_check_total_head <= 0 or run_source_check_done_head < run_source_check_total_head else run_source_check_total_head %}
 		        {% set run_source_unit_head = 'search pages' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'providers' %}
 		        {% set run_source_check_label_head = run_source_check_done_head|string ~ ' / ' ~ run_source_check_total_head|string ~ ' ' ~ run_source_unit_head if run_source_check_total_head > 0 and run_source_total_head > 0 else '' %}
-		        {% set run_queue_label_head = run_to_review_head|string ~ ' to review' if run_to_review_head > 0 else 'details caught up' %}
+		        {% set run_source_left_head = run_source_check_total_head - run_source_check_done_head if run_source_check_total_head > run_source_check_done_head else 0 %}
+		        {% set run_queue_label_head = run_to_review_head|string ~ ' to review' if run_to_review_head > 0 else (run_source_left_head|string ~ ' ' ~ run_source_unit_head ~ ' left' if run_source_total_head > 0 and run_source_left_head > 0 else 'details caught up') %}
 		        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head and run_found_head %}{{ run_found_head }} found · {{ run_queue_label_head }} · {{ run_source_check_label_head }}{% elif run_source_total_head %}{{ run_source_check_label_head }}{% elif run_found_head %}{{ run_found_head }} found · {{ run_queue_label_head }}{% else %}Waiting for first listings{% endif %}</div>
       </div>
       <div class="pqx-inline-actions">
