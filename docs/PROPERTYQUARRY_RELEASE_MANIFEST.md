@@ -31,17 +31,20 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `90f3e0f621057b89d0ff91ba6b20c48e97e8ebbd` |
+| Runtime commit SHA | `bff8f8b032dfe7b0204f956fc3d7e5e9399748a1` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current local/live proof candidate on 2026-07-03 after `90f3e0f6`, carrying the premium mobile/research/search polish, provider-safe walkthrough routing, optional hidden Pano2VR posture, refreshed AT/DE/CR provider matrix, 3D browser gates, walkthrough quality gate, map-preview flagship gate, billing verification refresh, token-redacted billing smoke receipts, OneMinute-first Responses lane order, deployment provider-matrix receipt preservation, and release-security posture checks |
+| Deployment ID | current local/live proof candidate on 2026-07-03 after `bff8f8b0`, carrying the premium mobile/research/search polish, provider-safe walkthrough routing, optional hidden Pano2VR posture, refreshed AT/DE/CR provider matrix, 3D browser gates, walkthrough quality gate, map-preview flagship gate, billing verification refresh, token-redacted billing smoke receipts, OneMinute-first Responses lane order, deployment provider-matrix receipt preservation, tour import gold-gate wording hardening, and release-security posture checks |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
 The local/live proof pass on 2026-07-03 verified:
 
-- Commit `90f3e0f6` is the current runtime candidate for the refreshed flagship-gate pass, including deploy-side provider-matrix receipt preservation and token-redacted billing handoff smoke receipts.
+- Commit `bff8f8b0` is the current runtime candidate for the refreshed flagship-gate pass, including deploy-side provider-matrix receipt preservation, token-redacted billing handoff smoke receipts, optional/hidden Pano2VR release-gate wording, generated-cube-fallback rejection in tour import instructions, and canonical live-container tour-control receipt selection.
+- `python3 -m pytest -q tests/test_property_tour_export_manifest.py tests/test_propertyquarry_gold_status.py` returned `73 passed`.
+- `docker exec propertyquarry-api python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --live-probe --base-url http://127.0.0.1:8090 --host-header propertyquarry.com --require-all-provider-modes --write /data/artifacts/property-tour-controls-live-container-current.json --summary-only --fail-on-blocked` returned `status=pass`, required modes `matterport`, `3dvista`, `krpano`, and `magicfit`, optional mode `pano2vr`, and no missing provider modes.
+- `python3 scripts/propertyquarry_gold_status.py --write _completion/propertyquarry/gold-status-current.json` returned `status=pass`, `blockers=[]`, and selected `_completion/tours/property-tour-controls-live-container-current.json` as the tour-control receipt.
 - `PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 python3 scripts/property_live_provider_smoke.py --base-url http://127.0.0.1:8097 --country AT --country DE --country CR --execute-search-matrix --search-run-timeout-seconds 30 --write _completion/provider_smoke/production-e2e-provider-matrix-current.refreshing.json` returned `status=pass`, `targeted_search_matrix_status=pass`, `targeted_search_matrix_count=160`, `passed_case_count=160`, `failed_case_count=0`, `strict_case_count=80`, `soft_filter_case_count=80`, `dispatch_acceptance_complete=true`, `status_readback_complete=true`, and `cross_country_sanitization_summary.status_counts={"pass":3}`.
 - The fresh provider matrix was promoted to `_completion/provider_smoke/production-e2e-provider-matrix-current.json` and `_completion/smoke/property-live-provider-latest.json`.
 - `python3 scripts/propertyquarry_live_mobile_surface_smoke.py --base-url http://127.0.0.1:8097 --host-header propertyquarry.com --seed-research-detail-fixture --require-research-detail --write _completion/smoke/property-live-mobile-current.json` returned `status=pass`, `failed_count=0`, and verified the seeded research-detail visual controls, mobile What Matters behavior, district-map modal controls, and account logout sheet.
