@@ -38,7 +38,8 @@ Environment:
   PROPERTYQUARRY_DEPLOY_PROVIDER_E2E
                                   1 enables the full all-search-ready provider matrix with strict and
                                   soft-filter dispatch/readback checks after deploy. Default 0 keeps the
-                                  lighter provider-catalog smoke.
+                                  lighter provider-catalog smoke without replacing the latest full
+                                  targeted-matrix receipt when one exists.
   PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E
                                   1 requires the composed live presentation E2E, 0 skips it, auto runs it
                                   only when PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1. Default auto. When this
@@ -1147,7 +1148,16 @@ else
     exit 1
   fi
 fi
-cp "${provider_smoke_receipt}" _completion/smoke/property-live-provider-latest.json
+if [[ "${provider_smoke_mode}" == "e2e" ]]; then
+  cp "${provider_smoke_receipt}" _completion/smoke/property-live-provider-latest.json
+else
+  cp "${provider_smoke_receipt}" _completion/smoke/property-live-provider-catalog-latest.json
+  if [[ -f "${provider_e2e_receipt}" ]]; then
+    cp "${provider_e2e_receipt}" _completion/smoke/property-live-provider-latest.json
+  else
+    cp "${provider_smoke_receipt}" _completion/smoke/property-live-provider-latest.json
+  fi
+fi
 
 presentation_e2e_mode="$(effective_env_value PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E)"
 presentation_e2e_mode="${presentation_e2e_mode:-auto}"

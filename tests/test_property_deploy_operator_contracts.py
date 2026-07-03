@@ -144,6 +144,8 @@ def test_propertyquarry_deploy_wrapper_supports_focused_provider_country_matrix(
     assert 'provider_country_args+=(--country "${country_code}")' in script
     assert '"${provider_smoke_scope_args[@]}"' in script
     assert "production-e2e-provider-matrix-${provider_country_scope_slug}-current.json" in script
+    assert "_completion/smoke/property-live-provider-catalog-latest.json" in script
+    assert 'if [[ -f "${provider_e2e_receipt}" ]]' in script
     assert "provider verification: ${provider_smoke_scope_label}" in script
 
 
