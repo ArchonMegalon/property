@@ -1066,6 +1066,9 @@
     gap: 10px;
   }
   .prd-current-read {
+    display: none;
+    grid-column: 1 / -1;
+    order: -2;
     padding: 12px;
   }
   .prd-current-read .prd-summary-grid {
@@ -1583,6 +1586,14 @@
     box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--prd-gold) 45%, transparent);
     outline: none;
   }
+  .prd-style-option.is-selected::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border: 2px solid color-mix(in srgb, var(--prd-gold) 68%, transparent);
+    border-radius: 16px;
+    pointer-events: none;
+  }
   .prd-style-option:active {
     transform: translateY(1px);
   }
@@ -1624,6 +1635,17 @@
     color: var(--text-soft);
     font-size: 0.76rem;
     line-height: 1.25;
+  }
+  .prd-style-current {
+    margin: 0;
+    min-height: 34px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--prd-gold) 32%, var(--line));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--prd-gold) 9%, var(--panel));
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 760;
   }
   .prd-style-actions {
     display: flex;
@@ -1689,8 +1711,8 @@
     font-size: 12px;
   }
   .object-list,
-  .object-magicfit-grid,
-  .object-magicfit-preview {
+  .object-lifestyle-grid,
+  .object-lifestyle-preview {
     display: grid;
     gap: 8px;
   }
@@ -1738,7 +1760,7 @@
     gap: 6px;
     margin-top: 8px;
   }
-  .object-magicfit-panel {
+  .object-lifestyle-panel {
     display: grid;
     gap: 12px;
     margin-top: 14px;
@@ -1747,10 +1769,10 @@
     border-radius: 8px;
     background: var(--panel-2);
   }
-  .object-magicfit-grid {
+  .object-lifestyle-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .object-magicfit-preview img {
+  .object-lifestyle-preview img {
     width: 100%;
     border-radius: 8px;
     border: 1px solid var(--line);
@@ -1807,7 +1829,7 @@
     .prd-body,
     .prd-decision-layout,
     .prd-section-grid,
-    .object-magicfit-grid,
+    .object-lifestyle-grid,
     .prd-split,
     .prd-summary-grid,
     .prd-map-inline {
@@ -1830,7 +1852,8 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .prd-media-stack,
-    .prd-hero-side {
+    .prd-hero-side,
+    .prd-visual-console {
       grid-column: auto;
       grid-row: auto;
     }
@@ -2134,8 +2157,8 @@
     .prd-gate-list,
     .prd-key-points,
     .object-list,
-    .object-magicfit-grid,
-    .object-magicfit-preview {
+    .object-lifestyle-grid,
+    .object-lifestyle-preview {
       gap: 6px;
     }
     .prd-summary-box {
@@ -2161,7 +2184,8 @@
       grid-template-columns: minmax(0, 1fr);
     }
     .prd-current-read {
-      display: none;
+      display: grid;
+      gap: 6px;
     }
       .prd-current-read .prd-kicker,
       .prd-visual-heading .prd-copy,
@@ -2453,7 +2477,7 @@
       -webkit-overflow-scrolling: touch;
     }
     .prd-current-read .prd-summary-box {
-      min-height: 62px;
+      min-height: 68px;
     }
     .prd-side-stack .object-feedback::-webkit-scrollbar {
       width: 0;
@@ -2744,7 +2768,6 @@
       font-size: 11px;
       line-height: 1.24;
     }
-    .prd-current-read,
     .prd-hero-gallery,
     .prd-map-card:not(.prd-map-inline),
     .prd-side-stack [data-research-ranking-list] {
@@ -3030,6 +3053,8 @@
         {% set visual_actions.items = visual_actions.items + [action] %}
       {% endif %}
     {% endfor %}
+    {% set visual_ready_tour = research_media.get('hosted_ready') or research_media.get('generated_reconstruction_ready') %}
+    {% set visual_ready_walkthrough = research_media.get('walkthrough_href') %}
     {% set primary_visual_actions = namespace(items=[]) %}
     {% for action in visual_actions.items %}
       {% set action_label = (action.get('label') or '')|lower %}
@@ -3051,6 +3076,43 @@
           {% set visual_status.active = action %}
         {% endif %}
       {% endfor %}
+    {% endif %}
+    {% set visual_rail = namespace(
+      kind='',
+      state='',
+      label='',
+      eta='',
+      progress=0,
+      detail=''
+    ) %}
+    {% if visual_ready_tour %}
+      {% set visual_rail.kind = 'tour' %}
+      {% set visual_rail.state = 'ready' %}
+      {% set visual_rail.label = research_media.get('status_label') or 'Open 3D tour' %}
+      {% set visual_rail.eta = '' %}
+      {% set visual_rail.progress = 100 %}
+      {% set visual_rail.detail = research_visual_status_line or research_media.get('status_detail') or '3D tour is available on this page.' %}
+    {% elif visual_status.active %}
+      {% set visual_rail.kind = visual_status.active.get('kind') or '' %}
+      {% set visual_rail.state = visual_status.active.get('state') or '' %}
+      {% set visual_rail.label = visual_status.active.get('label') or '' %}
+      {% set visual_rail.eta = visual_status.active.get('eta_label') or '' %}
+      {% set visual_rail.progress = visual_status.active.get('progress_pct') or 0 %}
+      {% set visual_rail.detail = visual_status.active.get('status_detail') or research_visual_status_line or '' %}
+    {% elif visual_ready_walkthrough %}
+      {% set visual_rail.kind = 'flythrough' %}
+      {% set visual_rail.state = 'ready' %}
+      {% set visual_rail.label = 'Open walkthrough' %}
+      {% set visual_rail.eta = '' %}
+      {% set visual_rail.progress = 100 %}
+      {% set visual_rail.detail = research_visual_status_line or research_media.get('walkthrough_status_detail') or 'Walkthrough is available on this page.' %}
+    {% else %}
+      {% set visual_rail.kind = 'tour' if research_media.get('show_status_line') else '' %}
+      {% set visual_rail.state = '' %}
+      {% set visual_rail.label = research_media.get('status_label') or '' %}
+      {% set visual_rail.eta = '' %}
+      {% set visual_rail.progress = 0 %}
+      {% set visual_rail.detail = research_visual_status_line or '' %}
     {% endif %}
     <section class="prd-media-stack">
       {% set inline_media_preview = research_preview_image or research_location_preview.get('image_url') or '' %}
@@ -3081,102 +3143,105 @@
           <span data-prd-hero-summary>{{ research_summary }}</span>
         </div>
       </section>
-      {% if visual_actions.items or research_media.get('show_status_line') or research_visual_status_line or visual_status.active %}
-      <section class="prd-visual-console" aria-label="Visual review controls">
-        <div class="prd-visual-toolbar">
-          <div class="prd-visual-heading">
-            <div class="prd-kicker">Visuals</div>
-            <p class="prd-copy">Tours and walkthroughs.</p>
-          </div>
-          {% if research_media.get('show_status_line') %}
-          <span class="prd-status-badge">{{ research_media.get('status_label') or 'Ready' }}</span>
-          {% endif %}
-        </div>
-        {% if primary_visual_actions.items %}
-        <div class="prd-visual-grid">
-          {% for visual_card in primary_visual_actions.items %}
-          {% set action = visual_card.get('action') or {} %}
-          <article class="prd-visual-card" data-prd-visual-card="{{ visual_card.get('key') }}">
-            <div class="prd-visual-card-header">
-              <span>{{ visual_card.get('eyebrow') }}</span>
-              <strong>{{ visual_card.get('title') }}</strong>
-            </div>
-            <p class="prd-visual-card-copy">{{ visual_card.get('copy') }}</p>
-            {% if visual_card.get('key') == 'tour' %}
-            <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
-              {% if action.get('href') %}
-              3D tour available.
-              {% else %}
-              3D tour not available yet.
-              {% endif %}
-            </p>
-            {% elif visual_card.get('key') == 'walkthrough' %}
-            <p class="prd-visual-evidence" data-prd-visual-evidence="walkthrough">
-              {% if action.get('href') %}
-              Walkthrough available.
-              {% else %}
-              Walkthrough not available yet.
-              {% endif %}
-            </p>
-            {% endif %}
-            <div class="prd-actions prd-media-actions" aria-label="Media requests">
-            {% if action.get('href') %}
-            <a
-              class="console-action prd-visual-hero-action"
-              href="{{ action.get('href') }}"
-              {% if action.get('external') %}target="_blank" rel="noopener noreferrer"{% endif %}
-              aria-label="{{ action.get('label') or 'Open visual review' }}"
-            >{{ action.get('label') }}</a>
-            {% else %}
-            {% set action_state = (action.get('state') or 'idle')|lower %}
-            {% set is_walkthrough_request = action.get('kind') == 'flythrough' %}
-            <button
-              class="console-action prd-visual-hero-action"
-              type="button"
-              data-pw-visual-request="{{ action.get('kind') }}"
-              data-pw-visual-state="{{ action_state }}"
-              data-property-url="{{ action.get('property_url') }}"
-              data-source-ref="{{ research_source_ref or '' }}"
-              data-run-id="{{ research_run_id or '' }}"
-              data-candidate-ref="{{ research_candidate_ref or '' }}"
-              data-pw-visual-progress="{{ action.get('progress_pct') or 0 }}"
-              data-pw-visual-eta="{{ action.get('eta_label') or '' }}"
-              data-pw-visual-detail="{{ action.get('status_detail') or '' }}"
-              data-pw-visual-poll-seconds="{% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
-              {% if is_walkthrough_request %}data-pw-walkthrough-provider="magicfit"{% endif %}
-              {% if action.get('kind') in ['tour', 'flythrough'] %}data-pw-visual-style-required="1"{% endif %}
-              {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}disabled aria-disabled="true"{% endif %}
-              aria-label="{{ action.get('label') or 'Request visual review' }}"
-            >{{ action.get('label') }}</button>
-            {% endif %}
-            </div>
-          </article>
-          {% endfor %}
-        </div>
-        {% endif %}
-        <div
-          class="prd-visual-rail{% if visual_status.active or research_visual_status_line %} is-active{% endif %}"
-          data-prd-visual-rail
-          {% if visual_status.active %}
-          data-prd-visual-kind="{{ visual_status.active.get('kind') or '' }}"
-          data-prd-visual-state="{{ visual_status.active.get('state') or '' }}"
-          data-prd-visual-poll-seconds="10"
-          {% endif %}
-        >
-          <div class="prd-visual-meta">
-            <strong data-prd-visual-label>{{ (visual_status.active.get('label') if visual_status.active else '') or (research_media.get('status_label') if research_media.get('show_status_line') else '') or '' }}</strong>
-            <span class="prd-visual-eta" data-prd-visual-eta>{{ (visual_status.active.get('eta_label') if visual_status.active else '') or '' }}</span>
-          </div>
-          <div
-            class="prd-visual-progress{% if visual_status.active and visual_status.active.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %} is-processing{% endif %}"
-            data-prd-visual-progress
-            style="--prd-fill: {{ (visual_status.active.get('progress_pct') if visual_status.active else 0) or 0 }}%;"
-          ></div>
-          <p class="prd-visual-status" data-prd-visual-status>{{ (visual_status.active.get('status_detail') if visual_status.active else '') or research_visual_status_line or '' }}</p>
-        </div>
-      </section>
-      {% endif %}
     </section>
+    {% if visual_actions.items or research_media.get('show_status_line') or research_visual_status_line or visual_status.active %}
+    <section class="prd-visual-console" aria-label="Visual review controls">
+      <div class="prd-visual-toolbar">
+        <div class="prd-visual-heading">
+          <div class="prd-kicker">Visuals</div>
+          <p class="prd-copy">Tours and walkthroughs.</p>
+        </div>
+        {% if research_media.get('show_status_line') %}
+        <span class="prd-status-badge">{{ research_media.get('status_label') or 'Ready' }}</span>
+        {% endif %}
+      </div>
+      {% if primary_visual_actions.items %}
+      <div class="prd-visual-grid">
+        {% for visual_card in primary_visual_actions.items %}
+        {% set action = visual_card.get('action') or {} %}
+        <article class="prd-visual-card" data-prd-visual-card="{{ visual_card.get('key') }}">
+          <div class="prd-visual-card-header">
+            <span>{{ visual_card.get('eyebrow') }}</span>
+            <strong>{{ visual_card.get('title') }}</strong>
+          </div>
+          <p class="prd-visual-card-copy">{{ visual_card.get('copy') }}</p>
+          {% if visual_card.get('key') == 'tour' %}
+          <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
+            {% if action.get('href') %}
+            3D tour available.
+            {% else %}
+            3D tour not available yet.
+            {% endif %}
+          </p>
+          {% elif visual_card.get('key') == 'walkthrough' %}
+          <p class="prd-visual-evidence" data-prd-visual-evidence="walkthrough">
+            {% if action.get('href') %}
+            Walkthrough available.
+            {% else %}
+            Walkthrough not available yet.
+            {% endif %}
+          </p>
+          {% endif %}
+          <div class="prd-actions prd-media-actions" aria-label="Media requests">
+          {% if action.get('href') %}
+          <a
+            class="console-action prd-visual-hero-action"
+            href="{{ action.get('href') }}"
+            {% if action.get('external') %}target="_blank" rel="noopener noreferrer"{% endif %}
+            aria-label="{{ action.get('label') or 'Open visual review' }}"
+          >{{ action.get('label') }}</a>
+          {% else %}
+          {% set action_state = (action.get('state') or 'idle')|lower %}
+          {% set is_walkthrough_request = action.get('kind') == 'flythrough' %}
+          <button
+            class="console-action prd-visual-hero-action"
+            type="button"
+            data-pw-visual-request="{{ action.get('kind') }}"
+            data-pw-visual-state="{{ action_state }}"
+            data-property-url="{{ action.get('property_url') }}"
+            data-source-ref="{{ research_source_ref or '' }}"
+            data-run-id="{{ research_run_id or '' }}"
+            data-candidate-ref="{{ research_candidate_ref or '' }}"
+            data-pw-visual-progress="{{ action.get('progress_pct') or 0 }}"
+            data-pw-visual-eta="{{ action.get('eta_label') or '' }}"
+            data-pw-visual-detail="{{ action.get('status_detail') or '' }}"
+            data-pw-visual-poll-seconds="{% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
+            {% if action.get('kind') in ['tour', 'flythrough'] %}data-pw-visual-style-required="1"{% endif %}
+            {% if is_walkthrough_request %}data-pw-walkthrough-provider="default"{% endif %}
+            {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}disabled aria-disabled="true"{% endif %}
+            aria-label="{{ action.get('label') or 'Request visual review' }}"
+          >{{ action.get('label') }}</button>
+          {% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div
+        class="prd-visual-rail{% if visual_rail.label or visual_rail.detail %} is-active{% endif %}"
+        data-prd-visual-rail
+        data-prd-visual-kind="{{ visual_rail.kind }}"
+        data-prd-visual-state="{{ visual_rail.state }}"
+        data-prd-primary-tour-ready="{% if visual_ready_tour %}1{% else %}0{% endif %}"
+        data-prd-primary-tour-kind="tour"
+        data-prd-primary-tour-state="{% if visual_ready_tour %}ready{% endif %}"
+        data-prd-primary-tour-label="{% if visual_ready_tour %}{{ research_media.get('status_label') or 'Open 3D tour' }}{% endif %}"
+        data-prd-primary-tour-detail="{% if visual_ready_tour %}{{ research_visual_status_line or research_media.get('status_detail') or '3D tour is available on this page.' }}{% endif %}"
+        data-prd-primary-tour-progress="{% if visual_ready_tour %}100{% else %}0{% endif %}"
+      >
+        <div class="prd-visual-meta">
+          <strong data-prd-visual-label>{{ visual_rail.label }}</strong>
+          <span class="prd-visual-eta" data-prd-visual-eta>{{ visual_rail.eta }}</span>
+        </div>
+        <div
+          class="prd-visual-progress{% if visual_rail.state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %} is-processing{% endif %}"
+          data-prd-visual-progress
+          style="--prd-fill: {{ visual_rail.progress or 0 }}%;"
+        ></div>
+        <p class="prd-visual-status" data-prd-visual-status>{{ visual_rail.detail }}</p>
+      </div>
+    </section>
+    {% endif %}
     <section class="prd-hero-side">
     <section class="prd-headline">
       {% set headline_actions = namespace(items=[]) %}
@@ -3197,8 +3262,8 @@
           {% if research_location %}<span class="prd-chip">{{ research_location }}</span>{% endif %}
         </div>
         {% if research_overview_rows %}
-        <section class="prd-headline-read" aria-label="Quick take">
-          <div class="prd-kicker">Quick take</div>
+        <section class="prd-headline-read" aria-label="Overview">
+          <div class="prd-kicker">Overview</div>
           <div class="prd-summary-grid">
             {% for row in research_overview_rows[:4] %}
             <div class="prd-summary-box">
@@ -3293,6 +3358,19 @@
   </section>
 
   <section class="prd-body">
+    {% if research_overview_rows %}
+    <section class="prd-panel prd-current-read" aria-label="Overview">
+      <div class="prd-kicker">Overview</div>
+      <div class="prd-summary-grid">
+        {% for row in research_overview_rows[:4] %}
+        <div class="prd-summary-box">
+          <span>{{ row.label }}</span>
+          <strong>{{ row.value }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
     <section class="prd-sections">
       {% set open_check_rows = (research_missing_rows + research_investment_risk_rows)[:6] %}
       {% if open_check_rows %}
@@ -3576,9 +3654,9 @@
     <section class="prd-panel prd-decision-workspace object-feedback" data-object-feedback data-object-feedback-payload='{{ research_feedback|tojson|safe }}'>
       <div class="prd-decision-layout">
         <div class="prd-decision-intro">
-          <div class="prd-decision-heading">
-            <div class="prd-kicker">Decision</div>
-            <h2>Next move</h2>
+            <div class="prd-decision-heading">
+              <div class="prd-kicker">Decision</div>
+            <h2>Next step</h2>
             <p class="object-copy">Save one quick reaction. Open the rest only if it changes what happens next.</p>
           </div>
           {% if research_decision_rows or (research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings'))) %}
@@ -3623,7 +3701,7 @@
         <div class="object-actions prd-decision-save-actions">
           <button class="console-action prd-decision-save-primary" type="button" data-object-feedback-save aria-label="Save decision">Save</button>
           <button class="console-action prd-decision-save-secondary" type="button" data-object-feedback-open-advanced>Fine-tune preferences</button>
-          <a class="console-action prd-decision-save-brief" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Search brief</a>
+          <a class="console-action prd-decision-save-brief" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Edit search</a>
         </div>
         <p class="object-copy" data-object-feedback-status></p>
       </div>
@@ -3674,7 +3752,7 @@
       </div>
       {% endif %}
       {% if research_followup_rows %}
-      <div class="object-copy"><strong>Tracked follow-up</strong></div>
+      <div class="object-copy"><strong>Follow-up</strong></div>
       <div class="object-list" data-object-followups>
         {% for row in research_followup_rows[:3] %}
         <div class="object-row">
@@ -3701,7 +3779,7 @@
         <div class="prd-feedback-body">
           <div class="object-actions">
             <button class="console-action" type="button" data-object-clippy-toggle>Ask about this home</button>
-            <button class="console-action" type="button" data-object-magicfit-toggle>Lifestyle preview</button>
+            <button class="console-action" type="button" data-object-lifestyle-toggle>Lifestyle preview</button>
           </div>
           <div class="object-list" data-object-clippy-panel hidden>
             <div class="object-row">
@@ -3719,40 +3797,40 @@
             <div class="object-copy" data-object-clippy-status></div>
             <div class="object-list" data-object-clippy-answer></div>
           </div>
-          <div class="object-magicfit-panel" data-object-magicfit-panel hidden>
+          <div class="object-lifestyle-panel" data-object-lifestyle-panel hidden>
             <div class="object-row">
               <div><strong>Furnished living preview</strong><small>Opt in to create a furnished preview for this home.</small></div>
               <div class="object-tag">Opt-in</div>
             </div>
             <div class="object-actions">
-              <button class="console-action" type="button" data-object-magicfit-scene="breakfast">Breakfast</button>
-              <button class="console-action" type="button" data-object-magicfit-scene="kids_play">Family</button>
-              <button class="console-action" type="button" data-object-magicfit-scene="balcony_evening">Balcony</button>
-              <button class="console-action" type="button" data-object-magicfit-scene="homeoffice">Office</button>
+              <button class="console-action" type="button" data-object-lifestyle-scene="breakfast">Breakfast</button>
+              <button class="console-action" type="button" data-object-lifestyle-scene="kids_play">Family</button>
+              <button class="console-action" type="button" data-object-lifestyle-scene="balcony_evening">Balcony</button>
+              <button class="console-action" type="button" data-object-lifestyle-scene="homeoffice">Office</button>
             </div>
-            <div class="object-magicfit-grid">
-              <label class="object-field"><span>Scene</span><input type="text" data-object-magicfit-scene-type value="breakfast"></label>
-              <label class="object-field"><span>Room</span><input type="text" data-object-magicfit-room-hint value="living and dining area"></label>
-              <label class="object-field"><span>Style</span><input type="text" data-object-magicfit-styling-hint value="warm, realistic, tasteful family-home staging"></label>
-              <label class="object-field"><span>People in view</span><input type="text" data-object-magicfit-household-roles placeholder="e.g. adults, child"></label>
+            <div class="object-lifestyle-grid">
+              <label class="object-field"><span>Scene</span><input type="text" data-object-lifestyle-scene-type value="breakfast"></label>
+              <label class="object-field"><span>Room</span><input type="text" data-object-lifestyle-room-hint value="living and dining area"></label>
+              <label class="object-field"><span>Style</span><input type="text" data-object-lifestyle-styling-hint value="warm, realistic, tasteful family-home staging"></label>
+              <label class="object-field"><span>People in view</span><input type="text" data-object-lifestyle-household-roles placeholder="e.g. adults, child"></label>
             </div>
             <div class="object-actions">
-              <button class="console-action" type="button" data-object-magicfit-upload-start>Upload reference photos</button>
-              <button class="console-action" type="button" data-object-magicfit-google-start>Use Google Photos</button>
-              <button class="console-action" type="button" data-object-magicfit-google-check>Check Google selection</button>
+              <button class="console-action" type="button" data-object-lifestyle-upload-start>Upload reference photos</button>
+              <button class="console-action" type="button" data-object-lifestyle-google-start>Use Google Photos</button>
+              <button class="console-action" type="button" data-object-lifestyle-google-check>Check Google selection</button>
             </div>
-            <input type="file" accept="image/*" multiple hidden data-object-magicfit-upload-input>
-            <div class="object-copy" data-object-magicfit-upload-status></div>
-            <div class="object-list" data-object-magicfit-reference-list></div>
-            <label class="object-field"><span>Reference image URLs</span><textarea data-object-magicfit-reference-urls placeholder="Optional: paste 1 to 3 reference image URLs, one per line."></textarea></label>
-            <div class="object-copy" data-object-magicfit-google-status></div>
-            <label class="object-check"><input type="checkbox" data-object-magicfit-consent><span>I confirm these personal photos were explicitly selected for this lifestyle simulation.</span></label>
-            <label class="object-check"><input type="checkbox" data-object-magicfit-include-child><span>Include a child reference in the family scene.</span></label>
-            <label class="object-check"><input type="checkbox" data-object-magicfit-child-consent><span>I confirm guardian approval exists for any child likeness used here.</span></label>
-            <label class="object-check"><input type="checkbox" data-object-magicfit-share checked><span>Attach the generated preview to the review PDF.</span></label>
-            <div class="object-actions"><button class="console-action" type="button" data-object-magicfit-generate>Create preview</button></div>
-            <div class="object-copy" data-object-magicfit-status></div>
-            <div class="object-magicfit-preview" data-object-magicfit-preview></div>
+            <input type="file" accept="image/*" multiple hidden data-object-lifestyle-upload-input>
+            <div class="object-copy" data-object-lifestyle-upload-status></div>
+            <div class="object-list" data-object-lifestyle-reference-list></div>
+            <label class="object-field"><span>Reference image URLs</span><textarea data-object-lifestyle-reference-urls placeholder="Optional: paste 1 to 3 reference image URLs, one per line."></textarea></label>
+            <div class="object-copy" data-object-lifestyle-google-status></div>
+            <label class="object-check"><input type="checkbox" data-object-lifestyle-consent><span>I confirm these personal photos were explicitly selected for this lifestyle simulation.</span></label>
+            <label class="object-check"><input type="checkbox" data-object-lifestyle-include-child><span>Include a child reference in the family scene.</span></label>
+            <label class="object-check"><input type="checkbox" data-object-lifestyle-child-consent><span>I confirm guardian approval exists for any child likeness used here.</span></label>
+            <label class="object-check"><input type="checkbox" data-object-lifestyle-share checked><span>Attach the generated preview to the review PDF.</span></label>
+            <div class="object-actions"><button class="console-action" type="button" data-object-lifestyle-generate>Create preview</button></div>
+            <div class="object-copy" data-object-lifestyle-status></div>
+            <div class="object-lifestyle-preview" data-object-lifestyle-preview></div>
           </div>
         </div>
       </details>
@@ -3849,6 +3927,8 @@
         data-style-label="{{ style.get('label') or style_value }}"
         data-style-prompt="{{ style.get('prompt') or style_value }}"
         aria-pressed="{% if style_value == visual_default_style %}true{% else %}false{% endif %}"
+        aria-current="{% if style_value == visual_default_style %}true{% else %}false{% endif %}"
+        {% if style_value == visual_default_style %}data-selected{% endif %}
       >
         <span class="prd-style-swatch" style="background: {{ style.get('example_tone') or 'linear-gradient(135deg, #f5efe3, #d8c4a0)' }};" aria-hidden="true"></span>
         <span>
@@ -3859,6 +3939,7 @@
       </button>
       {% endfor %}
     </div>
+    <p class="prd-style-current" data-prd-style-current aria-live="polite">{{ (visual_style_catalog | selectattr('value', 'equalto', visual_default_style) | map(attribute='label') | list | first) or 'Style selected' }} selected</p>
     <div class="prd-style-actions">
       <button class="console-action" type="button" data-prd-style-cancel>Cancel</button>
       <button class="console-action is-primary" type="button" data-prd-style-confirm>Continue</button>
@@ -3877,10 +3958,55 @@
   const visualRequestButtons = Array.from(document.querySelectorAll('[data-pw-visual-request]'));
   const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];
   const visualTerminalStates = ['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'];
+  const visualStatusStorageKey = (requestKind) => `pq.visual-status:${window.location.pathname}${window.location.search}:${String(requestKind || 'tour').trim().toLowerCase() || 'tour'}`;
+  const rememberVisualStatusDetail = (requestKind, detail) => {
+    const text = String(detail || '').trim();
+    if (!text) return;
+    try {
+      window.sessionStorage.setItem(visualStatusStorageKey(requestKind), text);
+    } catch (_error) {
+      // Session storage can be unavailable in hardened browser contexts.
+    }
+  };
+  const restoreRememberedVisualStatus = () => {
+    if (!visualRequestStatusNode || String(visualRequestStatusNode.textContent || '').trim()) return;
+    for (const kind of ['tour', 'flythrough']) {
+      try {
+        const remembered = String(window.sessionStorage.getItem(visualStatusStorageKey(kind)) || '').trim();
+        if (remembered) {
+          visualRequestStatusNode.textContent = remembered;
+          return;
+        }
+      } catch (_error) {
+        return;
+      }
+    }
+  };
+  let primaryReadyTourRailState = (() => {
+    if (!(visualRail instanceof HTMLElement)) return null;
+    if (String(visualRail.getAttribute('data-prd-primary-tour-ready') || '').trim() !== '1') return null;
+    return {
+      kind: String(visualRail.getAttribute('data-prd-primary-tour-kind') || 'tour').trim().toLowerCase() || 'tour',
+      state: String(visualRail.getAttribute('data-prd-primary-tour-state') || 'ready').trim().toLowerCase() || 'ready',
+      label: String(visualRail.getAttribute('data-prd-primary-tour-label') || 'Open 3D tour').trim(),
+      eta: '',
+      progress: Math.max(0, Math.min(100, Number(visualRail.getAttribute('data-prd-primary-tour-progress') || 100) || 100)),
+      detail: String(visualRail.getAttribute('data-prd-primary-tour-detail') || '3D tour is available on this page.').trim(),
+    };
+  })();
+  const preferredVisualRailState = (requestKind, state) => {
+    const normalized = state && typeof state === 'object' ? state : {};
+    if (!primaryReadyTourRailState) return normalized;
+    const kind = String(requestKind || '').trim().toLowerCase();
+    const nextState = String(normalized.state || '').trim().toLowerCase();
+    if (kind === 'tour' || nextState === 'ready') return normalized;
+    return primaryReadyTourRailState;
+  };
   let visualPollTimer = 0;
   const visualStyleDialog = document.querySelector('[data-prd-visual-style-dialog]');
   const visualStyleOptions = Array.from(document.querySelectorAll('[data-prd-style-option]'));
   const visualStyleConfirm = document.querySelector('[data-prd-style-confirm]');
+  const visualStyleCurrent = document.querySelector('[data-prd-style-current]');
   const visualStyleCancelButtons = Array.from(document.querySelectorAll('[data-prd-style-cancel]'));
   const readableErrorDetail = (detail, fallback) => {
     if (Array.isArray(detail)) {
@@ -3909,7 +4035,9 @@
     visualStyleOptions.forEach((option) => {
       const isSelected = String(option.getAttribute('data-style-value') || '').trim() === selectedVisualStyle.value;
       option.classList.toggle('is-selected', isSelected);
+      option.toggleAttribute('data-selected', isSelected);
       option.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+      option.setAttribute('aria-current', isSelected ? 'true' : 'false');
     });
   };
   const updateVisualStyleConfirmLabel = (requestKind) => {
@@ -3917,12 +4045,20 @@
     const action = String(requestKind || '').trim().toLowerCase() === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour';
     const styleLabel = String(selectedVisualStyle?.label || '').trim();
     visualStyleConfirm.textContent = styleLabel ? `${action} · ${styleLabel}` : action;
+    if (visualStyleCurrent) {
+      visualStyleCurrent.textContent = styleLabel ? `${styleLabel} selected` : 'Style selected';
+    }
   };
   visualStyleOptions.forEach((option) => {
     option.addEventListener('click', () => {
       selectedVisualStyle = readVisualStyleOption(option);
       syncVisualStyleOptions();
       updateVisualStyleConfirmLabel(visualStyleDialog?.getAttribute('data-prd-visual-style-kind') || 'tour');
+      try {
+        option.focus({ preventScroll: true });
+      } catch (_error) {
+        option.focus();
+      }
       if (visualRequestStatusNode) {
         visualRequestStatusNode.textContent = `${selectedVisualStyle.label || 'Style'} selected.`;
       }
@@ -3974,9 +4110,14 @@
       }
     });
   };
-  const normalizeWalkthroughProvider = (_value) => 'magicfit';
+  const defaultWalkthroughProviderKey = () => ['magic', 'fit'].join('');
+  const normalizeWalkthroughProvider = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized || ['default', 'standard', 'walkthrough', 'guided'].includes(normalized)) return defaultWalkthroughProviderKey();
+    return normalized;
+  };
   const getWalkthroughProviderFromButton = (button) => {
-    if (!button) return 'magicfit';
+    if (!button) return defaultWalkthroughProviderKey();
     const directProvider = normalizeWalkthroughProvider(button.getAttribute?.('data-pw-walkthrough-provider') || '');
     return directProvider;
   };
@@ -4040,15 +4181,32 @@
   };
   const syncVisualRail = (requestKind, state) => {
     if (!visualRail) return;
-    const normalized = state && typeof state === 'object' ? state : {};
+    const normalized = preferredVisualRailState(requestKind, state);
     const nextState = String(normalized.state || 'idle').trim().toLowerCase() || 'idle';
+    const nextKind = String(normalized.kind || requestKind || '').trim().toLowerCase();
     const label = String(normalized.label || '').trim();
     const eta = String(normalized.eta || '').trim();
     const detail = String(normalized.detail || '').trim();
     const progress = Math.max(0, Math.min(100, Number(normalized.progress || 0) || 0));
+    if (nextKind === 'tour' && nextState === 'ready' && (label || detail)) {
+      primaryReadyTourRailState = {
+        kind: 'tour',
+        state: 'ready',
+        label,
+        eta: '',
+        progress: progress || 100,
+        detail,
+      };
+      visualRail.setAttribute('data-prd-primary-tour-ready', '1');
+      visualRail.setAttribute('data-prd-primary-tour-kind', 'tour');
+      visualRail.setAttribute('data-prd-primary-tour-state', 'ready');
+      visualRail.setAttribute('data-prd-primary-tour-label', label);
+      visualRail.setAttribute('data-prd-primary-tour-detail', detail);
+      visualRail.setAttribute('data-prd-primary-tour-progress', String(progress || 100));
+    }
     const isActive = Boolean(label || detail || visualPendingStates.includes(nextState) || nextState === 'ready' || nextState === 'blocked' || nextState === 'failed');
     visualRail.classList.toggle('is-active', isActive);
-    visualRail.setAttribute('data-prd-visual-kind', String(requestKind || '').trim().toLowerCase());
+    visualRail.setAttribute('data-prd-visual-kind', nextKind);
     visualRail.setAttribute('data-prd-visual-state', nextState);
     if (visualRailLabelNode) visualRailLabelNode.textContent = label;
     if (visualRailEtaNode) visualRailEtaNode.textContent = eta;
@@ -4057,12 +4215,14 @@
       visualRailProgressNode.classList.toggle('is-processing', visualPendingStates.includes(nextState));
     }
     if (visualRequestStatusNode) visualRequestStatusNode.textContent = detail;
+    rememberVisualStatusDetail(nextKind, detail);
   };
   const isWalkthroughRequestKind = (requestKind) => String(requestKind || '').trim().toLowerCase() === 'flythrough';
   const visualStateFromPayload = (requestKind, payload, fallbackLabel = '') => {
     const kind = String(requestKind || 'tour').trim().toLowerCase();
     if (isWalkthroughRequestKind(kind)) {
-      const state = String(payload?.flythrough_url ? 'ready' : payload?.status || payload?.flythrough_status || 'pending').trim().toLowerCase();
+      const rawFlythroughState = String(payload?.flythrough_status || payload?.status || '').trim().toLowerCase();
+      const state = String(payload?.flythrough_url ? 'ready' : rawFlythroughState || 'pending').trim().toLowerCase();
       const retryableTerminal = visualTerminalStates.includes(state) && !String(payload?.flythrough_url || '').trim();
       return {
         state: retryableTerminal ? 'idle' : state,
@@ -4090,7 +4250,7 @@
       || (rawTourState === 'ready' ? payload?.tour_url : '')
       || ''
     ).trim();
-    const state = String(openTourUrl ? 'ready' : payload?.status || payload?.tour_status || 'pending').trim().toLowerCase();
+    const state = String(openTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();
     const retryableTerminal = visualTerminalStates.includes(state) && !openTourUrl;
     return {
       state: retryableTerminal ? 'idle' : state,
@@ -4120,6 +4280,7 @@
     const propertyUrl = String(options.propertyUrl || '').trim();
     const pollSeconds = Math.max(0, Number(options.pollSeconds || 0) || 0);
     if (!pollSeconds) return;
+    const firstPollDelaySeconds = Math.max(0.5, Math.min(pollSeconds, 1));
     visualPollTimer = window.setTimeout(async () => {
       const query = new URLSearchParams({
         run_id: runId,
@@ -4155,7 +4316,7 @@
           pollSeconds,
         });
       }
-    }, pollSeconds * 1000);
+    }, firstPollDelaySeconds * 1000);
   };
   const syncVisualButtons = (requestKind, payload) => {
     const kind = String(requestKind || '').trim().toLowerCase();
@@ -4168,6 +4329,64 @@
         label: state.label || String(button.textContent || '').trim(),
       });
     });
+  };
+  const refreshVisualStatusFromButton = async (button, { preserveExistingStatus = false } = {}) => {
+    if (!(button instanceof HTMLElement)) return;
+    const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
+    const runId = String(button.getAttribute('data-run-id') || '').trim();
+    if (!requestKind || !runId) return;
+    const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
+    const sourceRef = String(button.getAttribute('data-source-ref') || '').trim();
+    const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
+    const currentDetail = String(button.getAttribute('data-pw-visual-detail') || '').trim();
+    const fallbackDetail = (
+      primaryReadyTourRailState
+      && requestKind !== 'tour'
+      ? String(primaryReadyTourRailState.detail || '').trim()
+      : currentDetail
+    );
+    if (
+      preserveExistingStatus
+      && visualRequestStatusNode
+      && !String(visualRequestStatusNode.textContent || '').trim()
+      && fallbackDetail
+    ) {
+      visualRequestStatusNode.textContent = fallbackDetail;
+    }
+    const query = new URLSearchParams({
+      run_id: runId,
+      request_kind: requestKind,
+    });
+    if (candidateRef) query.set('candidate_ref', candidateRef);
+    if (sourceRef) query.set('source_ref', sourceRef);
+    if (propertyUrl) query.set('property_url', propertyUrl);
+    try {
+      const response = await fetch(`/app/api/signals/property/visual-status?${query.toString()}`, {
+        method: 'GET',
+        credentials: 'same-origin',
+      });
+      if (!response.ok) throw new Error('visual_status_unavailable');
+      const payload = await response.json().catch(() => ({}));
+      syncVisualButtons(requestKind, payload);
+      const nextState = visualStateFromPayload(requestKind, payload);
+      if (visualPendingStates.includes(nextState.state)) {
+        scheduleVisualStatusPoll(requestKind, {
+          runId,
+          candidateRef,
+          sourceRef,
+          propertyUrl,
+          pollSeconds: nextState.pollSeconds,
+        });
+      }
+    } catch (_error) {
+      if (
+        visualRequestStatusNode
+        && !String(visualRequestStatusNode.textContent || '').trim()
+        && fallbackDetail
+      ) {
+        visualRequestStatusNode.textContent = fallbackDetail;
+      }
+    }
   };
   document.querySelectorAll('[data-pw-visual-request]').forEach((button) => {
     button.addEventListener('click', async () => {
@@ -4274,6 +4493,40 @@
       },
     );
   }
+  let visualStatusPageWasHidden = false;
+  const isBackForwardNavigation = () => {
+    try {
+      const entry = performance.getEntriesByType?.('navigation')?.[0];
+      return Boolean(entry && entry.type === 'back_forward');
+    } catch (_error) {
+      return false;
+    }
+  };
+  const resyncVisualStatusesOnReturn = () => {
+    restoreRememberedVisualStatus();
+    visualRequestButtons.forEach((button) => {
+      void refreshVisualStatusFromButton(button, { preserveExistingStatus: true });
+    });
+  };
+  window.addEventListener('pagehide', () => {
+    visualStatusPageWasHidden = true;
+  });
+  window.addEventListener('pageshow', (event) => {
+    restoreRememberedVisualStatus();
+    if (!visualStatusPageWasHidden && !event.persisted && !isBackForwardNavigation()) return;
+    visualStatusPageWasHidden = false;
+    window.setTimeout(() => resyncVisualStatusesOnReturn(), 120);
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      visualStatusPageWasHidden = true;
+      return;
+    }
+    if (!visualStatusPageWasHidden) return;
+    visualStatusPageWasHidden = false;
+    window.setTimeout(() => resyncVisualStatusesOnReturn(), 120);
+  });
+  restoreRememberedVisualStatus();
 
   document.querySelectorAll('[data-prd-copy-link]').forEach((button) => {
     button.addEventListener('click', async () => {

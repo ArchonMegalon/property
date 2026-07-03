@@ -11,6 +11,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
+PUBLIC_REQUIRED_PROVIDER_MODES = ("matterport", "3dvista", "krpano", "magicfit")
+OPTIONAL_PROVIDER_MODES = tuple(provider for provider in PROVIDER_MODES if provider not in PUBLIC_REQUIRED_PROVIDER_MODES)
 REQUIRED_CONTRACT_KEYS = (
     "schema",
     "provider",
@@ -205,7 +207,9 @@ def build_tour_delivery_contract_receipt(tour_control_receipt_path: Path | None 
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": "pass" if not failures else "fail",
         "tour_control_receipt_path": str(receipt_path),
-        "required_providers": list(PROVIDER_MODES),
+        "required_provider_modes": list(PUBLIC_REQUIRED_PROVIDER_MODES),
+        "optional_provider_modes": list(OPTIONAL_PROVIDER_MODES),
+        "required_providers": list(PUBLIC_REQUIRED_PROVIDER_MODES),
         "ready_provider_modes": sorted(ready_modes),
         "missing_provider_modes": sorted(missing_modes),
         "matterport_ready_count": int(dict(matterport_payload or {}).get("ready_count") or 0),

@@ -557,9 +557,10 @@ def _tour_delivery_contract_payload(*, status: str = "pass") -> dict[str, object
     return {
         "schema": "propertyquarry.tour_delivery_contract_shape_receipt.v1",
         "status": status,
-        "required_providers": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
-        "ready_provider_modes": ["krpano", "magicfit", "matterport", "pano2vr"] if status == "pass" else ["krpano", "magicfit", "pano2vr"],
-        "missing_provider_modes": ["3dvista"] if status == "pass" else ["3dvista", "matterport"],
+        "required_provider_modes": ["matterport", "3dvista", "krpano", "magicfit"],
+        "optional_provider_modes": ["pano2vr"],
+        "ready_provider_modes": ["3dvista", "krpano", "magicfit", "matterport", "pano2vr"] if status == "pass" else ["krpano", "magicfit", "pano2vr"],
+        "missing_provider_modes": [] if status == "pass" else ["3dvista", "matterport"],
         "matterport_ready_count": 29 if status == "pass" else 0,
         "failure_count": len(failures),
         "failures": failures,
@@ -634,6 +635,35 @@ def _walkthrough_quality_gate_payload(*, status: str = "pass") -> dict[str, obje
         "video_relpath": "magicfit-walkthrough.mp4",
         "failed_count": 3 if failing else 0,
         "checks": checks,
+    }
+
+
+def _runtime_reconstruction_payload(
+    *,
+    status: str = "pass",
+    glb: bool = True,
+    browser: bool = True,
+) -> dict[str, object]:
+    glb_size = 30700 if glb else 0
+    return {
+        "contract_name": "propertyquarry.runtime_reconstruction_smoke.v1",
+        "generated_at": "2026-06-29T10:02:00Z",
+        "status": status,
+        "glb_required": True,
+        "glb_non_empty": glb,
+        "glb_manifest_ok": glb,
+        "glb_capability_ok": glb,
+        "required_paths_ok": glb,
+        "browser_render_ok": browser,
+        "viewer_url": "https://propertyquarry.com/tours/files/demo/generated-reconstruction/viewer.html",
+        "details": {
+            "glb_export_status": "generated" if glb else "failed",
+            "paths": {"glb": {"size_bytes": glb_size}},
+        },
+        "browser_render": {
+            "status": "pass" if browser else "failed",
+            "failures": [] if browser else ["mobile:wall_mesh_count_low"],
+        },
     }
 
 
@@ -959,7 +989,7 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert receipt["provider_matrix"]["dispatch_acceptance_complete"] is True
     assert receipt["provider_matrix"]["status_readback_complete"] is True
     assert receipt["provider_matrix"]["payload_contracts_ok"] is True
-    assert receipt["tour_controls"]["missing_provider_modes"] == ["3dvista", "pano2vr", "krpano", "magicfit"]
+    assert receipt["tour_controls"]["missing_provider_modes"] == ["3dvista", "krpano", "magicfit"]
     assert receipt["tour_controls"]["delivery_contracts"]["3dvista"]["blocked_reason"] == "missing_3dvista_export"
     assert "verified non-trial 3DVista" in receipt["tour_controls"]["delivery_contracts"]["3dvista"]["required_to_send"][0]
     assert receipt["operator_import_manifest"]["ready_for_exports"] is True
@@ -1067,24 +1097,21 @@ def test_gold_status_missing_tour_action_excludes_already_verified_modes(tmp_pat
     )
 
     blocker = next(row for row in receipt["blockers"] if row["area"] == "verified_tour_provider_modes")
-    assert blocker["missing_provider_modes"] == ["3dvista", "pano2vr", "krpano"]
+    assert blocker["missing_provider_modes"] == ["3dvista", "krpano"]
     assert receipt["tour_controls"]["provider_blockers"]["krpano"]["reasons"][0]["reason"] == "missing_walkable_scene"
     assert "MagicFit" not in blocker["action"]
     assert "Matterport" not in blocker["action"]
     assert "3DVista" in blocker["action"]
-    assert "Pano2VR" in blocker["action"]
+    assert "Pano2VR" not in blocker["action"]
     assert "krpano" in blocker["action"]
     aggregate_action = receipt["next_required_actions"][-1]
-    assert aggregate_action["provider"] == "3dvista_pano2vr_krpano"
-    assert {row["provider"] for row in aggregate_action["rejected_sample"]} == {"3dvista", "pano2vr", "krpano"}
-    pano_sample = next(row for row in aggregate_action["rejected_sample"] if row["provider"] == "pano2vr")
-    assert pano_sample["present_sample"] == ["index.html"]
-    assert pano_sample["missing_markers"] == ["ggpkg", "ggskin", "pano.xml", "tour.js"]
+    assert aggregate_action["provider"] == "3dvista_krpano"
+    assert {row["provider"] for row in aggregate_action["rejected_sample"]} == {"3dvista", "krpano"}
     assert receipt["notes"][0] == "Gold remains blocked until every failing gate below is repaired."
     missing_note = receipt["notes"][-1]
     assert "MagicFit" not in missing_note
     assert "Matterport" not in missing_note
-    assert "3DVista, Pano2VR, krpano" in missing_note
+    assert "3DVista, krpano" in missing_note
 
 
 def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: Path) -> None:
@@ -1263,6 +1290,64 @@ def test_gold_status_blocks_when_walkthrough_quality_gate_fails_even_if_video_ex
     assert jump_failure["frame_delta_stats"]["max_delta"] == 60.064
 
 
+def test_gold_status_blocks_when_generated_reconstruction_glb_gate_fails_even_if_browser_3d_passes(
+    tmp_path: Path,
+) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    runtime_reconstruction = _write_json(
+        tmp_path / "runtime-reconstruction.json",
+        _runtime_reconstruction_payload(status="fail", glb=False),
+    )
+    walkthrough_quality = _write_json(
+        tmp_path / "walkthrough-quality.json",
+        _walkthrough_quality_gate_payload(),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "generated_reconstruction_glb")
+    assert receipt["status"] == "blocked"
+    assert receipt["browser_rendered_3d"]["ready"] is True
+    assert receipt["generated_reconstruction_glb"]["ready"] is False
+    assert receipt["generated_reconstruction_glb"]["glb_size_bytes"] == 0
+    assert blocker["glb_export_status"] == "failed"
+    assert blocker["glb_non_empty"] is False
+    assert blocker["glb_manifest_ok"] is False
+    assert "property_runtime_reconstruction_smoke.py" in blocker["action"]
+    assert "--require-glb" in blocker["action"]
+    assert "Blender/NumPy" in blocker["action"]
+
+
 def test_gold_status_surfaces_magicfit_renderer_configuration_when_magicfit_mode_is_missing(tmp_path: Path) -> None:
     performance = _write_json(tmp_path / "performance.json", _performance_payload())
     tour_controls = _write_json(
@@ -1418,6 +1503,10 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     bts_methodology_contract = _write_json(tmp_path / "bts-methodology-contract.json", _bts_methodology_contract_payload())
     tour_delivery_contract = _write_json(tmp_path / "tour-delivery-contract.json", _tour_delivery_contract_payload())
     browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    runtime_reconstruction = _write_json(
+        tmp_path / "runtime-reconstruction.json",
+        _runtime_reconstruction_payload(),
+    )
     walkthrough_quality = _write_json(tmp_path / "walkthrough-quality.json", _walkthrough_quality_gate_payload())
     scene_video = _write_json(tmp_path / "scene-video-readiness.json", _scene_video_readiness_payload())
     scene_video_verifier = _write_json(tmp_path / "scene-video-readiness-verifier.json", _scene_video_readiness_verifier_payload())
@@ -1444,6 +1533,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         bts_methodology_contract_receipt_path=bts_methodology_contract,
         tour_delivery_contract_receipt_path=tour_delivery_contract,
         browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
         walkthrough_quality_receipt_path=walkthrough_quality,
         scene_video_readiness_receipt_path=scene_video,
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
@@ -1486,6 +1576,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         "bts_methodology",
         "tour_delivery_contract_shape",
         "browser_rendered_3d",
+        "generated_reconstruction_glb",
         "walkthrough_quality",
         "scene_video_readiness",
         "scene_video_provider_refresh_packet",
@@ -1494,6 +1585,8 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["bts_methodology"]["source_section_count"] == 5
     assert receipt["tour_delivery_contract_shape"]["matterport_ready_count"] == 29
     assert receipt["browser_rendered_3d"]["ready"] is True
+    assert receipt["generated_reconstruction_glb"]["ready"] is True
+    assert receipt["generated_reconstruction_glb"]["glb_size_bytes"] == 30700
     assert receipt["walkthrough_quality"]["ready"] is True
     assert receipt["scene_video_readiness"]["ready"] is True
     assert receipt["scene_video_readiness"]["provider_summary"]["provider_count"] == 5
@@ -1520,6 +1613,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         bts_methodology_contract_receipt_path=bts_methodology_contract,
         tour_delivery_contract_receipt_path=tour_delivery_contract,
         browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
         walkthrough_quality_receipt_path=walkthrough_quality,
         scene_video_readiness_receipt_path=scene_video,
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
@@ -3043,7 +3137,7 @@ def test_gold_status_blocks_when_performance_receipt_lacks_research_detail_check
 
     assert receipt["status"] == "blocked"
     assert receipt["performance"]["research_detail_checks_ok"] is False
-    assert "research_confirmed_listing_facts" in receipt["performance"]["missing_research_detail_checks"]
+    assert "research_listing_facts" in receipt["performance"]["missing_research_detail_checks"]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "mobile_and_authenticated_surfaces")
     assert "research_mobile_open_property_compact_layout" in blocker["missing_research_detail_checks"]
 

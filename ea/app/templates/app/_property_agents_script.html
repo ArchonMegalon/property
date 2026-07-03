@@ -124,8 +124,10 @@
       if (!images.length) return;
       const retryDelays = [1200, 2800, 5200, 8800];
       images.forEach((image) => {
-        const baseSrc = String(image.getAttribute('src') || '').split('?')[0];
+        const stableSrc = String(image.getAttribute('data-map-preview-src') || image.getAttribute('src') || '').trim();
+        const baseSrc = stableSrc.split('?')[0];
         if (!baseSrc || image.getAttribute('data-map-preview-refresh-bound') === 'true') return;
+        image.setAttribute('data-map-preview-src', baseSrc);
         image.setAttribute('data-map-preview-refresh-bound', 'true');
         retryDelays.forEach((delay) => {
           window.setTimeout(async () => {

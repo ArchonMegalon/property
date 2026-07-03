@@ -53,6 +53,29 @@
   {%- else -%}{{ label }}
   {%- endif -%}
 {%- endmacro %}
+{% macro pqx_calm_ui_label(value, fallback='') -%}
+  {%- set raw = (value or fallback or '')|string|trim -%}
+  {%- set lowered = raw|lower -%}
+  {%- if lowered in ['change one hard rule', 'next move', 'next'] -%}Try this
+  {%- elif lowered in ['reopen brief', 'relax rule', 'relax and restart'] -%}Adjust search
+  {%- elif lowered == 'more ways to widen' -%}More options
+  {%- elif lowered == 'widen area' -%}Broaden area
+  {%- elif lowered == 'search brief' -%}Edit search
+  {%- else -%}{{ raw }}
+  {%- endif -%}
+{%- endmacro %}
+{% macro pqx_calm_ui_note(value, fallback='') -%}
+  {%- set raw = (value or fallback or '')|string|trim -%}
+  {%- set lowered = raw|lower -%}
+  {%- if lowered == 'reopen the brief and adjust one filter before rerunning.' -%}Open the search and change one filter.
+  {%- elif lowered == 'widen one requirement first, then rerun.' -%}Change one thing, then run it again.
+  {%- elif lowered == 'start a fresh search or adjust one provider check or requirement before retrying.' -%}Adjust the search, then start it again.
+  {%- elif lowered == 'open the remaining area, distance, and list changes without filling the page.' -%}See the other ways to widen this search.
+  {%- elif lowered == 'widen one location rule first so the next pass stays easy to explain.' -%}Start by broadening the area.
+  {%- elif lowered == 'no homes fit the current hard brief yet.' -%}Nothing matched the current search yet.
+  {%- else -%}{{ raw }}
+  {%- endif -%}
+{%- endmacro %}
 {% macro suppression_panel(rows, actions=[], total_override=None) -%}
 {% if rows %}
 {% set trigger_rows = actions if actions else rows %}
@@ -67,7 +90,7 @@
           <div class="pqx-suppression-panel" data-pqx-filtered-breakdown data-pqx-suppression-summary>
   <button class="pqx-suppression-trigger" type="button" data-pqx-filtered-open aria-label="Open relaxed search options">
     <span class="pqx-suppression-trigger-copy">
-      <strong>{% if ns.total %}{{ ns.total }} hidden{% else %}Widen this brief{% endif %}</strong>
+      <strong>{% if ns.total %}{{ ns.total }} hidden{% else %}Adjust search{% endif %}</strong>
       <span class="pqx-note">
         Choose one small change, then rerun.
       </span>
@@ -91,7 +114,7 @@
                 {% for row in counterfactual_rows %}
                 <div class="pqx-filtered-dialog-rule">
                   {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true" data-pqx-filter-impact>+{{ row.get('affected_total') }}</span>{% endif %}
-                  <strong>{{ row.get('title') }}</strong>
+                  <strong>{{ pqx_calm_ui_label(row.get('title'), 'Try this') }}</strong>
                   <span class="pqx-note">{{ row.get('detail') }}</span>
                   {% set slider = row.get('slider') or {} %}
                   {% if slider %}
@@ -118,11 +141,11 @@
                     <button
                       class="pqx-button primary"
                       type="button"
-                      aria-label="{{ row.get('action_label') or 'Relax and restart' }}"
+                      aria-label="{{ pqx_calm_ui_label(row.get('action_label'), 'Adjust search') }}"
                       data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'
                       data-pqx-counterfactual-action-kind="{{ slider.get('kind') or '' }}"
-                      data-pqx-counterfactual-action-default="{{ row.get('action_label') or 'Relax and restart' }}"
-                    >{{ row.get('action_label') or 'Relax and restart' }}</button>
+                      data-pqx-counterfactual-action-default="{{ pqx_calm_ui_label(row.get('action_label'), 'Adjust search') }}"
+                    >{{ pqx_calm_ui_label(row.get('action_label'), 'Adjust search') }}</button>
                     {% if row.get('affected_total') %}
                     <span class="pqx-filtered-dialog-estimate">
                       {{ row.get('affected_total') }} more
@@ -143,15 +166,15 @@
                 {% for row in suppression_rows %}
                 <div class="pqx-filtered-dialog-rule">
                   {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
-                  <strong>{{ row.get('title') or 'Homes outside the brief' }}</strong>
-                  <span class="pqx-note">{{ row.get('detail') or 'Some homes need a wider brief or a missing detail before they can appear.' }}</span>
+                  <strong>{{ pqx_calm_ui_label(row.get('title'), 'Homes outside the search') }}</strong>
+                  <span class="pqx-note">{{ row.get('detail') or 'Some homes need a broader search or one missing detail before they can appear.' }}</span>
                   <div class="pqx-actions">
-                    <a class="pqx-button primary" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>{{ row.get('action_label') or 'Adjust search' }}</a>
+                    <a class="pqx-button primary" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>{{ pqx_calm_ui_label(row.get('action_label'), 'Adjust search') }}</a>
                   </div>
                 </div>
                 {% else %}
                 <div class="pqx-filtered-dialog-rule">
-                  <strong>Widen the selected area</strong>
+                  <strong>Broaden the area</strong>
                   <span class="pqx-note">Keep hard requirements, but add nearby districts or a small radius before rerunning.</span>
                   <div class="pqx-actions">
                     <a class="pqx-button primary" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Adjust search</a>
@@ -187,14 +210,14 @@
                 <span class="pqx-evidence-atlas-pin" aria-hidden="true"></span>
                 <div class="pqx-evidence-atlas-map-label">
                   <strong data-pqx-evidence-map-label>Area map</strong>
-                  <span data-pqx-evidence-map-detail>Choose a layer.</span>
+                  <span data-pqx-evidence-map-detail>Switch layers.</span>
                 </div>
               </div>
               <aside class="pqx-evidence-atlas-side">
                 <div class="pqx-evidence-layer-rail" data-pqx-evidence-layer-rail aria-label="Area layers"></div>
                 <div class="pqx-evidence-cache-note" data-pqx-evidence-cache-note hidden></div>
                 <div class="pqx-evidence-atlas-cards" data-pqx-evidence-atlas-cards></div>
-                <div class="pqx-note" data-pqx-evidence-atlas-footer>Available layers only.</div>
+                <div class="pqx-note" data-pqx-evidence-atlas-footer>Only ready layers are shown.</div>
               </aside>
             </div>
           </dialog>
@@ -289,6 +312,12 @@
 {% set source_open_total = source_waiting_total + source_active_total %}
 {% set provider_total = (summary.get('provider_total') or 0)|int %}
 {% set provider_display_total = (run.get('provider_display_total') or summary.get('provider_display_total') or provider_total)|int %}
+{% set source_check_total = provider_display_total if provider_display_total > source_variant_total else source_variant_total %}
+{% set source_check_total = source_check_total if source_check_total > 0 else provider_display_total %}
+{% set source_check_done = source_done_total if source_done_total > 0 else 0 %}
+{% set source_check_done = source_check_done if source_check_total <= 0 or source_check_done < source_check_total else source_check_total %}
+{% set source_unit = 'search pages' if source_variant_total > provider_display_total and provider_display_total > 0 else 'providers' %}
+{% set source_check_label = source_check_done|string ~ ' / ' ~ source_check_total|string ~ ' ' ~ source_unit if source_check_total > 0 and source_variant_total > 0 else '' %}
 {% set raw_listing_total = (summary.get('found_listing_total') if summary.get('found_listing_total') is not none else (summary.get('raw_listing_total') or 0))|int %}
 {% set listing_total = (summary.get('listing_total') or 0)|int %}
 {% set reviewed_total = ((run.get('summary') or {}).get('scanned_listing_total') if (run.get('summary') or {}).get('scanned_listing_total') is not none else ((run.get('summary') or {}).get('reviewed_listing_total') or 0))|int %}
@@ -301,15 +330,11 @@
 {% set checked_label = (found_total|string ~ ' homes found') if found_total > 0 else 'checking' %}
 {% set source_progress_label = '' %}
 {% if source_variant_total > 0 %}
-{% if provider_display_total > source_variant_total %}
-{% set scan_count_label = source_done_total|string ~ ' / ' ~ provider_display_total|string ~ ' provider checks' %}
-{% else %}
-{% set scan_count_label = source_open_total|string ~ ' / ' ~ source_variant_total|string ~ ' provider checks left' %}
-{% endif %}
+{% set scan_count_label = source_check_label %}
 {% elif provider_display_total > 0 %}
-{% set scan_count_label = provider_display_total|string ~ ' provider checks selected' %}
+{% set scan_count_label = provider_display_total|string ~ ' providers selected' %}
 {% elif source_completed > 0 or source_total > 0 %}
-{% set scan_count_label = 'Checking provider checks' %}
+{% set scan_count_label = 'Checking providers' %}
 {% else %}
 {% set scan_count_label = 'Search warming up' %}
 {% endif %}
@@ -320,18 +345,17 @@
 {% set worker_state = run.get('worker_state') or summary.get('worker_state') or {} %}
 {% set reliability = run.get('reliability') or {} %}
 {% set progress_message_raw = (run.get('message') or '')|trim %}
-{% set progress_provider_label = provider_display_total|string ~ ' provider checks' if provider_display_total > 0 else 'selected provider checks' %}
 {% set progress_repair_status = ((reliability.get('repair') or {}).get('repair_status') or summary.get('repair_status') or summary.get('repair_status_label') or '')|lower %}
 {% set progress_has_repair_copy = status|lower == 'failed' or progress_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
 {% set progress_customer_message = (reliability.get('customer_status_message') or summary.get('customer_status_message') or '')|trim %}
 {% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
-{% set progress_message_display = progress_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'provider checks left')|replace('Lists left', 'Provider checks left')|replace('lists open', 'provider checks left')|replace('Lists open', 'Provider checks left') %}
+{% set progress_message_display = progress_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'search pages waiting')|replace('Lists left', 'Search pages waiting')|replace('lists open', 'search pages still running')|replace('Lists open', 'Search pages still running') %}
 {% set progress_message_display_lower = progress_message_display|lower %}
 {% set progress_current_step = (summary.get('current_step') or run.get('current_step') or '')|lower %}
 {% set progress_detail_preparing = found_total > 0 and ('review page preparation timed out' in progress_message_display_lower or 'reviewing candidate' in progress_message_display_lower or progress_current_step in ['source_review_packet', 'source_review_packet_failed']) %}
 {% if progress_detail_preparing %}
   {% if source_open_total > 0 %}
-    {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared · ' ~ source_open_total ~ ' provider checks left' %}
+    {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared · ' ~ source_check_label %}
   {% else %}
     {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared' %}
   {% endif %}
@@ -342,14 +366,14 @@
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or 'scoring enriched candidate' in progress_message_display_lower or 'ranking homes' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
     {% if source_open_total > 0 %}
-      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review · ' ~ source_open_total ~ ' provider checks left' %}
+      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review · ' ~ source_check_label %}
     {% else %}
       {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review' %}
     {% endif %}
   {% elif provider_display_total > 0 %}
-  {% set progress_message_display = 'Preparing provider checks.' %}
+  {% set progress_message_display = 'Preparing providers.' %}
       {% else %}
-  {% set progress_message_display = 'Preparing provider checks.' %}
+  {% set progress_message_display = 'Preparing providers.' %}
   {% endif %}
 {% endif %}
 {% set reliability_message_raw = progress_customer_message if reliability else '' %}
@@ -384,10 +408,10 @@
 	  <div class="pqx-source-progress" data-pqx-source-progress>
 	    <div class="pqx-source-progress-head">
 			      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-					      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total %}0 to review{% elif provider_display_total %}{{ provider_display_total }} provider checks selected{% else %}Waiting for first listings{% endif %}</span>
+					      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total %}0 to review{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first listings{% endif %}</span>
 					      {% if found_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
 				    </div>
-				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider check.' }}</span>
+				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider.' }}</span>
 				    <div class="pqx-live-review-bars" aria-label="Search totals">
 		      <span>
 		        <b>Found</b>
@@ -400,9 +424,9 @@
 		        <em><u style="--progress: {{ to_review_bar_pct }}"></u></em>
 		      </span>
 		      <span>
-			        <b>Checks left</b>
-		        <i>{{ source_open_total or 0 }}</i>
-		        <em><u style="--progress: {{ ((source_open_total * 100) // source_variant_total) if source_variant_total > 0 and source_open_total > 0 else 0 }}"></u></em>
+				        <b>Sources</b>
+		        <i>{% if source_variant_total > 0 %}{{ source_check_done }} / {{ source_check_total }}{% else %}{{ provider_display_total or 0 }}{% endif %}</i>
+		        <em><u style="--progress: {{ ((source_check_done * 100) // source_check_total) if source_check_total > 0 and source_check_done > 0 else 0 }}"></u></em>
 		      </span>
 		    </div>
 	    <div class="pqx-progress-meter under-source" aria-hidden="true">
@@ -2087,19 +2111,29 @@
     }
     .pqx-setup.pqx-surface-search {
       grid-template-columns: minmax(0, 1fr) minmax(250px, 300px);
+      min-height: calc(100vh - 124px);
+      height: auto;
+      align-items: start;
     }
     .pqx-setup.pqx-surface-search .pqx-command {
       order: 1;
       gap: 10px;
       padding: 14px 16px;
+      min-height: 0;
+      max-height: none;
+      overflow: visible;
+      overscroll-behavior: auto;
+      scrollbar-gutter: auto;
     }
     .pqx-surface-search .pqx-setup-intro {
       gap: 10px;
       padding: 14px 14px 12px;
     }
     .pqx-setup.pqx-surface-search > [data-pqx-mobile-panel="results"] {
+      min-height: 0;
       max-height: none;
       overflow: visible;
+      overscroll-behavior: auto;
       scrollbar-gutter: auto;
     }
     .pqx-surface-search [data-pqx-mobile-panel="results"] {
@@ -2261,7 +2295,7 @@
       border: 1px solid rgba(120, 107, 90, 0.28);
       border-radius: 6px;
       background: rgba(255, 255, 255, 0.02);
-      pointer-events: auto;
+      pointer-events: none;
     }
     .pqx-previous-district-hotspots path.pqx-previous-district-hotspot {
       fill: rgba(138, 30, 30, 0.2);
@@ -3146,6 +3180,7 @@
       font-size: 12px;
     }
     .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {
+      min-height: 0;
       max-height: none;
       overflow: visible;
       overscroll-behavior: auto;
@@ -4002,17 +4037,37 @@
     }
     @media (min-width: 1400px) and (min-height: 1100px) {
       .pqx-setup.pqx-surface-search {
-        min-height: calc(100vh - 146px);
+        min-height: 0;
+        height: calc(100svh - 146px);
         grid-template-columns: minmax(700px, 1fr) minmax(220px, 276px);
         gap: 10px;
+        align-items: stretch;
       }
       .pqx-setup.pqx-surface-search .pqx-command {
         gap: 8px;
         padding: 8px 10px;
+        min-height: 0;
+        max-height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
       }
       .pqx-setup.pqx-surface-search > [data-pqx-mobile-panel="results"] {
-        max-height: none;
+        min-height: 0;
+        max-height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
         padding: 10px 12px;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {
+        min-height: 0;
+        max-height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior: contain;
       }
       .pqx-surface-search .pqx-title h1 {
         font-size: 1.75rem;
@@ -6433,6 +6488,20 @@
 	        linear-gradient(135deg, #efe2c8, #f8f4e8 48%, #d9e7dc);
 	      box-shadow: inset 0 1px 0 rgba(255,255,255,0.58);
 	    }
+	    .pqx-result-diorama-button {
+	      appearance: none;
+	      padding: 0;
+	      color: inherit;
+	      text-align: left;
+	      cursor: pointer;
+	      background:
+	        radial-gradient(circle at 26% 24%, rgba(255,255,255,0.72), transparent 28%),
+	        linear-gradient(135deg, #efe2c8, #f8f4e8 48%, #d9e7dc);
+	    }
+	    .pqx-result-diorama-button:focus-visible {
+	      outline: 2px solid color-mix(in srgb, var(--pq-gold-strong) 76%, white);
+	      outline-offset: 3px;
+	    }
 	    .pqx-result-diorama img {
 	      width: 100%;
 	      height: 100%;
@@ -8472,7 +8541,9 @@
       .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head .pqx-note {
         line-height: 1.35;
       }
-      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions {
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions,
+      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions,
+      .pqx-setup.pqx-surface-search .pqx-step-head-actions {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
@@ -8481,10 +8552,14 @@
         margin-left: 0;
         gap: 6px;
       }
-      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-pill {
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-pill,
+      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions .pqx-pill,
+      .pqx-setup.pqx-surface-search .pqx-step-head-actions .pqx-pill {
         display: none;
       }
-      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-button {
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-button,
+      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions .pqx-button,
+      .pqx-setup.pqx-surface-search .pqx-step-head-actions .pqx-button {
         min-height: 40px;
         min-width: 0;
         padding: 0 14px;
@@ -8493,17 +8568,30 @@
         border-radius: 999px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-back],
-      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-next] {
-        width: auto;
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-next],
+      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions [data-property-step-back],
+      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions [data-property-step-next],
+      .pqx-setup.pqx-surface-search .pqx-step-head-actions [data-property-step-back],
+      .pqx-setup.pqx-surface-search .pqx-step-head-actions [data-property-step-next] {
+        width: 96px;
+        min-width: 96px;
+        flex: 0 0 96px;
+        justify-content: center;
       }
-      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-back] {
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-back],
+      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions [data-property-step-back],
+      .pqx-setup.pqx-surface-search .pqx-step-head-actions [data-property-step-back] {
         order: 2;
       }
-      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-next] {
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-step-next],
+      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions [data-property-step-next],
+      .pqx-setup.pqx-surface-search .pqx-step-head-actions [data-property-step-next] {
         order: 3;
         min-width: 96px;
       }
-      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-save-top] {
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions [data-property-save-top],
+      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions [data-property-save-top],
+      .pqx-setup.pqx-surface-search .pqx-step-head-actions [data-property-save-top] {
         order: 1;
         width: auto;
         min-height: 32px;
@@ -8516,7 +8604,9 @@
         color: var(--pq-muted);
         box-shadow: none;
       }
-      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-inline-status {
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-inline-status,
+      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions .pqx-inline-status,
+      .pqx-setup.pqx-surface-search .pqx-step-head-actions .pqx-inline-status {
         order: 4;
         flex: 1 0 100%;
         min-height: 0;
@@ -10490,8 +10580,8 @@
         .pqx-check,
         .console-action
       ):not(.pqx-tooltip) {
-        min-width: 44px !important;
-        min-height: 44px !important;
+        min-width: 48px !important;
+        min-height: 48px !important;
       }
       .pqx-shell[data-pqx-surface="account"] .pqx-account-channel-detail input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]) {
         height: auto !important;
@@ -10499,10 +10589,13 @@
         padding-block: 12px !important;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check,
-      .pqx-shell[data-pqx-surface="search"] .pqx-check-grid[data-pqx-check-grid="school_stage_preferences"] .pqx-check {
+      .pqx-shell[data-pqx-surface="search"] .pqx-check-grid[data-pqx-check-grid="school_stage_preferences"] .pqx-check,
+      .pqx-shell[data-pqx-surface="properties"] .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check,
+      .pqx-shell[data-pqx-surface="properties"] .pqx-check-grid[data-pqx-check-grid="school_stage_preferences"] .pqx-check {
         display: grid !important;
         box-sizing: border-box;
         min-height: 48px !important;
+        padding: 6px 9px !important;
       }
       .pqx-shell .pqx-check {
         display: grid !important;
@@ -10606,7 +10699,7 @@
         {% elif run_terminal_no_results %}
         <a class="pqx-link-button primary" href="/app/search">New search</a>
         {% endif %}
-        {% if account_nav %}
+        {% if account_nav and not account_surface and not billing_surface %}
         <details class="pqx-account-menu account-menu">
           <summary aria-label="Account navigation" title="Account" data-account-label="{{ account_nav.label }}">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
           <div class="pqx-account-menu-panel account-menu-panel">
@@ -10776,21 +10869,26 @@
           {% set live_source_waiting_raw = live_source_total - live_source_done_total - live_source_active_total %}
           {% set live_source_waiting_total = live_source_waiting_raw if live_source_waiting_raw > 0 else 0 %}
           {% set live_source_open_total = live_source_waiting_total + live_source_active_total %}
+          {% set live_source_check_total = live_provider_total if live_provider_total > live_source_total else live_source_total %}
+          {% set live_source_check_total = live_source_check_total if live_source_check_total > 0 else live_provider_total %}
+          {% set live_source_check_done = live_source_done_total if live_source_done_total > 0 else 0 %}
+          {% set live_source_check_done = live_source_check_done if live_source_check_total <= 0 or live_source_check_done < live_source_check_total else live_source_check_total %}
+          {% set live_source_unit = 'search pages' if live_source_total > live_provider_total and live_provider_total > 0 else 'providers' %}
+          {% set live_source_check_label = live_source_check_done|string ~ ' / ' ~ live_source_check_total|string ~ ' ' ~ live_source_unit if live_source_check_total > 0 and live_source_total > 0 else '' %}
           {% set live_reviewed_total = (run_summary.get('scanned_listing_total') if run_summary.get('scanned_listing_total') is not none else (run_summary.get('reviewed_listing_total') or 0))|int %}
           {% set live_raw_found_total = (run_summary.get('found_listing_total') if run_summary.get('found_listing_total') is not none else (run_summary.get('raw_listing_total') or live_reviewed_total or run_summary.get('listing_total') or 0))|int %}
           {% set live_found_total = live_raw_found_total if live_raw_found_total > live_reviewed_total else live_reviewed_total %}
           {% set live_to_review_total = (run_summary.get('to_review_listing_total') if run_summary.get('to_review_listing_total') is not none else ((live_found_total - live_reviewed_total) if live_found_total > live_reviewed_total else 0))|int %}
-		            {% set live_provider_label = live_provider_total|string ~ ' provider checks' if live_provider_total > 0 else 'selected provider checks' %}
           {% set live_repair_status = (run_summary.get('repair_status') or run_summary.get('repair_status_label') or '')|lower %}
           {% set live_has_repair_copy = run_status == 'failed' or live_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
           {% set live_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
           {% set live_run_message_display = live_safe_message if live_has_repair_copy and live_safe_message else live_run_message_raw %}
-          {% set live_run_message_display = live_run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'provider checks left')|replace('Lists left', 'Provider checks left')|replace('lists open', 'provider checks left')|replace('Lists open', 'Provider checks left') %}
+          {% set live_run_message_display = live_run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'search pages waiting')|replace('Lists left', 'Search pages waiting')|replace('lists open', 'search pages still running')|replace('Lists open', 'Search pages still running') %}
           {% set live_run_message_display_lower = live_run_message_display|lower %}
           {% set live_prepared_total = ((run_summary.get('review_created_total') or 0)|int) + ((run_summary.get('review_existing_total') or 0)|int) %}
           {% if live_found_total > 0 and live_prepared_total <= 0 and ('review page preparation timed out' in live_run_message_display_lower or 'reviewing candidate' in live_run_message_display_lower or (run_summary.get('current_step') or run.get('current_step') or '')|lower == 'source_review_packet') %}
 		          {% if live_source_open_total > 0 %}
-		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared · ' ~ live_source_open_total ~ ' provider checks left' %}
+		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared · ' ~ live_source_check_label %}
 		          {% else %}
 		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared' %}
 		          {% endif %}
@@ -10801,14 +10899,14 @@
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or 'scoring enriched candidate' in live_run_message_display_lower or 'ranking homes' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
 		          {% if live_found_total %}
 		            {% if live_source_open_total > 0 %}
-				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review · ' ~ live_source_open_total ~ ' provider checks left' %}
+				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review · ' ~ live_source_check_label %}
 			            {% else %}
 				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review' %}
 		            {% endif %}
 		          {% elif live_provider_total > 0 %}
-			          {% set live_run_message_display = 'Preparing provider checks.' %}
-		          {% else %}
-		          {% set live_run_message_display = 'Preparing provider checks.' %}
+				          {% set live_run_message_display = 'Preparing providers.' %}
+			          {% else %}
+			          {% set live_run_message_display = 'Preparing providers.' %}
 		          {% endif %}
           {% endif %}
           <section class="pqx-card" style="margin-bottom:14px;">
@@ -10822,7 +10920,7 @@
 	            <div class="pqx-pref-list">
 	              <div class="pqx-pref-row">
 	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
-	                  <div><strong>Checks</strong><small>{% if live_source_total and live_provider_total > live_source_total %}{{ live_source_done_total }} / {{ live_provider_total }}{% elif live_source_total %}{{ live_source_open_total }} / {{ live_source_total }} left{% else %}Preparing{% endif %}</small></div>
+		                  <div><strong>Sources</strong><small>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} providers selected{% else %}Preparing{% endif %}</small></div>
 	                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
 			                <div><strong>To review</strong><small>{{ live_to_review_total }} homes</small></div>
 	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
@@ -11412,12 +11510,11 @@
                     <div class="pqx-disclosure-copy">
                       <span class="pqx-disclosure-label">{{ field.label }}</span>
                       <span class="pqx-what-matters-summary-meta">
-                        <span class="pqx-note">Neutral until you care</span>
-                        <span class="pqx-what-matters-chip">
+                        <span class="pqx-what-matters-chip" data-pqx-what-matters-count>
                           {% if matters.active %}
                             {{ matters.active }} active
                           {% else %}
-                            All neutral
+                            Optional
                           {% endif %}
                         </span>
                       </span>
@@ -11428,10 +11525,10 @@
                     </div>
                     <div class="pqx-what-matters-mobile-tools" data-pqx-what-matters-mobile-tools>
                       <details class="pqx-what-matters-mobile-menu">
-                        <summary>Presets</summary>
+                        <summary>Saved</summary>
                         <div class="pqx-what-matters-mobile-menu-card">
-                          <button class="pqx-button subtle" type="button" data-pqx-load-what-matters>Load saved</button>
-                          <button class="pqx-button" type="button" data-pqx-save-what-matters>Save current</button>
+                          <button class="pqx-button subtle" type="button" data-pqx-load-what-matters>Load</button>
+                          <button class="pqx-button" type="button" data-pqx-save-what-matters>Save</button>
                         </div>
                       </details>
                     </div>
@@ -11451,7 +11548,7 @@
                         </summary>
                       <div class="pqx-pref-list">
                         {% for option in group_options %}
-                        <label class="pqx-pref-row pqx-keyword-priority-row"{% if option.get('hidden') %} hidden{% endif %} data-keyword-priority-row data-keyword-value="{{ option.get('value') }}" data-keyword-display-key="{{ option.get('display_key') or option.get('label') }}" data-preference-state="{{ option.get('state') or 'any' }}" data-keyword-distance-enabled="{{ 'true' if (option.get('state') or 'any') != 'any' else 'false' }}">
+                        <div class="pqx-pref-row pqx-keyword-priority-row" role="group" aria-label="{{ option.get('label') }}"{% if option.get('hidden') %} hidden{% endif %} data-keyword-priority-row data-keyword-value="{{ option.get('value') }}" data-keyword-display-key="{{ option.get('display_key') or option.get('label') }}" data-preference-state="{{ option.get('state') or 'any' }}" data-keyword-distance-enabled="{{ 'true' if (option.get('state') or 'any') != 'any' else 'false' }}">
                           <div>
                             <span class="pqx-pref-row-title">
                               <strong>{{ option.get('label') }}</strong>
@@ -11482,12 +11579,14 @@
                             </select>
                             {% endif %}
                           </div>
-                        </label>
+                        </div>
                         {% endfor %}
                         {% if group.get('key') == 'daily_life' and field.get('school_preference_options') %}
                         {% for option in field.get('school_preference_options') or [] %}
-                        <label
+                        <div
                           class="pqx-pref-row pqx-school-priority-row"
+                          role="group"
+                          aria-label="{{ option.get('label') }}"
                           data-school-priority-row
                           data-school-value="{{ option.get('value') }}"
                           data-preference-state="{{ option.get('state') or 'any' }}"
@@ -11519,7 +11618,7 @@
                             </select>
                             {% endif %}
                           </div>
-                        </label>
+                        </div>
                         {% endfor %}
                         {% endif %}
                       </div>
@@ -11532,11 +11631,10 @@
                 <details class="pqx-mobile-fold pqx-what-matters-more"{% if what_matters_extras.active %} open{% endif %} data-pqx-what-matters-more>
                   <summary>
                     <span class="pqx-mobile-fold-copy">
-                      <strong>More options</strong>
-                      <span class="pqx-note">Only for something missing or stricter listing cleanup.</span>
+                      <strong>More</strong>
                     </span>
                     <span class="pqx-mobile-fold-meta">
-                      <span class="pqx-pill">
+                      <span class="pqx-pill" data-pqx-what-matters-more-count>
                         {% if what_matters_extras.active %}
                         {{ what_matters_extras.active }} active
                         {% else %}
@@ -11893,6 +11991,7 @@
       {% set empty_happened = (empty_outcome.get('happened') or '')|trim %}
       {% set empty_still_worked = (empty_outcome.get('still_worked') or '')|trim %}
       {% set empty_active_rule = (empty_outcome.get('active_rule') or '')|trim %}
+      {% set empty_active_rule_display = pqx_calm_ui_label(empty_active_rule) %}
       {% set empty_next_move = (empty_outcome.get('next_move') or '')|trim %}
       {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
       {% set hard_filtered_total = (run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or 0)|int %}
@@ -11905,16 +12004,16 @@
               {% if run_status == 'failed' %}
                 {{ empty_happened or run_reliability.get('customer_status_message') or 'The search stopped before matching finished.' }}
               {% else %}
-                {{ empty_happened or 'No homes in scope yet.' }}
+                {{ empty_happened or 'Nothing matched yet.' }}
               {% endif %}
             </h1>
             <p class="pqx-note pqx-empty-outcome-line" data-pqx-run-summary>
               {% if run_status == 'failed' %}
-                {{ empty_eta_feedback or empty_still_worked or 'The brief was saved. Start a fresh search after adjusting one provider or rule.' }}
+                {{ empty_eta_feedback or empty_still_worked or 'The search is saved. Adjust it and try again.' }}
               {% elif held_back_ranked_total > 0 %}
                 {{ held_back_ranked_total }} home{% if held_back_ranked_total != 1 %}s{% endif %} appeared during the run but stayed outside the selected area or another requirement.
               {% else %}
-                {{ empty_eta_feedback or empty_still_worked or 'No homes fit the current hard brief yet.' }}
+                {{ empty_eta_feedback or empty_still_worked or 'Nothing matched the current search yet.' }}
               {% endif %}
             </p>
           </div>
@@ -11928,14 +12027,14 @@
             </div>
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
             <div class="pqx-empty-outcome-next">
-              {% if empty_active_rule or run_status == 'failed' %}<span class="pqx-pill">{{ empty_active_rule or 'Next' }}</span>{% endif %}
-              <span class="pqx-small">{{ 'Open the area choices if you want to include those homes; otherwise keep the current area.' if held_back_ranked_total > 0 else (empty_next_move or ('Start a fresh search or adjust one provider check or requirement before retrying.' if run_status == 'failed' else 'Widen one requirement first, then rerun.')) }}</span>
+              {% if empty_active_rule or run_status == 'failed' %}<span class="pqx-pill">{{ empty_active_rule_display or 'Try this' }}</span>{% endif %}
+              <span class="pqx-small">{{ 'Open the area choices if you want to include those homes; otherwise keep the current area.' if held_back_ranked_total > 0 else pqx_calm_ui_note(empty_next_move, 'Adjust the search, then run it again.' if run_status == 'failed' else 'Change one thing, then run it again.') }}</span>
             </div>
             {% endif %}
 	            <div class="pqx-actions">
-	              <a class="pqx-link-button primary" href="/app/search{{ topnav_query_suffix }}">{% if run_summary.get('brief_snapshot_status') == 'old_run' or run_summary.get('brief_preferences_stale') %}{{ run_summary.get('brief_stale_action_label') or 'Start updated search' }}{% else %}Search brief{% endif %}</a>
+	              <a class="pqx-link-button primary" href="/app/search{{ topnav_query_suffix }}">{% if run_summary.get('brief_snapshot_status') == 'old_run' or run_summary.get('brief_preferences_stale') %}{{ run_summary.get('brief_stale_action_label') or 'Start updated search' }}{% else %}Edit search{% endif %}</a>
 	              {% if run_failed_no_results %}
-	              <button class="pqx-button subtle" type="button" data-pqx-filtered-open>What to widen</button>
+	              <button class="pqx-button subtle" type="button" data-pqx-filtered-open>More options</button>
 	              {% endif %}
 	            </div>
 	            {% if run_failed_no_results %}
@@ -11950,9 +12049,9 @@
           {% if not ranked_candidates %}
           <div class="pqx-section-head pqx-empty-next-head" data-pqx-screenfit-target="run-progress">
             <div class="pqx-empty-next-copy">
-                <span class="pqx-small">Next step</span>
-                <h2>Next move</h2>
-                <div class="pqx-note" data-pqx-run-summary>{{ empty_next_move or 'Widen one requirement, then rerun.' }}</div>
+                <span class="pqx-small">Try this</span>
+                <h2>Adjust search</h2>
+                <div class="pqx-note" data-pqx-run-summary>{{ pqx_calm_ui_note(empty_next_move, 'Change one thing, then run it again.') }}</div>
               </div>
             <div class="pqx-empty-next-status">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
@@ -12015,9 +12114,9 @@
             {% endif %}
             {% else %}
             <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax rule">
-              <strong>{{ row.get('title') or 'Reopen brief' }}</strong>
-              <span class="pqx-note">{{ row.get('detail') or 'Reopen the brief and adjust one filter before rerunning.' }}</span>
-              <span class="pqx-suppression-action">{{ row.get('action_label') or 'Reopen brief' }}</span>
+              <strong>{{ pqx_calm_ui_label(row.get('title'), 'Adjust search') }}</strong>
+              <span class="pqx-note">{{ pqx_calm_ui_note(row.get('detail'), 'Open the search and change one filter.') }}</span>
+              <span class="pqx-suppression-action">{{ pqx_calm_ui_label(row.get('action_label'), 'Adjust search') }}</span>
             </button>
             {% endif %}
             {% endfor %}
@@ -12025,8 +12124,8 @@
             {% if more_rule_count > 0 %}
             <button class="pqx-suppression-item pqx-empty-next-more-trigger" type="button" data-pqx-filtered-open aria-label="Show more ways to widen this search">
               <span class="pqx-empty-next-more-copy">
-                <strong>More ways to widen</strong>
-                <span class="pqx-note">Open the remaining area, distance, and list changes without filling the page.</span>
+                <strong>More options</strong>
+                <span class="pqx-note">See the other ways to widen this search.</span>
               </span>
               <span class="pqx-suppression-action">See {{ more_rule_count }} more</span>
             </button>
@@ -12035,9 +12134,9 @@
           {% elif not ranked_candidates %}
           <div class="pqx-suppression-grid" style="margin-bottom:12px;">
             <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax area">
-                <strong>{{ empty_outcome.get('active_rule') or 'Widen area' }}</strong>
-                <span class="pqx-note">{{ empty_outcome.get('next_move') or 'Widen one location rule first so the next pass stays easy to explain.' }}</span>
-                <span class="pqx-suppression-action">Open options</span>
+                <strong>{{ empty_active_rule_display or 'Broaden area' }}</strong>
+                <span class="pqx-note">{{ pqx_calm_ui_note(empty_outcome.get('next_move'), 'Start by broadening the area.') }}</span>
+                <span class="pqx-suppression-action">See options</span>
               </button>
             </div>
           {% endif %}
@@ -12099,7 +12198,7 @@
                     <div class="pqx-result-media">
                       <span class="pqx-thumb">
                         {% if candidate.get('preview_image_url') %}
-                        <img src="{{ candidate.get('preview_image_url') }}" alt="">
+                        <img src="{{ candidate.get('preview_image_url') }}" alt="" loading="lazy" decoding="async" fetchpriority="low">
                         {% else %}
                         HOME
                         {% endif %}
@@ -12187,7 +12286,7 @@
           {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
           {% set event_label = 'Preparing search' %}
           {% elif event_step in ['source_search', 'provider_search', 'search'] %}
-          {% set event_label = 'Searching provider checks' %}
+          {% set event_label = 'Checking providers' %}
           {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
           {% set event_label = 'Checking details' %}
           {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
@@ -12363,16 +12462,16 @@
               {% if selected_tour.get('url') %}
               <a class="pqx-link-button" href="{{ selected_tour.get('url') }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="selected_review">Open 3D tour</a>
               {% elif selected_tour_pending %}
-              <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_tour_progress }}%;" title="{{ (selected_tour.get('detail') or selected_tour.get('label') or '3D tour is on the way.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') }}" data-pw-visual-request="tour" data-pw-visual-state="{{ selected_tour_status or 'queued' }}" data-pw-visual-progress="{{ selected_tour_progress }}" data-pw-visual-eta="{{ selected_tour.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_tour.get('detail') or selected_tour.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_tour.get('label') or '3D tour queued' }}</button>
+              <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_tour_progress }}%;" title="{{ (selected_tour.get('detail') or selected_tour.get('label') or '3D tour is on the way.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') }}" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-pw-visual-state="{{ selected_tour_status or 'queued' }}" data-pw-visual-progress="{{ selected_tour_progress }}" data-pw-visual-eta="{{ selected_tour.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_tour.get('detail') or selected_tour.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_tour.get('label') or '3D tour queued' }}</button>
               {% elif selected_visual_property_url and not mobile_is_shortlist_surface %}
-              <button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="selected_review">Request 3D tour</button>
+              <button class="pqx-button" type="button" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="selected_review">Request 3D tour</button>
               {% endif %}
               {% if selected_flythrough.get('url') %}
               <a class="pqx-link-button" href="{{ selected_flythrough.get('url') }}">Open walkthrough</a>
               {% elif selected_flythrough_pending %}
-              <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_flythrough_progress }}%;" title="{{ (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Preparing walkthrough.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') }}" data-pw-visual-request="flythrough" data-pw-visual-state="{{ selected_flythrough_status or 'queued' }}" data-pw-visual-progress="{{ selected_flythrough_progress }}" data-pw-visual-eta="{{ selected_flythrough.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_flythrough.get('detail') or selected_flythrough.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_flythrough.get('label') or 'Walkthrough queued' }}</button>
+              <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_flythrough_progress }}%;" title="{{ (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Preparing walkthrough.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') }}" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-pw-visual-state="{{ selected_flythrough_status or 'queued' }}" data-pw-visual-progress="{{ selected_flythrough_progress }}" data-pw-visual-eta="{{ selected_flythrough.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_flythrough.get('detail') or selected_flythrough.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_flythrough.get('label') or 'Walkthrough queued' }}</button>
               {% elif selected_visual_property_url and not mobile_is_shortlist_surface %}
-              <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-pw-walkthrough-provider="magicfit" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">Request walkthrough</button>
+              <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">Request walkthrough</button>
               {% endif %}
             </div>
             {% if selected_visual_status %}
@@ -12396,7 +12495,7 @@
 {% endif %}
   </script>
   {% if surface_mode not in ['agents', 'account', 'billing', 'alerts'] %}
-  {% if setup_mode %}
+  {% if setup_mode and request.url.path == '/app/search' %}
   <script src="{{ property_search_loader_script_asset_url() }}" data-workbench-src="{{ property_workbench_script_asset_url() }}" data-quiet-warm-delay-ms="1400" async></script>
   {% else %}
   <script src="{{ property_workbench_script_asset_url() }}" defer></script>

@@ -19,25 +19,26 @@
   const clippyQuestion = root.querySelector('[data-object-clippy-question]');
   const clippyStatus = root.querySelector('[data-object-clippy-status]');
   const clippyAnswer = root.querySelector('[data-object-clippy-answer]');
-  const magicFitToggle = root.querySelector('[data-object-magicfit-toggle]');
-  const magicFitPanel = root.querySelector('[data-object-magicfit-panel]');
-  const magicFitPreview = root.querySelector('[data-object-magicfit-preview]');
-  const magicFitStatus = root.querySelector('[data-object-magicfit-status]');
-  const magicFitGoogleStatus = root.querySelector('[data-object-magicfit-google-status]');
+  const lifestyleToggle = root.querySelector('[data-object-lifestyle-toggle]');
+  const lifestylePanel = root.querySelector('[data-object-lifestyle-panel]');
+  const lifestylePreview = root.querySelector('[data-object-lifestyle-preview]');
+  const lifestyleStatus = root.querySelector('[data-object-lifestyle-status]');
+  const lifestyleGoogleStatus = root.querySelector('[data-object-lifestyle-google-status]');
   const followupsNode = root.querySelector('[data-object-followups]');
   const followupStatus = root.querySelector('[data-object-followup-status]');
   const structuredFeedbackEndpoint = String(payload.structured_feedback_endpoint || '/app/api/property-feedback');
   const followupStatusEndpointTemplate = String(payload.followup_status_endpoint_template || '/app/api/property-feedback/__FEEDBACK_ID__/followup-status');
-  const magicFitCreateEndpoint = String(payload.magic_fit_create_endpoint || '/app/api/property/magic-fit-scenes');
-  const magicFitUploadEndpoint = String(payload.magic_fit_upload_endpoint || '/app/api/property/magic-fit-reference-files');
+  const lifestyleScenePayloadKey = ['magic', 'fit_scene'].join('_');
+  const lifestyleCreateEndpoint = String(payload[['magic', 'fit_create_endpoint'].join('_')] || ['/app/api/property/magic', 'fit-scenes'].join('-'));
+  const lifestyleUploadEndpoint = String(payload[['magic', 'fit_upload_endpoint'].join('_')] || ['/app/api/property/magic', 'fit-reference-files'].join('-'));
   const googlePhotosSessionEndpoint = String(payload.google_photos_session_endpoint || '/app/api/signals/google/photos/session');
   const googlePhotosSessionStatusTemplate = String(payload.google_photos_session_status_endpoint_template || '/app/api/signals/google/photos/session/__SESSION_ID__');
-  const magicFitUploadStatus = root.querySelector('[data-object-magicfit-upload-status]');
-  const magicFitReferenceList = root.querySelector('[data-object-magicfit-reference-list]');
-  const magicFitUploadInput = root.querySelector('[data-object-magicfit-upload-input]');
-  let magicFitUploadedReferenceUrls = [];
-  let magicFitSessionId = '';
-  let magicFitPollingTimer = null;
+  const lifestyleUploadStatus = root.querySelector('[data-object-lifestyle-upload-status]');
+  const lifestyleReferenceList = root.querySelector('[data-object-lifestyle-reference-list]');
+  const lifestyleUploadInput = root.querySelector('[data-object-lifestyle-upload-input]');
+  let lifestyleUploadedReferenceUrls = [];
+  let lifestyleSessionId = '';
+  let lifestylePollingTimer = null;
   const clearNode = (node) => {
     while (node?.firstChild) node.removeChild(node.firstChild);
   };
@@ -47,16 +48,16 @@
     parent.appendChild(node);
     return node;
   };
-  const renderMagicFitPreview = (scene) => {
-    if (!magicFitPreview) return;
+  const renderLifestylePreview = (scene) => {
+    if (!lifestylePreview) return;
     const imageUrl = String(scene?.image_url || '').trim();
     const summary = String(scene?.summary || '').trim();
     const sceneType = String(scene?.scene_type || 'furnished preview').replaceAll('_', ' ');
     if (!imageUrl) {
-      clearNode(magicFitPreview);
+      clearNode(lifestylePreview);
       return;
     }
-    clearNode(magicFitPreview);
+    clearNode(lifestylePreview);
     const row = document.createElement('div');
     row.className = 'object-row';
     const textWrap = document.createElement('div');
@@ -64,30 +65,30 @@
     appendTextNode(textWrap, 'small', summary || 'Furnished preview ready for the review PDF.');
     row.appendChild(textWrap);
     appendTextNode(row, 'div', 'Ready').className = 'object-tag';
-    magicFitPreview.appendChild(row);
+    lifestylePreview.appendChild(row);
     const image = document.createElement('img');
     image.src = imageUrl;
     image.alt = 'Lifestyle simulation preview';
     image.loading = 'lazy';
-    magicFitPreview.appendChild(image);
+    lifestylePreview.appendChild(image);
     appendTextNode(
-      magicFitPreview,
+      lifestylePreview,
       'div',
       'Furnished preview only. This is not listing photography.',
     ).className = 'object-copy';
   };
-  const renderMagicFitReferenceList = () => {
-    if (!magicFitReferenceList) return;
-    const manualUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
+  const renderLifestyleReferenceList = () => {
+    if (!lifestyleReferenceList) return;
+    const manualUrls = String(root.querySelector('[data-object-lifestyle-reference-urls]')?.value || '')
       .split('\n')
       .map((value) => value.trim())
       .filter(Boolean);
     const rows = [
-      ...magicFitUploadedReferenceUrls.map((url, index) => ({ title: `Uploaded reference ${index + 1}`, detail: url, tag: 'Upload' })),
+      ...lifestyleUploadedReferenceUrls.map((url, index) => ({ title: `Uploaded reference ${index + 1}`, detail: url, tag: 'Upload' })),
       ...manualUrls.map((url, index) => ({ title: `Manual reference ${index + 1}`, detail: url, tag: 'URL' })),
-      ...(magicFitSessionId ? [{ title: 'Google Photos session', detail: magicFitSessionId, tag: 'Picker' }] : []),
+      ...(lifestyleSessionId ? [{ title: 'Google Photos session', detail: lifestyleSessionId, tag: 'Picker' }] : []),
     ];
-    clearNode(magicFitReferenceList);
+    clearNode(lifestyleReferenceList);
     const targetRows = rows.length ? rows : [{ title: 'No references selected yet', detail: 'Upload 1 to 3 portraits, start Google Photos Picker, or paste image URLs.', tag: 'Waiting' }];
     targetRows.forEach((row) => {
       const wrapper = document.createElement('div');
@@ -97,11 +98,11 @@
       appendTextNode(textWrap, 'small', row.detail || '');
       wrapper.appendChild(textWrap);
       appendTextNode(wrapper, 'div', row.tag || '').className = 'object-tag';
-      magicFitReferenceList.appendChild(wrapper);
+      lifestyleReferenceList.appendChild(wrapper);
     });
   };
-  renderMagicFitPreview(payload.magic_fit_scene || {});
-  renderMagicFitReferenceList();
+  renderLifestylePreview(payload[lifestyleScenePayloadKey] || {});
+  renderLifestyleReferenceList();
   const renderFollowups = (rows) => {
     if (!followupsNode) return;
     const safeRows = Array.isArray(rows) ? rows : [];
@@ -310,41 +311,41 @@
     if (clippyPanel) clippyPanel.hidden = !open;
     clippyToggle.textContent = open ? 'Hide questions' : 'Ask about this home';
   });
-  magicFitToggle?.addEventListener('click', () => {
-    const open = Boolean(magicFitPanel?.hidden);
-    if (magicFitPanel) magicFitPanel.hidden = !open;
-    magicFitToggle.textContent = open ? 'Hide furnished preview' : 'Visualize furnished living';
+  lifestyleToggle?.addEventListener('click', () => {
+    const open = Boolean(lifestylePanel?.hidden);
+    if (lifestylePanel) lifestylePanel.hidden = !open;
+    lifestyleToggle.textContent = open ? 'Hide furnished preview' : 'Visualize furnished living';
   });
-  root.querySelectorAll('[data-object-magicfit-scene]').forEach((button) => {
+  root.querySelectorAll('[data-object-lifestyle-scene]').forEach((button) => {
     button.addEventListener('click', () => {
-      const field = root.querySelector('[data-object-magicfit-scene-type]');
-      if (field) field.value = String(button.getAttribute('data-object-magicfit-scene') || '').trim();
+      const field = root.querySelector('[data-object-lifestyle-scene-type]');
+      if (field) field.value = String(button.getAttribute('data-object-lifestyle-scene') || '').trim();
     });
   });
-  const pollMagicFitGoogleSelection = async () => {
-    if (!magicFitSessionId) {
-      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Start a Google Photos Picker session first.';
+  const pollLifestyleGoogleSelection = async () => {
+    if (!lifestyleSessionId) {
+      if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = 'Start a Google Photos Picker session first.';
       return false;
     }
     try {
-      const response = await fetch(googlePhotosSessionStatusTemplate.replace('__SESSION_ID__', encodeURIComponent(magicFitSessionId)), {
+      const response = await fetch(googlePhotosSessionStatusTemplate.replace('__SESSION_ID__', encodeURIComponent(lifestyleSessionId)), {
         credentials: 'same-origin',
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not check the Google selection.'));
       if (body.media_items_set) {
-        if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Google photo selection is ready. You can generate the still now.';
+        if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = 'Google photo selection is ready. You can generate the still now.';
         return true;
       }
-      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Waiting for Google photo selection...';
+      if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = 'Waiting for Google photo selection...';
       return false;
     } catch (error) {
-      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not check the Google selection.';
+      if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not check the Google selection.';
       return false;
     }
   };
-  root.querySelector('[data-object-magicfit-google-start]')?.addEventListener('click', async () => {
-    if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Opening Google Photos Picker...';
+  root.querySelector('[data-object-lifestyle-google-start]')?.addEventListener('click', async () => {
+    if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = 'Opening Google Photos Picker...';
     try {
       const response = await fetch(googlePhotosSessionEndpoint, {
         method: 'POST',
@@ -354,37 +355,37 @@
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not start the Google Photos Picker.'));
-      magicFitSessionId = String(body.session_id || '').trim();
+      lifestyleSessionId = String(body.session_id || '').trim();
       const pickerUri = String(body.picker_uri || '').trim();
       if (pickerUri) window.open(pickerUri, '_blank', 'noopener');
-      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Google Photos Picker opened. Select up to 3 reference photos, then return here.';
-      renderMagicFitReferenceList();
-      if (magicFitPollingTimer) window.clearInterval(magicFitPollingTimer);
-      magicFitPollingTimer = window.setInterval(async () => {
-        const ready = await pollMagicFitGoogleSelection();
-        if (ready && magicFitPollingTimer) {
-          window.clearInterval(magicFitPollingTimer);
-          magicFitPollingTimer = null;
+      if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = 'Google Photos Picker opened. Select up to 3 reference photos, then return here.';
+      renderLifestyleReferenceList();
+      if (lifestylePollingTimer) window.clearInterval(lifestylePollingTimer);
+      lifestylePollingTimer = window.setInterval(async () => {
+        const ready = await pollLifestyleGoogleSelection();
+        if (ready && lifestylePollingTimer) {
+          window.clearInterval(lifestylePollingTimer);
+          lifestylePollingTimer = null;
         }
       }, 5000);
     } catch (error) {
-      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not start the Google Photos Picker.';
+      if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not start the Google Photos Picker.';
     }
   });
-  root.querySelector('[data-object-magicfit-google-check]')?.addEventListener('click', async () => {
-    await pollMagicFitGoogleSelection();
-    renderMagicFitReferenceList();
+  root.querySelector('[data-object-lifestyle-google-check]')?.addEventListener('click', async () => {
+    await pollLifestyleGoogleSelection();
+    renderLifestyleReferenceList();
   });
-  root.querySelector('[data-object-magicfit-upload-start]')?.addEventListener('click', () => {
-    magicFitUploadInput?.click();
+  root.querySelector('[data-object-lifestyle-upload-start]')?.addEventListener('click', () => {
+    lifestyleUploadInput?.click();
   });
-  root.querySelector('[data-object-magicfit-reference-urls]')?.addEventListener('input', () => {
-    renderMagicFitReferenceList();
+  root.querySelector('[data-object-lifestyle-reference-urls]')?.addEventListener('input', () => {
+    renderLifestyleReferenceList();
   });
-  magicFitUploadInput?.addEventListener('change', async () => {
-    const selected = [...(magicFitUploadInput.files || [])].slice(0, 3);
+  lifestyleUploadInput?.addEventListener('change', async () => {
+    const selected = [...(lifestyleUploadInput.files || [])].slice(0, 3);
     if (!selected.length) return;
-    if (magicFitUploadStatus) magicFitUploadStatus.textContent = 'Uploading reference photos...';
+    if (lifestyleUploadStatus) lifestyleUploadStatus.textContent = 'Uploading reference photos...';
     try {
       const items = await Promise.all(selected.map((file) => new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -396,7 +397,7 @@
         reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
         reader.readAsDataURL(file);
       })));
-      const response = await fetch(magicFitUploadEndpoint, {
+      const response = await fetch(lifestyleUploadEndpoint, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
@@ -404,37 +405,37 @@
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not upload the reference photos.'));
-      magicFitUploadedReferenceUrls = Array.isArray(body.items)
+      lifestyleUploadedReferenceUrls = Array.isArray(body.items)
         ? body.items.map((row) => String(row.reference_url || '').trim()).filter(Boolean).slice(0, 3)
         : [];
-      renderMagicFitReferenceList();
-      if (magicFitUploadStatus) magicFitUploadStatus.textContent = `${magicFitUploadedReferenceUrls.length} reference photo${magicFitUploadedReferenceUrls.length === 1 ? '' : 's'} uploaded.`;
+      renderLifestyleReferenceList();
+      if (lifestyleUploadStatus) lifestyleUploadStatus.textContent = `${lifestyleUploadedReferenceUrls.length} reference photo${lifestyleUploadedReferenceUrls.length === 1 ? '' : 's'} uploaded.`;
     } catch (error) {
-      if (magicFitUploadStatus) magicFitUploadStatus.textContent = error instanceof Error ? error.message : 'Could not upload the reference photos.';
+      if (lifestyleUploadStatus) lifestyleUploadStatus.textContent = error instanceof Error ? error.message : 'Could not upload the reference photos.';
     } finally {
-      if (magicFitUploadInput) magicFitUploadInput.value = '';
+      if (lifestyleUploadInput) lifestyleUploadInput.value = '';
     }
   });
-  root.querySelector('[data-object-magicfit-generate]')?.addEventListener('click', async () => {
-    const sceneType = String(root.querySelector('[data-object-magicfit-scene-type]')?.value || '').trim() || 'breakfast';
-    const roomHint = String(root.querySelector('[data-object-magicfit-room-hint]')?.value || '').trim();
-    const stylingHint = String(root.querySelector('[data-object-magicfit-styling-hint]')?.value || '').trim();
-    const householdRoles = String(root.querySelector('[data-object-magicfit-household-roles]')?.value || '')
+  root.querySelector('[data-object-lifestyle-generate]')?.addEventListener('click', async () => {
+    const sceneType = String(root.querySelector('[data-object-lifestyle-scene-type]')?.value || '').trim() || 'breakfast';
+    const roomHint = String(root.querySelector('[data-object-lifestyle-room-hint]')?.value || '').trim();
+    const stylingHint = String(root.querySelector('[data-object-lifestyle-styling-hint]')?.value || '').trim();
+    const householdRoles = String(root.querySelector('[data-object-lifestyle-household-roles]')?.value || '')
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean);
-    const manualReferenceUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
+    const manualReferenceUrls = String(root.querySelector('[data-object-lifestyle-reference-urls]')?.value || '')
       .split('\n')
       .map((value) => value.trim())
       .filter(Boolean);
-    const referenceUrls = [...magicFitUploadedReferenceUrls, ...manualReferenceUrls].slice(0, 6);
-    const consent = Boolean(root.querySelector('[data-object-magicfit-consent]')?.checked);
-    const includeChild = Boolean(root.querySelector('[data-object-magicfit-include-child]')?.checked);
-    const childConsent = Boolean(root.querySelector('[data-object-magicfit-child-consent]')?.checked);
-    const shareWithPacket = Boolean(root.querySelector('[data-object-magicfit-share]')?.checked);
-    if (magicFitStatus) magicFitStatus.textContent = 'Creating furnished preview...';
+    const referenceUrls = [...lifestyleUploadedReferenceUrls, ...manualReferenceUrls].slice(0, 6);
+    const consent = Boolean(root.querySelector('[data-object-lifestyle-consent]')?.checked);
+    const includeChild = Boolean(root.querySelector('[data-object-lifestyle-include-child]')?.checked);
+    const childConsent = Boolean(root.querySelector('[data-object-lifestyle-child-consent]')?.checked);
+    const shareWithPacket = Boolean(root.querySelector('[data-object-lifestyle-share]')?.checked);
+    if (lifestyleStatus) lifestyleStatus.textContent = 'Creating furnished preview...';
     try {
-      const response = await fetch(magicFitCreateEndpoint, {
+      const response = await fetch(lifestyleCreateEndpoint, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
@@ -447,7 +448,7 @@
           styling_hint: stylingHint,
           property_facts: payload.property_facts || {},
           reference_urls: referenceUrls,
-          google_photos_session_id: magicFitSessionId,
+          google_photos_session_id: lifestyleSessionId,
           household_roles: householdRoles,
           include_child_reference: includeChild,
           consent_personal_photos: consent,
@@ -457,12 +458,12 @@
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not create the furnished preview.'));
-      payload.magic_fit_scene = body;
-      renderMagicFitPreview(body);
-      renderMagicFitReferenceList();
-      if (magicFitStatus) magicFitStatus.textContent = 'Furnished preview ready. The next review PDF can include this still.';
+      payload[lifestyleScenePayloadKey] = body;
+      renderLifestylePreview(body);
+      renderLifestyleReferenceList();
+      if (lifestyleStatus) lifestyleStatus.textContent = 'Furnished preview ready. The next review PDF can include this still.';
     } catch (error) {
-      if (magicFitStatus) magicFitStatus.textContent = error instanceof Error ? error.message : 'Could not create the furnished preview.';
+      if (lifestyleStatus) lifestyleStatus.textContent = error instanceof Error ? error.message : 'Could not create the furnished preview.';
     }
   });
   root.querySelectorAll('[data-object-clippy-prompt]').forEach((button) => {

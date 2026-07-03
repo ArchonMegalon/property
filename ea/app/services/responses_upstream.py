@@ -4385,8 +4385,48 @@ def _provider_order() -> tuple[str, ...]:
     return _provider_order_from_env(raw, fallback=("onemin", "gemini_vortex", "magixai"), env_name="EA_RESPONSES_PROVIDER_ORDER")
 
 
+def _fast_provider_order() -> tuple[str, ...]:
+    raw = _env(
+        "EA_RESPONSES_FAST_PROVIDER_ORDER",
+        _env("EA_RESPONSES_PROVIDER_ORDER", "onemin,gemini_vortex,magixai"),
+    )
+    return _provider_order_from_env(
+        raw,
+        fallback=("onemin", "gemini_vortex", "magixai"),
+        env_name="EA_RESPONSES_FAST_PROVIDER_ORDER",
+    )
+
+
 def _cheap_provider_order() -> tuple[str, ...]:
-    return ("onemin", "gemini_vortex", "magixai")
+    default_order = _env(
+        "EA_RESPONSES_FAST_PROVIDER_ORDER",
+        _env("EA_RESPONSES_PROVIDER_ORDER", "onemin,gemini_vortex,magixai"),
+    )
+    raw = _env(
+        "EA_RESPONSES_CHEAP_PROVIDER_ORDER",
+        default_order,
+    )
+    return _provider_order_from_env(
+        raw,
+        fallback=("onemin", "gemini_vortex", "magixai"),
+        env_name="EA_RESPONSES_CHEAP_PROVIDER_ORDER",
+    )
+
+
+def _groundwork_provider_order() -> tuple[str, ...]:
+    default_order = _env(
+        "EA_RESPONSES_FAST_PROVIDER_ORDER",
+        _env("EA_RESPONSES_PROVIDER_ORDER", "onemin,gemini_vortex,magixai"),
+    )
+    raw = _env(
+        "EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER",
+        default_order,
+    )
+    return _provider_order_from_env(
+        raw,
+        fallback=("onemin", "gemini_vortex", "magixai"),
+        env_name="EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER",
+    )
 
 
 def _hard_provider_order() -> tuple[str, ...]:
@@ -5351,7 +5391,9 @@ def _provider_candidates(
         return [(config, explicit)] if explicit else []
 
     provider_keys_by_lane: tuple[str, ...]
-    if lane in {_LANE_FAST, _LANE_OVERFLOW}:
+    if lane == _LANE_FAST:
+        provider_keys_by_lane = _fast_provider_order()
+    elif lane == _LANE_OVERFLOW:
         provider_keys_by_lane = _cheap_provider_order()
     elif lane in {_LANE_REVIEW_LIGHT, _LANE_AUDIT}:
         provider_keys_by_lane = _review_audit_provider_order()
@@ -5386,25 +5428,7 @@ def _provider_candidates(
         ]
 
     if normalized == REPAIR_GEMINI_PUBLIC_MODEL:
-        candidates: list[tuple[ProviderConfig, str]] = []
-        seen: set[tuple[str, str]] = set()
-        primary_model_names = (
-            _provider_model_order_for_lane("gemini_vortex", lane, requested)
-            or _gemini_vortex_models()
-        )
-        for model_name in primary_model_names:
-            key = ("gemini_vortex", model_name)
-            if key in seen:
-                continue
-            seen.add(key)
-            candidates.append((configs["gemini_vortex"], model_name))
-        for config, model_name in _provider_candidates(FAST_PUBLIC_MODEL, lane=lane):
-            key = (config.provider_key, model_name)
-            if key in seen:
-                continue
-            seen.add(key)
-            candidates.append((config, model_name))
-        return candidates
+        return _provider_candidates(FAST_PUBLIC_MODEL, lane=lane)
 
     if normalized == ONEMIN_PUBLIC_MODEL:
         model_names = _provider_model_order_for_lane("onemin", lane, requested) or _onemin_models()
@@ -5418,11 +5442,18 @@ def _provider_candidates(
         return [(configs["gemini_vortex"], model_name) for model_name in model_names]
 
     if normalized in {GROUNDWORK_PUBLIC_MODEL, GROUNDWORK_PUBLIC_MODEL_ALIAS}:
-        return [
-            (configs["gemini_vortex"], model_name)
-            for model_name in _provider_model_order_for_lane("gemini_vortex", lane, requested)
-            or _groundwork_lane_models()
-        ]
+        candidates: list[tuple[ProviderConfig, str]] = []
+        for provider_key in _provider_order_for_lane_health(
+            lane=lane,
+            ordered=_groundwork_provider_order(),
+        ):
+            config = configs.get(provider_key)
+            if config is None:
+                continue
+            model_names = _provider_model_order_for_lane(provider_key, lane, requested) or config.default_models
+            for model_name in model_names:
+                candidates.append((config, model_name))
+        return candidates
 
     if normalized == REVIEW_LIGHT_PUBLIC_MODEL:
         candidates: list[tuple[ProviderConfig, str]] = []
@@ -5494,7 +5525,18 @@ def _provider_candidates(
                 candidates.append((config, model_name))
         return candidates
 
-    if normalized in {FAST_PUBLIC_MODEL, "ea-overflow"}:
+    if normalized == FAST_PUBLIC_MODEL:
+        candidates: list[tuple[ProviderConfig, str]] = []
+        for provider_key in _fast_provider_order():
+            config = configs.get(provider_key)
+            if config is None:
+                continue
+            model_names = _provider_model_order_for_lane(provider_key, lane, requested) or config.default_models
+            for model_name in model_names:
+                candidates.append((config, model_name))
+        return candidates
+
+    if normalized == "ea-overflow":
         candidates: list[tuple[ProviderConfig, str]] = []
         for provider_key in _cheap_provider_order():
             config = configs.get(provider_key)
@@ -9513,6 +9555,10 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
             "default_profile": _env("EA_RESPONSES_DEFAULT_PROFILE", _DEFAULT_LANE_PROFILE) or _DEFAULT_LANE_PROFILE,
             "default_lane": _resolve_default_response_lane(),
             "provider_order": list(_provider_order()),
+            "fast_provider_order": list(_fast_provider_order()),
+            "cheap_provider_order": list(_cheap_provider_order()),
+            "groundwork_provider_order": list(_groundwork_provider_order()),
+            "hard_provider_order": list(_hard_provider_order()),
             "onemin_accounts": [
                 _provider_account_name("onemin", key_names=onemin_key_names, key=key)
                 for key in onemin_key_names

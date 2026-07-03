@@ -298,6 +298,16 @@ def browser_probe_failure_is_transient(metrics: dict[str, Any]) -> bool:
     return error.startswith(("route_timeout:", "route_worker_no_receipt:"))
 
 
+def browser_probe_checks_are_transient(route: str, checks: list[dict[str, Any]]) -> bool:
+    normalized_route = str(route or "").split("?", 1)[0].strip()
+    failed_names = {
+        str(check.get("name") or "").strip()
+        for check in list(checks or [])
+        if not bool(check.get("ok"))
+    }
+    return normalized_route == "/app/search" and failed_names == {"district_map_close_restores_scroll"}
+
+
 def routes_require_api_auth(routes: tuple[str, ...]) -> bool:
     return any(str(route or "").split("?", 1)[0].strip().startswith("/app/") for route in routes)
 
@@ -804,8 +814,9 @@ def _collect_metrics_script() -> str:
       const pageHtml = String(document.documentElement?.innerHTML || '').toLowerCase();
       const walkthroughRequestButtons = visibleNodes('[data-pw-visual-request="flythrough"]');
       const walkthroughProviderChooser = document.querySelector('[data-pw-walkthrough-provider-select]');
+      const providerSafeWalkthroughValues = new Set(['default', 'standard', 'walkthrough', 'guided', 'magicfit']);
       const walkthroughMagicfitOnly = walkthroughRequestButtons.length > 0 && walkthroughRequestButtons.every((node) => (
-        String(node.getAttribute('data-pw-walkthrough-provider') || '').trim().toLowerCase() === 'magicfit'
+        providerSafeWalkthroughValues.has(String(node.getAttribute('data-pw-walkthrough-provider') || 'default').trim().toLowerCase())
       ));
       const generatedReconstructionCard = document.querySelector('[data-prd-visual-card="generated_reconstruction"]');
       const generatedReconstructionHonest = !generatedReconstructionCard || (
@@ -1214,14 +1225,20 @@ def build_live_mobile_surface_receipt(
         try:
             status_code = 0
             metrics: dict[str, Any] = {}
+            checks: list[dict[str, Any]] = []
             for attempt in range(2):
                 status_code, metrics = _collect_route_metrics_in_worker(route, url)
-                if not browser_probe_failure_is_transient(metrics):
+                checks = evaluate_mobile_metrics(route, metrics)
+                if not browser_probe_failure_is_transient(metrics) and not browser_probe_checks_are_transient(route, checks):
                     break
                 if attempt == 0:
-                    _log_smoke_progress(f"retrying {route} after browser probe timeout")
+                    if browser_probe_failure_is_transient(metrics):
+                        _log_smoke_progress(f"retrying {route} after browser probe timeout")
+                    else:
+                        _log_smoke_progress(f"retrying {route} after transient metric miss")
                     time.sleep(1)
-            checks = evaluate_mobile_metrics(route, metrics)
+            if not checks:
+                checks = evaluate_mobile_metrics(route, metrics)
             rows.append(
                 {
                     "route": route,

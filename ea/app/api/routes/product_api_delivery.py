@@ -213,13 +213,16 @@ def _property_search_apply_response_display_totals(payload: dict[str, object]) -
         if str(value or "").strip()
     ]
     selected_platform_count = len(dict.fromkeys(selected_platforms))
-    display_total = max(
+    explicit_display_total = max(
         _property_search_response_int(normalized.get("provider_display_total")),
         _property_search_response_int(summary.get("provider_display_total")),
+    )
+    display_total = max(
+        explicit_display_total,
         _property_search_response_int(summary.get("provider_total")),
         selected_platform_count,
     )
-    if selected_platform_count <= 0:
+    if selected_platform_count <= 0 and explicit_display_total <= 0:
         country, listing_mode = _property_search_response_scope(summary, normalized)
         if country:
             try:

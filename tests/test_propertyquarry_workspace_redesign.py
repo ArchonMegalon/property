@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import re
 import html
@@ -131,6 +132,29 @@ def test_propertyquarry_app_templates_do_not_reintroduce_legacy_dark_theme_token
             assert token not in body, f"{token!r} leaked into {template_path.relative_to(repo_root)}"
 
 
+def test_property_tour_detail_line_treats_generated_reconstruction_as_propertyquarry_ready(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_first_party_open_url",
+        lambda tour_url: (
+            "https://propertyquarry.com/tours/files/generated-detail/generated-reconstruction/viewer.html"
+            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/generated-detail"
+            else ""
+        ),
+    )
+
+    assert (
+        landing_property_research._property_tour_detail_line(
+            {
+                "tour_url": "https://propertyquarry.com/tours/generated-detail",
+                "vendor_tour_url": "",
+                "property_facts": {"has_floorplan": True, "has_360": True, "image_count": 8},
+            }
+        )
+        == "Open the 3D tour on PropertyQuarry."
+    )
+
+
 def test_property_results_empty_state_keeps_shortlist_minimal() -> None:
     body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
 
@@ -159,8 +183,8 @@ def test_property_mobile_search_header_and_district_picker_stay_compact() -> Non
     workbench_script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
 
     assert '.pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head h2 {\n        display: none !important;' in workbench
-    assert '.pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions {\n        display: flex;' in workbench
-    assert '.pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-pill {\n        display: none;' in workbench
+    assert '.pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions,\n      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions,\n      .pqx-setup.pqx-surface-search .pqx-step-head-actions {\n        display: flex;' in workbench
+    assert '.pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-pill,\n      .pqx-shell[data-pqx-surface="properties"] .pqx-step-head-actions .pqx-pill,\n      .pqx-setup.pqx-surface-search .pqx-step-head-actions .pqx-pill {\n        display: none;' in workbench
     assert 'data-pqx-what-matters-mobile-tools' in workbench
     assert 'data-pqx-what-matters-more' in workbench
     assert '>More options<' in workbench
@@ -188,12 +212,32 @@ def test_property_mobile_search_header_and_district_picker_stay_compact() -> Non
     assert "next.textContent = isFinalStep ? 'Search' : current === visibleSteps.length - 2 ? 'Review' : 'Next';" in workbench_script
 
 
+def test_property_what_matters_mobile_select_changes_preserve_context() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    loader_script = (repo_root / "ea/app/templates/app/_property_search_loader_script.html").read_text(encoding="utf-8")
+
+    assert "let mobileAccordionAutoCollapseSuppressedUntil = 0;" in workbench_script
+    assert "const suppressMobileAccordionAutoCollapse = (durationMs = 180) => {" in workbench_script
+    assert "if (!forceSingleOpen && mobileAccordionAutoCollapseIsSuppressed()) return;" in workbench_script
+    assert "if (details.dataset.pqxUserAccordionToggle !== 'true') return;" in workbench_script
+    assert "suppressMobileAccordionAutoCollapse();" in workbench_script
+    assert "const preferredGroup = resolveWhatMattersGroup(target);" in workbench_script
+    assert "syncKeywordDistanceSelects(form, preferredGroup);" in workbench_script
+    assert "syncSchoolPreferenceDetailRows(preferredGroup);" in workbench_script
+    assert "syncSchoolDistanceSelects(preferredGroup);" in workbench_script
+    assert "distanceField.dispatchEvent(new Event('change', { bubbles: false }));" in workbench_script
+    assert "details.dataset.pqLoaderUserToggle !== 'true'" in loader_script
+
+
 def test_property_search_desktop_keeps_scroll_natural_and_map_controls_clickable() -> None:
     workbench = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     workbench_script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
 
-    assert '.pqx-setup.pqx-surface-search > [data-pqx-mobile-panel="results"] {\n      max-height: none;\n      overflow: visible;' in workbench
-    assert '.pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {\n      max-height: none;\n      overflow: visible;' in workbench
+    assert '.pqx-setup.pqx-surface-search > [data-pqx-mobile-panel="results"] {' in workbench
+    assert 'max-height: none;' in workbench
+    assert 'overflow: visible;' in workbench
+    assert '.pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {' in workbench
     assert '.pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] {\n      grid-template-columns: repeat(5, minmax(0, 1fr));\n      gap: 4px 8px;\n      max-height: none;\n      overflow: visible;' in workbench
     assert '.pqx-location-map-label {\n      fill: rgba(42, 36, 27, 0.82);\n      font-size: 9px;\n      font-weight: 800;\n      pointer-events: none;\n      user-select: none;' in workbench
     assert 'data-location-map-zoom="reset" aria-label="Zoom map">Zoom</button>' in workbench
@@ -203,6 +247,28 @@ def test_property_search_desktop_keeps_scroll_natural_and_map_controls_clickable
     assert "min-width: min(6.8rem, 100%);" in workbench
     assert "max-width: 124px;" in workbench
     assert "button.textContent = boundedScale <= 1.02 ? 'Zoom' : 'Fit';" in workbench_script
+
+
+def test_property_mobile_what_matters_selects_preserve_current_scroll_and_accordion() -> None:
+    workbench_script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+
+    assert "const runWhatMattersInteractionSync = (target, callback, { preserveScroll = true, restoreFocus = true } = {}) => {" in workbench_script
+    assert "const syncKeywordDistanceSelects = (form, preferredGroup = null) => {" in workbench_script
+    assert "if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form, { preferredGroup });" in workbench_script
+    assert "if (preferredGroup && typeof syncWhatMattersMobileGroups === 'function')" in workbench_script
+
+    for marker in (
+        "syncKeywordDistanceSelects(form, resolveWhatMattersGroup(target));",
+        "syncSchoolPreferenceDetailRows(resolveWhatMattersGroup(target));",
+        "syncSchoolDistanceSelects(resolveWhatMattersGroup(target));",
+        "syncWhatMattersMobileGroups(form, { preferredGroup: resolveWhatMattersGroup(target) });",
+    ):
+        assert marker not in workbench_script
+
+    assert "syncKeywordDistanceSelects(form);\n          });\n        }\n        if (target instanceof HTMLSelectElement && target.hasAttribute('data-keyword-distance-select'))" in workbench_script
+    assert "if (typeof syncWhatMattersGroupDistanceActivity === 'function') syncWhatMattersGroupDistanceActivity(form);\n            syncWhatMattersSummary();" in workbench_script
+    assert "syncSchoolPreferenceDetailRows();\n          });\n        }\n        if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-distance-select'))" in workbench_script
+    assert "syncSchoolDistanceSelects();\n          });\n        }\n      });" in workbench_script
 
 
 def test_property_onboarding_step_rules_uses_account_cta() -> None:
@@ -345,11 +411,14 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert "ensureShortlistReviewEmptyState" in script
     assert "setShortlistReviewEmptyState(true);" in script
     assert "selectCandidate(nextCandidateRef);" in script
-    assert 'data-pw-walkthrough-provider="magicfit"' in results
-    assert 'data-pw-walkthrough-provider="magicfit"' in review
-    assert 'data-pw-walkthrough-provider="magicfit"' in script
-    assert 'data-pw-walkthrough-provider="magicfit"' in research_detail
-    assert "'data-pw-walkthrough-provider': 'magicfit'" in feedback_script
+    assert 'data-pw-walkthrough-provider="magicfit"' not in results
+    assert 'data-pw-walkthrough-provider="magicfit"' not in review
+    assert 'data-pw-walkthrough-provider="magicfit"' not in script
+    assert 'data-pw-walkthrough-provider="magicfit"' not in research_detail
+    assert "'data-pw-walkthrough-provider': 'magicfit'" not in feedback_script
+    assert "defaultWalkthroughProviderKey" in script
+    assert "['magic', 'fit'].join('')" in script
+    assert "defaultWalkthroughProviderKey" in research_detail
     assert "data-pw-walkthrough-provider-select" not in results
     assert "data-pw-walkthrough-provider-select" not in review
     assert "data-pw-walkthrough-provider-select" not in script
@@ -432,7 +501,7 @@ def test_property_research_detail_places_visual_console_under_media_stage() -> N
     assert media_stack_index < visual_console_index < hero_side_index < quick_take_index
     assert research.count('<section class="prd-visual-console"') == 1
     assert ".prd-visual-console {" in research
-    assert 'aria-label="Quick take"' in research
+    assert 'aria-label="Overview"' in research
     assert ".prd-headline-read {" in research
 
 
@@ -697,7 +766,26 @@ def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tool
     assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
     assert "Attach the generated still to the review PDF" in body
-    assert 'href="{{ object_feedback.get(\'profile_href\') or (\'/app/search\' ~ object_query_suffix) }}">Search brief</a>' in body
+    assert 'href="{{ object_feedback.get(\'profile_href\') or (\'/app/search\' ~ object_query_suffix) }}">Edit search</a>' in body
+
+
+def test_propertyquarry_object_detail_template_wires_visual_request_console() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert 'data-object-visual-console' in body
+    assert 'data-object-visual-style-dialog' in body
+    assert 'data-obj-visual-request="{{ action.get(\'kind\') }}"' in body
+    assert "Choose a style for this" in body
+    assert "/app/api/signals/willhaben/property-tour" in body
+    assert "/app/api/signals/property/visual-status?" in body
+    assert "Open 3D tour" in body
+    assert "Request walkthrough" in body
+    assert 'data-obj-walkthrough-provider="{{' not in body
+    assert "defaultWalkthroughProviderKey" in body
+    assert "{% if loop.first %}data-selected aria-current=\"true\"{% else %}aria-current=\"false\"{% endif %}" in body
+    assert "option.toggleAttribute('data-selected', isSelected);" in body
+    assert "option.setAttribute('aria-current', isSelected ? 'true' : 'false');" in body
 
 
 def test_propertyquarry_blocks_legacy_object_detail_routes_for_generic_office_objects() -> None:
@@ -2228,12 +2316,43 @@ def test_propertyquarry_workbench_asks_for_furniture_style_at_visual_request_tim
     assert "normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour'" in script
     assert "data-pqx-visual-style-selected-label" in script
     assert "data-pqx-visual-style-current" in script
+    assert "aria-current=\"${selected ? 'true' : 'false'}\"${selected ? ' data-selected' : ''}" in script
+    assert "option.toggleAttribute('data-selected', isSelected);" in script
+    assert "option.setAttribute('aria-current', isSelected ? 'true' : 'false');" in script
     assert "${styleLabel} selected" in script
     assert "Choose a style for this" in script
     assert "${action} · ${styleLabel}" in script
+    assert 'data-pw-visual-request="tour" data-pw-visual-style-required="1"' in script
+    assert 'data-pw-visual-request="flythrough" data-pw-visual-style-required="1"' in script
+    feedback = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_feedback_script.html").read_text(encoding="utf-8")
+    assert "'data-pw-visual-style-required': '1'" in feedback
     research = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
     assert "const readableErrorDetail = (detail, fallback) => {" in research
     assert "throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not request the visual.'))" in research
+    assert "const rememberVisualStatusDetail = (requestKind, detail) => {" in research
+    assert "restoreRememberedVisualStatus();" in research
+
+
+def test_propertyquarry_all_tour_and_walkthrough_request_controls_require_style_choice() -> None:
+    template_root = Path(__file__).resolve().parents[1] / "ea/app/templates/app"
+    missing: list[str] = []
+    for template_path in template_root.rglob("*.html"):
+        body = template_path.read_text(encoding="utf-8")
+        for marker in ('data-pw-visual-request="tour"', 'data-pw-visual-request="flythrough"'):
+            start = 0
+            while True:
+                index = body.find(marker, start)
+                if index == -1:
+                    break
+                tag_start = body.rfind("<button", 0, index)
+                tag_end = body.find(">", index)
+                tag = body[tag_start : tag_end + 1] if tag_start != -1 and tag_end != -1 else body[index : index + 700]
+                if 'data-pw-visual-style-required="1"' not in tag:
+                    line = body[:index].count("\n") + 1
+                    missing.append(f"{template_path.relative_to(template_root)}:{line}:{marker}")
+                start = index + 1
+
+    assert missing == []
 
 
 def test_propertyquarry_magicfit_scene_cache_is_furniture_style_aware(monkeypatch) -> None:
@@ -2643,7 +2762,11 @@ def test_propertyquarry_shortlist_open_recovers_detailed_preview_for_selected_ca
     monkeypatch.setattr(ProductService, "_property_public_preview_cache_store", _fake_preview_cache_store)
     monkeypatch.setattr(landing_routes, "_property_scout_page_preview_with_timeout", _fake_detailed_preview)
 
-    shortlist = client.get("/app/shortlist", params={"run_id": "run-preview", "candidate": "cand-preview"}, headers=headers)
+    shortlist = client.get(
+        "/app/shortlist",
+        params={"run_id": "run-preview", "candidate": "cand-preview", "full": 1},
+        headers=headers,
+    )
 
     assert shortlist.status_code == 200
     shortlist_match = re.search(
@@ -3057,7 +3180,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "Could not load property search status." not in visible_source
     assert "Found" in visible_source
     assert "179" in visible_source
-    assert "29 provider checks selected" in visible_source
+    assert "29 providers selected" in visible_source
     assert "Found" in visible_source
     assert "To review" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
@@ -3100,7 +3223,7 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "70 homes found · 0 to review · 180 provider checks left" in visible_message
+    assert "70 homes found · 0 to review · 70 / 250 search pages" in visible_message
 
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
@@ -3109,7 +3232,7 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     )
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
-    assert "180 / 250 provider checks left" in visible_source
+    assert "70 / 250 search pages" in visible_source
     assert "70 / 250 checked" not in visible_source
     assert "Found" in visible_source
     assert "70" in visible_source
@@ -3162,12 +3285,12 @@ def test_propertyquarry_running_panel_explains_page_preparation_queue_without_ov
 
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
-    assert "30 homes found · property pages are still being prepared · 8 provider checks left" in visible
+    assert "30 homes found · property pages are still being prepared · 223 / 231 search pages" in visible
     eta_match = re.search(r'<span class="pqx-small pqx-progress-eta"[^>]*>(?P<eta>.*?)</span>', response.text, re.S)
     assert eta_match
     assert html.unescape(re.sub(r"<[^>]+>", " ", eta_match.group("eta"))).strip() == "93% · details updating"
-    assert "8 / 231 provider checks left" in visible
-    assert "223 provider checks left" not in visible
+    assert "223 / 231 search pages" in visible
+    assert "provider checks left" not in visible
     assert "Review page preparation timed out" not in visible
     assert "Lists open" not in visible
 
@@ -3207,7 +3330,7 @@ def test_propertyquarry_running_panel_does_not_treat_listing_total_as_reviewed(m
 
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
-    assert "70 homes found · 70 to review · 180 provider checks left" in visible
+    assert "70 homes found · 70 to review · 70 / 250 search pages" in visible
     assert "Reviewed" not in visible
 
 
@@ -3329,7 +3452,7 @@ def test_propertyquarry_running_panel_avoids_zero_provider_copy_when_count_unkno
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "0 lists" not in visible_message
-    assert "Preparing provider checks." in visible_message
+    assert "Preparing providers." in visible_message
 
 
 def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> None:
@@ -3348,7 +3471,7 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert section_match, "What matters panel should render"
     section_html = section_match.group("section")
     assert "What matters" in section_html
-    assert "Neutral until you care" in section_html
+    assert ">Neutral</option>" in section_html
     assert "Home" in section_html
     assert "Daily life" in section_html
     assert "Checks" in section_html
@@ -3451,12 +3574,17 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert "field.get('school_preference_options')" in template_source
     assert "row.dataset.distanceControlActive = enabled ? 'true' : 'false';" in workbench_script_source
     assert "row.dataset.distanceControlActive = enabled ? 'true' : 'false';" in brief_script_source
-    assert "group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';" in workbench_script_source
+    assert (
+        "group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';" in workbench_script_source
+        or "group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';" in brief_script_source
+    )
     assert "group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';" in brief_script_source
-    assert "scrollMobileDistanceRowIntoView(row)" in workbench_script_source
     assert "syncMobileWhatMattersAccordion" in workbench_script_source
     assert "initializeMobileWhatMattersAccordion" in workbench_script_source
     assert "syncSchoolDistanceSelects" in workbench_script_source
+    assert "const runWhatMattersInteractionSync = (target, callback, { preserveScroll = true, restoreFocus = true } = {}) => {" in workbench_script_source
+    assert "if (target instanceof HTMLSelectElement && target.hasAttribute('data-keyword-distance-select')) {\n          runWhatMattersInteractionSync(target, () => {" in workbench_script_source
+    assert "if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-distance-select')) {\n          runWhatMattersInteractionSync(target, () => {" in workbench_script_source
     assert "locationMapPointerDistance" in workbench_script_source
     assert "locationMapPinching" in workbench_script_source
     assert 'type="checkbox"' not in section_html
@@ -4042,6 +4170,71 @@ def test_propertyquarry_properties_completed_run_redirects_to_fast_ranked_shell(
     assert response.headers["location"] == "/app/shortlist/run/run-fast-42"
 
 
+def test_propertyquarry_shortlist_completed_run_redirects_to_fast_ranked_shell(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-fast-run")
+    start_workspace(client, mode="personal", workspace_name="Fast Shortlist Office")
+
+    class _Product:
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, account_email: str = ""):
+            assert principal_id == "pq-shortlist-fast-run"
+            assert run_id == "run-fast-42"
+            return {
+                "run_id": run_id,
+                "status": "completed_partial",
+                "summary": {
+                    "status": "completed_partial",
+                    "ranked_candidates": [{"candidate_ref": "ranked-1", "title": "Ranked One", "fit_score": 52}],
+                    "sources": [],
+                },
+            }
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(
+        "/app/shortlist?run_id=run-fast-42",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/shortlist/run/run-fast-42"
+
+
+def test_propertyquarry_shortlist_completed_run_redirects_to_fast_ranked_shell_from_source_top_candidates(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-fast-source-run")
+    start_workspace(client, mode="personal", workspace_name="Fast Source Shortlist Office")
+
+    class _Product:
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, account_email: str = ""):
+            assert principal_id == "pq-shortlist-fast-source-run"
+            assert run_id == "run-fast-42"
+            return {
+                "run_id": run_id,
+                "status": "completed_partial",
+                "status_url": f"/app/api/signals/property/search/run/{run_id}",
+                "summary": {
+                    "status": "completed_partial",
+                    "sources": [
+                        {
+                            "source_label": "ImmoScout24 Germany",
+                            "top_candidates": [{"candidate_ref": "ranked-1", "title": "Ranked One", "fit_score": 52}],
+                        }
+                    ],
+                },
+            }
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(
+        "/app/shortlist?run_id=run-fast-42",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/shortlist/run/run-fast-42"
+
+
 def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint() -> None:
     client = build_property_client(principal_id="pq-fast-ranked-run-shell")
     start_workspace(client, mode="personal", workspace_name="Fast Shell Office")
@@ -4073,6 +4266,20 @@ def test_propertyquarry_fast_ranked_run_uses_provider_progress_fraction() -> Non
     assert "providerDone > 0 && providerDone < providerTotal" in template
     assert "provider checks" in template
     assert "summary.sources_total || (Array.isArray(summary.sources) ? summary.sources.length : 0)" not in template
+
+
+def test_propertyquarry_fast_ranked_run_status_copy_uses_found_and_to_review_counts() -> None:
+    template = (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_ranked_run_fast.html"
+    ).read_text(encoding="utf-8")
+
+    assert "const listingCounts = (payload, candidates = []) => {" in template
+    assert "const { found, toReview } = listingCounts(payload, candidates);" in template
+    assert "parts.push(`${found} homes found`);" in template
+    assert "parts.push(`${toReview} to review`);" in template
+    assert "parts.push(`${listings} checked`);" not in template
+    assert "statusDetail.textContent = copy.detail || (terminal ? copy.status : 'More homes can still appear.');" in template
+    assert "if (isTerminalPayload(initialPayload)) return;" in template
 
 
 def test_propertyquarry_root_redirects_signed_in_users_to_search(monkeypatch) -> None:
@@ -4565,6 +4772,53 @@ def test_propertyquarry_example_media_targets_ignore_unverified_public_control_s
     targets = landing_routes._propertyquarry_example_media_targets()
 
     assert targets == {}
+
+
+def test_propertyquarry_example_media_targets_accept_generated_reconstruction_viewer(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / "public_tours" / "generated-reconstruction-home-demo"
+    bundle_dir.mkdir(parents=True)
+    generated_dir = bundle_dir / "generated-reconstruction"
+    generated_dir.mkdir(parents=True)
+    (generated_dir / "viewer.html").write_text("<!doctype html><title>viewer</title>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "generated-reconstruction-home-demo",
+                "public_url": "/tours/generated-reconstruction-home-demo",
+                "hosted_url": "/tours/generated-reconstruction-home-demo",
+                "scene_strategy": "layout_first",
+                "creation_mode": "generated_reconstruction_tour",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "verified_provider_capture": False,
+                },
+                "scenes": [
+                    {
+                        "scene_id": "floorplan-1",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.png",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+
+    targets = landing_routes._propertyquarry_example_media_targets()
+
+    assert targets == {
+        "demo_href": "/tours/generated-reconstruction-home-demo",
+        "tour_href": "/tours/files/generated-reconstruction-home-demo/generated-reconstruction/viewer.html",
+        "tour_label": "3D tour available",
+    }
 
 
 def test_propertyquarry_root_hints_signing_in_from_query_flags() -> None:
@@ -7298,6 +7552,82 @@ def test_property_map_preview_backdrop_softens_tile_noise_without_erasing_map_de
     assert landing_view_models._PROPERTY_MAP_PREVIEW_STYLE_VERSION.startswith("flagship_map_v8")
 
 
+def test_property_map_preview_selected_overlay_keeps_real_map_detail_visible(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
+
+    tile = Image.new("RGB", (256, 256), (235, 231, 222))
+    draw = ImageDraw.Draw(tile, "RGBA")
+    for x in range(-40, 300, 18):
+        draw.line([(x, 0), (x + 120, 256)], fill=(72, 66, 60, 145), width=2)
+    for y in range(0, 280, 14):
+        draw.line([(0, y), (256, y - 54)], fill=(96, 90, 82, 132), width=2)
+    draw.polygon([(0, 190), (74, 168), (132, 180), (256, 146), (256, 256), (0, 256)], fill=(166, 194, 209, 168))
+    draw.line([(54, 36), (210, 224)], fill=(188, 164, 126, 168), width=10)
+    draw.line([(28, 210), (228, 72)], fill=(214, 201, 176, 122), width=8)
+    tile_bytes = io.BytesIO()
+    tile.save(tile_bytes, format="PNG")
+
+    class _TileResponse:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def __enter__(self) -> "_TileResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return self._payload
+
+    monkeypatch.setattr(
+        landing_view_models.urllib.request,
+        "urlopen",
+        lambda request, timeout=6.0: _TileResponse(tile_bytes.getvalue()),
+    )
+
+    base_path = landing_view_models._cached_preview_png_path(
+        cache_key={"kind": "map-overlay-visibility-base"},
+        center_lat=48.2142,
+        center_lon=16.3817,
+        zoom=13,
+        overlay_rows=[],
+        draw_overlay=False,
+    )
+    overlay_path = landing_view_models._cached_preview_png_path(
+        cache_key={"kind": "map-overlay-visibility-overlay"},
+        center_lat=48.2142,
+        center_lon=16.3817,
+        zoom=13,
+        overlay_rows=[
+            {
+                "label": "1020 Vienna",
+                "selected": True,
+                "path": "M 168 92 L 472 92 L 472 286 L 168 286 Z",
+            }
+        ],
+        draw_overlay=True,
+    )
+
+    base_image = Image.open(base_path).convert("RGB").crop((182, 106, 458, 272))
+    overlay_image = Image.open(overlay_path).convert("RGB").crop((182, 106, 458, 272))
+
+    base_stats = ImageStat.Stat(base_image)
+    overlay_stats = ImageStat.Stat(overlay_image)
+    base_edges = ImageStat.Stat(base_image.convert("L").filter(ImageFilter.FIND_EDGES)).mean[0]
+    overlay_edges = ImageStat.Stat(overlay_image.convert("L").filter(ImageFilter.FIND_EDGES)).mean[0]
+
+    # The selected area should pick up a visible red tint.
+    base_red_bias = base_stats.mean[0] - base_stats.mean[1]
+    overlay_red_bias = overlay_stats.mean[0] - overlay_stats.mean[1]
+    assert overlay_red_bias >= base_red_bias + 18.0
+    assert overlay_stats.mean[2] <= base_stats.mean[2] - 12.0
+
+    # But the underlying street and water detail still needs to stay readable.
+    assert overlay_edges >= base_edges * 0.75
+    assert sum(overlay_stats.stddev) / 3 >= 14.5
+
+
 def test_property_scope_preview_map_only_uses_slightly_wider_padding_for_full_district_shapes(monkeypatch) -> None:
     captured: list[dict[str, object]] = []
 
@@ -8031,6 +8361,189 @@ def test_property_workspace_payload_does_not_count_raw_provider_tour_as_ready() 
     assert ready_highlight["value"] == "0"
 
 
+def test_propertyquarry_prepare_run_payload_synthesizes_tour_payload_for_verified_hosted_url(
+    monkeypatch,
+) -> None:
+    from app.product import property_tour_hosting
+
+    verified_url = "https://propertyquarry.com/tours/ready-tour/control/matterport"
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: verified_url,
+    )
+
+    normalized = landing_routes._propertyquarry_prepare_run_payload(
+        product=object(),
+        run_payload={
+            "run_id": "run-ready-tour-normalization",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "ranked-ready-tour",
+                        "tour_url": "https://propertyquarry.com/tours/ready-tour",
+                    }
+                ],
+                "sources": [
+                    {
+                        "top_candidates": [
+                            {
+                                "candidate_ref": "source-ready-tour",
+                                "tour_url": "https://propertyquarry.com/tours/ready-tour",
+                            }
+                        ]
+                    }
+                ],
+            },
+        },
+        backfill_cached_previews=False,
+    )
+
+    ranked_candidate = normalized["summary"]["ranked_candidates"][0]
+    source_candidate = normalized["summary"]["sources"][0]["top_candidates"][0]
+
+    assert ranked_candidate["tour_url"] == verified_url
+    assert ranked_candidate["tour"]["url"] == verified_url
+    assert ranked_candidate["tour"]["embed_url"] == verified_url
+    assert source_candidate["tour_url"] == verified_url
+    assert source_candidate["tour"]["url"] == verified_url
+    assert source_candidate["tour"]["embed_url"] == verified_url
+
+
+def test_property_workspace_payload_ready_tour_snapshot_includes_nested_tour_without_existing_tour_object(
+    monkeypatch,
+) -> None:
+    from app.product import property_tour_hosting
+
+    verified_url = "https://propertyquarry.com/tours/workspace-ready/control/matterport"
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: verified_url,
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url: "matterport",
+    )
+
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-workspace-ready-tour",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "workspace-ready-tour",
+                            "title": "Workspace ready tour",
+                            "property_url": "https://example.test/workspace-ready-tour",
+                            "tour_url": "https://propertyquarry.com/tours/workspace-ready",
+                            "fit_score": 84,
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "price_display": "EUR 2,100",
+                                "area_m2": 74,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    result = payload["decision_workbench"]["results"][0]
+
+    assert result["tour"]["status"] == "ready"
+    assert result["tour"]["url"] == verified_url
+    assert result["tour"]["embed_url"] == verified_url
+    assert result["tour"]["control_label"] == "Open 3D tour"
+
+
+def test_property_workspace_payload_generated_reconstruction_snapshot_includes_ready_tour(
+    monkeypatch,
+) -> None:
+    from app.product import property_tour_hosting
+
+    generated_url = "https://propertyquarry.com/tours/files/workspace-generated/generated-reconstruction/viewer.html"
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: "",
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_asset_url",
+        lambda _url, *, asset_key="viewer_relpath": generated_url if asset_key == "viewer_relpath" else "",
+    )
+
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-workspace-generated-tour",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "workspace-generated-tour",
+                            "title": "Workspace generated tour",
+                            "property_url": "https://example.test/workspace-generated-tour",
+                            "tour_url": "https://propertyquarry.com/tours/workspace-generated",
+                            "fit_score": 84,
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "price_display": "EUR 2,100",
+                                "area_m2": 74,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    result = payload["decision_workbench"]["results"][0]
+
+    assert result["tour"]["status"] == "ready"
+    assert result["tour"]["url"] == generated_url
+    assert result["tour"]["embed_url"] == ""
+    assert result["tour"]["control_label"] == "Open 3D tour"
+
+
 def test_property_workspace_payload_recovers_ready_tour_from_hosted_identity(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -8422,14 +8935,20 @@ def test_property_workbench_treats_krpano_control_as_direct_hosted_tour() -> Non
 
 def test_property_workbench_restores_district_map_scroll_lock_synchronously() -> None:
     body = _read_workbench_bundle()
+    assert "const restorePageScroll = (value) => {" in body
+    assert "document.documentElement.scrollTop = restoreY;" in body
+    assert "document.body.scrollTop = restoreY;" in body
     touch_restore = "body.style.touchAction = locationMapPreviousBodyTouchAction;"
-    immediate_restore = "window.scrollTo(0, restoreScrollY);"
+    immediate_restore = "restorePageScroll(locationMapPreviousScrollY);"
     frame_restore = "window.requestAnimationFrame(() => {"
+    delayed_restore = "window.setTimeout(() => restorePageScroll(locationMapPreviousScrollY), 80);"
     assert touch_restore in body
     assert immediate_restore in body
     assert frame_restore in body
+    assert delayed_restore in body
     restore_block = body[body.index(touch_restore):]
     assert restore_block.index(immediate_restore) < restore_block.index(frame_restore)
+    assert restore_block.index(frame_restore) < restore_block.index(delayed_restore)
 
 
 def test_property_search_loader_restores_district_map_scroll_targets() -> None:
@@ -8451,6 +8970,10 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
     assert "Ask about this home" in body
     assert "data-prd-map-overlay" in body
     assert "Question helper" in body
+    assert "data-object-lifestyle-toggle" in body
+    assert "data-object-magicfit" not in body
+    assert "object-magicfit" not in body
+    assert "renderMagicFit" not in body
     assert "3D tour queued" in body
     assert "Walkthrough queued" in body
     assert ".prd-actions .console-action.is-processing::before" in body
@@ -8506,7 +9029,7 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert "grid-template-columns: 84px minmax(0, 1fr);" in body
     assert 'data-pqx-screenfit-target="research-detail-hero"' in body
     assert 'data-prd-visual-card="{{ visual_card.get(\'key\') }}"' in body
-    assert 'href="{{ research_feedback.get(\'profile_href\') or (\'/app/search\' ~ research_query_suffix) }}">Search brief</a>' in body
+    assert 'href="{{ research_feedback.get(\'profile_href\') or (\'/app/search\' ~ research_query_suffix) }}">Edit search</a>' in body
     assert "prd-hero-gallery" in body
     assert ".prd-hero-gallery {\n    display: none;" in body
     assert ".prd-hero-gallery .prd-gallery-label" in body
@@ -8515,7 +9038,7 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert body.index('<header class="prd-topbar pqx-topbar" data-property-research-topnav') < body.index(
         '<section class="prd-shell" data-property-research-detail>'
     )
-    assert body.index("data-object-media-stage") < body.index("Quick take")
+    assert body.index("data-object-media-stage") < body.index("Overview")
     assert body.index("Visuals") < body.index("Property details")
     assert "OODA" not in body
     assert "operator notes" not in body
@@ -9337,7 +9860,7 @@ def test_property_search_worker_slots_hide_internal_check_wording() -> None:
     assert "crawl" not in combined.lower()
     assert "provider scan" not in combined.lower()
     assert "Preparing search" in combined
-    assert "Preparing provider checks" in combined
+    assert "Preparing providers" in combined
 
 
 def test_property_run_live_board_replaces_duplicate_review_message_with_latest_filter_reason() -> None:
@@ -9612,6 +10135,27 @@ def test_property_run_live_board_canonicalizes_loaded_provider_labels() -> None:
     ]
 
 
+def test_property_run_live_board_uses_selected_total_when_only_active_rows_materialized() -> None:
+    snapshot = property_surface_state.build_property_run_live_board_snapshot(
+        {
+            "status": "running",
+            "progress": 18,
+            "summary": {
+                "provider_total": 29,
+                "sources_total": 2,
+                "sources": [
+                    {"source_label": "Willhaben", "platform": "willhaben", "status": "running"},
+                    {"source_label": "RE/MAX Austria", "platform": "remax_at", "status": "running"},
+                ],
+            },
+        },
+        plan_key="agent",
+    )
+
+    assert snapshot["source_count_label"] == "2/29 providers"
+    assert snapshot["summary_label"] == "29 providers"
+
+
 def test_property_run_live_board_sanitizes_stale_source_counts_without_source_rows() -> None:
     snapshot = property_surface_state.build_property_run_live_board_snapshot(
         {
@@ -9630,7 +10174,7 @@ def test_property_run_live_board_sanitizes_stale_source_counts_without_source_ro
     )
 
     assert "156" not in snapshot["source_count_label"]
-    assert snapshot["source_count_label"] in {"0/3 provider checks", "waiting for provider checks"}
+    assert snapshot["source_count_label"] in {"0/3 providers", "waiting for providers"}
     assert "selected sources" not in snapshot["source_count_label"]
 
 
@@ -9896,7 +10440,7 @@ def test_property_surface_state_builds_run_repair_snapshot() -> None:
     assert repair["repair_status"] == "repairing"
     assert repair["repair_status_label"] == "Repairing"
     assert repair["repair_step_label"] == "Retrying 1 provider check"
-    assert repair["repair_outcome_summary"] == "Some provider checks are retrying, but the current shortlist is already usable."
+    assert repair["repair_outcome_summary"] == "Some providers are retrying, but the current shortlist is already usable."
     assert "selected sources" not in " ".join(str(value) for value in repair.values()).lower()
     assert repair["eta_confidence_label"] == "Medium"
     assert repair["can_auto_repair"] is True
@@ -10524,11 +11068,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "360 review first" not in packet.text
     assert 'data-object-media-stage' in packet.text
     assert ("data-prd-inline-viewer-" + "launch") not in packet.text
-    assert packet.text.index("data-object-media-stage") < packet.text.index("Quick take")
+    assert packet.text.index("data-object-media-stage") < packet.text.index("Overview")
     assert "3D tour needs rebuild" in packet.text
     assert "Rebuild 3D tour" in packet.text
     assert 'data-property-research-detail' in packet.text
-    assert "Quick take" in packet.text
+    assert "Overview" in packet.text
     assert "Current recommendation" not in packet.text
     assert "Why this was selected" not in packet.text
     assert "Supermarket" in packet.text
@@ -10536,8 +11080,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Open navigation" not in packet.text
     assert "Library" in packet.text
     assert "Underground" in packet.text
-    assert "Quick take" in packet.text
-    assert "Next move" in packet.text
+    assert "Overview" in packet.text
+    assert "Next step" in packet.text
     assert ">Preferences<" not in packet.text
     assert "Saved defaults" in packet.text
     assert "prd-decision-workspace" in packet.text
@@ -10573,7 +11117,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Optional tools" in packet.text
     assert "Ask about this home" in packet.text
     assert "Ask agent next" not in packet.text
-    assert "Tracked follow-up" in packet.text
+    assert "Follow-up" in packet.text
     assert "What changed" in packet.text
     assert "What others flagged" in packet.text
     assert "Household alignment" in packet.text
@@ -10583,7 +11127,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-object-feedback-reaction="like"' in packet.text
     assert 'data-object-feedback-save' in packet.text
     assert "Save" in packet.text
-    assert "Search brief" in packet.text
+    assert "Edit search" in packet.text
     assert 'href="/app/properties?run_id=run-42"' in packet.text
     assert "rgba(18, 23, 34" not in packet.text
     assert "rgba(15, 19, 26" not in packet.text
@@ -10862,7 +11406,7 @@ def test_property_search_status_hides_active_source_fetch_suppression_receipt_no
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert not any("suppressed_source_fetch_forbidden" in message for message in messages)
-    assert "12 provider checks selected for this search." in messages
+    assert "12 providers selected for this search." in messages
     assert any("42 homes found · 0 to review" in message for message in messages)
 
 
@@ -10948,7 +11492,7 @@ def test_property_search_status_avoids_zero_provider_copy_when_count_unknown(mon
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Could not load property search status." not in messages
     assert not any("0 lists" in message for message in messages)
-    assert "Preparing provider checks." in messages
+    assert "Preparing providers." in messages
 
 
 def test_property_run_public_eta_label_suppresses_too_precise_one_minute() -> None:
@@ -10974,9 +11518,9 @@ def test_property_run_customer_visible_events_adds_useful_synthetic_progress() -
     )
 
     messages = [str(event.get("message") or "") for event in events]
-    assert "9 provider checks selected for this search." in messages
-    assert "Waiting for the first provider check." in messages
-    assert "Preparing provider checks." in messages
+    assert "9 providers selected for this search." in messages
+    assert "Waiting for the first provider." in messages
+    assert "Preparing providers." in messages
 
 
 def test_property_run_customer_visible_events_summarizes_real_listing_progress() -> None:
@@ -11002,9 +11546,9 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     )
 
     messages = [str(event.get("message") or "") for event in events]
-    assert "9 provider checks selected for this search." in messages
-    assert "Provider checks: 1 checked, 1 running, 7 queued of 9." in messages
-    assert "42 homes found · 30 to review · 8 provider checks left." in messages
+    assert "9 providers selected for this search." in messages
+    assert "Providers: 1 checked, 1 running, 7 waiting of 9." in messages
+    assert "42 homes found · 30 to review · 1 / 9 providers." in messages
     assert "3 homes outside the current brief." in messages
 
 
@@ -11034,7 +11578,7 @@ def test_property_run_customer_visible_events_keeps_latest_ten_useful_updates() 
     assert "List update 2." not in messages
     assert "List update 3." in messages
     assert "List update 11." in messages
-    assert any(message.startswith("Current list update.") for message in messages)
+    assert any(message.startswith("Current search update.") for message in messages)
 
 
 def test_property_search_status_appends_current_progress_event_after_stale_start_event(monkeypatch) -> None:
@@ -11144,8 +11688,8 @@ def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources
     assert len(summary["sources"]) == 24
     assert {row["status"] for row in summary["sources"]} == {"completed_partial"}
     messages = [str(event.get("message") or "") for event in payload["events"]]
-    assert "3 provider checks selected for this search." in messages
-    assert "Provider checks: 3 checked of 3." in messages
+    assert "3 providers selected for this search." in messages
+    assert "Providers: 3 checked of 3." in messages
     assert not any("queued" in message.lower() or "running" in message.lower() for message in messages)
 
 
@@ -11371,21 +11915,26 @@ def test_property_search_agents_panel_uses_search_entry_for_fresh_starts() -> No
     assert 'href="/app/properties">Create saved search</a>' not in body
 
 
-def test_property_object_detail_feedback_script_avoids_magicfit_preview_innerhtml() -> None:
+def test_property_object_detail_feedback_script_avoids_lifestyle_preview_innerhtml() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail_feedback_script.html"
     body = template_path.read_text(encoding="utf-8")
 
-    render_magicfit_block = body.split("const renderMagicFitPreview = (scene) => {", 1)[1].split("const renderMagicFitReferenceList = () => {", 1)[0]
-    assert "innerHTML" not in render_magicfit_block
-    assert "document.createElement('img')" in render_magicfit_block
-    assert "appendTextNode(" in render_magicfit_block
+    assert "data-object-magicfit" not in body
+    assert "renderMagicFit" not in body
+    render_lifestyle_block = body.split("const renderLifestylePreview = (scene) => {", 1)[1].split("const renderLifestyleReferenceList = () => {", 1)[0]
+    assert "innerHTML" not in render_lifestyle_block
+    assert "document.createElement('img')" in render_lifestyle_block
+    assert "appendTextNode(" in render_lifestyle_block
 
     legacy_template = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
     legacy_body = legacy_template.read_text(encoding="utf-8")
-    legacy_block = legacy_body.split("const renderMagicFitPreview = (scene) => {", 1)[1].split("const renderMagicFitReferenceList = () => {", 1)[0]
+    assert "data-object-magicfit" not in legacy_body
+    assert "object-magicfit" not in legacy_body
+    assert "renderMagicFit" not in legacy_body
+    legacy_block = legacy_body.split("const renderLifestylePreview = (scene) => {", 1)[1].split("const renderLifestyleReferenceList = () => {", 1)[0]
     assert "innerHTML" not in legacy_block
     assert "document.createElement('img')" in legacy_block
-    reference_block = legacy_body.split("const renderMagicFitReferenceList = () => {", 1)[1].split("renderMagicFitPreview(payload.magic_fit_scene || {});", 1)[0]
+    reference_block = legacy_body.split("const renderLifestyleReferenceList = () => {", 1)[1].split("renderLifestylePreview(payload[lifestyleScenePayloadKey] || {});", 1)[0]
     assert "innerHTML" not in reference_block
     followup_block = legacy_body.split("const renderFollowups = (rows) => {", 1)[1].split("renderFollowups(payload.followup_rows || []);", 1)[0]
     assert "innerHTML" not in followup_block
@@ -11456,6 +12005,23 @@ def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() 
     assert ".pqx-previous-search {" in body
     assert "grid-template-columns: minmax(0, 1fr);" in body
     assert "border-bottom: 1px solid var(--pq-line);" in body
+
+
+def test_property_workbench_evidence_atlas_avoids_internal_storage_language() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    script_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html"
+    template = template_path.read_text(encoding="utf-8")
+    script = script_path.read_text(encoding="utf-8")
+
+    assert 'data-pqx-evidence-atlas' in template
+    assert "Only ready layers are shown." in template
+    assert "Switch layers." in template
+    assert "Teable" not in template
+    assert "Postgres" not in template
+    assert "Open the tour or walkthrough for a closer look." in script
+    assert "Fiber is reported nearby. Final availability still depends on the exact address." in script
+    assert "Teable" not in script
+    assert "Postgres" not in script
 
 
 def test_property_workspace_search_agents_have_explicit_overflow_gate() -> None:
@@ -12963,6 +13529,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "x-property-map-preview-state" in script
     assert "URL.createObjectURL(blob)" in script
     assert "data-map-preview-ready" in script
+    assert "data-map-preview-src" in template
+    assert "data-map-preview-src" in script
     assert "?preview=" not in script
     assert "const stepNav = form.querySelector('[data-property-step-nav]');" in script
     assert "stepNav.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });" in script
@@ -13865,6 +14433,12 @@ def test_property_search_loader_keeps_mobile_map_usable_before_full_hydration() 
     assert "activePointers" in loader
     assert "details[data-what-matters-group]" in loader
     assert "root.dataset.pqWorkbenchController === 'loaded'" in loader
+    assert "existing.dataset.pqWorkbenchLoaded === 'true'" in loader
+    assert "existing.dataset.pqWorkbenchLoaded = 'true';" in loader
+    assert "script.dataset.pqWorkbenchLoaded = 'true';" in loader
+    assert "root.dataset.pqWorkbenchController = 'loaded';" in loader
+    assert "'[data-pqx-save-what-matters]'" in loader
+    assert "'[data-pqx-load-what-matters]'" in loader
 
 
 def test_property_current_best_omits_unknown_fact_placeholders() -> None:
@@ -14129,6 +14703,7 @@ def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> N
     )
     assert brief_panel_match is not None
     brief_panel_block = brief_panel_match.group("body")
+    assert "min-height: 0;" in brief_panel_block
     assert "max-height: none;" in brief_panel_block
     assert "overflow: visible;" in brief_panel_block
 
@@ -14410,8 +14985,8 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert "Searching" in live.text
     assert 'data-pqx-progress-board' in live.text
     assert 'data-pqx-progress-eta' in live.text
-    assert "97 / 117 provider checks left" in live.text
-    assert "Checks left" in live.text
+    assert "20 / 117 search pages" in live.text
+    assert "Sources" in live.text
     assert "20 / 117 checked" not in live.text
     assert "179 homes found" in live.text
     assert 'class="pqx-live-review-bars"' in live.text
@@ -16927,10 +17502,10 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
     assert "<summary><strong>Next step</strong></summary>" not in body
     assert body.index("<h2>Next step</h2>") < body.index("data-pw-finetune-panel hidden")
     assert body.index("data-pw-finetune-panel hidden") < body.index('data-pw-feedback-reaction="like"')
-    assert 'href="/app/search{{ review_query_suffix }}">Search brief</a>' in body
+    assert 'href="/app/search{{ review_query_suffix }}">Edit search</a>' in body
     assert "Pick one to tune future results." in body
     assert "Request visuals only when this home is worth a deeper review." not in body
-    assert "Tour or walkthrough not available yet." in body
+    assert "Request when you want a closer look." in body
     assert "No 3D tour is published yet." not in body
     assert "No playable walkthrough is published yet." not in body
     assert 'class="pqx-actions pqx-decision-state-grid"' in body
@@ -18071,7 +18646,6 @@ def test_property_workspace_search_uses_groupboxes_without_feedback_profile_nois
     view_model_body = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
 
     assert "pqx-choice-groupbox" in template_body
-    assert "Neutral until you care" in template_body
     assert ">Neutral</option>" in template_body
     assert '"label": "What matters"' in view_model_body
     assert '"name": "preference_person_id"' not in view_model_body
@@ -18429,7 +19003,7 @@ def test_propertyquarry_selected_score_read_uses_confirmed_distance_warning(monk
 
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
 
-    page = client.get("/app/properties", params={"run_id": "run-distance-warning"}, headers=headers)
+    page = client.get("/app/properties", params={"run_id": "run-distance-warning", "full": 1}, headers=headers)
 
     assert page.status_code == 200
     assert "Main caution" in page.text
@@ -18497,7 +19071,11 @@ def test_propertyquarry_selected_score_read_uses_snapshot_backed_confirmed_dista
 
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
 
-    page = client.get("/app/properties", params={"run_id": "run-distance-warning-snapshot"}, headers=headers)
+    page = client.get(
+        "/app/properties",
+        params={"run_id": "run-distance-warning-snapshot", "full": 1},
+        headers=headers,
+    )
 
     assert page.status_code == 200
     assert "Main caution" in page.text
@@ -19014,12 +19592,15 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     assert "Choose the look" in rendered_html
     assert "This is only for the generated visual. It does not change the search brief." in rendered_html
     assert "data-prd-style-selected-label" in rendered_html
+    assert 'data-prd-style-current aria-live="polite"' in rendered_html
+    assert 'aria-current="true"' in rendered_html
+    assert "data-selected" in rendered_html
     assert "Selected" in rendered_html
     assert "Warm Scandinavian" in rendered_html
     assert "Trump gold" in rendered_html
     assert 'data-pw-visual-request="flythrough"' in rendered_html
     assert '>Request walkthrough</button>' in rendered_html
-    assert 'data-pw-walkthrough-provider="magicfit"' in rendered_html
+    assert 'data-pw-walkthrough-provider="magicfit"' not in rendered_html
     assert "data-pw-walkthrough-provider-select" not in rendered_html
     assert rendered_html.count('data-pw-visual-style-required="1"') >= 2
     assert "Mootion" not in rendered_html
@@ -19497,6 +20078,96 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     assert 'data-pw-visual-request="flythrough"' not in rendered_html
 
 
+def test_property_research_packet_keeps_ready_tour_in_visual_rail_while_walkthrough_is_still_queued(monkeypatch) -> None:
+    principal_id = "pq-research-packet-tour-ready-walkthrough-queued"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "title": "Tour-ready apartment with queued walkthrough",
+        "summary": "EUR 1,750 · 80 m² · 1010 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/tour-ready-walkthrough-queued",
+        "source_ref": "willhaben:tour-ready-walkthrough-queued",
+        "tour_status": "ready",
+        "tour_url": "https://propertyquarry.com/tours/tour-ready-walkthrough-queued",
+        "flythrough_status": "queued",
+        "flythrough_provider": "magicfit",
+        "flythrough_url": "",
+        "property_facts": {
+            "price_eur": 1750.0,
+            "area_m2": 80.0,
+            "postal_name": "1010 Wien",
+        },
+    }
+    hosted_href = "https://propertyquarry.com/tours/tour-ready-walkthrough-queued/control/matterport"
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: hosted_href,
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url: "matterport",
+    )
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+        }
+    )
+    packet = client.get(
+        f"/app/research/{packet_ref}",
+        params={"run_id": "run-tour-ready-walkthrough-queued"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    assert f'href="{hosted_href}"' in rendered_html
+    assert '>Open 3D tour</a>' in rendered_html
+    assert "Walkthrough queued" in rendered_html
+    rail_match = re.search(
+        r'<div\s+class="prd-visual-rail(?P<class_suffix>[^"]*)".*?<strong data-prd-visual-label>(?P<label>.*?)</strong>.*?<p class="prd-visual-status"[^>]*>(?P<status>.*?)</p>',
+        packet.text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert rail_match is not None
+    assert "is-active" in rail_match.group("class_suffix")
+    assert "3D tour available" in rail_match.group("label")
+    assert "3D tour is available on this page." in rail_match.group("status")
+    assert "Priority queue active" not in rail_match.group("status")
+    assert "Queued. This page updates automatically." not in rail_match.group("status")
+
+
 def test_property_research_packet_uses_cross_run_lookup_for_missing_candidate(monkeypatch) -> None:
     principal_id = "pq-research-packet-cross-run"
     client = build_property_client(principal_id=principal_id)
@@ -19750,7 +20421,7 @@ def test_property_research_packet_skips_heavy_feedback_and_magicfit_reads_on_ini
 
     assert packet.status_code == 200
     assert "Fast packet flat" in packet.text
-    assert "Next move" in packet.text
+    assert "Next step" in packet.text
     assert "Ask about this home" in packet.text
     assert 'data-object-media-stage' in packet.text
 

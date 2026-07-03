@@ -175,6 +175,16 @@ services:
       HOME: /home/ea
       TZ: Europe/Vienna
     command: ["sh", "-lc", "sleep infinity"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "command -v ffmpeg >/dev/null && command -v blender >/dev/null && command -v colmap >/dev/null && command -v exiftool >/dev/null && command -v convert >/dev/null && python -c 'import numpy'",
+        ]
+      interval: 30s
+      timeout: 15s
+      start_period: 30s
+      retries: 5
     cpu_shares: ${PROPERTYQUARRY_RENDER_CPU_SHARES:-512}
     cpus: ${PROPERTYQUARRY_RENDER_CPUS:-1.0}
     volumes:

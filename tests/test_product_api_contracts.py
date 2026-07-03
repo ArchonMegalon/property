@@ -8037,6 +8037,95 @@ def test_property_alert_review_handoff_page_renders_research_packet() -> None:
     assert "public_safe" not in page.text
 
 
+def test_property_alert_review_handoff_reuses_generated_reconstruction_bundle(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
+    slug = "watch-fit-generated-reconstruction"
+    property_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/watch-fit-generated-1106989798/"
+    source_ref = "property-scout:1106989798"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    (reconstruction_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo")
+    (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "property_url": property_url,
+                "listing_url": property_url,
+                "source_ref": source_ref,
+                "external_id": property_url,
+                "creation_mode": "generated_reconstruction_tour",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "photo_relpaths": ["generated-reconstruction/photo-01.jpg"],
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    principal_id = "cf-email:owner-generated-reconstruction@example.test"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Generated Tour Office")
+    product = ProductService(client.app.state.container)
+    result = product._open_property_alert_review(
+        principal_id=principal_id,
+        title="Watch fit apartment",
+        summary="Floor plan and photos are available.",
+        source_ref=source_ref,
+        external_id=property_url,
+        counterparty="Property scout",
+        account_email="scout@example.test",
+        property_url=property_url,
+        actor="test",
+        notify_telegram=False,
+        candidate_properties=(
+            {
+                "property_url": property_url,
+                "listing_title": "Watch fit apartment",
+                "source_ref": source_ref,
+                "external_id": property_url,
+                "fit_summary": "Personal fit 91/100 · shortlist",
+                "assessment": {
+                    "fit_score": 91.0,
+                    "recommendation": "shortlist",
+                },
+            },
+        ),
+        personal_fit_assessment={
+            "fit_score": 91.0,
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Floor plan is available."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+        preference_person_id="elisabeth",
+    )
+
+    page = client.get(f"/app/handoffs/{result['human_task_id']}")
+    assert page.status_code == 200
+    assert "data-object-media-carousel" in page.text
+    assert "Diorama" in page.text
+    assert f"https://myexternalbrain.com/tours/{slug}" in page.text
+    assert (
+        f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/viewer.html"
+        in page.text
+    )
+    assert 'data-obj-visual-request="tour"' not in page.text
+    assert "Nearby options from this alert" not in page.text
+
+
 def test_property_alert_review_uses_heyy_when_business_whatsapp_is_staged(monkeypatch) -> None:
     principal_id = "cf-email:heyy-property-review@example.com"
     client = build_product_client(principal_id=principal_id)
@@ -13794,6 +13883,47 @@ def test_existing_hosted_property_tour_url_requires_real_bundle_assets(monkeypat
     )
 
 
+def test_existing_hosted_property_tour_url_accepts_generated_reconstruction_viewer(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
+    slug = "generated-reconstruction-existing-tour"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    (reconstruction_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo")
+    (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "creation_mode": "generated_reconstruction_tour",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "photo_relpaths": ["generated-reconstruction/photo-01.jpg"],
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    tour_url = f"https://myexternalbrain.com/tours/{slug}"
+    assert product_service._existing_hosted_property_tour_url({"slug": slug}) == tour_url
+    assert property_tour_hosting._hosted_property_tour_preview_image_url(tour_url) == (
+        f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/photo-01.jpg"
+    )
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_urls(tour_url) == (
+        f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/photo-01.jpg",
+    )
+
+
 def test_existing_hosted_property_tour_url_deep_links_live_360_when_manifest_has_source_tour(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -13973,7 +14103,7 @@ def test_willhaben_property_visual_user_request_queues_without_synchronous_rende
     body = created.json()
     assert body["status"] == "queued"
     assert body["blocked_reason"] == ""
-    assert body["tour_status"] == "pending"
+    assert body["tour_status"] == ""
     assert body["flythrough_status"] == "queued"
     assert body["status_label"] == "Walkthrough queued"
     assert body["status_detail"] == "Queued. This page updates automatically."
@@ -13991,6 +14121,40 @@ def test_willhaben_property_visual_user_request_queues_without_synchronous_rende
     )
     assert events.status_code == 200
     assert any(item["payload"]["status"] == "queued" for item in events.json()["items"])
+
+
+def test_willhaben_property_visual_user_request_reports_worker_start_failure(monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_SYNC_USER_VISUAL_REQUESTS", raising=False)
+    principal_id = "tour-user-queued-worker-start-failed"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+
+    monkeypatch.setattr(
+        ProductService,
+        "_start_property_tour_followup_worker",
+        lambda self, **kwargs: False,
+    )
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/apartment-queued-worker-failed-001",
+            "request_kind": "tour",
+            "auto_deliver": False,
+            "allow_floorplan_only": True,
+            "run_id": "run-queued-worker-failed-001",
+            "candidate_ref": "candidate-queued-worker-failed-001",
+            "source_ref": "willhaben:queued-worker-failed-001",
+        },
+    )
+
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["status"] == "queued"
+    assert body["tour_status"] == "pending"
+    assert body["status_label"] == "3D tour queued"
+    assert body["status_detail"] == "Queued. Renderer retry will start shortly."
+    assert body["poll_after_seconds"] == 10
 
 
 def test_property_visual_status_route_returns_current_visual_snapshot(monkeypatch) -> None:
@@ -14152,6 +14316,63 @@ def test_property_visual_request_queue_preserves_original_requested_timestamp(mo
     assert persisted["tour_requested_at"] == "2026-06-22T10:00:00+00:00"
     assert str(persisted["tour_status_updated_at"] or "").strip()
     assert persisted["tour_status_updated_at"] != persisted["tour_requested_at"]
+
+
+def test_property_visual_request_queue_walkthrough_preserves_existing_tour_state(monkeypatch) -> None:
+    principal_id = "property-visual-request-walkthrough-preserve-tour"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    persisted: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {
+            "tour_url": "https://propertyquarry.com/tours/ready-generated-tour",
+            "vendor_tour_url": "",
+            "tour_status": "ready",
+            "tour_requested_at": "2026-07-03T09:00:00+00:00",
+            "tour_status_updated_at": "2026-07-03T09:02:00+00:00",
+            "tour_progress_pct": "100",
+        },
+    )
+    monkeypatch.setattr(product_service, "_existing_hosted_property_tour_url_for_identity", lambda **kwargs: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: persisted.update(dict(kwargs.get("visual_state") or {})),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_tour_followup",
+        lambda self, **kwargs: type("Followup", (), {"human_task_id": "task-walkthrough-visual-1"})(),
+    )
+    monkeypatch.setattr(ProductService, "_start_property_tour_followup_worker", lambda self, **kwargs: None)
+    monkeypatch.setattr(ProductService, "_record_product_event", lambda self, **kwargs: None)
+
+    response = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/walkthrough-preserve-tour-1",
+        request_kind="flythrough",
+        source_ref="willhaben:walkthrough-preserve-tour-1",
+        run_id="run-walkthrough-preserve-tour-1",
+        candidate_ref="candidate-walkthrough-preserve-tour-1",
+        auto_deliver=False,
+        allow_floorplan_only=True,
+        diorama_style_hint="Urban jungle with plants",
+    )
+
+    assert response["status"] == "queued"
+    assert response["tour_status"] == "ready"
+    assert response["flythrough_status"] == "queued"
+    assert persisted["tour_url"] == "https://propertyquarry.com/tours/ready-generated-tour"
+    assert persisted["tour_status"] == "ready"
+    assert persisted["tour_progress_pct"] == "100"
+    assert persisted["flythrough_status"] == "queued"
+    assert persisted["diorama_style_hint"] == "Urban jungle with plants"
 
 
 def test_request_property_visual_asset_rejects_workbench_floorplan_default(monkeypatch) -> None:
@@ -14747,6 +14968,73 @@ def test_property_tour_followup_tasks_return_ready_visual_when_snapshot_already_
     assert updated_task.resolution == "ready"
 
 
+def test_property_tour_followup_tasks_return_ready_generated_reconstruction_when_snapshot_already_has_url(monkeypatch) -> None:
+    principal_id = "property-tour-followup-generated-reconstruction-already-ready"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-ready-1",
+        title="Generated reconstruction property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:generated-reconstruction-ready-1",
+        external_id="generated-reconstruction-ready-1",
+        connector_binding_id="binding-1",
+        request_kind="tour",
+        run_id="run-generated-reconstruction-ready-1",
+        candidate_ref="candidate-generated-reconstruction-ready-1",
+        allow_floorplan_only=True,
+    )
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {
+            "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-ready-1",
+            "tour_status": "created",
+            "tour_requested_at": "2026-07-03T08:00:00+00:00",
+            "tour_status_updated_at": "2026-07-03T08:02:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda tour_url: (
+            "https://propertyquarry.com/tours/files/generated-reconstruction-ready-1/generated-reconstruction/viewer.html"
+            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/generated-reconstruction-ready-1"
+            else ""
+        ),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: pytest.fail("ready generated reconstruction must not be requested again"),
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 1
+    assert result["resolved"][0]["resolution"] == "ready"
+    assert result["resolved"][0]["tour_url"] == "https://propertyquarry.com/tours/files/generated-reconstruction-ready-1/generated-reconstruction/viewer.html"
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "returned"
+    assert updated_task.resolution == "ready"
+
+
 def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source_copy(monkeypatch) -> None:
     principal_id = "property-visual-status-prefers-ranked"
     client = build_product_client(principal_id=principal_id)
@@ -15010,6 +15298,160 @@ def test_property_visual_status_prefers_latest_followup_resolution_over_stale_sn
     assert response["status_label"] == "3D tour not ready"
     assert response["blocked_reason"] == "crezlo_property_tour_not_configured"
     assert response["poll_after_seconds"] == 0
+
+
+def test_property_visual_status_promotes_ready_generated_reconstruction_followup_to_open_link(monkeypatch) -> None:
+    principal_id = "property-visual-status-ready-generated-reconstruction"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    stale_candidate = {
+        "title": "Generated reconstruction followup",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-followup-1",
+        "source_ref": "willhaben:generated-reconstruction-followup-1",
+        "tour_status": "processing",
+        "tour_url": "",
+        "tour_eta_minutes": "10",
+        "tour_requested_at": "2026-06-23T17:23:22+00:00",
+        "tour_status_updated_at": "2026-06-23T19:33:14+00:00",
+    }
+
+    monkeypatch.setattr(
+        ProductService,
+        "_snapshot_property_search_run",
+        lambda self, **kwargs: {
+            "run_id": str(kwargs.get("run_id") or ""),
+            "updated_at": "2026-06-23T19:33:14+00:00",
+            "summary": {
+                "ranked_candidates": [dict(stale_candidate)],
+                "sources": [],
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_generated_reconstruction_asset_url",
+        lambda tour_url, *, asset_key="viewer_relpath": (
+            "https://propertyquarry.com/tours/files/generated-reconstruction-followup/generated-reconstruction/viewer.html"
+            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/generated-reconstruction-followup"
+            and asset_key == "viewer_relpath"
+            else ""
+        ),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_latest_property_tour_followup",
+        lambda self, **kwargs: HumanTask(
+            human_task_id="human-task-generated-reconstruction",
+            session_id="session-generated-reconstruction",
+            step_id=None,
+            principal_id=principal_id,
+            task_type="property_tour_followup",
+            role_required="operator",
+            brief="Generated reconstruction followup",
+            authority_required="",
+            why_human="",
+            quality_rubric_json={},
+            input_json={},
+            desired_output_json={},
+            priority="high",
+            sla_due_at=None,
+            status="returned",
+            assignment_state="assigned",
+            assigned_operator_id="operator-office",
+            assignment_source="",
+            assigned_at="2026-06-23T19:35:00+00:00",
+            assigned_by_actor_id="test",
+            resolution="ready",
+            resume_session_on_return=False,
+            returned_payload_json={
+                "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-followup",
+            },
+            provenance_json={"source": "test"},
+            created_at="2026-06-23T19:34:00+00:00",
+            updated_at="2026-06-23T19:35:00+00:00",
+        ),
+    )
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="tour",
+        source_ref="willhaben:generated-reconstruction-followup-1",
+        candidate_ref="candidate-42",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-followup-1",
+    )
+
+    assert response["status"] == "ready"
+    assert response["status_label"] == "Open 3D tour"
+    assert response["tour_url"] == "https://propertyquarry.com/tours/files/generated-reconstruction-followup/generated-reconstruction/viewer.html"
+    assert response["status_detail"] == "3D tour is available. Open it here."
+    assert response["poll_after_seconds"] == 0
+
+
+def test_property_visual_status_persists_ready_generated_reconstruction_state(monkeypatch) -> None:
+    principal_id = "property-visual-status-persist-ready-generated-reconstruction"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    candidate = {
+        "title": "Generated reconstruction candidate",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-persist-1",
+        "source_ref": "willhaben:generated-reconstruction-persist-1",
+        "tour_status": "created",
+        "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-persist-1",
+        "tour_requested_at": "2026-06-23T17:23:22+00:00",
+        "tour_status_updated_at": "2026-06-23T19:33:14+00:00",
+    }
+
+    monkeypatch.setattr(
+        ProductService,
+        "_snapshot_property_search_run",
+        lambda self, **kwargs: {
+            "run_id": str(kwargs.get("run_id") or ""),
+            "updated_at": "2026-06-23T19:33:14+00:00",
+            "summary": {
+                "ranked_candidates": [dict(candidate)],
+                "sources": [],
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_generated_reconstruction_asset_url",
+        lambda tour_url, *, asset_key="viewer_relpath": (
+            "https://propertyquarry.com/tours/files/generated-reconstruction-persist-1/generated-reconstruction/viewer.html"
+            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/generated-reconstruction-persist-1"
+            and asset_key == "viewer_relpath"
+            else ""
+        ),
+    )
+    persisted: dict[str, object] = {}
+
+    def _capture_persist(self, **kwargs):  # type: ignore[no-untyped-def]
+        persisted.update(kwargs)
+
+    monkeypatch.setattr(ProductService, "_persist_property_search_visual_state", _capture_persist)
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="tour",
+        source_ref="willhaben:generated-reconstruction-persist-1",
+        candidate_ref="candidate-42",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-persist-1",
+    )
+
+    assert response["status"] == "ready"
+    assert response["tour_url"] == "https://propertyquarry.com/tours/files/generated-reconstruction-persist-1/generated-reconstruction/viewer.html"
+    assert persisted["run_id"] == "run-42"
+    assert persisted["candidate_ref"] == "candidate-42"
+    assert dict(persisted["visual_state"])["tour_status"] == "ready"
+    assert dict(persisted["visual_state"])["tour_url"] == "https://propertyquarry.com/tours/generated-reconstruction-persist-1"
 
 
 def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monkeypatch) -> None:
@@ -15354,6 +15796,38 @@ def test_property_tour_followup_dedupes_by_request_kind(monkeypatch) -> None:
     assert tour_task.human_task_id != flythrough_task.human_task_id
 
 
+def test_property_tour_followup_copy_hides_walkthrough_provider_name() -> None:
+    principal_id = "property-tour-followup-provider-neutral-copy"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/provider-neutral-copy",
+        title="Provider neutral flat",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:provider-neutral-copy",
+        external_id="provider-neutral-copy",
+        connector_binding_id="",
+        request_kind="flythrough",
+        run_id="run-provider-neutral-copy",
+        candidate_ref="candidate-provider-neutral-copy",
+        allow_floorplan_only=True,
+        walkthrough_provider_key="magicfit",
+    )
+
+    assert task.input_json["walkthrough_provider_key"] == "magicfit"
+    assert "walkthrough" in task.brief.lower()
+    assert "walkthrough" in task.why_human.lower()
+    assert "MagicFit" not in task.brief
+    assert "MagicFit" not in task.why_human
+    assert "1min.AI" not in task.brief
+    assert "1min.AI" not in task.why_human
+
+
 def test_property_tour_followup_tasks_auto_process_user_visual_requests(monkeypatch) -> None:
     principal_id = "property-tour-followup-auto-process"
     client = build_product_client(principal_id=principal_id)
@@ -15416,6 +15890,84 @@ def test_property_tour_followup_tasks_auto_process_user_visual_requests(monkeypa
     assert observed["run_id"] == "run-process-1"
     assert observed["candidate_ref"] == "candidate-process-1"
     assert observed["diorama_style_hint"] == "urban jungle staging with plants"
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "returned"
+    assert updated_task.resolution == "ready"
+
+
+def test_property_tour_followup_tasks_resolve_created_generated_reconstruction_payload_as_ready(monkeypatch) -> None:
+    principal_id = "property-tour-followup-created-generated-reconstruction"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+    observed: dict[str, object] = {}
+
+    def _fake_request_property_visual_asset(self, **kwargs):  # type: ignore[no-untyped-def]
+        observed.update(kwargs)
+        return {
+            "generated_at": "2026-07-03T08:10:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Generated reconstruction property",
+            "variant_key": str(kwargs.get("variant_key") or "layout_first"),
+            "request_kind": "tour",
+            "run_id": str(kwargs.get("run_id") or ""),
+            "candidate_ref": str(kwargs.get("candidate_ref") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-created-1",
+            "tour_status": "created",
+            "status_label": "3D tour available",
+        }
+
+    monkeypatch.setattr(ProductService, "request_property_visual_asset", _fake_request_property_visual_asset)
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda tour_url: (
+            "https://propertyquarry.com/tours/files/generated-reconstruction-created-1/generated-reconstruction/viewer.html"
+            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/generated-reconstruction-created-1"
+            else ""
+        ),
+    )
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-created-1",
+        title="Generated reconstruction property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:generated-reconstruction-created-1",
+        external_id="generated-reconstruction-created-1",
+        connector_binding_id="binding-1",
+        request_kind="tour",
+        run_id="run-generated-reconstruction-created-1",
+        candidate_ref="candidate-generated-reconstruction-created-1",
+        allow_floorplan_only=True,
+        diorama_style_hint="urban jungle staging with plants",
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 1
+    assert result["failed_total"] == 0
+    assert observed["request_kind"] == "tour"
+    assert observed["queue_async_request"] is False
+    assert observed["suppress_human_followup"] is True
+    assert observed["run_id"] == "run-generated-reconstruction-created-1"
+    assert observed["candidate_ref"] == "candidate-generated-reconstruction-created-1"
+    assert result["resolved"][0]["resolution"] == "ready"
+    assert result["resolved"][0]["tour_url"] == "https://propertyquarry.com/tours/files/generated-reconstruction-created-1/generated-reconstruction/viewer.html"
 
     updated_task = client.app.state.container.orchestrator.fetch_human_task(
         task.human_task_id,
@@ -16014,6 +16566,115 @@ def test_request_property_visual_asset_opens_generated_reconstruction(monkeypatc
     assert result["generated_reconstruction_url"] == result["open_tour_url"]
     assert result["poll_after_seconds"] == 0
     assert result["blocked_reason"] == ""
+
+
+def test_request_property_visual_asset_reuses_existing_generated_reconstruction_before_reblocking(monkeypatch) -> None:
+    principal_id = "property-tour-reuse-existing-generated-reconstruction"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(
+        product_service,
+        "_existing_hosted_property_tour_url_for_identity",
+        lambda **kwargs: "https://propertyquarry.com/tours/existing-generated-reconstruction",
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda tour_url: (
+            "https://propertyquarry.com/tours/files/existing-generated-reconstruction/generated-reconstruction/viewer.html"
+            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/existing-generated-reconstruction"
+            else ""
+        ),
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        ProductService,
+        "create_willhaben_property_tour",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("existing hosted tour should short-circuit")),
+    )
+    persisted: dict[str, object] = {}
+
+    def _capture_persist(self, **kwargs):  # type: ignore[no-untyped-def]
+        persisted.update(kwargs)
+
+    monkeypatch.setattr(ProductService, "_persist_property_search_visual_state", _capture_persist)
+
+    result = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/existing-generated-reconstruction",
+        request_kind="tour",
+        source_ref="willhaben:existing-generated-reconstruction",
+        external_id="existing-generated-reconstruction",
+        run_id="run-42",
+        candidate_ref="candidate-42",
+        actor="test",
+        queue_async_request=False,
+        diorama_style_hint="Urban jungle",
+    )
+
+    assert result["status"] == "ready"
+    assert result["tour_status"] == "ready"
+    assert result["status_label"] == "Open 3D tour"
+    assert result["tour_url"] == "https://propertyquarry.com/tours/existing-generated-reconstruction"
+    assert result["open_tour_url"] == "https://propertyquarry.com/tours/files/existing-generated-reconstruction/generated-reconstruction/viewer.html"
+    assert result["generated_reconstruction_url"] == result["open_tour_url"]
+    assert result["poll_after_seconds"] == 0
+    assert persisted["run_id"] == "run-42"
+    assert persisted["candidate_ref"] == "candidate-42"
+    assert dict(persisted["visual_state"])["tour_status"] == "ready"
+
+
+def test_request_property_visual_asset_reuses_current_visual_state_generated_reconstruction(monkeypatch) -> None:
+    principal_id = "property-tour-reuse-current-visual-state-generated-reconstruction"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {
+            "tour_url": "https://propertyquarry.com/tours/current-visual-state-generated-reconstruction",
+            "tour_status": "created",
+        },
+    )
+    monkeypatch.setattr(product_service, "_existing_hosted_property_tour_url_for_identity", lambda **kwargs: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda tour_url: (
+            "https://propertyquarry.com/tours/files/current-visual-state-generated-reconstruction/generated-reconstruction/viewer.html"
+            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/current-visual-state-generated-reconstruction"
+            else ""
+        ),
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        ProductService,
+        "create_willhaben_property_tour",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("current visual state should short-circuit")),
+    )
+
+    result = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/current-visual-state-generated-reconstruction",
+        request_kind="tour",
+        source_ref="willhaben:current-visual-state-generated-reconstruction",
+        external_id="current-visual-state-generated-reconstruction",
+        run_id="run-42",
+        candidate_ref="candidate-42",
+        actor="test",
+        queue_async_request=False,
+    )
+
+    assert result["status"] == "ready"
+    assert result["tour_status"] == "ready"
+    assert result["tour_url"] == "https://propertyquarry.com/tours/current-visual-state-generated-reconstruction"
+    assert result["open_tour_url"] == "https://propertyquarry.com/tours/files/current-visual-state-generated-reconstruction/generated-reconstruction/viewer.html"
 
 
 def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available(monkeypatch, tmp_path: Path) -> None:
@@ -26125,7 +26786,68 @@ def test_public_tour_control_embeds_external_matterport_url() -> None:
 
     assert "3D Tour" in html
     assert "Matterport Control" not in html
+    assert "Matterport control" not in html
     assert 'src="https://my.matterport.com/show/?m=TEST123&amp;mls=2"' in html
+
+
+def test_public_tour_control_links_walkthrough_without_embedding_provider_video() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_control_html(
+        {
+            "slug": "matterport-with-walkthrough",
+            "display_title": "Matterport With Walkthrough",
+            "source_virtual_tour_url": "https://my.matterport.com/show/?m=TEST123",
+            "video_relpath": "tour-rendered-123.mp4",
+            "video_provider": "magicfit",
+            "scenes": [
+                {
+                    "name": "Living room",
+                    "role": "photo",
+                    "asset_relpath": "photo-01.jpg",
+                    "mime_type": "image/jpeg",
+                }
+            ],
+        },
+        viewer_mode="matterport",
+    )
+
+    assert "Open walkthrough" in html
+    assert "/tours/matterport-with-walkthrough/walkthrough" in html
+    assert "/tours/files/matterport-with-walkthrough/tour-rendered-123.mp4" not in html
+    assert "<video" not in html
+    assert 'id="tour-video"' not in html
+    assert "MagicFit" not in html
+    assert "magicfit" not in html
+
+
+def test_public_tour_walkthrough_route_serves_video_without_public_provider_filename(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "neutral-walkthrough-route"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour-magicfit-private-name.mp4").write_bytes(b"video")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "video_provider": "magicfit",
+                "video_relpath": "tour-magicfit-private-name.mp4",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-neutral-walkthrough")
+    response = client.get(f"/tours/{slug}/walkthrough")
+
+    assert response.status_code == 200
+    assert response.content == b"video"
+    assert response.headers["content-type"].startswith("video/mp4")
 
 
 def test_public_tour_control_switches_between_provider_backed_matterport_layers() -> None:
@@ -26153,7 +26875,8 @@ def test_public_tour_control_switches_between_provider_backed_matterport_layers(
     assert 'data-provider-layer="lived_in"' in html
     assert "https://my.matterport.com/show/?m=SOURCE123" in html
     assert "https://my.matterport.com/show/?m=STAGED123" in html
-    assert "Separate staged Matterport model." in html
+    assert "Separate staged Matterport model." not in html
+    assert "Styled view." in html
 
 
 def test_public_tour_control_ignores_unverified_provider_layer_url() -> None:
@@ -27346,6 +28069,7 @@ def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_fro
                 "slug": slug,
                 "generated_reconstruction": {
                     "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
                     "viewer_relpath": "generated-reconstruction/viewer.html",
                     "model_relpath": "generated-reconstruction/model.obj",
                     "glb_model_relpath": "generated-reconstruction/model.glb",
@@ -27379,6 +28103,36 @@ def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_fro
     assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
         tour_url,
         asset_key="manifest_relpath",
+    ) == ""
+
+
+def test_hosted_property_tour_generated_reconstruction_asset_url_rejects_stale_viewer_versions(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-stale-viewer"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "generated-reconstruction").mkdir()
+    (bundle_dir / "generated-reconstruction" / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v2",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
+        f"https://propertyquarry.com/tours/{slug}"
     ) == ""
 
 

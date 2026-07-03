@@ -275,6 +275,8 @@ def test_property_release_gate_wires_tour_import_manifest_into_gold_status() -> 
     assert "property-tour-export-import-manifest-release-gate-live-container.json" in release_gate
     assert "property_render_container=\"${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}\"" in release_gate
     assert "docker exec \"${property_render_container}\" python /app/scripts/verify_property_tour_vendor_tooling.py" in release_gate
+    assert 'runtime_reconstruction_container="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${property_render_container}}"' in release_gate
+    assert 'runtime_reconstruction_container="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${property_api_container}}"' not in release_gate
     assert "--runtime-only" in release_gate
     assert "property-tour-vendor-tooling-release-gate-live-container.json" in release_gate
     assert "docker cp \"${property_render_container}:/data/artifacts/property-tour-vendor-tooling-release-gate-live-container.json\"" in release_gate
@@ -343,6 +345,21 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
     assert "_completion/property_tour_ownership/release-gate.json" in release_gate
     assert "--tour-provider-ownership-receipt _completion/property_tour_ownership/release-gate.json" in release_gate
     assert "tests/test_property_live_mobile_surface_smoke.py" in release_gate
+
+
+def test_property_release_gate_runs_generated_reconstruction_glb_smoke() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    assert "live generated-reconstruction GLB export smoke" in release_gate
+    assert "scripts/property_runtime_reconstruction_smoke.py" in release_gate
+    assert "PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER" in release_gate
+    assert "PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG" in release_gate
+    assert "PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_BASE_URL" in release_gate
+    assert "--require-browser" in release_gate
+    assert "--require-glb" in release_gate
+    assert "_completion/tours/property-runtime-reconstruction-release-gate.json" in release_gate
+    assert "--runtime-reconstruction-receipt _completion/tours/property-runtime-reconstruction-release-gate.json" in release_gate
+    assert "--fail-on-error" in release_gate
 
 
 def test_property_release_gate_sends_gold_notification_when_green() -> None:
@@ -515,3 +532,11 @@ def test_property_compose_container_names_are_recoverable() -> None:
     assert 'test: ["CMD", "python", "-m", "app.scheduler_healthcheck"]' in compose
     scheduler_section = compose.split("  propertyquarry-scheduler:", 1)[1].split("  propertyquarry-db:", 1)[0]
     assert "disable: true" not in scheduler_section
+    render_section = compose.split("  propertyquarry-render-tools:", 1)[1].split("  propertyquarry-db:", 1)[0]
+    assert "command -v ffmpeg" in render_section
+    assert "command -v blender" in render_section
+    assert "command -v colmap" in render_section
+    assert "command -v exiftool" in render_section
+    assert "command -v convert" in render_section
+    assert "python -c 'import numpy'" in render_section
+    assert "http://127.0.0.1:8090/health/live" not in render_section

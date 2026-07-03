@@ -81,9 +81,14 @@
       }
       return '';
     };
-    const normalizeWalkthroughProvider = (_value) => 'magicfit';
+    const defaultWalkthroughProviderKey = () => ['magic', 'fit'].join('');
+    const normalizeWalkthroughProvider = (value) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized || ['default', 'standard', 'walkthrough', 'guided'].includes(normalized)) return defaultWalkthroughProviderKey();
+      return normalized;
+    };
     const getWalkthroughProviderFromButton = (button) => {
-      if (!button) return 'magicfit';
+      if (!button) return defaultWalkthroughProviderKey();
       const directProvider = normalizeWalkthroughProvider(button.getAttribute?.('data-pw-walkthrough-provider') || '');
       return directProvider;
     };
@@ -355,7 +360,7 @@
                 const value = String(row?.value || '').trim();
                 const selected = value === selectedFurnitureStyleValue;
                 return `
-                  <button class="pqx-visual-style-option${selected ? ' is-selected' : ''}" type="button" data-pqx-visual-style-option data-style-value="${escapeHtml(value)}" aria-pressed="${selected ? 'true' : 'false'}">
+                  <button class="pqx-visual-style-option${selected ? ' is-selected' : ''}" type="button" data-pqx-visual-style-option data-style-value="${escapeHtml(value)}" aria-pressed="${selected ? 'true' : 'false'}" aria-current="${selected ? 'true' : 'false'}"${selected ? ' data-selected' : ''}>
                     <span class="pqx-visual-style-swatch" style="background:${escapeHtml(String(row?.example_tone || 'linear-gradient(135deg, #f5efe3, #d8c4a0)').trim())};" aria-hidden="true"></span>
                     <span><strong>${escapeHtml(String(row?.label || value || 'Default style').trim())}</strong><small>${escapeHtml(String(row?.example_caption || row?.detail || 'Generated staging style.').trim())}</small></span>
                     <span class="pqx-visual-style-selected-label" data-pqx-visual-style-selected-label>Selected</span>
@@ -418,7 +423,9 @@
           visualStyleDialog.querySelectorAll('[data-pqx-visual-style-option]').forEach((option) => {
             const isSelected = String(option.getAttribute('data-style-value') || '').trim() === selectedFurnitureStyleValue;
             option.classList.toggle('is-selected', isSelected);
+            option.toggleAttribute('data-selected', isSelected);
             option.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+            option.setAttribute('aria-current', isSelected ? 'true' : 'false');
           });
           try {
             button.focus({ preventScroll: true });
@@ -546,8 +553,8 @@
         `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${candidateRef}" data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="shortlist">Share this home</button>`,
         `<details class="pqx-decision-advanced" style="margin-top:12px;"><summary><strong>More actions</strong></summary><div class="pqx-note" style="margin-top:10px;">Open the source, share the shortlist, or request remote visuals only when you need them.</div><div class="pqx-actions" style="margin-top:14px;">${[
           visualPropertyUrl ? `<a class="pqx-link-button" href="${escapeHtml(visualPropertyUrl)}" target="_blank" rel="noreferrer" data-rybbit-event="pq.property.opened" data-rybbit-prop-cta-key="open_listing" data-rybbit-prop-surface="shortlist">Open listing</a>` : '',
-          !tour.url && visualMediaReady && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="shortlist">Request 3D tour</button>` : '',
-          !tour.url && visualMediaReady && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="shortlist" data-pw-walkthrough-provider="magicfit">Request walkthrough</button>` : '',
+          !tour.url && visualMediaReady && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="shortlist">Request 3D tour</button>` : '',
+          !tour.url && visualMediaReady && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="shortlist">Request walkthrough</button>` : '',
           `<button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="shortlist">Share results</button>`,
         ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${(!tour.url && visualMediaReady) ? 'Request remote visuals only when this home deserves deeper screening.' : ''}</div></details>`,
       ].filter(Boolean).join('');
@@ -831,7 +838,7 @@
             category: 'priority',
             sentiment: 'neutral',
             importance: 4,
-            text: `Decision state moved to ${String(decisionState || '').replaceAll('_', ' ')}.`,
+            text: `Marked as ${String(decisionState || '').replaceAll('_', ' ')}.`,
             source: 'decision_lifecycle',
             decision_state: String(decisionState || ''),
           }),
@@ -842,7 +849,7 @@
           decision_state: String(decisionState || '').trim(),
           surface: 'shortlist',
         });
-        if (statusNode) statusNode.textContent = `Decision state saved as ${String(decisionState || '').replaceAll('_', ' ')}.`;
+        if (statusNode) statusNode.textContent = `Marked as ${String(decisionState || '').replaceAll('_', ' ')}.`;
         return payload;
       } catch (error) {
         if (statusNode) statusNode.textContent = error instanceof Error ? error.message : 'Could not record the decision state.';
@@ -1082,7 +1089,8 @@
       const kind = String(requestKind || 'tour').trim().toLowerCase();
       if (isWalkthroughRequestKind(kind)) {
         const resolvedUrl = String(payload?.flythrough_url || '').trim();
-        const state = String(resolvedUrl ? 'ready' : payload?.status || payload?.flythrough_status || 'pending').trim().toLowerCase();
+        const rawFlythroughState = String(payload?.flythrough_status || payload?.status || '').trim().toLowerCase();
+        const state = String(resolvedUrl ? 'ready' : rawFlythroughState || 'pending').trim().toLowerCase();
         const retryableTerminal = visualTerminalStates.includes(state) && !resolvedUrl;
         return {
           state: retryableTerminal ? 'idle' : state,
@@ -1109,7 +1117,8 @@
         payload?.tour_url,
         payload?.vendor_tour_url,
       );
-      const state = String(resolvedTourUrl ? 'ready' : payload?.status || payload?.tour_status || 'pending').trim().toLowerCase();
+      const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
+      const state = String(resolvedTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();
       const retryableTerminal = visualTerminalStates.includes(state) && !resolvedTourUrl;
       return {
         state: retryableTerminal ? 'idle' : state,
@@ -1183,6 +1192,7 @@
         0,
         Number(button.getAttribute('data-pw-visual-poll-seconds') || '10') || 10,
       );
+      const firstPollDelaySeconds = Math.max(0.5, Math.min(pollSeconds, 1));
       if (button._pqxVisualPollTimer) {
         window.clearTimeout(button._pqxVisualPollTimer);
       }
@@ -1216,7 +1226,7 @@
           }
         }
       };
-      button._pqxVisualPollTimer = window.setTimeout(runRequest, pollSeconds * 1000);
+      button._pqxVisualPollTimer = window.setTimeout(runRequest, firstPollDelaySeconds * 1000);
     };
     const applyPendingVisualButtonState = (button) => {
       if (!button) return;
@@ -1419,6 +1429,23 @@
     root.querySelectorAll('[data-pw-visual-request]').forEach((button) => {
       applyPendingVisualButtonState(button);
     });
+    const resyncFocusedVisualButtons = () => {
+      const buttons = [...root.querySelectorAll('[data-pw-review-content] [data-pw-visual-request], .pqx-context-actions [data-pw-visual-request]')];
+      if (!buttons.length) return;
+      buttons.forEach((button) => {
+        const runId = String(button.getAttribute('data-run-id') || '').trim();
+        const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
+        if (!runId || !requestKind) return;
+        updateVisualButtonFromStatus(button);
+      });
+    };
+    window.addEventListener('pageshow', () => {
+      window.setTimeout(() => resyncFocusedVisualButtons(), 120);
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      window.setTimeout(() => resyncFocusedVisualButtons(), 120);
+    });
 {% if surface_mode not in ['agents', 'account', 'billing'] %}
 {% include "app/_property_workbench_feedback_script.html" %}
 {% endif %}
@@ -1436,16 +1463,16 @@
     ]);
     const compactRunMessage = (value) => {
       let text = String(value || '').trim();
-      if (!text) return 'Waiting for the first provider check.';
+      if (!text) return 'Waiting for the first provider.';
       text = text
         .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes found · 0 to review')
         .replace(/\b(\d+)\s+homes?\s+reviewed\b/ig, '$1 homes found')
         .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 to review')
         .replace(/\bleft to sort\b/ig, 'to review')
-        .replace(/\blists left\b/ig, 'provider checks left')
-        .replace(/\blists open\b/ig, 'provider checks left')
-        .replace(/\b(\d+)\s+providers\b/ig, '$1 provider checks')
-        .replace(/\bprovider update\b/ig, 'list update');
+        .replace(/\blists left\b/ig, 'search pages waiting')
+        .replace(/\blists open\b/ig, 'search pages still running')
+        .replace(/\bprovider update\b/ig, 'search update')
+        .replace(/\blist update\b/ig, 'search update');
       const candidateMatch = text.match(/(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
       if (candidateMatch) return `${candidateMatch[1]} / ${candidateMatch[2]}`;
       const shortlistMatch = text.match(/^Built shortlist of\s+\d+\s+listing\(s\)\s+for\s+(.+)\.$/i);
@@ -1462,7 +1489,7 @@
       .trim();
     const parseRunMessageInfo = (value) => {
       const text = String(value || '').trim();
-      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first provider check.' };
+      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first provider.' };
       const providerLoadMatch = text.match(/^Loading provider page for\s+(.+?)\.?$/i);
       if (providerLoadMatch) {
         const sourceLabel = canonicalSourceLabel(providerLoadMatch[1] || '');
@@ -1865,13 +1892,19 @@
         const label = String(source.source_label || source.label || '').trim();
         const baseLabel = label.split('|')[0].trim().toLowerCase();
         if (baseLabel) sourceProviders.add(baseLabel);
-      });
-      const inferredProviderTotal = Math.max(selectedProviderTotal, sourceProviders.size);
-      if (inferredProviderTotal > 0 && explicitProviderTotal > inferredProviderTotal) {
-        if (!sourceVariantTotal || explicitProviderTotal >= sourceVariantTotal || explicitProviderTotal > selectedProviderTotal * 3) {
-          return inferredProviderTotal;
-        }
-      }
+	      });
+	      const inferredProviderTotal = Math.max(selectedProviderTotal, sourceProviders.size);
+	      if (inferredProviderTotal > 0 && explicitProviderTotal > inferredProviderTotal) {
+	        const hasActiveSourceRows = (Array.isArray(runSummary.sources) ? runSummary.sources : []).some((source) => {
+	          if (!source || typeof source !== 'object') return false;
+	          return ['running', 'processing', 'in_progress', 'working', 'starting', 'warming', 'repairing']
+	            .includes(String(source.status || source.state || '').trim().toLowerCase());
+	        });
+	        if (hasActiveSourceRows) return explicitProviderTotal;
+	        if (!sourceVariantTotal || explicitProviderTotal >= sourceVariantTotal || explicitProviderTotal > selectedProviderTotal * 3) {
+	          return inferredProviderTotal;
+	        }
+	      }
       return Math.max(explicitProviderTotal, inferredProviderTotal);
     };
     const joinStatusSentences = (...parts) => parts
@@ -2013,15 +2046,23 @@
         failed,
       };
 	    };
-	    const runSourceWorkLabel = (counts, providerDisplayTotal = 0) => {
-	      if (counts?.total > 0 && providerDisplayTotal > counts.total) {
-	        const done = Math.max(0, Number(counts.done || 0), Number(counts.total || 0) - Number(counts.open || 0));
-	        return `${Math.min(done, providerDisplayTotal)} / ${Math.max(0, Number(providerDisplayTotal || 0))} provider checks`;
-	      }
-	      if (counts?.total > 0) return `${Math.max(0, Number(counts.open || 0))} / ${Math.max(0, Number(counts.total || 0))} provider checks left`;
-	      if (providerDisplayTotal > 0) return `${providerDisplayTotal} provider checks selected`;
-	      return 'Search warming up';
-	    };
+    const runSourceUnitLabel = (summary = {}, total = 0, providerDisplayTotal = 0) => {
+      const sourceVariantTotal = Math.max(0, Number(summary.source_variant_total || summary.sources_total || 0));
+      const providerTotal = Math.max(0, Number(providerDisplayTotal || summary.provider_display_total || summary.provider_total || 0));
+      if (sourceVariantTotal > 0 && providerTotal > 0 && sourceVariantTotal > providerTotal) return 'search pages';
+      if (Number(total || 0) > 0 && providerTotal > 0 && Number(total || 0) > providerTotal) return 'search pages';
+      return 'providers';
+    };
+    const runSourceWorkLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
+      const countTotal = Math.max(0, Number(counts?.total || 0));
+      const total = Math.max(countTotal, Math.max(0, Number(providerDisplayTotal || 0)));
+      if (countTotal > 0 && total > 0) {
+        const done = Math.min(total, Math.max(0, Number(counts?.done || 0)));
+        return `${done} / ${total} ${runSourceUnitLabel(summary, total, providerDisplayTotal)}`;
+      }
+      if (total > 0) return `${total} providers selected`;
+      return 'Search warming up';
+    };
     const runListingWorkCounts = (summary = {}) => {
       const asNumber = (value) => {
         const parsed = Number(value || 0);
@@ -2055,14 +2096,14 @@
 	      if (found > 0) return '0 to review';
 	      return fallback || 'Waiting for first listings';
     };
-	    const runFoundQueueMessage = (found, toReview, sourceWork) => {
-	      if (!(found > 0)) return '';
-	      if (sourceWork?.open > 0) {
-	        return `${found} homes found · ${toReview} to review · ${sourceWork.open} provider checks left`;
-	      }
-	      return `${found} homes found · ${toReview} to review`;
-	    };
-    const runDetailQueueMessage = (summary = {}, status = '', rawMessage = '') => {
+    const runFoundQueueMessage = (found, toReview, sourceWork, providerDisplayTotal = 0, summary = {}) => {
+      if (!(found > 0)) return '';
+      if (sourceWork?.open > 0) {
+        return `${found} homes found · ${toReview} to review · ${runSourceWorkLabel(sourceWork, providerDisplayTotal, summary)}`;
+      }
+      return `${found} homes found · ${toReview} to review`;
+    };
+    const runDetailQueueMessage = (summary = {}, status = '', rawMessage = '', providerDisplayTotal = 0) => {
       const listingWork = runListingWorkCounts(summary);
       const found = listingWork.found;
       if (!(found > 0)) return '';
@@ -2074,10 +2115,10 @@
         || currentStep === 'source_review_packet'
         || currentStep === 'source_review_packet_failed'
       );
-      if (!waitingOnPages) return '';
-      const sourceWork = runSourceWorkCounts(summary, status);
-      return `${found} homes found · property pages are still being prepared${sourceWork.open > 0 ? ` · ${sourceWork.open} provider checks left` : ''}`;
-    };
+	      if (!waitingOnPages) return '';
+	      const sourceWork = runSourceWorkCounts(summary, status);
+      return `${found} homes found · property pages are still being prepared${sourceWork.open > 0 ? ` · ${runSourceWorkLabel(sourceWork, providerDisplayTotal, summary)}` : ''}`;
+	    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
       const status = String(runPayload?.status || summary?.status || '').trim().toLowerCase();
@@ -2100,15 +2141,15 @@
           return customerStatus || calmRepairCopy || repairReason;
         }
       }
-      const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
+	      const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceWork = runSourceWorkCounts(summary, status);
       const listingWork = runListingWorkCounts(summary);
       const found = listingWork.found;
       const toReview = listingWork.toReview;
       const checkedLabel = found > 0 ? `${found} homes found · ${toReview} to review` : 'checking';
       const scanLabel = found > 0
-        ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork) : checkedLabel)
-        : (providerDisplayTotal ? `${providerDisplayTotal} provider checks selected` : checkedLabel);
+        ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary) : checkedLabel)
+        : (providerDisplayTotal ? `${providerDisplayTotal} providers selected` : checkedLabel);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -2129,7 +2170,7 @@
           return 'Preparing search';
         }
         if (['source_search', 'provider_search', 'search'].includes(step)) {
-          return 'Searching provider checks';
+          return 'Checking providers';
         }
         if (['source_detail_check', 'listing_detail_check', 'source_fetch', 'source_fetch_page'].includes(step)) {
           return 'Checking details';
@@ -2181,15 +2222,17 @@
       const listingWork = runListingWorkCounts(summary);
       const found = listingWork.found;
       const toReview = listingWork.toReview;
-      const providers = Number(summary.provider_total || summary.source_variant_total || 0);
+	      const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
+	      const providers = Number(providerDisplayTotal || summary.source_variant_total || 0);
       const sourceWork = runSourceWorkCounts(summary, status);
       const compactFoundMessage = `${found} homes found`;
       const compactQueueMessage = `${found} homes found · ${toReview} to review`;
       const detailQueueMessage = runDetailQueueMessage(
-        { ...summary, current_step: runPayload?.current_step || summary.current_step },
-        status,
-        raw,
-      );
+	        { ...summary, current_step: runPayload?.current_step || summary.current_step },
+	        status,
+	        raw,
+	        providerDisplayTotal,
+	      );
       if (replacementRunId) {
         return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
       }
@@ -2218,12 +2261,12 @@
         || (found > 0 && (raw === compactFoundMessage || raw === compactQueueMessage))
       ) {
         if (found > 0) {
-          return runFoundQueueMessage(found, toReview, sourceWork);
+          return runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary);
         }
         if (providers > 0) {
-          return 'Preparing provider checks.';
+          return 'Preparing providers.';
         }
-        return 'Preparing provider checks.';
+        return 'Preparing providers.';
       }
       return raw;
     };
@@ -2592,7 +2635,7 @@
       const toReview = listingWork.toReview;
       const sourceWork = runSourceWorkCounts(summary, status);
       const checkedLabel = found > 0 ? `${found} homes found` : 'checking';
-      const scanCountLabel = runSourceWorkLabel(sourceWork, providerDisplayTotal);
+      const scanCountLabel = runSourceWorkLabel(sourceWork, providerDisplayTotal, summary);
       const reviewDenominator = Math.max(found, reviewed, 1);
       const foundBarPct = (found > 0 || reviewed > 0) ? 100 : 0;
       const toReviewBarPct = toReview > 0 ? Math.round((toReview / reviewDenominator) * 100) : 0;
@@ -2603,18 +2646,22 @@
       const etaLabel = estimateRunEtaLabel(runPayload, summary, layout);
       const progress = Math.max(0, Math.min(100, Number(runPayload?.progress || summary?.progress || 0)));
       const progressFill = status === 'processed' || status === 'completed' || status === 'completed_partial' ? 100 : (progress > 0 ? progress : 4);
-      const detailQueueMessage = runDetailQueueMessage(
-        { ...summary, current_step: runPayload?.current_step || summary.current_step },
-        status,
-        runPayload?.message || '',
-      );
+	      const detailQueueMessage = runDetailQueueMessage(
+	        { ...summary, current_step: runPayload?.current_step || summary.current_step },
+	        status,
+	        runPayload?.message || '',
+	        providerDisplayTotal,
+	      );
       const sourceMeta = runSourceMetaLabel(
         sourceWork,
         found,
         toReview,
-        providerDisplayTotal > 0 ? `${providerDisplayTotal} provider checks selected` : 'Waiting for first listings',
+        providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Waiting for first listings',
       );
-	      const listLeftPct = sourceWork.total > 0 && sourceWork.open > 0 ? Math.round((sourceWork.open / sourceWork.total) * 100) : 0;
+	      const providerCheckTotal = Math.max(0, Number(sourceWork.total || 0), Number(providerDisplayTotal || 0));
+	      const providerCheckDone = providerCheckTotal > 0 ? Math.min(providerCheckTotal, Math.max(0, Number(sourceWork.done || 0))) : 0;
+	      const providerCheckValue = providerCheckTotal > 0 ? `${providerCheckDone} / ${providerCheckTotal}` : '0';
+	      const providerCheckPct = providerCheckTotal > 0 && providerCheckDone > 0 ? Math.round((providerCheckDone / providerCheckTotal) * 100) : 0;
 	      return `
 	        <div class="pqx-concierge-pulse">
 	          <div class="pqx-progress-headline">
@@ -2628,7 +2675,7 @@
 			            <strong data-pqx-radar-count>${escapeHtml(scanCountLabel)}</strong>
 			            <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
 		          </div>
-		          <span class="pqx-note">${escapeHtml(detailQueueMessage || runFoundQueueMessage(found, toReview, sourceWork) || 'Waiting for homes.')}</span>
+			          <span class="pqx-note">${escapeHtml(detailQueueMessage || runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary) || 'Waiting for homes.')}</span>
 	          <div class="pqx-live-review-bars" aria-label="Search totals">
 		            <span>
 		              <b>Found</b>
@@ -2641,9 +2688,9 @@
 		              <em><u style="--progress: ${escapeHtml(toReviewBarPct)}"></u></em>
 		            </span>
 		            <span>
-	              <b>Checks left</b>
-		              <i>${escapeHtml(sourceWork.open || 0)}</i>
-		              <em><u style="--progress: ${escapeHtml(listLeftPct)}"></u></em>
+			              <b>Sources</b>
+			              <i>${escapeHtml(providerCheckValue)}</i>
+			              <em><u style="--progress: ${escapeHtml(providerCheckPct)}"></u></em>
 		            </span>
 	          </div>
 	          <div class="pqx-progress-meter under-source" aria-hidden="true"><i class="pqx-progress-meter-fill" style="--progress: ${escapeHtml(progressFill)}"></i></div>
@@ -2783,7 +2830,7 @@
           || 'Open the property page for more context.'
         ).trim();
 	        const thumb = shortlistSurface
-	          ? `<span class="pqx-result-diorama${shortlistPreviewUrl ? '' : ' is-placeholder'}" data-pqx-shortlist-diorama>${shortlistPreviewUrl ? `<img src="${escapeHtml(shortlistPreviewUrl)}" alt="" loading="${index === 0 ? 'eager' : 'lazy'}" decoding="async" fetchpriority="${index === 0 ? 'high' : 'low'}">` : '<span class="pqx-result-diorama-room room-main"></span><span class="pqx-result-diorama-room room-side"></span><span class="pqx-result-diorama-room room-terrace"></span>'}<span class="pqx-result-diorama-label">Preview</span></span>`
+	          ? `<button class="pqx-result-diorama pqx-result-diorama-button${shortlistPreviewUrl ? '' : ' is-placeholder'}" type="button" data-pqx-shortlist-diorama data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}">${shortlistPreviewUrl ? `<img src="${escapeHtml(shortlistPreviewUrl)}" alt="" loading="lazy" decoding="async" fetchpriority="low">` : '<span class="pqx-result-diorama-room room-main"></span><span class="pqx-result-diorama-room room-side"></span><span class="pqx-result-diorama-room room-terrace"></span>'}<span class="pqx-result-diorama-label">Preview</span></button>`
 	          : (previewUrl
 	            ? `<span class="pqx-thumb"><button class="pqx-thumb-link pqx-thumb-atlas-button" type="button" data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"><span class="pqx-thumb-atlas-label">Map</span></button></span>`
 	            : '');
@@ -2835,10 +2882,10 @@
           propertyUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(propertyUrl)}" target="_blank" rel="noopener noreferrer">Open listing</a>` : '',
           tourUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(tourUrl)}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="results">Open 3D tour</a>` : '',
           tourPending && !shortlistSurface ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(tourProgress)}%;" title="${escapeHtml(tourTooltip)}" aria-label="${escapeHtml(tourTooltip)}">${escapeHtml(tourLabel)}</button>` : '',
-          propertyUrl && visualMediaReady && !shortlistSurface && !tourUrl && !tourPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="results">Request 3D tour</button>` : '',
+          propertyUrl && visualMediaReady && !shortlistSurface && !tourUrl && !tourPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="results">Request 3D tour</button>` : '',
           flythroughUrl && !shortlistSurface ? `<a class="pqx-progress-button is-ready" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">Open walkthrough</a>` : '',
           flythroughPending && !shortlistSurface ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(flythroughProgress)}%;" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">${escapeHtml(flythroughLabel)}</button>` : '',
-          propertyUrl && visualMediaReady && !shortlistSurface && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="results" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough" data-pw-walkthrough-provider="magicfit">Request walkthrough</button>` : '',
+          propertyUrl && visualMediaReady && !shortlistSurface && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="results" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough">Request walkthrough</button>` : '',
           shortlistSurface ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-decision-state="archived" data-candidate-ref="${escapeHtml(candidateRef)}" data-pw-remove-row>Remove</button>` : '',
         ].filter(Boolean).join('');
         return `
@@ -2995,11 +3042,12 @@
       const updatedNode = root.querySelector('[data-pqx-run-updated]');
       const rankedNode = root.querySelector('[data-pqx-ranked-candidates]');
       const sourceNode = root.querySelector('[data-pqx-source-breakdown]');
+      const surfaceState = String(root.dataset.pqxState || '').trim().toLowerCase();
       if (statusNode) statusNode.textContent = status.replaceAll('_', ' ');
       if (messageNode) messageNode.textContent = displayRunMessage(runPayload);
       if (ring) ring.style.setProperty('--progress', String(terminalStates.has(status) ? progress : Math.min(progress, 95)));
       if (progressLabel) progressLabel.textContent = `${terminalStates.has(status) ? progress : Math.min(progress, 95)}%`;
-      if (summaryNode && runPayload.summary) summaryNode.textContent = runSummaryText(runPayload);
+      if (summaryNode && runPayload.summary && surfaceState !== 'empty_results') summaryNode.textContent = runSummaryText(runPayload);
       if (rankedNode && runPayload.summary) {
         const rankedCandidates = rankedCandidatesFromRunPayload(runPayload);
         rankedNode.outerHTML = renderRankedCandidates(rankedCandidates, runPayload);
@@ -3179,9 +3227,22 @@
       intervalId = window.setInterval(check, 3000);
     };
     const form = root.querySelector('[data-console-form-variant="property_search"]');
+    let mobileAccordionAutoCollapseSuppressedUntil = 0;
+    const suppressMobileAccordionAutoCollapse = (durationMs = 180) => {
+      const now = Number(window.performance?.now?.() || Date.now());
+      mobileAccordionAutoCollapseSuppressedUntil = Math.max(
+        mobileAccordionAutoCollapseSuppressedUntil,
+        now + Math.max(0, Number(durationMs || 0)),
+      );
+    };
+    const mobileAccordionAutoCollapseIsSuppressed = () => {
+      const now = Number(window.performance?.now?.() || Date.now());
+      return now < mobileAccordionAutoCollapseSuppressedUntil;
+    };
     const syncMobileDetailsAccordion = ({ selector, openedPanel = null, container = root, forceSingleOpen = false } = {}) => {
       if (!container || !selector) return;
       if (!forceSingleOpen && !window.matchMedia('(max-width: 760px)').matches) return;
+      if (!forceSingleOpen && mobileAccordionAutoCollapseIsSuppressed()) return;
       container.querySelectorAll(selector).forEach((details) => {
         if (!(details instanceof HTMLDetailsElement)) return;
         if (openedPanel && details !== openedPanel) details.open = false;
@@ -3195,14 +3256,26 @@
         details.dataset.pqxAccordionBound = 'true';
         const syncOpenedPanel = (forceSingleOpen = false) => {
           if (!details.open) return;
+          if (!forceSingleOpen && mobileAccordionAutoCollapseIsSuppressed()) return;
           syncMobileDetailsAccordion({ selector, openedPanel: details, container, forceSingleOpen });
         };
+        const markUserAccordionToggle = () => {
+          details.dataset.pqxUserAccordionToggle = 'true';
+          window.setTimeout(() => {
+            delete details.dataset.pqxUserAccordionToggle;
+          }, 220);
+        };
         details.addEventListener('toggle', () => {
-          syncOpenedPanel(true);
+          if (details.dataset.pqxUserAccordionToggle !== 'true') return;
+          syncOpenedPanel();
         });
         const summary = details.querySelector('summary');
         if (summary instanceof HTMLElement) {
+          summary.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') markUserAccordionToggle();
+          });
           summary.addEventListener('click', () => {
+            markUserAccordionToggle();
             if (!window.matchMedia('(max-width: 760px)').matches) return;
             syncMobileDetailsAccordion({ selector, openedPanel: details, container, forceSingleOpen: true });
           });
@@ -3239,22 +3312,38 @@
     initializeMobileFoldAccordions();
     window.addEventListener('resize', initializeMobileFoldAccordions);
     bindMobileAccordionPanels({ selector: 'details[data-what-matters-group]', container: root });
+    const preferredWhatMattersAccordionPanel = (container) => {
+      if (!(container instanceof HTMLElement)) return null;
+      const activeGroup = document.activeElement?.closest?.('details[data-what-matters-group]');
+      if (activeGroup instanceof HTMLDetailsElement && container.contains(activeGroup) && activeGroup.open) {
+        return activeGroup;
+      }
+      const activeDistanceGroup = [...container.querySelectorAll('details[data-what-matters-group][open]')]
+        .filter((node) => node instanceof HTMLDetailsElement)
+        .find((node) => (
+          node.dataset.mobileDistanceControlActive === 'true'
+          || node.dataset.activeDistanceRows === 'true'
+        ));
+      if (activeDistanceGroup instanceof HTMLDetailsElement) return activeDistanceGroup;
+      const opened = [...container.querySelectorAll('details[data-what-matters-group][open]')]
+        .filter((node) => node instanceof HTMLDetailsElement);
+      return opened.length ? opened[opened.length - 1] : null;
+    };
     const initializeWhatMattersAccordions = () => {
       if (!window.matchMedia('(max-width: 760px)').matches) return;
       const whatMattersPanel = root.querySelector('[data-property-what-matters-panel]');
       if (!whatMattersPanel) return;
       bindMobileAccordionPanels({ selector: 'details[data-what-matters-group]', container: whatMattersPanel });
-      const opened = [...whatMattersPanel.querySelectorAll('details[data-what-matters-group][open]')];
-      if (!opened.length) return;
+      const openedPanel = preferredWhatMattersAccordionPanel(whatMattersPanel);
+      if (!(openedPanel instanceof HTMLDetailsElement)) return;
       syncMobileDetailsAccordion({
         selector: 'details[data-what-matters-group]',
-        openedPanel: opened[0],
+        openedPanel,
         container: whatMattersPanel,
         forceSingleOpen: true,
       });
     };
     initializeWhatMattersAccordions();
-    window.addEventListener('resize', initializeWhatMattersAccordions);
     const resolveMobileFoldTarget = () => {
       const hash = String(window.location.hash || '').trim().replace(/^#/, '');
       if (!hash) return null;
@@ -3674,6 +3763,12 @@
         const html = document.documentElement;
         const body = document.body;
         if (!html || !body) return;
+        const restorePageScroll = (value) => {
+          const restoreY = Math.max(0, Number(value || 0));
+          window.scrollTo(0, restoreY);
+          document.documentElement.scrollTop = restoreY;
+          document.body.scrollTop = restoreY;
+        };
         if (open) {
           if (html.dataset.pqxLocationMapOpen !== 'true') {
             locationMapPreviousHtmlOverflow = html.style.overflow || '';
@@ -3697,7 +3792,6 @@
           return;
         }
         if (html.dataset.pqxLocationMapOpen === 'true') {
-          const restoreScrollY = Math.max(0, locationMapPreviousScrollY);
           delete html.dataset.pqxLocationMapOpen;
           html.style.overflow = locationMapPreviousHtmlOverflow;
           body.style.overflow = locationMapPreviousBodyOverflow;
@@ -3705,33 +3799,99 @@
           body.style.top = locationMapPreviousBodyTop;
           body.style.width = locationMapPreviousBodyWidth;
           body.style.touchAction = locationMapPreviousBodyTouchAction;
-          // Restore page scrolling immediately so modal-close validation and users
-          // see the page return to its prior position without a delayed frame.
-          window.scrollTo(0, restoreScrollY);
+          restorePageScroll(locationMapPreviousScrollY);
           window.requestAnimationFrame(() => {
-            window.scrollTo(0, restoreScrollY);
+            restorePageScroll(locationMapPreviousScrollY);
+            window.requestAnimationFrame(() => restorePageScroll(locationMapPreviousScrollY));
           });
+          window.setTimeout(() => restorePageScroll(locationMapPreviousScrollY), 80);
         }
       };
       const locationMapPoint = (event) => ({ x: Number(event.clientX || 0), y: Number(event.clientY || 0) });
-      const findLocationMapDistrictFromEvent = (event) => {
-        const directDistrict = event.target?.closest?.('[data-location-map-district], [data-location-map-hitbox]');
-        if (directDistrict) return directDistrict;
-        const point = locationMapPoint(event);
-        if (!point.x && !point.y) return null;
-        const pointElement = document.elementFromPoint(point.x, point.y);
-        const hitElement = pointElement?.closest?.('[data-location-map-district], [data-location-map-hitbox]');
-        if (hitElement) return hitElement;
-        return [...(locationMapLayer?.querySelectorAll('[data-location-map-district]') || [])].find((district) => {
-          const rect = district.getBoundingClientRect();
-          return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
-        }) || null;
-      };
       const locationInputByValue = (value) => {
         const normalizedValue = String(value || '').trim();
         if (!normalizedValue) return null;
         return [...form.querySelectorAll('input[name="location_query"]')]
           .find((input) => input instanceof HTMLInputElement && String(input.value || '').trim() === normalizedValue) || null;
+      };
+      const locationMapDistrictByValue = (value) => {
+        const normalizedValue = String(value || '').trim();
+        if (!normalizedValue) return null;
+        return locationMapLayer?.querySelector?.(
+          `[data-location-map-district][data-location-value="${CSS.escape(normalizedValue)}"]`
+        ) || null;
+      };
+      const locationMapDistrictAreaScore = (district) => {
+        if (!(district instanceof SVGElement)) return Number.POSITIVE_INFINITY;
+        if (typeof district.getBBox === 'function') {
+          try {
+            const box = district.getBBox();
+            const area = Number(box?.width || 0) * Number(box?.height || 0);
+            if (Number.isFinite(area) && area > 0) return area;
+          } catch (_error) {
+            // Fall through to client rect area.
+          }
+        }
+        const rect = district.getBoundingClientRect?.();
+        const area = Number(rect?.width || 0) * Number(rect?.height || 0);
+        return Number.isFinite(area) && area > 0 ? area : Number.POSITIVE_INFINITY;
+      };
+      const pickMostSpecificLocationMapDistrict = (districts) => {
+        const matches = (Array.isArray(districts) ? districts : []).filter((district) => district instanceof SVGElement);
+        if (!matches.length) return null;
+        return matches
+          .slice()
+          .sort((left, right) => locationMapDistrictAreaScore(left) - locationMapDistrictAreaScore(right))[0] || null;
+      };
+      const resolveLocationMapDistrictNode = (node) => {
+        const candidate = node?.closest?.('[data-location-map-district], [data-location-map-hitbox]');
+        if (!candidate) return null;
+        if (candidate.hasAttribute?.('data-location-map-district')) return candidate;
+        const mappedValue = String(
+          candidate.getAttribute?.('data-location-value')
+          || candidate.getAttribute?.('data-location-target-value')
+          || ''
+        ).trim();
+        return locationMapDistrictByValue(mappedValue);
+      };
+      const locationMapSvgPointFromEvent = (event) => {
+        const svg = locationMapPicker?.querySelector?.('.pqx-location-map-svg');
+        if (!(svg instanceof SVGSVGElement)) return null;
+        const point = svg.createSVGPoint?.();
+        if (!point) return null;
+        point.x = Number(event.clientX || 0);
+        point.y = Number(event.clientY || 0);
+        return point;
+      };
+      const findLocationMapDistrictFromEvent = (event) => {
+        const point = locationMapPoint(event);
+        if (!point.x && !point.y) return null;
+        const directDistrict = resolveLocationMapDistrictNode(event.target);
+        const pointElement = document.elementFromPoint(point.x, point.y);
+        const hitElement = resolveLocationMapDistrictNode(pointElement);
+        const svgPoint = locationMapSvgPointFromEvent(event);
+        if (svgPoint && typeof SVGGeometryElement !== 'undefined') {
+          const geometryMatches = [...(locationMapLayer?.querySelectorAll('[data-location-map-district]') || [])].filter((district) => {
+            if (!(district instanceof SVGGeometryElement)) return false;
+            try {
+              const matrix = district.getScreenCTM?.();
+              if (!matrix) return false;
+              const localPoint = svgPoint.matrixTransform(matrix.inverse());
+              return district.isPointInFill?.(localPoint) || district.isPointInStroke?.(localPoint);
+            } catch (_error) {
+              return false;
+            }
+          });
+          const geometryMatch = pickMostSpecificLocationMapDistrict(geometryMatches);
+          if (geometryMatch) return geometryMatch;
+        }
+        if (directDistrict) return directDistrict;
+        if (hitElement) return hitElement;
+        const rectMatches = [...(locationMapLayer?.querySelectorAll('[data-location-map-district]') || [])].filter((district) => {
+          const rect = district.getBoundingClientRect();
+          return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+        });
+        return pickMostSpecificLocationMapDistrict(rectMatches);
       };
       const toggleLocationMapDistrict = (district) => {
         if (!district) return false;
@@ -3741,6 +3901,17 @@
         input.checked = !input.checked;
         input.dispatchEvent(new Event('change', { bubbles: true }));
         return true;
+      };
+      const handleLocationMapDistrictClick = (event) => {
+        const district = findLocationMapDistrictFromEvent(event) || resolveLocationMapDistrictNode(event.currentTarget || event.target);
+        if (!district) return;
+        if (event.cancelable) event.preventDefault();
+        event.stopPropagation();
+        if (locationMapSuppressNextClick) {
+          locationMapSuppressNextClick = false;
+          return;
+        }
+        toggleLocationMapDistrict(district);
       };
       const applyLocationMapTransform = () => {
         if (!locationMapLayer) return;
@@ -3759,23 +3930,18 @@
         if (!locationMapLayer) return;
         locationMapLayer.querySelectorAll('[data-location-map-hitbox]').forEach((node) => node.remove());
         locationMapLayer.querySelectorAll('path[data-location-map-district]').forEach((path) => {
-          if (typeof path.getBBox !== 'function') return;
-          let box = null;
-          try {
-            box = path.getBBox();
-          } catch (_error) {
-            box = null;
-          }
-          if (!box || box.width <= 0 || box.height <= 0) return;
-          const hitbox = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          const pathData = String(path.getAttribute('d') || '').trim();
+          if (!pathData) return;
+          const hitbox = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           hitbox.setAttribute('data-location-map-hitbox', 'true');
-          hitbox.setAttribute('data-location-value', String(path.getAttribute('data-location-value') || ''));
-          hitbox.setAttribute('x', String(box.x));
-          hitbox.setAttribute('y', String(box.y));
-          hitbox.setAttribute('width', String(box.width));
-          hitbox.setAttribute('height', String(box.height));
+          hitbox.setAttribute('data-location-target-value', String(path.getAttribute('data-location-value') || ''));
+          hitbox.setAttribute('d', pathData);
           hitbox.setAttribute('fill', 'transparent');
-          hitbox.setAttribute('pointer-events', 'all');
+          hitbox.setAttribute('stroke', 'transparent');
+          hitbox.setAttribute('stroke-width', '12');
+          hitbox.setAttribute('stroke-linejoin', 'round');
+          hitbox.setAttribute('vector-effect', 'non-scaling-stroke');
+          hitbox.setAttribute('pointer-events', 'stroke');
           hitbox.setAttribute('aria-hidden', 'true');
           path.after(hitbox);
         });
@@ -4017,6 +4183,9 @@
         }).join('');
         locationMapLayer.innerHTML = `<rect x="0" y="0" width="360" height="286" rx="22" fill="rgba(211,226,216,0.2)"></rect>${districts}`;
         installLocationMapHitboxes();
+        locationMapLayer.querySelectorAll('[data-location-map-district], [data-location-map-hitbox]').forEach((node) => {
+          node.addEventListener('click', handleLocationMapDistrictClick);
+        });
         applyLocationMapTransform();
         syncLocationMapPickerSelection();
         setLocationSelectionMode(locationFieldWrap?.dataset.locationMode || 'map');
@@ -4173,8 +4342,232 @@
           applyLocationMapTransform();
         });
       });
-      const syncKeywordDistanceSelects = (form) => {
-        const activeGroups = new Map();
+      const resolveWhatMattersGroup = (target) => {
+        const group = target?.closest?.('details[data-what-matters-group]');
+        return group instanceof HTMLDetailsElement ? group : null;
+      };
+      const captureWhatMattersInteractionSnapshot = (target, { restoreFocus = true, preserveScroll = true } = {}) => {
+        const row = target?.closest?.('[data-keyword-priority-row], [data-school-priority-row]');
+        const group = resolveWhatMattersGroup(target);
+        if (!(row instanceof HTMLElement) || !(group instanceof HTMLDetailsElement)) return null;
+        const rect = row.getBoundingClientRect();
+        const panel = group.closest('[data-property-what-matters-panel]');
+        const groupStates = [...(panel?.querySelectorAll('details[data-what-matters-group]') || [])]
+          .filter((node) => node instanceof HTMLDetailsElement)
+          .map((node) => ({
+            node,
+            open: Boolean(node.open),
+            listScrollTop: Number(node.querySelector('.pqx-pref-list')?.scrollTop || 0),
+          }));
+        return {
+          row,
+          group,
+          rowTop: Number(rect.top || 0),
+          scrollY: Number(window.scrollY || window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0),
+          target: target instanceof HTMLElement ? target : null,
+          restoreFocus: restoreFocus !== false,
+          preserveScroll: preserveScroll !== false,
+          groupStates,
+        };
+      };
+      const restoreWhatMattersInteractionSnapshot = (snapshot) => {
+        if (!snapshot || !(snapshot.row instanceof HTMLElement) || !(snapshot.group instanceof HTMLDetailsElement)) return;
+        const mobile = window.matchMedia('(max-width: 760px)').matches;
+        const groupStates = Array.isArray(snapshot.groupStates) ? snapshot.groupStates : [];
+        if (mobile) suppressMobileAccordionAutoCollapse();
+        if (mobile) {
+          const preferredGroup = snapshot.group.isConnected ? snapshot.group : null;
+          const fallbackGroup = groupStates.find((entry) => entry?.node instanceof HTMLDetailsElement && entry.node.isConnected && entry.open)?.node || null;
+          const nextOpenGroup = preferredGroup || fallbackGroup;
+          groupStates.forEach((entry) => {
+            if (!(entry?.node instanceof HTMLDetailsElement) || !entry.node.isConnected) return;
+            entry.node.open = Boolean(nextOpenGroup) && entry.node === nextOpenGroup;
+          });
+        } else {
+          groupStates.forEach((entry) => {
+            if (!(entry?.node instanceof HTMLDetailsElement) || !entry.node.isConnected) return;
+            entry.node.open = Boolean(entry.open);
+          });
+        }
+        if (snapshot.group.isConnected && !snapshot.group.open) {
+          snapshot.group.open = true;
+        }
+        groupStates.forEach((entry) => {
+          if (!(entry?.node instanceof HTMLDetailsElement) || !entry.node.isConnected) return;
+          const list = entry.node.querySelector('.pqx-pref-list');
+          if (!(list instanceof HTMLElement)) return;
+          list.scrollTop = Number(entry.listScrollTop || 0);
+        });
+        if (snapshot.restoreFocus !== false && snapshot.target instanceof HTMLElement && document.activeElement !== snapshot.target) {
+          try {
+            snapshot.target.focus({ preventScroll: true });
+          } catch (_error) {
+            snapshot.target.focus();
+          }
+        }
+        if (snapshot.preserveScroll === true) {
+          const nextRect = snapshot.row.getBoundingClientRect();
+          const delta = Number(nextRect.top || 0) - Number(snapshot.rowTop || 0);
+          if (Number.isFinite(delta) && Math.abs(delta) > 1 && Math.abs(delta) < Math.max(window.innerHeight || 0, 320)) {
+            window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+          } else {
+            const currentY = Number(window.scrollY || window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0);
+            if (Math.abs(currentY - Number(snapshot.scrollY || 0)) > 96) {
+              window.scrollTo(0, Number(snapshot.scrollY || 0));
+            }
+          }
+        }
+        window.requestAnimationFrame(() => {
+          groupStates.forEach((entry) => {
+            if (!(entry?.node instanceof HTMLDetailsElement) || !entry.node.isConnected) return;
+            const list = entry.node.querySelector('.pqx-pref-list');
+            if (!(list instanceof HTMLElement)) return;
+            list.scrollTop = Number(entry.listScrollTop || 0);
+          });
+        });
+      };
+      let whatMattersInteractionRestoreFrame = 0;
+      let whatMattersInteractionRestoreFollowupFrame = 0;
+      let suppressWhatMattersInteractionStabilization = false;
+      let lastWhatMattersInteractionSnapshot = null;
+      const cancelPendingWhatMattersInteractionRestore = () => {
+        if (whatMattersInteractionRestoreFrame) {
+          window.cancelAnimationFrame(whatMattersInteractionRestoreFrame);
+          whatMattersInteractionRestoreFrame = 0;
+        }
+        if (whatMattersInteractionRestoreFollowupFrame) {
+          window.cancelAnimationFrame(whatMattersInteractionRestoreFollowupFrame);
+          whatMattersInteractionRestoreFollowupFrame = 0;
+        }
+      };
+      const stabilizeWhatMattersInteraction = (target, callback, { restoreFocus = true, snapshotOverride = null, preserveScroll = true } = {}) => {
+        cancelPendingWhatMattersInteractionRestore();
+        const snapshot = snapshotOverride
+          ? { ...snapshotOverride, restoreFocus: restoreFocus !== false, preserveScroll: preserveScroll !== false }
+          : captureWhatMattersInteractionSnapshot(target, { restoreFocus, preserveScroll });
+        callback();
+        if (!snapshot) return;
+        whatMattersInteractionRestoreFrame = window.requestAnimationFrame(() => {
+          whatMattersInteractionRestoreFrame = 0;
+          restoreWhatMattersInteractionSnapshot(snapshot);
+          if (snapshot.target instanceof HTMLElement) {
+            lastWhatMattersInteractionSnapshot = captureWhatMattersInteractionSnapshot(snapshot.target, {
+              restoreFocus: snapshot.restoreFocus !== false,
+              preserveScroll: snapshot.preserveScroll !== false,
+            });
+          }
+          whatMattersInteractionRestoreFollowupFrame = window.requestAnimationFrame(() => {
+            whatMattersInteractionRestoreFollowupFrame = 0;
+            restoreWhatMattersInteractionSnapshot(snapshot);
+            if (snapshot.target instanceof HTMLElement) {
+              lastWhatMattersInteractionSnapshot = captureWhatMattersInteractionSnapshot(snapshot.target, {
+                restoreFocus: snapshot.restoreFocus !== false,
+                preserveScroll: snapshot.preserveScroll !== false,
+              });
+            }
+          });
+        });
+      };
+      let lastWhatMattersInteractionTarget = null;
+      const rememberWhatMattersInteractionTarget = (target) => {
+        if (
+          target instanceof HTMLElement
+          && target.closest?.('[data-what-matters-group]')
+          && target.getClientRects().length
+        ) {
+          lastWhatMattersInteractionTarget = target;
+          lastWhatMattersInteractionSnapshot = captureWhatMattersInteractionSnapshot(target);
+        }
+      };
+      const currentWhatMattersInteractionSnapshot = ({ restoreFocus = true, preserveScroll = true } = {}) => {
+        if (
+          lastWhatMattersInteractionSnapshot
+          && lastWhatMattersInteractionSnapshot.row instanceof HTMLElement
+          && lastWhatMattersInteractionSnapshot.row.isConnected
+          && lastWhatMattersInteractionSnapshot.group instanceof HTMLDetailsElement
+          && lastWhatMattersInteractionSnapshot.group.isConnected
+        ) {
+          return {
+            ...lastWhatMattersInteractionSnapshot,
+            restoreFocus: restoreFocus !== false,
+            preserveScroll: preserveScroll !== false,
+          };
+        }
+        return captureWhatMattersInteractionSnapshot(currentWhatMattersInteractionTarget(), { restoreFocus, preserveScroll });
+      };
+      const currentWhatMattersInteractionTarget = () => {
+        if (
+          lastWhatMattersInteractionTarget instanceof HTMLElement
+          && lastWhatMattersInteractionTarget.isConnected
+          && lastWhatMattersInteractionTarget.getClientRects().length
+        ) {
+          return lastWhatMattersInteractionTarget;
+        }
+        const activeElement = document.activeElement;
+        if (
+          activeElement instanceof HTMLElement
+          && activeElement.closest?.('[data-what-matters-group]')
+          && activeElement.getClientRects().length
+        ) {
+          return activeElement;
+        }
+        const visibleField = (root) => {
+          if (!(root instanceof HTMLElement)) return null;
+          return [...root.querySelectorAll('select, input, textarea')]
+            .find((node) => (
+              node instanceof HTMLElement
+              && !node.hidden
+              && !node.closest?.('[hidden], [aria-hidden="true"]')
+              && !node.disabled
+              && node.getClientRects().length > 0
+            )) || null;
+        };
+        const groups = [...form.querySelectorAll('details[data-what-matters-group]')];
+        const prioritizedGroups = groups.filter((group) => group.open).concat(groups.filter((group) => !group.open));
+        for (const group of prioritizedGroups) {
+          const candidate = visibleField(group);
+          if (candidate) return candidate;
+        }
+        const panel = form.querySelector('[data-property-what-matters-panel]');
+        return visibleField(panel) || null;
+      };
+      const runWhatMattersInteractionSync = (target, callback, { preserveScroll = true, restoreFocus = true } = {}) => {
+        rememberWhatMattersInteractionTarget(target);
+        if (suppressWhatMattersInteractionStabilization) {
+          callback();
+          return;
+        }
+        stabilizeWhatMattersInteraction(target, callback, { preserveScroll, restoreFocus });
+      };
+      const activeWhatMattersSelectionCount = () => {
+        let active = 0;
+        form.querySelectorAll('[data-keyword-preference-select], [data-school-preference-select]').forEach((node) => {
+          if (!(node instanceof HTMLSelectElement)) return;
+          if (String(node.value || 'any').trim().toLowerCase() !== 'any') active += 1;
+        });
+        return active;
+      };
+      const activeWhatMattersMoreCount = () => {
+        let active = 0;
+        const customKeywordsField = form.querySelector('input[name="custom_keywords"], textarea[name="custom_keywords"]');
+        const trustField = form.querySelector('input[name="enable_trust_risk_scoring"]');
+        if ((customKeywordsField instanceof HTMLInputElement || customKeywordsField instanceof HTMLTextAreaElement) && String(customKeywordsField.value || '').trim()) {
+          active += 1;
+        }
+        if (trustField instanceof HTMLInputElement && trustField.checked) active += 1;
+        return active;
+      };
+      const syncWhatMattersSummary = () => {
+        const activeCount = activeWhatMattersSelectionCount();
+        const moreCount = activeWhatMattersMoreCount();
+        form.querySelectorAll('[data-pqx-what-matters-count]').forEach((node) => {
+          node.textContent = activeCount > 0 ? `${activeCount} active` : 'Optional';
+        });
+        form.querySelectorAll('[data-pqx-what-matters-more-count]').forEach((node) => {
+          node.textContent = moreCount > 0 ? `${moreCount} active` : 'Optional';
+        });
+      };
+      const syncKeywordDistanceSelects = (form, preferredGroup = null) => {
         form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
           const preferenceSelect = row.querySelector('[data-keyword-preference-select]');
           const distanceSelect = row.querySelector('[data-keyword-distance-select]');
@@ -4188,15 +4581,10 @@
           row.classList.toggle('is-avoid', state === 'avoid');
           row.classList.toggle('is-hard', state === 'must_have');
           if (distanceSelect instanceof HTMLSelectElement) distanceSelect.disabled = !enabled;
-          const group = row.closest('[data-what-matters-group]');
-          if (group) activeGroups.set(group, Boolean(activeGroups.get(group) || enabled));
         });
-        form?.querySelectorAll('[data-what-matters-group]').forEach((group) => {
-          const active = Boolean(activeGroups.get(group));
-          group.dataset.activeDistanceRows = active ? 'true' : 'false';
-          group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';
-        });
-        if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form);
+        if (typeof syncWhatMattersGroupDistanceActivity === 'function') syncWhatMattersGroupDistanceActivity(form);
+        if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form, { preferredGroup });
+        syncWhatMattersSummary();
       };
       const syncMobileWhatMattersAccordion = (openedPanel = null) => {
         const panel = openedPanel?.closest?.('[data-property-what-matters-panel]') || form.querySelector('[data-property-what-matters-panel]');
@@ -4208,53 +4596,23 @@
       };
       form.querySelectorAll('details[data-what-matters-group]').forEach((details) => {
         details.addEventListener('toggle', () => {
+          if (mobileAccordionAutoCollapseIsSuppressed()) return;
+          cancelPendingWhatMattersInteractionRestore();
           if (details.open) {
-            syncMobileDetailsAccordion({
-              selector: 'details[data-what-matters-group]',
-              openedPanel: details,
-              container: details.closest('[data-property-what-matters-panel]') || form,
-              forceSingleOpen: true,
-            });
+            syncMobileWhatMattersAccordion(details);
           }
         });
       });
       const initializeMobileWhatMattersAccordion = () => {
         if (!window.matchMedia('(max-width: 760px)').matches) return;
-        const firstOpen = form.querySelector('details[data-what-matters-group][open]');
-        if (firstOpen instanceof HTMLDetailsElement) {
-          firstOpen.open = true;
-          syncMobileWhatMattersAccordion(firstOpen);
+        const currentOpen = preferredWhatMattersAccordionPanel(form);
+        if (currentOpen instanceof HTMLDetailsElement) {
+          currentOpen.open = true;
+          syncMobileWhatMattersAccordion(currentOpen);
         }
       };
       initializeMobileWhatMattersAccordion();
-      window.addEventListener('resize', initializeMobileWhatMattersAccordion);
-      const captureMobileDistanceRowAnchor = (row) => {
-        if (!row || !window.matchMedia('(max-width: 760px)').matches) return null;
-        const rect = row.getBoundingClientRect();
-        return {
-          row,
-          top: rect.top,
-          scrollY: Math.max(0, Number(window.scrollY || window.pageYOffset || 0)),
-        };
-      };
-      const restoreMobileDistanceRowAnchor = (anchor) => {
-        if (!anchor?.row || !window.matchMedia('(max-width: 760px)').matches) return;
-        window.requestAnimationFrame(() => {
-          const rect = anchor.row.getBoundingClientRect();
-          const delta = rect.top - anchor.top;
-          if (Math.abs(delta) > 1) {
-            window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
-          }
-          window.requestAnimationFrame(() => {
-            const nextRect = anchor.row.getBoundingClientRect();
-            const bottomLimit = Math.max(120, window.innerHeight - 14);
-            if (nextRect.top < 8 || nextRect.bottom > bottomLimit) {
-              anchor.row.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
-            }
-          });
-        });
-      };
-      const syncSchoolDistanceSelects = () => {
+      const syncSchoolDistanceSelects = (preferredGroup = null) => {
         form.querySelectorAll('[data-school-priority-row]').forEach((row) => {
           const preferenceSelect = row.querySelector('[data-school-preference-select]');
           const distanceSelect = row.querySelector('[data-school-distance-select]');
@@ -4268,27 +4626,27 @@
             const distanceFieldName = String(distanceSelect.getAttribute('data-distance-field') || '').trim();
             const distanceField = distanceFieldName ? form.querySelector(`[name="${CSS.escape(distanceFieldName)}"]`) : null;
             if (distanceField instanceof HTMLInputElement || distanceField instanceof HTMLSelectElement || distanceField instanceof HTMLTextAreaElement) {
-              distanceField.value = enabled ? String(distanceSelect.value || '500') : '0';
-              distanceField.dispatchEvent(new Event('input', { bubbles: true }));
-              distanceField.dispatchEvent(new Event('change', { bubbles: true }));
+              const nextDistanceValue = enabled ? String(distanceSelect.value || '500') : '0';
+              if (String(distanceField.value || '') !== nextDistanceValue) {
+                distanceField.value = nextDistanceValue;
+                distanceField.dispatchEvent(new Event('input', { bubbles: false }));
+                distanceField.dispatchEvent(new Event('change', { bubbles: false }));
+              }
             }
           }
           const importanceField = form.querySelector(`[name="max_distance_to_${CSS.escape(String(preferenceSelect.getAttribute('data-school-value') || ''))}_importance"]`);
           if (importanceField instanceof HTMLSelectElement) {
-            importanceField.value = enabled ? (state === 'must_have' ? 'must_have' : state === 'nice_to_have' ? 'nice_to_have' : 'important') : 'important';
+            const nextImportanceValue = enabled ? (state === 'must_have' ? 'must_have' : state === 'nice_to_have' ? 'nice_to_have' : 'important') : 'important';
+            if (String(importanceField.value || '') !== nextImportanceValue) {
+              importanceField.value = nextImportanceValue;
+            }
           }
         });
+        if (typeof syncWhatMattersGroupDistanceActivity === 'function') syncWhatMattersGroupDistanceActivity(form);
+        if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form, { preferredGroup });
+        syncWhatMattersSummary();
       };
-      const scrollMobileDistanceRowIntoView = (row) => {
-        if (!row || !window.matchMedia('(max-width: 760px)').matches) return;
-        const group = row.closest('[data-what-matters-group]');
-        if (group) {
-          group.open = true;
-          group.dataset.activeDistanceRows = 'true';
-          group.dataset.mobileDistanceControlActive = 'true';
-        }
-      };
-      const syncSchoolPreferenceFields = () => {
+      const syncSchoolPreferenceFields = (preferredGroup = null) => {
         const selectedStages = [];
         let strongest = 'any';
         form.querySelectorAll('[data-school-preference-select]').forEach((node) => {
@@ -4311,9 +4669,9 @@
         if (schoolEvidenceField instanceof HTMLInputElement) schoolEvidenceField.checked = selectedStages.length > 0;
         const schoolPriorityField = form.querySelector('[name="school_evidence_priority"]');
         if (schoolPriorityField instanceof HTMLSelectElement) schoolPriorityField.value = strongest;
-        syncSchoolDistanceSelects();
+        syncSchoolDistanceSelects(preferredGroup);
       };
-      const syncSchoolPreferenceDetailRows = () => {
+      const syncSchoolPreferenceDetailRows = (preferredGroup = null) => {
         form.querySelectorAll('[data-school-priority-row]').forEach((row) => {
           row.dataset.schoolParentActive = 'false';
           row.dataset.schoolFamilyActive = 'false';
@@ -4333,7 +4691,11 @@
           if (parentRow) parentRow.dataset.schoolFamilyActive = parentEnabled ? 'true' : 'false';
           if (!parentEnabled && detailSelect instanceof HTMLSelectElement) detailSelect.value = 'any';
         });
-        syncSchoolPreferenceFields();
+        syncSchoolPreferenceFields(preferredGroup);
+        if (preferredGroup && typeof syncWhatMattersMobileGroups === 'function') {
+          syncWhatMattersMobileGroups(form, { preferredGroup });
+        }
+        syncWhatMattersSummary();
       };
       const normalizePropertyTypeValue = (value) => String(value || '').trim().toLowerCase();
       const selectedPropertyTypeValues = () => {
@@ -4549,6 +4911,17 @@
         const selectedStages = Array.isArray(preferences?.school_stage_preferences) ? preferences.school_stage_preferences : [];
         const selected = selectedStages.map((item) => String(item || '').trim().toLowerCase()).includes(String(schoolValue || '').trim().toLowerCase());
         if (!selected) return 'any';
+        const directPriorityKey = ({
+          kindergarten: 'max_distance_to_kindergarten_importance',
+          public_kindergarten: 'max_distance_to_kindergarten_importance',
+          private_kindergarten: 'max_distance_to_kindergarten_importance',
+          ganztags_volksschule: 'max_distance_to_ganztags_volksschule_importance',
+          halbtags_volksschule: 'max_distance_to_halbtags_volksschule_importance',
+        })[String(schoolValue || '').trim().toLowerCase()] || '';
+        const directPriority = String(directPriorityKey ? preferences?.[directPriorityKey] : '').trim().toLowerCase();
+        if (directPriority === 'must_have' || directPriority === 'very_important') return 'must_have';
+        if (directPriority === 'important') return 'important';
+        if (directPriority === 'nice_to_have') return 'nice_to_have';
         const priority = String(preferences?.school_evidence_priority || '').trim().toLowerCase();
         if (priority === 'very_important' || priority === 'must_have') return 'must_have';
         if (priority === 'important') return 'important';
@@ -4637,7 +5010,7 @@
         });
         return snapshot;
       };
-      const applyWhatMattersSnapshot = (snapshot) => {
+      const applyWhatMattersSnapshot = (snapshot, { preferredGroup = null } = {}) => {
         if (!snapshot || typeof snapshot !== 'object') return;
         Object.entries(snapshot).forEach(([name, value]) => {
           const fields = findWhatMattersFieldsByName(name);
@@ -4664,6 +5037,9 @@
         syncSchoolPreferenceDetailRows();
         syncFamilyModeControls();
         syncSearchGoalControls();
+        if (preferredGroup && typeof syncWhatMattersMobileGroups === 'function') {
+          syncWhatMattersMobileGroups(form, { preferredGroup, reset: true });
+        }
       };
       let savedWhatMattersSnapshot = captureWhatMattersSnapshot();
       const rawPlanPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
@@ -5066,8 +5442,6 @@
       commuteResearchField?.addEventListener('change', syncCommuteControls);
       form.querySelector('input[name="enable_lifestyle_research"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
-      form.querySelectorAll('[data-school-preference-select]').forEach((node) => node.addEventListener('change', syncSchoolPreferenceDetailRows));
-      form.querySelectorAll('[data-school-distance-select]').forEach((node) => node.addEventListener('change', syncSchoolDistanceSelects));
       form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => node.addEventListener('change', () => syncMarketAwareFields(form, meta)));
       form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
         button.addEventListener('click', (event) => {
@@ -5130,22 +5504,45 @@
           syncAreaScopeControls();
         }
         if (target instanceof HTMLSelectElement && target.hasAttribute('data-keyword-preference-select')) {
-          const row = target.closest('[data-keyword-priority-row]');
-          const anchor = captureMobileDistanceRowAnchor(row);
-          syncKeywordDistanceSelects(form);
-          if (row?.dataset.keywordDistanceEnabled === 'true') {
-            scrollMobileDistanceRowIntoView(row);
-            restoreMobileDistanceRowAnchor(anchor);
-          }
+          const preferredGroup = resolveWhatMattersGroup(target);
+          runWhatMattersInteractionSync(target, () => {
+            syncKeywordDistanceSelects(form, preferredGroup);
+          });
+        }
+        if (target instanceof HTMLSelectElement && target.hasAttribute('data-keyword-distance-select')) {
+          runWhatMattersInteractionSync(target, () => {
+            if (typeof syncWhatMattersGroupDistanceActivity === 'function') syncWhatMattersGroupDistanceActivity(form);
+            syncWhatMattersSummary();
+          });
         }
         if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-preference-select')) {
-          const row = target.closest('[data-school-priority-row]');
-          const anchor = captureMobileDistanceRowAnchor(row);
-          syncSchoolPreferenceDetailRows();
-          if (row?.dataset.schoolDistanceEnabled === 'true' || row?.dataset.schoolFamilyActive === 'true') {
-            scrollMobileDistanceRowIntoView(row);
-            restoreMobileDistanceRowAnchor(anchor);
-          }
+          const preferredGroup = resolveWhatMattersGroup(target);
+          runWhatMattersInteractionSync(target, () => {
+            syncSchoolPreferenceDetailRows(preferredGroup);
+          });
+        }
+        if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-distance-select')) {
+          const preferredGroup = resolveWhatMattersGroup(target);
+          runWhatMattersInteractionSync(target, () => {
+            syncSchoolDistanceSelects(preferredGroup);
+          });
+        }
+      });
+      form.addEventListener('focusin', (event) => {
+        rememberWhatMattersInteractionTarget(event.target);
+      });
+      form.addEventListener('input', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        if (target.matches('input[name="custom_keywords"], textarea[name="custom_keywords"], input[name="enable_trust_risk_scoring"]')) {
+          syncWhatMattersSummary();
+        }
+      });
+      form.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        if (target.matches('input[name="custom_keywords"], textarea[name="custom_keywords"], input[name="enable_trust_risk_scoring"]')) {
+          syncWhatMattersSummary();
         }
       });
       form.addEventListener('propertyquarry:stepchange', () => {
@@ -5204,8 +5601,18 @@
           } catch (err) {
             if (error) error.textContent = err instanceof Error ? err.message : 'Could not load saved what matters.';
           }
-          applyWhatMattersSnapshot(snapshot);
-          savedWhatMattersSnapshot = captureWhatMattersSnapshot();
+          const interactionSnapshot = currentWhatMattersInteractionSnapshot({ restoreFocus: false, preserveScroll: true });
+          const interactionTarget = interactionSnapshot?.target || currentWhatMattersInteractionTarget();
+          const preferredGroup = resolveWhatMattersGroup(interactionTarget);
+          stabilizeWhatMattersInteraction(interactionTarget, () => {
+            suppressWhatMattersInteractionStabilization = true;
+            try {
+              applyWhatMattersSnapshot(snapshot, { preferredGroup });
+              savedWhatMattersSnapshot = captureWhatMattersSnapshot();
+            } finally {
+              suppressWhatMattersInteractionStabilization = false;
+            }
+          }, { restoreFocus: false, snapshotOverride: interactionSnapshot, preserveScroll: true });
           if (error) error.textContent = '';
           if (status) status.textContent = 'Loaded saved what matters.';
           closeWhatMattersActionMenu(button);
@@ -5214,6 +5621,7 @@
       resyncSearchFormState();
       syncKeywordDistanceSelects(form);
       syncSchoolPreferenceDetailRows();
+      syncWhatMattersSummary();
       syncSelectAllButtons(form, planPlatformCap);
       applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
     }
@@ -5696,8 +6104,10 @@
       if (!images.length) return;
       const retryDelays = [1200, 2800, 5200, 8800];
       images.forEach((image) => {
-        const baseSrc = String(image.getAttribute('src') || '').split('?')[0];
+        const stableSrc = String(image.getAttribute('data-map-preview-src') || image.getAttribute('src') || '').trim();
+        const baseSrc = stableSrc.split('?')[0];
         if (!baseSrc || image.getAttribute('data-map-preview-refresh-bound') === 'true') return;
+        image.setAttribute('data-map-preview-src', baseSrc);
         image.setAttribute('data-map-preview-refresh-bound', 'true');
         retryDelays.forEach((delay) => {
           window.setTimeout(async () => {
@@ -5723,6 +6133,32 @@
       });
     };
     refreshPendingMapPreviews();
+    const hydrateDeferredPreviewImage = (image) => {
+      if (!(image instanceof HTMLImageElement)) return false;
+      const deferredSrc = String(image.getAttribute('data-pqx-deferred-src') || '').trim();
+      if (!deferredSrc || image.getAttribute('data-pqx-deferred-loaded') === 'true') return false;
+      image.setAttribute('data-pqx-deferred-loaded', 'true');
+      image.setAttribute('src', deferredSrc);
+      image.removeAttribute('data-pqx-deferred-src');
+      return true;
+    };
+    const bindDeferredPreviewImage = (image) => {
+      if (!(image instanceof HTMLImageElement)) return;
+      if (image.getAttribute('data-pqx-deferred-bound') === 'true') return;
+      if (!String(image.getAttribute('data-pqx-deferred-src') || '').trim()) return;
+      image.setAttribute('data-pqx-deferred-bound', 'true');
+      const host = image.closest('[data-pqx-deferred-preview-host]') || image;
+      const triggerHydration = () => hydrateDeferredPreviewImage(image);
+      if (host instanceof HTMLElement) {
+        host.addEventListener('pointerenter', triggerHydration, { once: true });
+        host.addEventListener('focusin', triggerHydration, { once: true });
+        host.addEventListener('touchstart', triggerHydration, { once: true, passive: true });
+      }
+      window.setTimeout(triggerHydration, 3200);
+    };
+    root.querySelectorAll('img[data-pqx-deferred-src]').forEach((image) => {
+      bindDeferredPreviewImage(image);
+    });
     const urlSearchParams = new URL(window.location.href).searchParams;
     const requestedRunAgentId = String(urlSearchParams.get('run_agent') || '').trim();
     const activeRunId = String(urlSearchParams.get('run_id') || data?.run?.run_id || meta?.run_id || '').trim();
@@ -5769,7 +6205,7 @@
         }
       });
     });
-    const scopeLightbox = root.querySelector('[data-pqx-scope-lightbox]');
+    const scopeLightbox = document.querySelector('[data-pqx-scope-lightbox]') || root.querySelector('[data-pqx-scope-lightbox]');
     const scopeLightboxImage = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-image]');
     const scopeLightboxStage = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-stage]');
     const scopeLightboxZoomable = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-zoomable]');
@@ -5937,8 +6373,8 @@
           state: visualRows.length ? 'verified' : 'unavailable',
           title: visualRows.length ? 'Tour media' : 'No tour yet',
           summary: visualRows.length
-            ? 'A 3D tour or walkthrough is ready to open.'
-            : 'This property does not have a tour attached yet.',
+            ? 'Open the tour or walkthrough for a closer look.'
+            : 'No tour is attached to this property yet.',
           rows: visualRows,
           source: sourceChip(visualRows),
           freshness: freshness(visualRows),
@@ -5949,7 +6385,7 @@
           state: environmentRows.length ? 'verified' : 'unavailable',
           title: environmentRows.length ? 'Local climate' : 'No climate layer yet',
           summary: environmentRows.length
-            ? 'Air, heat, flood, noise, and summer-cooling context for this area.'
+            ? 'Heat, air, flood, and summer-cooling context around this address.'
             : 'No local climate layer is available for this address yet.',
           rows: environmentRows,
           source: sourceChip(environmentRows),
@@ -5984,7 +6420,7 @@
           state: safetyRows.length ? 'verified' : 'unavailable',
           title: safetyRows.length ? 'Area safety' : 'No safety layer yet',
           summary: safetyRows.length
-            ? 'Area-level safety context, shown as local context only.'
+            ? 'Nearby street and area context for this address.'
             : 'No safety layer is available for this area yet.',
           rows: safetyRows,
           source: sourceChip(safetyRows),
@@ -6008,7 +6444,7 @@
           state: fiberRows.length ? 'verified' : 'unavailable',
           title: fiberRows.length ? 'Fiber coverage' : 'No fiber layer yet',
           summary: fiberRows.length
-            ? 'Fiber data is available for this area. Address-level availability may still vary.'
+            ? 'Fiber is reported nearby. Final availability still depends on the exact address.'
             : 'No fiber layer is available for this address yet.',
           rows: fiberRows,
           source: sourceChip(fiberRows),
@@ -6063,7 +6499,7 @@
       if (evidenceAtlasTitle) evidenceAtlasTitle.textContent = title;
       if (evidenceAtlasCaption) evidenceAtlasCaption.textContent = location || 'Area';
       if (evidenceMapLabel) evidenceMapLabel.textContent = location || title;
-      if (evidenceMapDetail) evidenceMapDetail.textContent = 'Choose a layer.';
+      if (evidenceMapDetail) evidenceMapDetail.textContent = 'Switch layers.';
       if (evidenceAtlasStage) evidenceAtlasStage.dataset.hasImage = previewUrl ? 'true' : 'false';
       if (evidenceAtlasImage) {
         evidenceAtlasImage.setAttribute('src', previewUrl);
@@ -6109,13 +6545,10 @@
       scopeLightboxZoomable.dataset.scale = String(nextScale);
       scopeLightboxZoomable.style.transform = `translate3d(0px, 0px, 0) scale(${nextScale})`;
     }, { passive: false });
-    root.addEventListener('click', (event) => {
-      const button = event.target?.closest?.('[data-pqx-scope-open]');
-      if (!button) return;
-      event.preventDefault();
-      event.stopPropagation();
+    const openScopeLightboxFromTrigger = (button) => {
+      if (!(button instanceof HTMLElement)) return false;
       const imageUrl = String(button.getAttribute('data-pqx-scope-image') || '').trim();
-      if (!scopeLightbox || !scopeLightboxImage || !imageUrl) return;
+      if (!scopeLightbox || !scopeLightboxImage || !imageUrl) return false;
       const alt = String(button.getAttribute('data-pqx-scope-alt') || 'Search area preview').trim() || 'Search area preview';
       const title = String(button.getAttribute('data-pqx-scope-title') || 'Search area preview').trim() || 'Search area preview';
       const caption = String(button.getAttribute('data-pqx-scope-caption') || '').trim();
@@ -6147,7 +6580,67 @@
         }
       }
       resetScopeLightboxZoom();
-      if (typeof scopeLightbox.showModal === 'function') scopeLightbox.showModal();
+      if (typeof scopeLightbox.showModal === 'function') {
+        try {
+          if (!scopeLightbox.open) scopeLightbox.showModal();
+          return true;
+        } catch (_error) {
+          // Fall through to attribute-based opening below.
+        }
+      }
+      if (typeof scopeLightbox.show === 'function') {
+        try {
+          if (!scopeLightbox.open) scopeLightbox.show();
+          return true;
+        } catch (_error) {
+          // Fall through to attribute-based opening below.
+        }
+      }
+      scopeLightbox.setAttribute('open', 'open');
+      return true;
+    };
+    const handleScopeLightboxTriggerClick = (event, button) => {
+      const opened = openScopeLightboxFromTrigger(button);
+      if (!opened) return false;
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return true;
+    };
+    const bindScopeLightboxTrigger = (button) => {
+      if (!(button instanceof HTMLElement)) return;
+      if (button.dataset.pqxScopeLightboxBound === 'true') return;
+      button.dataset.pqxScopeLightboxBound = 'true';
+      button.addEventListener('click', (event) => {
+        handleScopeLightboxTriggerClick(event, button);
+      });
+    };
+    document.querySelectorAll('[data-pqx-scope-open]').forEach((button) => {
+      bindScopeLightboxTrigger(button);
+    });
+    if (typeof MutationObserver === 'function') {
+      const scopeLightboxTriggerObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          mutation.addedNodes.forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            if (node.matches('[data-pqx-scope-open]')) bindScopeLightboxTrigger(node);
+            node.querySelectorAll?.('[data-pqx-scope-open]').forEach((button) => {
+              bindScopeLightboxTrigger(button);
+            });
+            if (node.matches('img[data-pqx-deferred-src]')) bindDeferredPreviewImage(node);
+            node.querySelectorAll?.('img[data-pqx-deferred-src]').forEach((image) => {
+              bindDeferredPreviewImage(image);
+            });
+          });
+        });
+      });
+      scopeLightboxTriggerObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
+    }
+    document.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-pqx-scope-open]');
+      if (!button) return;
+      handleScopeLightboxTriggerClick(event, button);
     });
     scopeLightboxOverlay?.addEventListener('mousemove', (event) => {
       const path = event.target?.closest?.('path[data-label]');
@@ -6310,11 +6803,14 @@
           window.open(listingUrl, '_blank', 'noopener,noreferrer');
         }
       };
+      const shouldOpenRowTarget = () => window.matchMedia('(max-width: 760px)').matches;
       row.addEventListener('click', (event) => {
+        if (!shouldOpenRowTarget()) return;
         if (event.target?.closest?.('a,button,input,select,textarea,label,summary,[data-tooltip-trigger]')) return;
         openRowTarget();
       });
       row.addEventListener('keydown', (event) => {
+        if (!shouldOpenRowTarget()) return;
         if (event.target !== row) return;
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();

@@ -831,8 +831,18 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                     "name": "research_mobile_open_property_compact_layout",
                     "ok": (
                         ".prd-hero {\n      grid-template-columns: minmax(0, 1fr);\n      gap: 6px;" in mobile_detail_css
-                        and ".prd-current-read {\n      display: none;" in mobile_detail_css
-                        and ".prd-media-frame {\n      height: min(46vw, 176px);" in mobile_detail_css
+                        and (
+                            (
+                                ".prd-current-read {\n      display: grid;" in mobile_detail_css
+                                and ".prd-current-read .prd-summary-grid {\n      grid-template-columns: minmax(0, 1fr);" in mobile_detail_css
+                                and ".prd-current-read .prd-summary-box {\n      min-height: 68px;" in mobile_detail_css
+                            )
+                            or ".prd-current-read {\n      display: none;" in mobile_detail_css
+                        )
+                        and (
+                            ".prd-media-frame {\n      height: min(46vw, 176px);" in mobile_detail_css
+                            or ".prd-media-frame {\n      height: min(42vw, 160px);" in mobile_detail_css
+                        )
                     ),
                 },
                 {

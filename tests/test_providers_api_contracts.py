@@ -7496,6 +7496,128 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert client.get(f"/tours/files/{slug}/magicfit-still-private.jpg").status_code == 404
 
 
+def test_generated_reconstruction_bundle_serves_viewer_and_embedded_images(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    slug = "generated-reconstruction-assets"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    (reconstruction_dir / "viewer.html").write_text(
+        """<!doctype html>
+<html>
+  <body>
+    <img src="source-floorplan.jpg" alt="Floorplan">
+    <img src="photo-01.jpg" alt="Photo 1">
+    <img src="photo-02.jpg" alt="Photo 2">
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (reconstruction_dir / "model.obj").write_text("o room\n", encoding="utf-8")
+    (reconstruction_dir / "model.mtl").write_text("newmtl warm_plaster\n", encoding="utf-8")
+    (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan-jpeg")
+    (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo-one-jpeg")
+    (reconstruction_dir / "photo-02.jpg").write_bytes(b"photo-two-jpeg")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Generated reconstruction assets",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "material_relpath": "generated-reconstruction/model.mtl",
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+                    "photo_relpaths": [
+                        "generated-reconstruction/photo-01.jpg",
+                        "generated-reconstruction/photo-02.jpg",
+                    ],
+                    "verified_provider_capture": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    client = _client(principal_id="exec-generated-reconstruction")
+
+    payload = client.get(f"/tours/{slug}.json")
+    assert payload.status_code == 200
+    public_assets = payload.json()["public_assets"]
+    assert {row["path"] for row in public_assets} == {
+        "generated-reconstruction/viewer.html",
+        "generated-reconstruction/model.obj",
+        "generated-reconstruction/model.mtl",
+        "generated-reconstruction/source-floorplan.jpg",
+        "generated-reconstruction/photo-01.jpg",
+        "generated-reconstruction/photo-02.jpg",
+    }
+
+    viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html")
+    assert viewer.status_code == 200
+    assert 'src="source-floorplan.jpg"' in viewer.text
+    assert 'src="photo-01.jpg"' in viewer.text
+    assert 'src="photo-02.jpg"' in viewer.text
+
+    floorplan = client.get(f"/tours/files/{slug}/generated-reconstruction/source-floorplan.jpg")
+    assert floorplan.status_code == 200
+    assert floorplan.content == b"floorplan-jpeg"
+    assert floorplan.headers["x-propertyquarry-asset-privacy"] == "generated_reconstruction_public"
+
+    photo_one = client.get(f"/tours/files/{slug}/generated-reconstruction/photo-01.jpg")
+    assert photo_one.status_code == 200
+    assert photo_one.content == b"photo-one-jpeg"
+    assert photo_one.headers["x-propertyquarry-asset-privacy"] == "generated_reconstruction_public"
+
+    photo_two = client.get(f"/tours/files/{slug}/generated-reconstruction/photo-02.jpg")
+    assert photo_two.status_code == 200
+    assert photo_two.content == b"photo-two-jpeg"
+    assert photo_two.headers["x-propertyquarry-asset-privacy"] == "generated_reconstruction_public"
+
+
+def test_public_tour_page_redirects_generated_reconstruction_bundle_to_viewer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    slug = "generated-reconstruction-launch"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    (reconstruction_dir / "viewer.html").write_text("<!doctype html><html><body>viewer</body></html>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Generated reconstruction launch",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "verified_provider_capture": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    client = _client(principal_id="exec-generated-reconstruction-launch")
+
+    response = client.get(f"/tours/{slug}", follow_redirects=False)
+
+    assert response.status_code in {302, 307}
+    assert response.headers["location"] == f"/tours/files/{slug}/generated-reconstruction/viewer.html"
+
+
 def test_public_tour_json_never_exposes_listing_or_source_urls(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -8022,6 +8144,9 @@ def test_public_tour_routes_allow_matterport_thumb_preview_for_live_360(
     assert page.status_code == 200
     assert "Matterport Live 360" in page.text
     assert 'src="https://my.matterport.com/show/?m=BmVWxvZQZLq"' in page.text
+    assert "Matterport control" in page.text
+    assert "Explore the space." in page.text
+    assert "Property Tour" not in page.text
     assert "Load 3D tour" not in page.text
 
 
@@ -8092,9 +8217,11 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
     assert entry.headers["location"] == f"/tours/{slug}/control/3dvista"
     assert page.status_code == 200
     assert f'src="/tours/3dvista/{slug}/3dvista/index.htm"' in page.text
+    assert "Property Tour" not in page.text
     assert "Load 3D tour" not in page.text
     assert control.status_code == 200
     assert "3D Tour" in control.text
+    assert "Property Tour" not in control.text
     assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control.text
     assert locale.status_code == 200
     assert wasm.status_code == 200

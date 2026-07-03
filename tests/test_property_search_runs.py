@@ -4,6 +4,7 @@ import json
 import importlib
 import inspect
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -272,6 +273,32 @@ def test_property_search_compact_run_preserves_run_entitlements() -> None:
     assert summary["max_results_per_source"] == 0
     assert summary["provider_workers"] == {"worker_concurrency": 4, "warm_limit": 3}
     assert preferences["property_commercial"]["active_plan_key"] == "agent"
+
+
+def test_property_search_compact_run_preserves_display_totals() -> None:
+    compact = property_search_storage._compact_property_search_run_record(  # type: ignore[attr-defined]
+        {
+            "run_id": "display-total-run",
+            "principal_id": "display-total-principal",
+            "status": "in_progress",
+            "provider_display_total": 29,
+            "source_variant_display_total": 231,
+            "summary": {
+                "status": "in_progress",
+                "provider_total": 2,
+                "provider_display_total": 29,
+                "sources_total": 2,
+                "source_variant_total": 2,
+                "source_variant_display_total": 231,
+            },
+        }
+    )
+
+    summary = dict(compact["summary"])
+    assert compact["provider_display_total"] == 29
+    assert compact["source_variant_display_total"] == 231
+    assert summary["provider_display_total"] == 29
+    assert summary["source_variant_display_total"] == 231
 
 
 def test_property_search_compact_run_backfills_ranked_summary_counts() -> None:
@@ -611,6 +638,36 @@ def test_property_search_preferences_normalizer_removes_paid_result_cap() -> Non
     )
 
     assert "max_results_per_source" not in normalized
+
+
+def test_property_search_preferences_normalizer_keeps_what_matters_school_and_parking_controls() -> None:
+    normalized = property_market_catalog.normalize_property_search_preferences(
+        {
+            "search_goal": "home",
+            "enable_family_mode": True,
+            "school_stage_preferences": ["kindergarten", "ganztags_volksschule"],
+            "school_evidence_priority": "important",
+            "max_distance_to_kindergarten_m": 400,
+            "max_distance_to_kindergarten_importance": "must_have",
+            "max_distance_to_ganztags_volksschule_m": 650,
+            "max_distance_to_ganztags_volksschule_importance": "important",
+            "max_distance_to_market_m": 1000,
+            "max_distance_to_market_importance": "nice_to_have",
+            "parking_pressure_preference": "low",
+            "require_parking_pressure_check": True,
+        }
+    )
+
+    assert normalized["school_stage_preferences"] == ["kindergarten", "ganztags_volksschule"]
+    assert normalized["school_evidence_priority"] == "important"
+    assert normalized["max_distance_to_kindergarten_m"] == 400
+    assert normalized["max_distance_to_kindergarten_importance"] == "must_have"
+    assert normalized["max_distance_to_ganztags_volksschule_m"] == 650
+    assert normalized["max_distance_to_ganztags_volksschule_importance"] == "important"
+    assert normalized["max_distance_to_market_m"] == 1000
+    assert normalized["max_distance_to_market_importance"] == "nice_to_have"
+    assert normalized["parking_pressure_preference"] == "low"
+    assert normalized["require_parking_pressure_check"] is True
 
 
 def test_property_candidate_google_maps_url_prefers_listing_snapshot_locality_over_source_scope_placeholder() -> None:
@@ -2208,6 +2265,94 @@ def test_property_search_status_response_guard_derives_default_all_display_total
     assert payload["source_variant_display_total"] == expected_total
     assert summary["provider_display_total"] == expected_total
     assert summary["source_variant_display_total"] == expected_total
+
+
+def test_property_search_status_response_guard_preserves_explicit_display_total() -> None:
+    payload = _property_search_apply_response_display_totals(
+        {
+            "run_id": "explicit-display-run",
+            "status": "processed",
+            "provider_display_total": 29,
+            "source_variant_display_total": 231,
+            "selected_platforms": [],
+            "summary": {
+                "provider_total": 2,
+                "provider_display_total": 29,
+                "source_variant_total": 2,
+                "source_variant_display_total": 231,
+                "sources_total": 2,
+                "sources_completed": 2,
+                "sources": [
+                    {
+                        "platform": "willhaben",
+                        "source_scope_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                        "status": "completed",
+                    },
+                    {
+                        "platform": "remax_at",
+                        "source_scope_label": "RE/MAX Austria | Austria | Rent | 1020 Vienna",
+                        "status": "completed",
+                    },
+                ],
+            },
+        }
+    )
+
+    summary = dict(payload.get("summary") or {})
+    assert payload["provider_display_total"] == 29
+    assert payload["source_variant_display_total"] == 231
+    assert summary["provider_display_total"] == 29
+    assert summary["source_variant_display_total"] == 231
+
+
+def test_property_search_run_lightweight_status_preserves_compact_display_totals(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-run-lightweight-display-totals"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"lightweight-display-totals-{uuid.uuid4().hex}"
+
+    compact_run = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "in_progress",
+        "progress": 12,
+        "provider_display_total": 29,
+        "source_variant_display_total": 231,
+        "selected_platforms": [],
+        "summary": {
+            "status": "in_progress",
+            "provider_total": 2,
+            "provider_display_total": 29,
+            "sources_total": 2,
+            "source_variant_total": 2,
+            "source_variant_display_total": 231,
+            "sources_completed": 2,
+            "sources": [
+                {"platform": "willhaben", "source_label": "Willhaben", "status": "completed"},
+                {"platform": "remax_at", "source_label": "RE/MAX Austria", "status": "completed"},
+            ],
+        },
+    }
+
+    def _fake_load_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
+        if str(run_id or "").strip() == compact_run["run_id"] and str(principal_id or "").strip() == compact_run["principal_id"]:
+            return property_search_storage._compact_property_search_run_record(compact_run)  # type: ignore[attr-defined]
+        return None
+
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", _fake_load_compact_record)
+
+    status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=run_id,
+        lightweight=True,
+    )
+
+    assert status is not None
+    summary = dict(status.get("summary") or {})
+    assert int(status.get("provider_display_total") or 0) == 29
+    assert int(status.get("source_variant_display_total") or 0) == 231
+    assert int(summary.get("provider_display_total") or 0) == 29
+    assert int(summary.get("source_variant_display_total") or 0) == 231
 
 
 def test_property_search_run_status_lightweight_fixes_inflated_provider_total(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5586,6 +5731,7 @@ def test_scheduler_property_search_recovery_adopts_stale_in_progress_runs(monkey
     monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "60")
     monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=lambda *args, **kwargs: None))
     app_runner = importlib.import_module("app.runner")
+    monkeypatch.setattr(app_runner, "_scheduler_property_scout_principal_ids", lambda container: (principal_id,))
     service = product_service.build_product_service(client.app.state.container)
     replacement_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
@@ -9785,7 +9931,7 @@ def test_property_search_run_status_synthesizes_ranked_candidates_and_filtered_t
     status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
 
     assert status is not None
-    assert status["message"] == "The final results email was sent. The completed result desk is ready."
+    assert status["message"] == "Results are fully ready."
     assert dict(list(status.get("events") or [])[0])["message"] == "The final results email was sent. The completed result desk is ready."
     summary = dict(status.get("summary") or {})
     assert int(summary.get("held_back_total") or 0) == 0
@@ -11749,6 +11895,59 @@ def test_property_search_results_delivery_refresh_batches_tour_observation_looku
     assert candidates[1].get("tour_url") in {"", None}
 
 
+def test_property_search_results_delivery_refresh_promotes_generated_reconstruction_to_ready(monkeypatch) -> None:
+    service = ProductService.__new__(ProductService)
+
+    class _Runtime:
+        def list_recent_observations(self, limit: int = 1000, principal_id: str = "") -> list[object]:
+            return [
+                SimpleNamespace(
+                    channel="product",
+                    event_type="generic_property_tour_created",
+                    source_id="source-1",
+                    payload={
+                        "property_url": "https://example.test/flat-1",
+                        "tour_url": "https://propertyquarry.com/tours/generated-flat-1",
+                    },
+                    created_at=product_service._now_iso(),
+                )
+            ]
+
+    service._container = SimpleNamespace(channel_runtime=_Runtime())
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda url: "https://propertyquarry.com/tours/files/generated-flat-1/generated-reconstruction/viewer.html"
+        if str(url) == "https://propertyquarry.com/tours/generated-flat-1"
+        else "",
+    )
+
+    refreshed = service._refresh_property_search_results_delivery_state(
+        principal_id="cf-email:generated-reconstruction-ready@example.com",
+        result={
+            "sources": [
+                {
+                    "source_label": "Source",
+                    "top_candidates": [
+                        {
+                            "source_ref": "source-1",
+                            "property_url": "https://example.test/flat-1",
+                            "tour_status": "queued",
+                            "property_facts": {"has_360": True},
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    candidate = refreshed["sources"][0]["top_candidates"][0]
+    assert candidate["tour_url"] == "https://propertyquarry.com/tours/generated-flat-1"
+    assert candidate["tour_status"] == "ready"
+    assert refreshed["ready_tour_total"] == 1
+    assert refreshed["pending_tour_total"] == 0
+
+
 def test_property_search_run_status_snapshot_finishes_results_email_after_restart(monkeypatch) -> None:
     principal_id = "cf-email:tour.restart@example.com"
     client = build_property_client(principal_id=principal_id)
@@ -12744,6 +12943,149 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
     status_snapshot = client.get("/v1/onboarding/property-search/preferences")
     assert status_snapshot.status_code == 200
     assert set(status_snapshot.json()["property_search_preferences"]["selected_platforms"]) == {"willhaben", "kalandra"}
+
+
+def test_property_search_preferences_persist_what_matters_round_trip_fields() -> None:
+    principal_id = "exec-property-search-what-matters-round-trip"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search What Matters")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "search_goal": "home",
+            "listing_mode": "rent",
+            "property_type": ["apartment"],
+            "location_query": "1200 Vienna",
+            "selected_location_values": ["1200 Vienna"],
+            "selected_platforms": ["willhaben"],
+            "enable_family_mode": True,
+            "school_stage_preferences": ["kindergarten", "ganztags_volksschule"],
+            "school_evidence_priority": "important",
+            "max_distance_to_kindergarten_m": 400,
+            "max_distance_to_kindergarten_importance": "must_have",
+            "max_distance_to_ganztags_volksschule_m": 650,
+            "max_distance_to_ganztags_volksschule_importance": "important",
+            "max_distance_to_market_m": 1000,
+            "max_distance_to_market_importance": "nice_to_have",
+            "parking_pressure_preference": "low",
+            "require_parking_pressure_check": True,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+
+    assert stored.status_code == 200, stored.text
+    preferences = stored.json()["property_search_preferences"]
+    assert preferences["search_goal"] == "home"
+    assert preferences["school_stage_preferences"] == ["kindergarten", "ganztags_volksschule"]
+    assert preferences["school_evidence_priority"] == "important"
+    assert preferences["max_distance_to_kindergarten_m"] == 400
+    assert preferences["max_distance_to_kindergarten_importance"] == "must_have"
+    assert preferences["max_distance_to_ganztags_volksschule_m"] == 650
+    assert preferences["max_distance_to_ganztags_volksschule_importance"] == "important"
+    assert preferences["max_distance_to_market_m"] == 1000
+    assert preferences["max_distance_to_market_importance"] == "nice_to_have"
+    assert preferences["parking_pressure_preference"] == "low"
+    assert preferences["require_parking_pressure_check"] is True
+
+    status_snapshot = client.get("/v1/onboarding/property-search/preferences")
+    assert status_snapshot.status_code == 200, status_snapshot.text
+    persisted = status_snapshot.json()["property_search_preferences"]
+    assert persisted["search_goal"] == "home"
+    assert persisted["school_stage_preferences"] == ["kindergarten", "ganztags_volksschule"]
+    assert persisted["school_evidence_priority"] == "important"
+    assert persisted["max_distance_to_kindergarten_m"] == 400
+    assert persisted["max_distance_to_kindergarten_importance"] == "must_have"
+    assert persisted["max_distance_to_ganztags_volksschule_m"] == 650
+    assert persisted["max_distance_to_ganztags_volksschule_importance"] == "important"
+    assert persisted["max_distance_to_market_m"] == 1000
+    assert persisted["max_distance_to_market_importance"] == "nice_to_have"
+    assert persisted["parking_pressure_preference"] == "low"
+    assert persisted["require_parking_pressure_check"] is True
+
+
+def test_property_search_preferences_round_trip_all_hidden_what_matters_distance_backing_fields() -> None:
+    principal_id = "exec-property-search-what-matters-hidden-distance-fields"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Hidden What Matters")
+
+    search_response = client.get("/app/search")
+    assert search_response.status_code == 200, search_response.text
+    hidden_field_names = sorted(
+        set(
+            re.findall(
+                r'data-property-field-name="(max_distance_to_[^"]+|school_evidence_priority)"[^>]*data-property-semantic-hidden="true"',
+                search_response.text,
+            )
+        )
+    )
+    assert hidden_field_names, "Expected hidden What matters backing fields on the search surface"
+
+    numeric_fields = [name for name in hidden_field_names if name.endswith("_m")]
+    importance_fields = [name for name in hidden_field_names if name.endswith("_importance")]
+    assert numeric_fields, "Expected hidden What matters distance fields"
+    assert importance_fields, "Expected hidden What matters importance fields"
+
+    importance_cycle = ("important", "nice_to_have", "must_have")
+    payload = {
+        "country_code": "AT",
+        "region_code": "vienna",
+        "search_goal": "home",
+        "listing_mode": "rent",
+        "property_type": ["apartment"],
+        "location_query": "1200 Vienna",
+        "selected_location_values": ["1200 Vienna"],
+        "selected_platforms": ["willhaben"],
+        "enable_family_mode": True,
+        "school_stage_preferences": [
+            "kindergarten",
+            "ganztags_volksschule",
+            "halbtags_volksschule",
+        ],
+        "school_evidence_priority": "important",
+        "parking_pressure_preference": "medium",
+        "require_parking_pressure_check": True,
+        "property_commercial": {
+            "active_plan_key": "agent",
+            "status": "active",
+            "active_until": "2999-01-01T00:00:00+00:00",
+        },
+    }
+    for index, name in enumerate(numeric_fields):
+        payload[name] = 300 + (index * 50)
+    for index, name in enumerate(importance_fields):
+        payload[name] = importance_cycle[index % len(importance_cycle)]
+
+    stored = client.post("/v1/onboarding/property-search/preferences", json=payload)
+    assert stored.status_code == 200, stored.text
+    preferences = stored.json()["property_search_preferences"]
+
+    assert preferences["search_goal"] == "home"
+    assert preferences["school_evidence_priority"] == "important"
+    assert preferences["parking_pressure_preference"] == "medium"
+    assert preferences["require_parking_pressure_check"] is True
+    for name in numeric_fields:
+        assert preferences[name] == payload[name], name
+    for name in importance_fields:
+        assert preferences[name] == payload[name], name
+
+    status_snapshot = client.get("/v1/onboarding/property-search/preferences")
+    assert status_snapshot.status_code == 200, status_snapshot.text
+    persisted = status_snapshot.json()["property_search_preferences"]
+    assert persisted["search_goal"] == "home"
+    assert persisted["school_evidence_priority"] == "important"
+    assert persisted["parking_pressure_preference"] == "medium"
+    assert persisted["require_parking_pressure_check"] is True
+    for name in numeric_fields:
+        assert persisted[name] == payload[name], name
+    for name in importance_fields:
+        assert persisted[name] == payload[name], name
 
 
 def test_agent_property_search_preferences_drop_stale_result_cap_when_saved() -> None:

@@ -430,7 +430,11 @@ def _property_run_normalize_listing_work_summary(
 
 
 def normalize_property_search_run_snapshot(raw_run: dict[str, object]) -> dict[str, object]:
-    payload = PropertySearchRunSnapshot.from_dict(dict(raw_run or {})).to_dict()
+    original_payload = dict(raw_run or {})
+    payload = {
+        **original_payload,
+        **PropertySearchRunSnapshot.from_dict(original_payload).to_dict(),
+    }
     summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
     status = str(payload.get("status") or summary.get("status") or "").strip().lower()
     sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
@@ -793,12 +797,13 @@ def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
         or summary.get("sources_total")
     )
     if found > 0:
-        if source_work["open"] > 0:
-            return f"{found} homes found · {to_review} to review · {source_work['open']} provider checks left"
+        source_label = _property_run_provider_check_label(summary)
+        if source_label and source_work["open"] > 0:
+            return f"{found} homes found · {to_review} to review · {source_label}"
         return f"{found} homes found · {to_review} to review"
     if provider_total > 0:
-        return "Preparing provider checks."
-    return "Preparing provider checks."
+        return "Preparing providers."
+    return "Preparing providers."
 
 
 def _property_run_source_status_counts(summary: dict[str, object]) -> dict[str, int]:
@@ -825,11 +830,7 @@ def _property_run_source_status_counts(summary: dict[str, object]) -> dict[str, 
         default=len(source_rows),
     )
     provider_total = _positive_int(summary.get("provider_total"))
-    collapsed_to_provider_total = False
-    if provider_total > 0 and source_total > provider_total and source_total >= provider_total * 3:
-        source_total = provider_total
-        collapsed_to_provider_total = True
-    total = max(source_total, provider_total, 0 if collapsed_to_provider_total else len(source_rows))
+    total = max(source_total, provider_total, len(source_rows))
     if terminal:
         completed_total = _positive_int(summary.get("sources_completed"))
         done = min(total, max(done, completed_total, source_total, provider_total))
@@ -891,6 +892,36 @@ def _property_run_source_work_counts(summary: dict[str, object], *, status: str 
     }
 
 
+def _property_run_provider_check_label(summary: dict[str, object], *, status: str = "") -> str:
+    source_work = _property_run_source_work_counts(summary, status=status)
+    provider_total = _positive_int(
+        summary.get("provider_display_total")
+        or summary.get("provider_total")
+        or summary.get("source_variant_total")
+        or summary.get("sources_total")
+    )
+    total = max(source_work["total"], provider_total)
+    if total > 0 and source_work["total"] > 0:
+        done = min(total, max(0, source_work["done"]))
+        unit = _property_run_source_unit_label(summary, total=total)
+        return f"{done} / {total} {unit}"
+    if total > 0:
+        return f"{total} providers selected"
+    return ""
+
+
+def _property_run_source_unit_label(summary: dict[str, object], *, total: int = 0) -> str:
+    source_variant_total = _positive_int(summary.get("source_variant_total") or summary.get("sources_total"))
+    provider_total = _positive_int(summary.get("provider_display_total") or summary.get("provider_total"))
+    if total > 0 and provider_total > 0 and total <= provider_total:
+        return "providers"
+    if source_variant_total > 0 and provider_total > 0 and source_variant_total > provider_total:
+        return "search pages"
+    if total > 0 and provider_total > 0 and total > provider_total:
+        return "search pages"
+    return "providers"
+
+
 def _property_run_count_label(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {singular if count == 1 else (plural or singular + 's')}"
 
@@ -918,12 +949,13 @@ def _property_run_detail_queue_message(
     if not waiting_on_pages:
         return ""
     source_work = _property_run_source_work_counts(summary, status=status)
+    source_label = _property_run_provider_check_label(summary, status=status)
     parts = [
         _property_run_count_label(found_total, "home") + " found",
         "property pages are still being prepared",
     ]
-    if source_work["open"] > 0:
-        parts.append(f"{source_work['open']} provider checks left")
+    if source_work["open"] > 0 and source_label:
+        parts.append(source_label)
     return " · ".join(parts)
 
 
@@ -960,10 +992,10 @@ def _property_run_synthetic_progress_events(
                 "message": text,
                 "created_at": timestamp,
             }
-        )
+            )
 
     if provider_total > 0:
-        add("sources_resolved", f"{_property_run_count_label(provider_total, 'provider check')} selected for this search.")
+        add("sources_resolved", f"{_property_run_count_label(provider_total, 'provider')} selected for this search.")
 
     source_work = _property_run_source_work_counts(summary, status=status)
     if counts["rows"] or counts["done"] or counts["active"]:
@@ -973,20 +1005,22 @@ def _property_run_synthetic_progress_events(
         if counts["active"]:
             parts.append(f"{counts['active']} running")
         if counts["queued"]:
-            parts.append(f"{counts['queued']} queued")
+            parts.append(f"{counts['queued']} waiting")
         if counts["failed"]:
             parts.append(f"{counts['failed']} need follow-up")
         if parts:
             total_suffix = f" of {counts['total']}" if counts["total"] else ""
-            add("source_search", f"Provider checks: {', '.join(parts)}{total_suffix}.")
+            unit = _property_run_source_unit_label(summary, total=counts["total"]).capitalize()
+            add("source_search", f"{unit}: {', '.join(parts)}{total_suffix}.")
     elif provider_total > 0:
-        add("source_started", "Waiting for the first provider check.")
+        add("source_started", "Waiting for the first provider.")
 
     found_total = raw_found
     to_review = listing_work["to_review"]
     if found_total > 0:
-        if source_work["open"] > 0:
-            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} to review · {source_work['open']} provider checks left.")
+        source_label = _property_run_provider_check_label(summary, status=status)
+        if source_work["open"] > 0 and source_label:
+            add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} to review · {source_label}.")
         else:
             add("source_fetch", f"{_property_run_count_label(found_total, 'home')} found · {to_review} to review.")
     detail_queue_message = _property_run_detail_queue_message(summary, status=status, message=payload.get("message"))
@@ -1034,7 +1068,7 @@ def _property_run_current_progress_message(
     generic_waiting_phase = phase_label.lower() in {
         "waiting for the first provider update.",
         "waiting for the first list.",
-        "waiting for the first provider check.",
+        "waiting for the first provider.",
     }
 
     if step in {"queued", "starting", "sources_resolved", "source_catalog_loading", "source_started"}:
@@ -1335,12 +1369,12 @@ def build_property_run_repair_snapshot(
             repair_outcome_summary = "The shortlist is ready, but one or more provider checks finished with partial coverage."
         elif failed_total and results_total > 0:
             repair_outcome_summary = _join_customer_sentences(
-                "Some provider checks are retrying, but the current shortlist is already usable",
+                "Some providers are retrying, but the current shortlist is already usable",
                 latest_repair_reason,
             )
         elif failed_total:
             repair_outcome_summary = _join_customer_sentences(
-                "Some provider checks are retrying before the shortlist can settle",
+                "Some providers are retrying before the shortlist can settle",
                 latest_repair_reason,
             )
     if repair_flags["failed"] and not repair_step:
@@ -1420,20 +1454,20 @@ def build_property_run_reliability_snapshot(
                 customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
             customer_status = _join_customer_sentences(
-                "Some provider checks are retrying, but the current shortlist is already usable",
+                "Some providers are retrying, but the current shortlist is already usable",
                 "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif failed_total:
             customer_status = _join_customer_sentences(
-                "Some provider checks are retrying before the shortlist can settle",
+                "Some providers are retrying before the shortlist can settle",
                 "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif results_total > 0:
             customer_status = "The strongest matches are already ready while the rest of the search finishes."
         elif source_checked > 0:
-            customer_status = "Provider checks are still running and the first shortlist is still building."
+            customer_status = "Providers are still running and the first shortlist is still building."
         else:
-            customer_status = message or "Preparing provider checks."
+            customer_status = message or "Preparing providers."
     if status in {"processed", "completed"}:
         health_tone = "good"
         health_label = "Healthy"
@@ -1484,7 +1518,7 @@ def build_property_run_reliability_snapshot(
 def _compact_run_message(value: object) -> str:
     text = str(value or "").strip()
     if not text:
-        return "Waiting for the first provider check."
+        return "Waiting for the first provider."
     text = re.sub(
         r"^Reviewing homes\.\s+(\d+)\s+checked so far\.?$",
         r"\1 homes found · 0 to review",
@@ -1494,10 +1528,9 @@ def _compact_run_message(value: object) -> str:
     text = re.sub(r"\b(\d+)\s+homes?\s+reviewed\b", r"\1 homes found", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(\d+)\s+reviewed so far\b", r"\1 to review", text, flags=re.IGNORECASE)
     text = re.sub(r"\bleft to sort\b", "to review", text, flags=re.IGNORECASE)
-    text = re.sub(r"\blists left\b", "provider checks left", text, flags=re.IGNORECASE)
-    text = re.sub(r"\blists open\b", "provider checks left", text, flags=re.IGNORECASE)
-    text = re.sub(r"\b(\d+)\s+providers\b", r"\1 provider checks", text, flags=re.IGNORECASE)
-    text = re.sub(r"\blist update\b", "provider check update", text, flags=re.IGNORECASE)
+    text = re.sub(r"\blists left\b", "search pages waiting", text, flags=re.IGNORECASE)
+    text = re.sub(r"\blists open\b", "search pages still running", text, flags=re.IGNORECASE)
+    text = re.sub(r"\blist update\b", "search update", text, flags=re.IGNORECASE)
     candidate_match = re.search(r"(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
     if candidate_match:
         return f"{candidate_match.group(1)} / {candidate_match.group(2)}"
@@ -1525,7 +1558,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
             "raw": "",
             "fraction_label": "",
             "source_label": "",
-            "phase_label": "Waiting for the first provider check.",
+            "phase_label": "Waiting for the first provider.",
         }
     provider_load_match = re.search(r"^Loading provider page for\s+(.+?)\.?$", text, flags=re.IGNORECASE)
     if provider_load_match:
@@ -1897,7 +1930,14 @@ def _property_run_provider_display_total(payload: dict[str, object], summary: di
     selected_provider_total = len(dict.fromkeys(selected_platforms))
     source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
     inferred_provider_total = max(selected_provider_total, _run_snapshot_provider_total(source_rows))
+    active_source_statuses = {"running", "processing", "in_progress", "working", "starting", "warming", "repairing"}
+    has_active_source_rows = any(
+        str(row.get("status") or row.get("state") or "").strip().lower() in active_source_statuses
+        for row in source_rows
+    )
     if inferred_provider_total > 0 and explicit_provider_total > inferred_provider_total:
+        if has_active_source_rows:
+            return explicit_provider_total
         if not source_variant_total or explicit_provider_total >= source_variant_total or explicit_provider_total > selected_provider_total * 3:
             return inferred_provider_total
     return max(explicit_provider_total, inferred_provider_total)
@@ -1940,10 +1980,13 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
         else "checking"
     )
     scan_label = checked_label if found_total > 0 else (
-        f"{provider_display_total} provider checks selected" if provider_display_total > 0 else checked_label
+        f"{provider_display_total} providers selected" if provider_display_total > 0 else checked_label
     )
     if found_total > 0 and source_work["open"] > 0:
-        scan_label = f"{found_total} homes found · {to_review_total} to review · {source_work['open']} provider checks left"
+        source_label = _property_run_provider_check_label(summary, status=status)
+        scan_label = f"{found_total} homes found · {to_review_total} to review"
+        if source_label:
+            scan_label = f"{scan_label} · {source_label}"
     no_floorplans = _positive_int(summary.get("filtered_floorplan_total"))
     current_step = str(payload.get("current_step") or "").strip().lower()
     packet_prepared = _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total"))
@@ -1971,6 +2014,9 @@ def build_property_run_live_board_snapshot(
     source_total = max(0, _positive_int(summary.get("sources_total")))
     source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
     source_total = max(source_total, _positive_int(summary.get("source_variant_total")), len(source_rows))
+    provider_display_total = _property_run_provider_display_total(payload, summary)
+    if source_rows and provider_display_total > source_total:
+        source_total = provider_display_total
     listing_work = _property_run_listing_work_counts(summary, status=status)
     found_total = listing_work["found"]
     to_review_total = listing_work["to_review"]
@@ -1990,9 +2036,9 @@ def build_property_run_live_board_snapshot(
     )
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} floorplans pending"
-    phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first provider check."
+    phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first provider."
     if phase_label == "Waiting for the first provider update.":
-        phase_label = "Waiting for the first provider check."
+        phase_label = "Waiting for the first provider."
     active_source_summary = _property_run_source_summary_for_label(source_rows, active_source_label)
     source_near_miss_label = _property_run_source_near_miss_phase_label(active_source_summary)
     candidate_reason_label = _latest_property_run_candidate_reason_label(payload)
@@ -2001,13 +2047,13 @@ def build_property_run_live_board_snapshot(
     elif current_info.get("fraction_label") and candidate_reason_label:
         phase_label = candidate_reason_label
     current_step = str(payload.get("current_step") or "").strip().lower()
-    if phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check."} and packet_prepared > 0 and current_step == "source_review_packet":
+    if phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider."} and packet_prepared > 0 and current_step == "source_review_packet":
         phase_label = f"{packet_prepared} property pages prepared"
     elif (
         current_step == "source_shortlist"
         and shortlist_ready > 0
         and (
-            phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Shortlist ready"}
+            phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider.", "Shortlist ready"}
             or phase_label.lower().startswith("shortlist ready")
         )
     ):
@@ -2102,7 +2148,7 @@ def build_property_run_live_board_snapshot(
             tone = "warn"
         else:
             tone = "queued"
-        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing provider check" if status_label == "Starting" else ("Waiting for a provider check" if source_rows else "Ready when you start")))
+        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing provider" if status_label == "Starting" else ("Waiting for a provider" if source_rows else "Ready when you start")))
         group_key = _source_provider_group(source or {})
         shard_count = max(0, len([row for row in raw_worker_queue if _source_provider_group(row) == group_key]) - 1) if source else 0
         worker_lanes.append(
@@ -2123,9 +2169,14 @@ def build_property_run_live_board_snapshot(
         for source in source_rows[:8]
     ]
     provider_full_label = str(live_info.get("source_label") or (worker_queue[0].get("source_label") if worker_queue else "") or "").strip()
-    provider_total = _positive_int(summary.get("provider_total"))
+    provider_total = max(_positive_int(summary.get("provider_total")), provider_display_total)
     source_variant_total = _positive_int(summary.get("source_variant_total"), default=source_total)
-    if provider_total > 0 and source_rows:
+    active_source_statuses = {"running", "processing", "in_progress", "working", "starting", "warming", "repairing"}
+    has_active_source_rows = any(
+        str(row.get("status") or row.get("state") or "").strip().lower() in active_source_statuses
+        for row in source_rows
+    )
+    if provider_total > 0 and source_rows and not has_active_source_rows:
         inferred_provider_total = _run_snapshot_provider_total(source_rows)
         source_count_hint = max(source_total, source_variant_total, len(source_rows))
         if inferred_provider_total and (
@@ -2139,19 +2190,20 @@ def build_property_run_live_board_snapshot(
     scan_total_label = (
         f"{provider_total} providers"
         if provider_total
-        else (f"{source_total} provider checks" if source_total else "")
+        else (f"{source_total} search pages" if source_total else "")
     )
     provider_label = _compact_property_provider_label(provider_full_label or scan_total_label)
-    provider_total = _positive_int(summary.get("provider_total"))
     if not source_rows and source_total and provider_total and source_total > provider_total and source_total > 3:
         if source_total >= provider_total * 3:
             source_total = provider_total
         elif provider_total and source_total > provider_total + 2:
             source_total = provider_total
     if source_rows:
-        source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} provider checks"
+        unit = _property_run_source_unit_label(summary, total=source_total)
+        source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} {unit}"
     else:
-        source_count_label = live_info.get("fraction_label") or ("waiting for provider checks" if source_total == 0 else f"0/{source_total} provider checks")
+        unit = _property_run_source_unit_label(summary, total=source_total)
+        source_count_label = live_info.get("fraction_label") or ("waiting for providers" if source_total == 0 else f"0/{source_total} {unit}")
     summary_label = (
         f"{aggregate_label} · {provider_label} · {live_info.get('fraction_label')}"
         if aggregate_label != "checking" and provider_full_label and live_info.get("fraction_label")

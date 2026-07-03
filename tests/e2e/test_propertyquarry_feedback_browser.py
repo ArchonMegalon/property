@@ -41,7 +41,7 @@ def test_packet_dashboard_and_workbench_show_feedback_language(monkeypatch, tmp_
 
     seed_property_search_preferences(client)
     install_property_run(monkeypatch, property_url="https://example.com/listing-phase2")
-    workbench = client.get("/app/properties", params={"run_id": "run-phase2"})
+    workbench = client.get("/app/properties", params={"run_id": "run-phase2", "full": 1})
     assert workbench.status_code == 200
-    assert "Quick take" in workbench.text
+    assert "Selected property" in workbench.text
     assert "Open property" in workbench.text

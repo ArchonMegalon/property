@@ -96,16 +96,37 @@
       <span class="pqx-result-main">
         <span class="pqx-result-media{% if not primary_preview_url and not is_shortlist_surface %} no-thumb{% endif %}{% if is_shortlist_surface %} has-diorama{% endif %}">
           {% if is_shortlist_surface %}
-          <span class="pqx-result-diorama{% if not (diorama_preview_url or primary_preview_url) %} is-placeholder{% endif %}" data-pqx-shortlist-diorama>
+          <button
+            class="pqx-result-diorama pqx-result-diorama-button{% if not (diorama_preview_url or primary_preview_url) %} is-placeholder{% endif %}"
+            type="button"
+            data-pqx-shortlist-diorama
+            data-pqx-atlas-open
+            data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
+            aria-label="Open area map for {{ candidate.get('title') or 'property' }}"
+            {% if loop.first %}{% else %}data-pqx-deferred-preview-host{% endif %}
+          >
             {% if diorama_preview_url or primary_preview_url %}
-            <img src="{{ diorama_preview_url or primary_preview_url }}" alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" decoding="async" fetchpriority="{{ 'high' if loop.first else 'low' }}">
+            <img
+              {% if loop.first %}
+              src="{{ diorama_preview_url or primary_preview_url }}"
+              loading="eager"
+              fetchpriority="high"
+              {% else %}
+              src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+              data-pqx-deferred-src="{{ diorama_preview_url or primary_preview_url }}"
+              loading="lazy"
+              fetchpriority="low"
+              {% endif %}
+              alt=""
+              decoding="async"
+            >
             {% else %}
             <span class="pqx-result-diorama-room room-main"></span>
             <span class="pqx-result-diorama-room room-side"></span>
             <span class="pqx-result-diorama-room room-terrace"></span>
             {% endif %}
             <span class="pqx-result-diorama-label">Preview</span>
-          </span>
+          </button>
           {% elif primary_preview_url %}
           <span class="pqx-thumb">
             <button
@@ -197,6 +218,7 @@
             class="pqx-result-open pqx-result-open-button"
             type="button"
             data-pw-visual-request="tour"
+            data-pw-visual-style-required="1"
             data-property-url="{{ visual_property_url }}"
             data-source-ref="{{ candidate.get('source_ref') or '' }}"
             data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
@@ -215,6 +237,7 @@
             class="pqx-result-open pqx-result-open-button"
             type="button"
             data-pw-visual-request="flythrough"
+            data-pw-visual-style-required="1"
             data-property-url="{{ visual_property_url }}"
             data-source-ref="{{ candidate.get('source_ref') or '' }}"
             data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
@@ -224,7 +247,6 @@
             data-rybbit-prop-surface="{{ surface_mode or 'results' }}"
             title="{{ walkthrough_tooltip }}"
             aria-label="Request walkthrough"
-            data-pw-walkthrough-provider="magicfit"
           >Request walkthrough</button>
           {% endif %}
         {% if surface_mode == 'shortlist' %}

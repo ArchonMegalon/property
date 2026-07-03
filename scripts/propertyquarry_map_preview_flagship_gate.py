@@ -27,6 +27,27 @@ ARTIFACT_PATTERNS = (
     b"debug toolbar",
     b"localhost:",
 )
+ROOT = Path(__file__).resolve().parents[1]
+APP_ROOT = ROOT / "ea"
+if APP_ROOT.exists() and str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
+
+CANONICAL_RENDERER_PREVIEWS: tuple[dict[str, object], ...] = (
+    {
+        "label": "vienna_radius_overlay",
+        "country_code": "AT",
+        "region_code": "vienna",
+        "query": "1020 Vienna",
+        "adjacent_area_radius_m": 850,
+    },
+    {
+        "label": "vienna_multi_district_overlay",
+        "country_code": "AT",
+        "region_code": "vienna",
+        "query": "1040 Vienna, 1050 Vienna",
+        "adjacent_area_radius_m": 0,
+    },
+)
 
 
 def _utc_now() -> str:
@@ -152,6 +173,78 @@ def _discover_preview_urls(
                 }
             )
     return urls
+
+
+def _canonical_renderer_preview_sources() -> list[dict[str, object]]:
+    sources: list[dict[str, object]] = []
+    try:
+        from app.api.routes import landing_view_models as view_models
+    except Exception as exc:
+        return [
+            {
+                "source": "canonical_renderer",
+                "status": "fail",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        ]
+
+    for spec in CANONICAL_RENDERER_PREVIEWS:
+        label = str(spec.get("label") or "canonical_renderer").strip()
+        query = str(spec.get("query") or "").strip()
+        selected_values = [item.strip() for item in query.split(",") if item.strip()]
+        try:
+            preview = view_models._build_scope_boundary_preview(
+                country_code=str(spec.get("country_code") or "").strip(),
+                region_code=str(spec.get("region_code") or "").strip(),
+                normalized_query=query,
+                selected_labels=selected_values,
+                selected_values=selected_values,
+                option_lookup={value.lower(): value for value in selected_values},
+                market_label="Vienna · AT",
+                adjacent_area_radius_m=int(spec.get("adjacent_area_radius_m") or 0),
+                allow_remote_lookup=False,
+                materialize_preview="sync",
+                padding_ratio=0.19,
+            )
+            image_url = str(preview.get("image_url") or "").strip()
+            match = re.search(r"/app/api/property/map-previews/(?P<id>[0-9a-f]{40})\.png$", image_url)
+            if match is None:
+                sources.append(
+                    {
+                        "source": "canonical_renderer",
+                        "label": label,
+                        "status": "fail",
+                        "query": query,
+                        "image_url": image_url,
+                        "error": "canonical renderer did not return a map-preview PNG URL",
+                    }
+                )
+                continue
+            cache_path = view_models._map_preview_cache_root() / f"{match.group('id')}.png"
+            sources.append(
+                {
+                    "source": "canonical_renderer",
+                    "label": label,
+                    "status": "ready" if cache_path.is_file() else "missing_file",
+                    "query": query,
+                    "image_url": image_url,
+                    "url": cache_path.as_uri(),
+                    "path": str(cache_path),
+                    "preview_kind": preview.get("preview_kind"),
+                    "has_district_overlay": bool(preview.get("has_district_overlay")),
+                }
+            )
+        except Exception as exc:
+            sources.append(
+                {
+                    "source": "canonical_renderer",
+                    "label": label,
+                    "status": "fail",
+                    "query": query,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+    return sources
 
 
 def _read_image(url: str, *, timeout_seconds: float, host_header: str) -> dict[str, Any]:
@@ -280,33 +373,55 @@ def build_map_preview_flagship_receipt(
     timeout_seconds: float,
     settle_seconds: float,
     min_preview_count: int,
+    canonical_fallback: bool = True,
 ) -> dict[str, Any]:
     base = str(base_url or "http://localhost:8097").strip().rstrip("/")
-    urls: list[str] = []
+    url_sources: list[dict[str, object]] = []
     seen: set[str] = set()
     discovery_results: list[dict[str, object]] = []
     for image_url in image_urls:
         absolute = _absolute_url(base, image_url)
         if absolute and absolute not in seen:
             seen.add(absolute)
-            urls.append(absolute)
-    if not urls:
+            url_sources.append({"url": absolute, "source": "explicit"})
+    if not url_sources:
         for discovered in _discover_preview_urls(
             base_url=base,
             routes=discover_routes,
             timeout_seconds=timeout_seconds,
             host_header=host_header,
             api_token=api_token,
-                principal_id=principal_id,
-                discovery_results=discovery_results,
+            principal_id=principal_id,
+            discovery_results=discovery_results,
             ):
             if discovered not in seen:
                 seen.add(discovered)
-                urls.append(discovered)
-    preview_results = [
-        _evaluate_preview(url, timeout_seconds=timeout_seconds, host_header=host_header, settle_seconds=settle_seconds)
-        for url in urls
-    ]
+                url_sources.append({"url": discovered, "source": "discovered"})
+    canonical_results: list[dict[str, object]] = []
+    if not url_sources and canonical_fallback:
+        canonical_results = _canonical_renderer_preview_sources()
+        for row in canonical_results:
+            canonical_url = str(row.get("url") or "").strip()
+            if canonical_url and canonical_url not in seen:
+                seen.add(canonical_url)
+                url_sources.append(
+                    {
+                        "url": canonical_url,
+                        "source": "canonical_renderer",
+                        "label": row.get("label"),
+                        "query": row.get("query"),
+                    }
+                )
+    preview_results = []
+    for row in url_sources:
+        url = str(row.get("url") or "").strip()
+        result = _evaluate_preview(url, timeout_seconds=timeout_seconds, host_header=host_header, settle_seconds=settle_seconds)
+        result["source"] = row.get("source") or ""
+        if row.get("label"):
+            result["label"] = row.get("label")
+        if row.get("query"):
+            result["query"] = row.get("query")
+        preview_results.append(result)
     checks: list[dict[str, object]] = [
         _check("preview_count", len(preview_results) >= min_preview_count, count=len(preview_results), min_count=min_preview_count)
     ]
@@ -329,6 +444,9 @@ def build_map_preview_flagship_receipt(
         "host_header": host_header,
         "discover_routes": discover_routes,
         "discovery_results": discovery_results,
+        "canonical_fallback": bool(canonical_fallback),
+        "canonical_results": canonical_results,
+        "preview_sources": url_sources,
         "preview_count": len(preview_results),
         "failed_count": len(failed),
         "checks": checks,
@@ -337,6 +455,7 @@ def build_map_preview_flagship_receipt(
             "This is a visual-asset gate. A PNG route being available is not enough.",
             "The gate rejects pending placeholders, blank canvases, excessive red overlays, heavy dark border noise, and embedded artifact/debug text.",
             "The gate also requires enough map texture to keep streets and labels visible beneath the selected-area overlay.",
+            "If live discovery finds no user-state previews, the gate renders canonical Vienna overlays so release safety does not depend on search-history state.",
         ],
     }
 
@@ -352,6 +471,7 @@ def main() -> int:
     parser.add_argument("--timeout-seconds", type=float, default=12.0)
     parser.add_argument("--settle-seconds", type=float, default=6.0)
     parser.add_argument("--min-preview-count", type=int, default=1)
+    parser.add_argument("--no-canonical-fallback", action="store_true")
     parser.add_argument("--write", default="_completion/smoke/property-live-map-preview-flagship-latest.json")
     args = parser.parse_args()
     env_urls = [
@@ -369,6 +489,7 @@ def main() -> int:
         timeout_seconds=max(1.0, float(args.timeout_seconds or 12.0)),
         settle_seconds=max(0.0, float(args.settle_seconds or 0.0)),
         min_preview_count=max(1, int(args.min_preview_count or 1)),
+        canonical_fallback=not bool(args.no_canonical_fallback),
     )
     output = json.dumps(receipt, ensure_ascii=True, indent=2, sort_keys=True)
     if args.write:

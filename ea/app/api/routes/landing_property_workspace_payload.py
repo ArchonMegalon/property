@@ -844,6 +844,7 @@ def property_workspace_payload(
     route_recovery = dict(property_state.get("route_recovery") or {})
     run_events = property_run_customer_visible_events(run_payload=run_payload)
     raw_run_summary = dict(run_payload.get("summary") or {})
+    raw_run_message = str(run_payload.get("message") or "").strip()
     run_summary = _property_customer_run_summary(raw_run_summary, preferences=property_preferences)
     run_eta_label = property_run_public_eta_label(
         run_health.get("eta_label") or run_summary.get("eta_label") or run_payload.get("eta_label")
@@ -1065,16 +1066,17 @@ def property_workspace_payload(
         try:
             from app.product import property_tour_hosting
 
-            verified_tour_url = str(property_tour_hosting._hosted_property_tour_verified_open_url(raw_tour_url) or "").strip()  # type: ignore[attr-defined]
+            verified_tour_url = str(property_tour_hosting._hosted_property_tour_first_party_open_url(raw_tour_url) or "").strip()  # type: ignore[attr-defined]
         except Exception:
             verified_tour_url = ""
         if verified_tour_url:
             normalized["tour_url"] = verified_tour_url
-            if tour_payload:
-                tour_payload["url"] = verified_tour_url
-                if str(tour_payload.get("embed_url") or "").strip():
-                    tour_payload["embed_url"] = verified_tour_url
-                normalized["tour"] = tour_payload
+            tour_payload["url"] = verified_tour_url
+            if str(tour_payload.get("embed_url") or "").strip():
+                tour_payload["embed_url"] = verified_tour_url
+            elif "embed_url" not in tour_payload:
+                tour_payload["embed_url"] = verified_tour_url
+            normalized["tour"] = tour_payload
         elif "/tours/" in raw_tour_url:
             normalized["tour_url"] = raw_tour_url
             if tour_payload:
@@ -1612,11 +1614,11 @@ def property_workspace_payload(
         try:
             from app.product import property_tour_hosting
 
-            verified_tour_url = property_tour_hosting._hosted_property_tour_verified_open_url(candidate.get("tour_url"))  # type: ignore[attr-defined]
+            verified_tour_url = property_tour_hosting._hosted_property_tour_first_party_open_url(candidate.get("tour_url"))  # type: ignore[attr-defined]
         except Exception:
             verified_tour_url = ""
         if verified_tour_url:
-            return "Ready | Live now"
+            return "Ready | On this page"
         if provider_tour_url:
             return "Ready | Provider 360"
         status = str(candidate.get("tour_status") or "").strip().lower()
@@ -2116,24 +2118,29 @@ def property_workspace_payload(
                 from app.product import property_tour_hosting
 
                 verified_tour_url = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url)  # type: ignore[attr-defined]
+                generated_reconstruction_url = property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(tour_url)  # type: ignore[attr-defined]
                 provider_key = property_tour_hosting._hosted_property_tour_verified_provider(tour_url)  # type: ignore[attr-defined]
             except Exception:
                 verified_tour_url = ""
+                generated_reconstruction_url = ""
                 provider_key = ""
             provider_label = _visual_provider_label(provider_key) if provider_key else "3D tour"
-            if verified_tour_url:
+            ready_tour_url = verified_tour_url or generated_reconstruction_url
+            if ready_tour_url:
+                if generated_reconstruction_url and not provider_key:
+                    provider_key = "generated_reconstruction"
                 verified_provider_keys = {"matterport", "3dvista", "pano2vr", "krpano"}
                 status_detail = "3D tour is available on this page."
                 visual_runtime = _visual_runtime_payload(
                     candidate,
                     request_kind="tour",
                     status="ready",
-                    ready_url=verified_tour_url,
+                    ready_url=ready_tour_url,
                 )
                 return {
                     "status": "ready",
                     "label": "3D tour available",
-                    "url": verified_tour_url,
+                    "url": ready_tour_url,
                     "embed_url": verified_tour_url,
                     "eta_label": visual_runtime["eta_label"],
                     "progress_pct": visual_runtime["progress_pct"],
@@ -4447,7 +4454,7 @@ def property_workspace_payload(
                 run_summary=run_summary,
                 run_sources=run_sources,
                 run_status_value=run_status_value,
-                run_message=run_message,
+                run_message=raw_run_message or run_message,
                 counterfactual_rows=counterfactual_rows,
                 suppression_rows=suppression_rows,
             )

@@ -12,6 +12,7 @@ from scripts.propertyquarry_live_mobile_surface_smoke import (
     SEED_FIXTURE_TIMEOUT_SECONDS,
     SEED_FIXTURE_USER_AGENT,
     _resolve_mobile_billing_external_handoff,
+    browser_probe_checks_are_transient,
     browser_probe_failure_is_transient,
     _seed_research_detail_headers,
     build_seed_fixture_blocked_receipt,
@@ -105,6 +106,19 @@ def test_live_mobile_smoke_retries_only_transient_browser_probe_failures() -> No
     assert browser_probe_failure_is_transient({"error": "route_worker_no_receipt:/app/account:exitcode=1"}) is True
     assert browser_probe_failure_is_transient({"error": "TimeoutError: waiting for selector"}) is False
     assert browser_probe_failure_is_transient({"status_code": 500}) is False
+
+
+def test_live_mobile_smoke_retries_search_scroll_restore_metric_once() -> None:
+    checks = [{"name": "district_map_close_restores_scroll", "ok": False}]
+    assert browser_probe_checks_are_transient("/app/search", checks) is True
+    assert browser_probe_checks_are_transient("/app/account", checks) is False
+    assert browser_probe_checks_are_transient(
+        "/app/search",
+        [
+            {"name": "district_map_close_restores_scroll", "ok": False},
+            {"name": "district_map_modal_opens", "ok": False},
+        ],
+    ) is False
 
 
 def test_live_mobile_smoke_accepts_static_html_probe_for_simple_routes() -> None:

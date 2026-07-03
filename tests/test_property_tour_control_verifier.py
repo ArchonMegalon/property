@@ -145,29 +145,34 @@ def test_public_tour_control_labels_manual_video_as_video_evidence_not_walkthrou
         },
     )
 
-    assert 'data-video-provider="manual_upload"' in html_body
-    assert 'data-walkthrough-ready="false"' in html_body
-    assert '<div class="card-label">Video</div>' in html_body
+    assert 'data-video-provider="manual_upload"' not in html_body
+    assert 'data-walkthrough-ready="false"' not in html_body
+    assert '<div class="card-label">Video</div>' not in html_body
+    assert "Open walkthrough" in html_body
+    assert "/tours/manual-media-loft/walkthrough" in html_body
     assert "MagicFit walkthrough" not in html_body
     assert '<div class="card-label">Walkthrough</div>' not in html_body
 
 
 def test_public_tour_control_labels_magicfit_video_as_magicfit_walkthrough() -> None:
     html_body = _tour_control_external_iframe_html(
-        title="MagicFit loft",
-        iframe_src="https://propertyquarry.com/tours/files/magicfit-loft/matterport.html",
+        title="Walkthrough loft",
+        iframe_src="https://propertyquarry.com/tours/files/walkthrough-loft/matterport.html",
         badge="Matterport Control",
         payload={
-            "slug": "magicfit-loft",
+            "slug": "walkthrough-loft",
             "video_provider": "magicfit",
             "video_relpath": "walkthrough.mp4",
             "scenes": [{"name": "Living room", "asset_relpath": "living.jpg", "role": "photo"}],
         },
     )
 
-    assert 'data-video-provider="magicfit"' in html_body
-    assert 'data-walkthrough-ready="true"' in html_body
-    assert '<div class="card-label">Walkthrough</div>' in html_body
+    assert 'data-video-provider="magicfit"' not in html_body
+    assert 'data-walkthrough-ready="true"' not in html_body
+    assert '<div class="card-label">Walkthrough</div>' not in html_body
+    assert "Open walkthrough" in html_body
+    assert "/tours/walkthrough-loft/walkthrough" in html_body
+    assert "magicfit" not in html_body
     assert "MagicFit walkthrough" not in html_body
     assert "Video evidence" not in html_body
 
@@ -271,10 +276,9 @@ def test_property_tour_control_verifier_next_actions_only_include_globally_missi
     receipt = build_property_tour_control_receipt(tour_root=tmp_path)
 
     assert receipt["ready_provider_modes"] == ["matterport"]
-    assert set(receipt["missing_provider_modes"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "krpano", "magicfit"}
     assert {row["provider"] for row in receipt["next_required_actions"]} == {
         "3dvista",
-        "pano2vr",
         "krpano",
         "magicfit",
     }
@@ -290,10 +294,9 @@ def test_property_tour_control_verifier_can_require_all_provider_modes_for_gold_
     assert receipt["require_all_provider_modes"] is True
     assert summary["require_all_provider_modes"] is True
     assert receipt["ready_provider_modes"] == ["matterport"]
-    assert set(receipt["missing_provider_modes"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "krpano", "magicfit"}
     assert {row["provider"] for row in receipt["next_required_actions"]} == {
         "3dvista",
-        "pano2vr",
         "krpano",
         "magicfit",
     }
@@ -339,14 +342,12 @@ def test_property_tour_control_verifier_counts_provider_gaps_on_ready_tours(tmp_
     missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
     assert receipt["status"] == "blocked_missing_provider_modes"
     assert receipt["tours"][0]["status"] == "ready"
-    assert set(missing) == {"3dvista", "pano2vr", "krpano", "magicfit"}
+    assert set(missing) == {"3dvista", "krpano", "magicfit"}
     assert missing["3dvista"]["reason"] == "missing_3dvista_export"
-    assert missing["pano2vr"]["reason"] == "missing_pano2vr_export"
     assert missing["krpano"]["reason"] in {"missing_walkable_scene", "missing_krpano_license_environment"}
     assert missing["magicfit"]["reason"] == "missing_magicfit_walkthrough"
-    assert set(receipt["tours"][0]["missing_provider_modes"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
+    assert set(receipt["tours"][0]["missing_provider_modes"]) == {"3dvista", "krpano", "magicfit"}
     assert actions["3dvista"]["blocked_tour_count"] == 1
-    assert actions["pano2vr"]["blocked_tour_count"] == 1
     assert actions["krpano"]["blocked_tour_count"] == 1
     assert actions["magicfit"]["blocked_tour_count"] == 1
 
@@ -367,8 +368,8 @@ def test_property_tour_control_verifier_distinguishes_empty_provider_placeholder
     missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
     assert missing["3dvista"]["reason"] == "3dvista_placeholder_field_empty_or_unusable"
     assert "empty 3DVista placeholder" in missing["3dvista"]["action"]
-    assert missing["pano2vr"]["reason"] == "pano2vr_placeholder_field_empty_or_unusable"
-    assert "empty Pano2VR placeholder" in missing["pano2vr"]["action"]
+    assert "pano2vr" not in missing
+    assert receipt["provider_blockers"]["pano2vr"]["reasons"][0]["reason"] == "pano2vr_placeholder_field_empty_or_unusable"
 
 
 def test_property_tour_control_verifier_reports_all_verified_provider_modes(
@@ -460,6 +461,43 @@ def test_property_tour_control_verifier_does_not_count_failed_live_probe_as_read
     assert receipt["tours"][0]["controls"][0]["status"] == "probe_failed"
 
 
+def test_property_tour_control_verifier_does_not_fail_public_gate_for_optional_pano2vr_probe(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_tour(
+        tmp_path,
+        "matterport-with-hidden-pano2vr",
+        {
+            "matterport_url": "https://my.matterport.com/show/?m=READY123",
+            "pano2vr_entry_relpath": "pano/index.html",
+        },
+        {"pano/index.html": "<!doctype html><script src='tour.js'></script><div>Pano2VR</div>"},
+    )
+
+    def _probe(url: str, *, provider: str = "", **_kwargs) -> dict[str, object]:
+        if provider == "pano2vr":
+            return {"http_status": 404, "error": "hidden"}
+        return {"http_status": 200, "body_markers": {"matterport": True}}
+
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _probe)
+
+    receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+        require_all_provider_modes=True,
+    )
+
+    controls = {row["provider"]: row for row in receipt["tours"][0]["controls"]}
+    assert receipt["status"] == "blocked_missing_provider_modes"
+    assert receipt["provider_counts"]["matterport"] == 1
+    assert receipt["provider_counts"]["pano2vr"] == 0
+    assert receipt["ready_provider_modes"] == ["matterport"]
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "krpano", "magicfit"}
+    assert controls["pano2vr"]["status"] == "optional_probe_failed"
+
+
 def test_property_tour_control_verifier_rejects_wrong_provider_live_probe_marker(
     tmp_path: Path,
     monkeypatch,
@@ -513,6 +551,7 @@ def test_property_tour_control_verifier_counts_successful_3dvista_live_probe(
     assert receipt["status"] == "pass"
     assert receipt["provider_counts"]["3dvista"] == 1
     assert receipt["ready_provider_modes"] == ["3dvista"]
+    assert receipt["tours"][0]["controls"][0]["evidence"] == "local_3dvista_export_entry"
 
 
 def test_property_tour_control_verifier_rejects_magicfit_placeholder_video(tmp_path: Path) -> None:
@@ -689,7 +728,7 @@ def test_property_tour_control_verifier_blocks_when_no_verified_controls(tmp_pat
     assert receipt["ready_provider_modes"] == []
     assert receipt["tours"][0]["status"] == "blocked_missing_verified_controls"
     assert receipt["tours"][0]["blocked_reason"] == "generated_cube_not_verified_3d"
-    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "pano2vr", "krpano", "magicfit"}
+    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "krpano", "magicfit"}
 
 
 def test_property_tour_control_verifier_marks_photo_gallery_as_not_3d(tmp_path: Path) -> None:
@@ -720,7 +759,6 @@ def test_property_tour_control_verifier_marks_photo_gallery_as_not_3d(tmp_path: 
     assert {row["provider"] for row in receipt["next_required_actions"]} == {
         "matterport",
         "3dvista",
-        "pano2vr",
         "krpano",
         "magicfit",
     }
@@ -752,7 +790,8 @@ def test_property_tour_control_verifier_reports_actionable_missing_evidence(tmp_
     missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
     assert missing["matterport"]["reason"] == "matterport_url_not_allowlisted_or_invalid"
     assert missing["3dvista"]["reason"] == "3dvista_entry_missing_or_not_verified"
-    assert missing["pano2vr"]["reason"] == "pano2vr_entry_missing_or_not_verified"
+    assert "pano2vr" not in missing
+    assert receipt["provider_blockers"]["pano2vr"]["reasons"][0]["reason"] == "pano2vr_entry_missing_or_not_verified"
     assert missing["krpano"]["reason"] == "missing_krpano_license_environment"
     assert missing["magicfit"]["reason"] == "walkthrough_provider_not_magicfit"
     assert "tracker.example" not in json.dumps(receipt)

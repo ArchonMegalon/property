@@ -4,6 +4,9 @@
   const fullScriptSrc = String(loader?.getAttribute('data-workbench-src') || '').trim();
   if (!root || !fullScriptSrc) return;
   if (root.dataset.pqWorkbenchController === 'loaded') return;
+  const surface = String(root.getAttribute('data-pqx-surface') || '').trim().toLowerCase();
+  const eagerWorkbenchRoute = /^\/app\/(?:properties|shortlist|research)(?:\/|$)/.test(String(window.location.pathname || '').trim());
+  const eagerWorkbenchSurface = Boolean((surface && surface !== 'search') || eagerWorkbenchRoute);
   const urlParams = new URLSearchParams(window.location.search);
   const deferredSavedSearchIntent = Boolean(String(urlParams.get('load_agent') || urlParams.get('run_agent') || '').trim());
 
@@ -45,7 +48,19 @@
       const existing = [...document.querySelectorAll('script[data-pq-workbench-main]')]
         .find((node) => String(node.getAttribute('src') || '') === fullScriptSrc);
       if (existing) {
-        existing.addEventListener('load', () => resolve(), { once: true });
+        if (
+          root.dataset.pqWorkbenchController === 'loaded'
+          || existing.dataset.pqWorkbenchLoaded === 'true'
+        ) {
+          root.dataset.pqWorkbenchController = 'loaded';
+          resolve();
+          return;
+        }
+        existing.addEventListener('load', () => {
+          existing.dataset.pqWorkbenchLoaded = 'true';
+          root.dataset.pqWorkbenchController = 'loaded';
+          resolve();
+        }, { once: true });
         existing.addEventListener('error', reject, { once: true });
         return;
       }
@@ -54,6 +69,7 @@
       script.async = true;
       script.dataset.pqWorkbenchMain = 'true';
       script.addEventListener('load', () => {
+        script.dataset.pqWorkbenchLoaded = 'true';
         root.dataset.pqWorkbenchController = 'loaded';
         resolve();
       }, { once: true });
@@ -84,8 +100,22 @@
     root.querySelectorAll('details[data-what-matters-group]').forEach((details) => {
       if (!(details instanceof HTMLDetailsElement) || details.dataset.pqLoaderAccordion === 'ready') return;
       details.dataset.pqLoaderAccordion = 'ready';
+      const markUserToggle = () => {
+        details.dataset.pqLoaderUserToggle = 'true';
+        window.setTimeout(() => {
+          delete details.dataset.pqLoaderUserToggle;
+        }, 220);
+      };
+      const summary = details.querySelector('summary');
+      if (summary instanceof HTMLElement) {
+        summary.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') markUserToggle();
+        });
+        summary.addEventListener('click', markUserToggle);
+      }
       details.addEventListener('toggle', () => {
         if (root.dataset.pqWorkbenchController === 'loaded' || !details.open) return;
+        if (details.dataset.pqLoaderUserToggle !== 'true') return;
         const panel = details.closest('[data-property-what-matters-panel]') || root;
         panel.querySelectorAll('details[data-what-matters-group]').forEach((other) => {
           if (other !== details && other instanceof HTMLDetailsElement) other.open = false;
@@ -498,8 +528,75 @@
     renderMap();
   };
 
+  const installCriticalScopeLightbox = () => {
+    const dialog = document.querySelector('[data-pqx-scope-lightbox]');
+    const image = dialog?.querySelector?.('[data-pqx-scope-lightbox-image]');
+    const title = dialog?.querySelector?.('[data-pqx-scope-lightbox-title]');
+    const caption = dialog?.querySelector?.('[data-pqx-scope-lightbox-caption]');
+    const overlay = dialog?.querySelector?.('[data-pqx-scope-lightbox-overlay]');
+    if (!(dialog instanceof HTMLDialogElement) || !(image instanceof HTMLImageElement)) return;
+
+    const close = () => {
+      if (typeof dialog.close === 'function' && dialog.open) {
+        dialog.close();
+        return;
+      }
+      dialog.removeAttribute('open');
+    };
+    const open = (button) => {
+      if (!(button instanceof HTMLElement) || root.dataset.pqWorkbenchController === 'loaded') return false;
+      const imageUrl = String(button.getAttribute('data-pqx-scope-image') || '').trim();
+      if (!imageUrl) return false;
+      image.setAttribute('src', imageUrl);
+      image.setAttribute('alt', String(button.getAttribute('data-pqx-scope-alt') || 'Search area preview').trim() || 'Search area preview');
+      if (title instanceof HTMLElement) title.textContent = String(button.getAttribute('data-pqx-scope-title') || 'Search area preview').trim() || 'Search area preview';
+      if (caption instanceof HTMLElement) caption.textContent = String(button.getAttribute('data-pqx-scope-caption') || '').trim();
+      if (overlay instanceof SVGElement) {
+        while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+        let overlayRows = [];
+        try {
+          overlayRows = JSON.parse(String(button.getAttribute('data-pqx-scope-overlay') || '[]'));
+        } catch (_error) {
+          overlayRows = [];
+        }
+        if (Array.isArray(overlayRows)) {
+          overlayRows
+            .filter((row) => row && typeof row === 'object' && String(row.path || '').trim())
+            .forEach((row) => {
+              const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+              if (row.selected) path.setAttribute('class', 'is-selected');
+              path.setAttribute('d', String(row.path || '').trim());
+              path.setAttribute('data-label', String(row.label || 'Area'));
+              overlay.appendChild(path);
+            });
+        }
+      }
+      try {
+        if (!dialog.open && typeof dialog.showModal === 'function') {
+          dialog.showModal();
+          return true;
+        }
+      } catch (_error) {}
+      dialog.setAttribute('open', '');
+      return true;
+    };
+
+    dialog.querySelector('[data-pqx-scope-lightbox-close]')?.addEventListener('click', close);
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) close();
+    });
+    document.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-pqx-scope-open]');
+      if (!button || root.dataset.pqWorkbenchController === 'loaded') return;
+      if (!open(button)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    });
+  };
+
   installCriticalWhatMattersAccordion();
   installCriticalLocationMap();
+  installCriticalScopeLightbox();
 
   root.addEventListener('click', (event) => {
     const target = event.target?.closest?.(actionSelector);
@@ -541,6 +638,13 @@
     loadWorkbench().catch(() => {
       const errorNode = root.querySelector('[data-property-inline-error]');
       if (errorNode) errorNode.textContent = 'Could not load the saved search controls. Please reload.';
+    });
+    return;
+  }
+  if (eagerWorkbenchSurface) {
+    loadWorkbench().catch(() => {
+      const errorNode = root.querySelector('[data-property-inline-error]');
+      if (errorNode) errorNode.textContent = 'Could not prepare the property controls. Please reload.';
     });
     return;
   }

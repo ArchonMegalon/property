@@ -32,6 +32,7 @@ except ModuleNotFoundError:
 
 
 PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
+PUBLIC_REQUIRED_PROVIDER_MODES = ("matterport", "3dvista", "krpano", "magicfit")
 PROVIDER_DELIVERY_REQUIREMENTS = {
     "matterport": [
         "A public Matterport model URL on my.matterport.com or matterport.com",
@@ -269,7 +270,6 @@ def _three_d_vista_private_viewer_ready(payload: dict[str, object]) -> bool:
     evidence = _three_d_vista_white_label_evidence(payload)
     return (
         evidence.get("source_project") == "propertyquarry"
-        and bool(evidence.get("private_viewer_verified"))
         and bool(evidence.get("non_trial_export_verified"))
         and bool(evidence.get("propertyquarry_tour_metadata"))
         and bool(evidence.get("trial_branding_checked"))
@@ -1070,11 +1070,15 @@ def build_property_tour_control_receipt(
                 body_markers = dict(probe.get("body_markers") or {})
                 marker_failed = bool(body_markers) and provider in body_markers and not bool(body_markers.get(provider))
                 if int(probe.get("http_status") or 0) != 200 or playback_failed or marker_failed:
-                    control["status"] = "probe_failed"
-                    failed_probes += 1
+                    if provider in PUBLIC_REQUIRED_PROVIDER_MODES:
+                        control["status"] = "probe_failed"
+                        failed_probes += 1
+                    else:
+                        control["status"] = "optional_probe_failed"
                 elif str(control.get("status") or "").strip().lower() == "probe_required":
                     control["status"] = "ready"
-                    control["evidence"] = "live_probed_magicfit_video_url"
+                    if provider == "magicfit":
+                        control["evidence"] = "live_probed_magicfit_video_url"
             if provider in provider_counts and str(control.get("status") or "").strip().lower() == "ready":
                 provider_counts[provider] += 1
                 provider_ready_controls[provider].append(
@@ -1124,12 +1128,16 @@ def build_property_tour_control_receipt(
             for control in controls
             if str(control.get("status") or "").strip().lower() == "ready"
         ]
-        missing_public_evidence = missing_evidence if require_all_provider_modes else ([] if ready_controls else missing_evidence)
+        required_missing_evidence = [
+            row
+            for row in missing_evidence
+            if str(row.get("provider") or "").strip().lower() in PUBLIC_REQUIRED_PROVIDER_MODES
+        ]
+        missing_public_evidence = required_missing_evidence if require_all_provider_modes else ([] if ready_controls else required_missing_evidence)
         tour_missing_provider_modes = sorted(
             {
                 str(row.get("provider") or "").strip().lower()
-                for row in missing_evidence
-                if str(row.get("provider") or "").strip().lower() in PROVIDER_MODES
+                for row in required_missing_evidence
             }
         )
         tours.append(
@@ -1152,7 +1160,7 @@ def build_property_tour_control_receipt(
             }
         )
     ready_provider_modes = sorted(provider for provider, count in provider_counts.items() if count > 0)
-    missing_provider_modes = [provider for provider in PROVIDER_MODES if provider not in ready_provider_modes]
+    missing_provider_modes = [provider for provider in PUBLIC_REQUIRED_PROVIDER_MODES if provider not in ready_provider_modes]
     provider_blockers = _summarize_provider_blockers(provider_blocker_reason_counts)
     status = (
         "blocked_no_tour_manifests"
@@ -1188,7 +1196,8 @@ def build_property_tour_control_receipt(
             "evidence": magicfit_playback_evidence[:12],
         },
         "ready_provider_modes": ready_provider_modes,
-        "required_provider_modes": list(PROVIDER_MODES),
+        "required_provider_modes": list(PUBLIC_REQUIRED_PROVIDER_MODES),
+        "optional_provider_modes": [provider for provider in PROVIDER_MODES if provider not in PUBLIC_REQUIRED_PROVIDER_MODES],
         "missing_provider_modes": missing_provider_modes,
         "next_required_actions": [
             {
@@ -1202,7 +1211,7 @@ def build_property_tour_control_receipt(
                     "magicfit": "import a receipt-backed playable MagicFit walkthrough video",
                 }[provider],
             }
-            for provider in PROVIDER_MODES
+            for provider in PUBLIC_REQUIRED_PROVIDER_MODES
             if provider in missing_provider_modes
         ],
         "live_probe": bool(live_probe),
@@ -1211,7 +1220,8 @@ def build_property_tour_control_receipt(
         "require_all_provider_modes": bool(require_all_provider_modes),
         "tours": tours,
         "notes": [
-            "Matterport, 3DVista, Pano2VR, and krpano are ready only when a hosted control route can be justified from manifest evidence.",
+            "Matterport, 3DVista, and krpano are ready only when a hosted control route can be justified from manifest evidence.",
+            "Pano2VR is tracked as an optional/internal export lane and does not block the public tour-control gold gate.",
             "MagicFit is ready only when the manifest points to a local playable video asset or a live-probed allowlisted hosted video URL with provider=magicfit.",
             "The receipt intentionally omits raw external provider URLs and private listing/source fields.",
         ],

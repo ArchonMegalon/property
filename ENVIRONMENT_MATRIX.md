@@ -21,7 +21,7 @@
 
 - `ONEMIN_AI_API_KEY` plus sequential `ONEMIN_AI_API_KEY_FALLBACK_N` slots: ordered 1min.AI account slots used by the Responses facade and surfaced back as account names in provider-health payloads. The shipped env templates currently include placeholders through `ONEMIN_AI_API_KEY_FALLBACK_33`.
 - `EA_RESPONSES_DEFAULT_PROFILE`: explicit default public lane profile for generic `/v1/responses` traffic; use `easy` to keep unattended callers out of the hard lane by default.
-- `EA_RESPONSES_PROVIDER_ORDER`: generic provider preference order for the public default alias; use `magixai,onemin` for cheap-first fallback behavior.
+- `EA_RESPONSES_PROVIDER_ORDER`, `EA_RESPONSES_FAST_PROVIDER_ORDER`, `EA_RESPONSES_CHEAP_PROVIDER_ORDER`, `EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER`, and `EA_RESPONSES_HARD_PROVIDER_ORDER`: provider preference orders for default, fast, cheap/background, groundwork, and hard lanes. Keep `onemin,gemini_vortex,magixai` so the EA OneMinute manager is attempted first while credits are available; Gemini/Vertex is the fallback, not the primary lane.
 - `EA_RESPONSES_MAGICX_HEALTH_CHECK`, `EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS`, `EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS`: enable and tune live Magicx readiness probes so fallback state is based on a real upstream check.
 - `EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY` and `EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY`: baseline credits per 1min.AI slot used to estimate `estimated_remaining_credits_total` and `remaining_percent_of_max` before a depletion error is observed.
 - `EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS`: long quarantine applied when 1min.AI reports a deleted or inactive key so the slot remains visibly `deleted`.

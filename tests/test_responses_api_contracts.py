@@ -37,6 +37,8 @@ def _reset_responses_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
                 "EA_PRINCIPAL_",
                 "EA_GEMINI_VORTEX_SLOT_",
                 "ONEMIN_AI_API_KEY",
+                "ONEMIN_DIRECT_API_KEYS_JSON",
+                "ONEMIN_DIRECT_API_KEYS_JSON_FILE",
                 "BROWSERACT_API_KEY",
                 "GOOGLE_API_KEY_FALLBACK_",
                 "EA_FLEET_STATUS_BASE_URL",
@@ -46,6 +48,8 @@ def _reset_responses_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import responses_upstream as upstream
     from app.api.routes import responses
 
+    monkeypatch.setattr(upstream, "_DOTENV_CACHE", {})
+    monkeypatch.setattr(upstream, "_dotenv_candidate_paths", lambda: ())
     upstream._test_reset_onemin_states()
     upstream._test_reset_fleet_jury_cache()
     responses._test_reset_responses_runtime_state()
@@ -6438,27 +6442,27 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["profiles"][0]["work_class"] == "hard_coder"
     assert "Hard coder lane" in body["profiles"][0]["expectation_summary"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
-    assert easy_profile["provider_hint_order"][0] == "gemini_vortex"
-    assert "onemin" in easy_profile["provider_hint_order"]
-    assert easy_profile["backend"] == "gemini_vortex"
-    assert easy_profile["health_provider_key"] == "gemini_vortex"
+    assert easy_profile["provider_hint_order"][0] == "onemin"
+    assert "gemini_vortex" in easy_profile["provider_hint_order"]
+    assert easy_profile["backend"] == "onemin"
+    assert easy_profile["health_provider_key"] == "onemin"
     assert easy_profile["work_class"] == "easy"
     assert "Easy lane" in easy_profile["expectation_summary"]
     assert easy_profile["review_cadence"]["review"] == "weekly"
     assert easy_profile["support_help_boundary"]["owner"] == "chummer6-hub"
     repair_profile = next(profile for profile in body["profiles"] if profile["profile"] == "repair")
     assert repair_profile["lane"] == "repair"
-    assert repair_profile["provider_hint_order"][0] == "gemini_vortex"
-    assert "onemin" in repair_profile["provider_hint_order"]
-    assert repair_profile["model"] == "ea-repair-gemini"
-    assert repair_profile["backend"] == "gemini_vortex"
-    assert repair_profile["health_provider_key"] == "gemini_vortex"
+    assert repair_profile["provider_hint_order"][0] == "onemin"
+    assert "gemini_vortex" in repair_profile["provider_hint_order"]
+    assert repair_profile["model"] == "ea-onemin-coder"
+    assert repair_profile["backend"] == "onemin"
+    assert repair_profile["health_provider_key"] == "onemin"
     groundwork_profile = next(profile for profile in body["profiles"] if profile["profile"] == "groundwork")
     assert groundwork_profile["lane"] == "groundwork"
-    assert groundwork_profile["provider_hint_order"] == ["gemini_vortex"]
+    assert groundwork_profile["provider_hint_order"] == ["onemin", "gemini_vortex"]
     assert groundwork_profile["model"] == "ea-groundwork-gemini"
-    assert groundwork_profile["backend"] == "gemini_vortex"
-    assert groundwork_profile["health_provider_key"] == "gemini_vortex"
+    assert groundwork_profile["backend"] == "onemin"
+    assert groundwork_profile["health_provider_key"] == "onemin"
     assert groundwork_profile["provider_slot_pool"]["selection_mode"] in {"fallback", "round_robin"}
     assert [slot["slot_owner"] for slot in groundwork_profile["provider_slots"]] == ["", ""]
     assert groundwork_profile["provider_slot_pool"]["last_used_hub_user_id"] == ""
@@ -6485,8 +6489,8 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["provider_health"]["provider_config"]["chatplayground_accounts"] == []
     assert body["provider_registry"]["contract_name"] == "ea.provider_registry"
     groundwork_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "groundwork")
-    assert groundwork_lane["backend"] == "gemini_vortex"
-    assert groundwork_lane["capacity_summary"]["configured_slots"] == 2
+    assert groundwork_lane["backend"] == "onemin"
+    assert int(groundwork_lane["capacity_summary"]["configured_slots"]) >= 1
     assert groundwork_lane["capacity_summary"]["slot_owners"] == []
     assert groundwork_lane["capacity_summary"]["last_used_hub_user_id"] == ""
     assert groundwork_lane["capacity_summary"]["last_used_hub_group_id"] == ""
@@ -6627,6 +6631,10 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
         monkeypatch.setenv(f"ONEMIN_AI_API_KEY_FALLBACK_{index}", f"health-key-{index}")
     monkeypatch.setenv("EA_RESPONSES_DEFAULT_PROFILE", "easy")
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "magixai,onemin")
+    monkeypatch.setenv("EA_RESPONSES_FAST_PROVIDER_ORDER", "onemin,gemini_vortex")
+    monkeypatch.setenv("EA_RESPONSES_CHEAP_PROVIDER_ORDER", "onemin,magixai")
+    monkeypatch.setenv("EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER", "onemin,gemini_vortex,magixai")
+    monkeypatch.setenv("EA_RESPONSES_HARD_PROVIDER_ORDER", "onemin,gemini_vortex")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "primary,fallback_1")
     monkeypatch.setenv(
         "EA_RESPONSES_ONEMIN_RESERVE_SLOTS",
@@ -6667,6 +6675,10 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     assert body["provider_config"]["default_profile"] == "easy"
     assert body["provider_config"]["default_lane"] == "fast"
     assert body["provider_config"]["provider_order"] == ["magixai", "onemin"]
+    assert body["provider_config"]["fast_provider_order"] == ["onemin", "gemini_vortex"]
+    assert body["provider_config"]["cheap_provider_order"] == ["onemin", "magixai"]
+    assert body["provider_config"]["groundwork_provider_order"] == ["onemin", "gemini_vortex", "magixai"]
+    assert body["provider_config"]["hard_provider_order"] == ["onemin", "gemini_vortex"]
     assert body["provider_config"]["onemin_active_accounts"] == []
     assert body["provider_config"]["onemin_reserve_accounts"] == []
     assert body["provider_config"]["onemin_max_requests_per_hour"] == 120

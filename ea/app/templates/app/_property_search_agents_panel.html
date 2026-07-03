@@ -35,7 +35,7 @@
       <button class="pqx-automation-delete" type="button" data-search-agent-action="delete" aria-label="Delete {{ agent.get('name') or 'saved search' }}" title="Delete saved search">&times;</button>
       <a class="pqx-automation-thumbnail" href="{{ agent_load_href }}" data-scope-preview-kind="{{ scope_preview_kind }}" data-scope-overlay="{{ 'true' if scope_preview.get('has_district_overlay') else 'false' }}" aria-label="Edit {{ agent.get('name') or 'saved search' }}" style="min-height:118px; height:118px;">
         {% if scope_image_url %}
-        <img src="{{ scope_image_url }}" alt="{{ scope_preview.get('alt') or 'Search area preview' }}" loading="lazy" style="min-height:118px; height:118px; object-fit:contain;">
+        <img src="{{ scope_image_url }}" data-map-preview-src="{{ scope_image_url }}" alt="{{ scope_preview.get('alt') or 'Search area preview' }}" loading="lazy" style="min-height:118px; height:118px; object-fit:contain;">
         {% endif %}
         <span class="pqx-automation-thumbnail-action">Edit</span>
       </a>

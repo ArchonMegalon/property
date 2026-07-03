@@ -83,6 +83,20 @@ def _write_square_image(path: Path) -> None:
     image.save(path, format="JPEG")
 
 
+def _successful_provider_probe(*_args, provider: str = "", **_kwargs) -> dict[str, object]:
+    if provider == "magicfit":
+        return {
+            "http_status": 200,
+            "playback_markers": {
+                "video_content_type": True,
+                "video_signature": True,
+                "video_stream": True,
+                "duration_positive": True,
+            },
+        }
+    return {"http_status": 200, "body_markers": {provider: True}}
+
+
 def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> None:
     slug = "verified-3dvista-import"
     bundle_dir = _write_base_tour(tmp_path, slug)
@@ -191,7 +205,7 @@ def test_3dvista_trial_branded_export_is_not_premium_ready(tmp_path: Path) -> No
     assert "created with the trial" not in json.dumps(vista_contract).lower()
 
 
-def test_3dvista_white_label_contract_becomes_ready_for_propertyquarry_source_project(tmp_path: Path) -> None:
+def test_3dvista_white_label_contract_becomes_ready_for_propertyquarry_source_project(tmp_path: Path, monkeypatch) -> None:
     slug = "propertyquarry-ready-3dvista-white-label"
     _write_base_tour(tmp_path, slug)
     verified_export = tmp_path / "verified_3dvista_ready"
@@ -215,8 +229,11 @@ def test_3dvista_white_label_contract_becomes_ready_for_propertyquarry_source_pr
     )
 
     assert imported.returncode == 0, imported.stderr
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _successful_provider_probe)
     verifier = build_property_tour_control_receipt(
         tour_root=tmp_path / "public_tours",
+        base_url="https://propertyquarry.example",
+        live_probe=True,
         require_all_provider_modes=True,
     )
     vista_contract = verifier["delivery_contracts"]["3dvista"]
@@ -256,15 +273,12 @@ def test_3dvista_white_label_contract_requires_review_for_non_propertyquarry_sou
         encoding="utf-8",
     )
 
-    verifier = build_property_tour_control_receipt(
-        tour_root=tmp_path / "public_tours",
-        require_all_provider_modes=True,
-    )
+    verifier = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours", require_all_provider_modes=True)
     vista_contract = verifier["delivery_contracts"]["3dvista"]
-    assert vista_contract["white_label_contract"]["status"] == "review_required"
+    assert vista_contract["white_label_contract"]["status"] == "blocked"
     assert "Chummer RunSite/Horizon" in vista_contract["white_label_contract"]["cross_project_warning"]
     proof_basis = vista_contract["white_label_contract"]["proof_basis"]
-    assert proof_basis["source_projects"] == ["chummer-runsite-horizon"]
+    assert proof_basis["source_projects"] == []
     assert proof_basis["ready_basis"] == []
 
 
@@ -328,7 +342,9 @@ def test_tour_delivery_contract_checker_accepts_matterport_ready_and_3dvista_blo
     assert receipt["status"] == "pass"
     assert receipt["matterport_ready_count"] == 1
     assert "matterport" in receipt["ready_provider_modes"]
-    assert set(receipt["missing_provider_modes"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
+    assert receipt["required_provider_modes"] == ["matterport", "3dvista", "krpano", "magicfit"]
+    assert receipt["optional_provider_modes"] == ["pano2vr"]
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "krpano", "magicfit"}
 
 
 def test_tour_delivery_contract_checker_rejects_matterport_url_leak(tmp_path: Path) -> None:
@@ -860,7 +876,7 @@ def test_krpano_importer_can_materialize_existing_cube_face_scene(tmp_path: Path
     assert verifier["ready_provider_modes"] == ["krpano"]
 
 
-def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_exports(tmp_path: Path) -> None:
+def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_exports(tmp_path: Path, monkeypatch) -> None:
     public_root = tmp_path / "public_tours"
     _write_base_tour(tmp_path, "batch-3dvista")
     _write_base_tour(tmp_path, "batch-pano2vr")
@@ -924,12 +940,17 @@ def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_ex
     pano_manifest = json.loads((public_root / "batch-pano2vr" / "tour.json").read_text(encoding="utf-8"))
     assert vista_manifest["control_mode"] == "3dvista"
     assert pano_manifest["control_mode"] == "pano2vr"
-    verifier = build_property_tour_control_receipt(tour_root=public_root)
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _successful_provider_probe)
+    verifier = build_property_tour_control_receipt(
+        tour_root=public_root,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+    )
     assert verifier["provider_counts"]["3dvista"] == 1
     assert verifier["provider_counts"]["pano2vr"] == 1
 
 
-def test_batch_tour_export_importer_accepts_verified_3dvista_and_pano2vr_zips(tmp_path: Path) -> None:
+def test_batch_tour_export_importer_accepts_verified_3dvista_and_pano2vr_zips(tmp_path: Path, monkeypatch) -> None:
     public_root = tmp_path / "public_tours"
     _write_base_tour(tmp_path, "zip-3dvista")
     _write_base_tour(tmp_path, "zip-pano2vr")
@@ -993,7 +1014,12 @@ def test_batch_tour_export_importer_accepts_verified_3dvista_and_pano2vr_zips(tm
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["status"] == "pass"
     assert receipt["imported_count"] == 2
-    verifier = build_property_tour_control_receipt(tour_root=public_root)
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _successful_provider_probe)
+    verifier = build_property_tour_control_receipt(
+        tour_root=public_root,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+    )
     assert verifier["provider_counts"]["3dvista"] == 1
     assert verifier["provider_counts"]["pano2vr"] == 1
 
@@ -1303,8 +1329,9 @@ def test_krpano_control_requires_real_walkable_360_asset(tmp_path: Path, monkeyp
 
     rejected = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
     assert rejected["provider_counts"]["krpano"] == 0
-    missing = rejected["tours"][0]["missing_evidence"]
-    assert any(row["provider"] == "krpano" and row["reason"] == "walkable_scene_asset_missing_or_not_360" for row in missing)
+    assert rejected["tours"][0]["status"] == "blocked_missing_verified_controls"
+    assert rejected["tours"][0]["blocked_reason"] == "gallery_only_not_3d"
+    assert rejected["tours"][0]["missing_evidence"] == []
 
     manifest.update(
         {

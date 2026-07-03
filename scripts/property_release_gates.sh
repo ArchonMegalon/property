@@ -43,6 +43,7 @@ Runs the focused PropertyQuarry release bundle:
   - BTS score-PDF methodology contract for source provenance and selected-district no-reward policy
   - public-safe tour delivery contract shape for polished 3D tours, panorama imports, and walkthroughs
   - hard browser-rendered 3D and walkthrough quality gates that fail on blank viewers, loading-only states, CSP/frame/network errors, missing room coverage, or frame jumps
+  - live generated-reconstruction GLB export smoke that fails when Blender/NumPy tooling is missing or the public viewer cannot render
   - required live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack, including a current /app/research/{id} detail route
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
@@ -222,6 +223,21 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_authenticated_smoke.py
   --api-token "${EA_API_TOKEN}" \
   --write _completion/smoke/property-live-authenticated-release-gate.json \
   > /dev/null
+runtime_reconstruction_container="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${property_render_container}}"
+runtime_reconstruction_slug="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG:-runtime-reconstruction-release-gate-$(date +%Y%m%d%H%M%S)}"
+if ! command -v docker >/dev/null 2>&1 || ! docker inspect "${runtime_reconstruction_container}" >/dev/null 2>&1; then
+  echo "error: generated-reconstruction GLB release gate requires live container ${runtime_reconstruction_container}" >&2
+  exit 2
+fi
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_runtime_reconstruction_smoke.py \
+  --container "${runtime_reconstruction_container}" \
+  --slug "${runtime_reconstruction_slug}" \
+  --public-base-url "${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_BASE_URL:-${live_mobile_base_url}}" \
+  --require-browser \
+  --require-glb \
+  --write _completion/tours/property-runtime-reconstruction-release-gate.json \
+  --fail-on-error \
+  > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_3d_browser_gate.py \
   --base-url "${PROPERTYQUARRY_3D_BROWSER_GATE_BASE_URL:-${live_mobile_base_url}}" \
   --host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}" \
@@ -269,6 +285,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --bts-methodology-contract-receipt _completion/bts_methodology/property-bts-methodology-contract-release-gate.json \
   --tour-delivery-contract-receipt _completion/tour_delivery/property-tour-delivery-contract-release-gate.json \
   --browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-release-gate.json \
+  --runtime-reconstruction-receipt _completion/tours/property-runtime-reconstruction-release-gate.json \
   --walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-release-gate.json \
   --scene-video-readiness-receipt _completion/scene_video_readiness/release-gate.json \
   --scene-video-readiness-verifier-receipt _completion/scene_video_readiness/release-gate-verifier.json \

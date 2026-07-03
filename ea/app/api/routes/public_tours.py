@@ -53,6 +53,7 @@ from app.api.routes.public_tour_payloads import (
     redacted_public_tour_scenes as _payload_redacted_public_tour_scenes,
     require_public_tour_viewable as _payload_require_public_tour_viewable,
 )
+from app.product.property_tour_hosting import _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname, request_path
 from app.services.property_market_catalog import currency_code_for_country, supported_currency_codes
@@ -1793,7 +1794,7 @@ def _tour_spatial_review_experience(
         return {
             "mode": "panorama",
             "provider": "3dvista",
-            "provenance": "Hosted 3D tour",
+            "provenance": "Interactive 3D tour",
             "summary": "The 3D tour is ready inside PropertyQuarry.",
             "primary_label": "Open 3D tour",
             "primary_href": three_d_vista_url,
@@ -1802,16 +1803,16 @@ def _tour_spatial_review_experience(
         return {
             "mode": "walkthrough",
             "provider": video_provider,
-            "provenance": "Walkthrough Video",
-            "summary": "This walkthrough is ready for remote review, but it is not a live 3D tour.",
+            "provenance": "Walkthrough",
+            "summary": "The walkthrough is ready to open.",
             "primary_label": "Open walkthrough",
             "primary_href": video_url,
         }
     return {
         "mode": "pending",
         "provider": "propertyquarry",
-        "provenance": "Tour Pending",
-        "summary": "No 3D tour or walkthrough is ready yet.",
+        "provenance": "Tour pending",
+        "summary": "No tour is ready yet.",
         "primary_label": "Request 3D tour",
         "primary_href": "#",
     }
@@ -1841,6 +1842,21 @@ def _public_tour_primary_control_path(payload: dict[str, object]) -> str:
         )
         if local_3dvista_entry and _3dvista_entry_ready(slug, payload, local_3dvista_entry):
             return f"/tours/{quoted_slug}/control/3dvista"
+
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if isinstance(generated_reconstruction, dict):
+        provider = str(generated_reconstruction.get("provider") or "").strip().lower()
+        viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
+        viewer_relpath = _public_tour_safe_asset_relpath(
+            str(generated_reconstruction.get("viewer_relpath") or "").strip()
+        )
+        if (
+            provider == "propertyquarry_generated_reconstruction"
+            and not bool(generated_reconstruction.get("verified_provider_capture"))
+            and viewer_version == _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION
+            and viewer_relpath
+        ):
+            return f"/tours/files/{quoted_slug}/{urllib.parse.quote(viewer_relpath, safe='/')}"
 
     return ""
 
@@ -1918,10 +1934,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
   </head>
   <body>
     <main data-spatial-review-mode="{html.escape(spatial_review["mode"])}" data-spatial-review-provider="{html.escape(spatial_review["provider"])}">
-      <div class="eyebrow">PropertyQuarry Spatial Review · {html.escape(spatial_review["provenance"])}</div>
+      <div class="eyebrow">PropertyQuarry Tour Access · {html.escape(spatial_review["provenance"])}</div>
       <h1>{safe_title}</h1>
       <p>{html.escape(spatial_review["summary"])}</p>
-      <p>This bundle exposes only validated media controls. The generated 3D cube fallback has been removed.</p>
+      <p>Only playable tour controls are shown here.</p>
       <div class="actions">
         {f'<a href="{matterport_url}">Open 3D tour</a>' if matterport_url else ''}
         {f'<a href="{three_d_vista_url}">Open 3D tour</a>' if three_d_vista_url else ''}
@@ -2006,10 +2022,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
   </head>
   <body>
     <main data-spatial-review-mode="{html.escape(spatial_review["mode"])}" data-spatial-review-provider="{html.escape(spatial_review["provider"])}">
-      <div class="eyebrow">PropertyQuarry Spatial Review · {html.escape(spatial_review["provenance"])}</div>
+      <div class="eyebrow">PropertyQuarry Tour Access · {html.escape(spatial_review["provenance"])}</div>
       <h1>{safe_title}</h1>
       <p>{html.escape(spatial_review["summary"])}</p>
-      <p>This bundle exposes only validated media controls. The generated 3D cube fallback has been removed.</p>
+      <p>Only playable tour controls are shown here.</p>
       <div class="actions">
         {f'<a href="{matterport_url}">Open 3D tour</a>' if matterport_url else ''}
         {f'<a href="{three_d_vista_url}">Open 3D tour</a>' if three_d_vista_url else ''}
@@ -3359,7 +3375,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 src="{html.escape(source_virtual_tour_url)}"
                 title="{title_html}"
                 allowfullscreen
-                loading="eager"
+                loading="lazy"
                 referrerpolicy="no-referrer"
               ></iframe>
             </div>
@@ -4051,7 +4067,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 <iframe id="floorplan-frame" title="Floorplan document" hidden referrerpolicy="no-referrer"></iframe>
               </div>
             </section>
-            {"<section id=\"flythrough-pane\" class=\"pane\"><div class=\"video-stage\"><video id=\"flythrough-video\" controls playsinline preload=\"metadata\"><source src=\"" + html.escape(video_url) + "\" type=\"video/mp4\"></video></div></section>" if video_url else ""}
+            {"<section id=\"flythrough-pane\" class=\"pane\"><div class=\"video-stage\"><video id=\"flythrough-video\" controls playsinline webkit-playsinline=\"true\" preload=\"auto\"><source src=\"" + html.escape(video_url) + "\" type=\"video/mp4\"></video></div></section>" if video_url else ""}
           </div>
           <aside class="card sidebar">
             <h2 class="section-title">Scene navigation</h2>
@@ -4116,6 +4132,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       let activeFloorplan = 0;
       const viewerContainer = document.querySelector('#cube');
       let viewer = null;
+      let viewerInitAttempted = false;
 
       function showPanoramaFallback(message) {{
         if (!viewerContainer) return;
@@ -4137,7 +4154,11 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         }}
       }}
 
-      if (panoramaScenes.length) {{
+      function ensurePanoramaViewer() {{
+        if (!panoramaScenes.length || !viewerContainer) return viewer;
+        if (viewer) return viewer;
+        if (viewerInitAttempted) return null;
+        viewerInitAttempted = true;
         try {{
           viewer = new Viewer({{
             container: viewerContainer,
@@ -4155,16 +4176,21 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
               bottom: panoramaScenes[0].cube_faces.d,
             }},
           }});
+          return viewer;
         }} catch (error) {{
           console.error('PropertyQuarry panorama init failed', error);
           showPanoramaFallback('The white-label panorama viewer could not initialize here. The overview and floorplan stay available so the property page remains useful on mobile.');
+          return null;
         }}
       }}
 
       function switchPane(name) {{
         panes.forEach((pane) => pane.classList.toggle('active', pane.id === name));
         modeButtons.forEach((button) => button.classList.toggle('active', button.dataset.pane === name));
-        if (name === 'flythrough-pane') {{
+        if (name === 'panorama-pane') {{
+          ensurePanoramaViewer();
+          document.getElementById('tour-status').textContent = `Panorama · ${{panoramaScenes[activePanorama]?.name || `Scene ${{activePanorama + 1}}`}}`;
+        }} else if (name === 'flythrough-pane') {{
           document.getElementById('tour-status').textContent = 'Flythrough · interior route';
         }} else if (name === 'floorplan-pane' && floorplanScenes.length) {{
           document.getElementById('tour-status').textContent = `Floorplan · ${{floorplanScenes[activeFloorplan]?.name || `Plan ${{activeFloorplan + 1}}`}}`;
@@ -4183,11 +4209,13 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       }}
 
       function setPanoramaScene(index) {{
-        if (!panoramaScenes.length || !viewer) return;
         activePanorama = ((index % panoramaScenes.length) + panoramaScenes.length) % panoramaScenes.length;
+        if (!panoramaScenes.length) return;
+        const activeViewer = ensurePanoramaViewer();
+        if (!activeViewer) return;
         const scene = panoramaScenes[activePanorama];
         try {{
-          viewer.setPanorama({{
+          activeViewer.setPanorama({{
             left: scene.cube_faces.l,
             front: scene.cube_faces.f,
             right: scene.cube_faces.r,
@@ -4380,11 +4408,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       const initialPane = initialParams.get('pane');
       const initialAutoplay = initialParams.get('autoplay');
       const initialSceneIndex = panoramaScenes.findIndex((scene) => String(scene.scene_id || '').trim() === String(initialScene || '').trim());
-      if (panoramaScenes.length && viewer) {{
-        setPanoramaScene(initialSceneIndex >= 0 ? initialSceneIndex : 0);
-      }} else if (panoramaScenes.length) {{
-        showPanoramaFallback('The white-label panorama viewer is currently unavailable here. Use the overview and floorplan lanes while the 3D scene is unavailable.');
-      }} else {{
+      const initialPanoramaIndex = initialSceneIndex >= 0 ? initialSceneIndex : 0;
+      activePanorama = initialPanoramaIndex;
+      if (!panoramaScenes.length) {{
         document.getElementById('tour-status').textContent = 'No panorama scenes stored';
       }}
       if (floorplanScenes.length) {{
@@ -4400,6 +4426,13 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         switchPane('floorplan-pane');
       }} else if (initialPane === 'overview-pane') {{
         switchPane('overview-pane');
+      }} else if (panoramaScenes.length) {{
+        ensurePanoramaViewer();
+        if (viewer) {{
+          setPanoramaScene(initialPanoramaIndex);
+        }} else {{
+          showPanoramaFallback('The white-label panorama viewer is currently unavailable here. Use the overview and floorplan lanes while the 3D scene is unavailable.');
+        }}
       }}
     </script>
   </body>
@@ -4439,7 +4472,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             <div>
               <div class="eyebrow">{brand_html} <span>•</span> 3D tour</div>
               <h2>Open the prepared tour view</h2>
-              <p class="sub">Choose the interactive viewer or walkthrough that is ready for this property.</p>
+              <p class="sub">Open the tour or walkthrough that is ready for this property.</p>
             </div>
             <div class="actions">
               {provider_actions_html}
@@ -5128,6 +5161,25 @@ def public_tour_3dvista_file(slug: str, asset_path: str):
     )
 
 
+@router.get("/tours/{slug}/walkthrough")
+@router.head("/tours/{slug}/walkthrough")
+def public_tour_walkthrough(slug: str):
+    payload = _load_tour(slug)
+    _require_public_tour_viewable(payload)
+    if _tour_payload_is_disabled_fallback(payload):
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    video_relpath = _public_tour_safe_asset_relpath(str(payload.get("video_relpath") or "").strip())
+    if not video_relpath:
+        raise HTTPException(status_code=404, detail="tour_walkthrough_unavailable")
+    file_path = _asset_file(slug, video_relpath)
+    media_type = mimetypes.guess_type(str(file_path))[0] or "video/mp4"
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        headers=_public_tour_security_headers(cache_control="public, max-age=86400, immutable"),
+    )
+
+
 def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "", fullscreen: bool = False) -> str:
     if fullscreen:
         payload = {**payload, "_tour_control_fullscreen": True}
@@ -5139,6 +5191,8 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "", ful
     if forced_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         return _tour_control_3dvista_html(payload)
     if forced_mode in {"pano2vr", "pano_2_vr"}:
+        if not _pano2vr_public_enabled():
+            raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
         return _tour_control_pano2vr_html(payload)
     if forced_mode == "krpano":
         license_config = _krpano_license_runtime_config()
@@ -5241,7 +5295,7 @@ def _tour_control_media_context(payload: dict[str, object]) -> tuple[list[dict[s
     raw_video_url = str(payload.get("video_url") or "").strip()
     video_url = ""
     if slug and video_relpath:
-        video_url = f"/tours/files/{slug}/{video_relpath}"
+        video_url = f"/tours/{slug}/walkthrough"
     elif raw_video_url and _public_tour_external_media_url_allowed(raw_video_url):
         video_url = raw_video_url
     video_mime_type = mimetypes.guess_type(urllib.parse.urlparse(video_url).path)[0] or "video/mp4"
@@ -5255,6 +5309,15 @@ def _tour_control_video_provider(payload: dict[str, object]) -> str:
         or payload.get("video_render_provider")
         or ""
     ).strip().lower()
+
+
+def _public_tour_layer_disclosure(value: object, *, fallback: str = "Styled view.") -> str:
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    if re.search(r"\b(matterport|3d\s*vista|3dvista|pano2vr|krpano|magicfit|1min)\b", text, flags=re.IGNORECASE):
+        return fallback
+    return text
 
 
 def _tour_control_provider_layers(
@@ -5291,7 +5354,7 @@ def _tour_control_provider_layers(
                 src = _safe_matterport_external_url(row.get(key))
                 if src:
                     break
-            disclosure = disclosure or "Styled view."
+            disclosure = _public_tour_layer_disclosure(disclosure)
         elif provider in {"3dvista", "3d_vista", "three_d_vista"}:
             provider_browser_ready = _3dvista_browser_render_proof_ready(row) or _3dvista_browser_render_proof_ready(payload)
             if not provider_browser_ready:
@@ -5329,7 +5392,7 @@ def _tour_control_provider_layers(
                 )
                 if entry_relpath and _3dvista_entry_ready(slug, payload, entry_relpath):
                     src = f"/tours/3dvista/{safe_slug}/{urllib.parse.quote(entry_relpath, safe='/')}"
-            disclosure = disclosure or "Styled view."
+            disclosure = _public_tour_layer_disclosure(disclosure)
         if not src or src in seen:
             continue
         seen.add(src)
@@ -5373,17 +5436,11 @@ def _tour_control_external_iframe_html(
         data_json = html.escape(json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/"), quote=False)
         first_scene = scene_data[0] if scene_data else {"name": title, "image_url": "", "role": "photo", "mime_type": ""}
         provider_badge = "3D Tour"
-        video_provider = _tour_control_video_provider(payload)
-        video_is_magicfit = video_provider == "magicfit"
-        video_label = "Walkthrough" if video_is_magicfit else "Video"
-        video_provider_attr = html.escape(video_provider or "attached_media")
-        video_walkthrough_attr = "true" if video_is_magicfit else "false"
-        video_html = (
-            f"""<div class="video-card" data-video-provider="{video_provider_attr}" data-walkthrough-ready="{video_walkthrough_attr}">
-              <div class="card-label">{html.escape(video_label)}</div>
-              <video id="tour-video" controls playsinline preload="metadata" poster="{html.escape(first_scene.get("image_url", ""))}">
-                <source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}">
-              </video>
+        initial_provider_src = html.escape(str(provider_layers[0].get("src") or iframe_src or "about:blank").strip())
+        _ = video_mime_type
+        walkthrough_html = (
+            f"""<div class="media-actions">
+              <a href="{html.escape(video_url)}" target="_blank" rel="noopener noreferrer">Open walkthrough</a>
             </div>"""
             if video_url
             else ""
@@ -5430,17 +5487,20 @@ def _tour_control_external_iframe_html(
       .provider-launch {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }}
       .provider-launch strong {{ display: block; margin-bottom: 3px; }}
       .provider-actions {{ display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }}
-      .provider-actions a {{ min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 13px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
+      .provider-actions a, .provider-actions button {{ min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 13px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
+      .provider-actions button {{ appearance: none; }}
       .provider-layer-switch {{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }}
       .provider-layer-switch button {{ min-height: 42px; border: 1px solid var(--line); border-radius: 999px; padding: 0 13px; background: rgba(255,250,240,.08); color: var(--text); font: inherit; font-weight: 800; cursor: pointer; }}
       .provider-layer-switch button[aria-pressed="true"] {{ background: var(--text); color: #111; }}
       .provider-layer-note {{ margin-top: 8px; color: var(--muted); font-size: .86rem; line-height: 1.35; }}
+      .provider-frame-wrap {{ position: relative; min-height: 520px; background: #111; }}
       .provider-frame {{ display: block; width: 100%; height: 100%; min-height: 520px; border: 0; background: #111; }}
       .evidence {{ padding: 14px; display: grid; gap: 12px; }}
       .evidence h2 {{ margin: 0; font-size: 1rem; letter-spacing: -.02em; }}
       .hint, .empty {{ margin: 0; color: var(--muted); line-height: 1.45; font-size: .92rem; }}
       .card-label {{ margin-bottom: 8px; color: #f8df9b; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
-      .video-card video {{ display: block; width: 100%; max-height: 280px; border-radius: 18px; background: #050505; }}
+      .media-actions {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+      .media-actions a {{ min-height: 42px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 14px; border: 1px solid var(--line); background: rgba(255,250,240,.08); color: var(--text); font-weight: 800; text-decoration: none; }}
       .tour-toolbar {{ display: flex; gap: 8px; flex-wrap: wrap; }}
       .toggle {{ display: inline-flex; gap: 6px; padding: 4px; border-radius: 999px; background: rgba(255,250,240,.08); border: 1px solid var(--line); }}
       .toggle button {{ min-height: 40px; border: 0; border-radius: 999px; padding: 0 13px; background: transparent; color: var(--muted); font: inherit; font-weight: 750; cursor: pointer; }}
@@ -5497,14 +5557,16 @@ def _tour_control_external_iframe_html(
               <a href="{clean_fullscreen_href}" target="_blank" rel="noopener noreferrer">Open fullscreen</a>
             </div>
           </div>
-          <iframe src="{html.escape(iframe_src)}" class="provider-frame" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
+          <div class="provider-frame-wrap">
+            <iframe src="{initial_provider_src}" data-src="{initial_provider_src}" class="provider-frame" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
+          </div>
         </section>
         <aside class="panel evidence" aria-label="Inside the space">
           <div>
             <h2>Inside the space</h2>
-            <p class="hint">Photos, floorplan, and video.</p>
+            <p class="hint">Photos and floorplan.</p>
           </div>
-          {video_html}
+          {walkthrough_html}
           {scene_viewer_html}
         </aside>
       </main>
@@ -5525,6 +5587,14 @@ def _tour_control_external_iframe_html(
       let selectedProviderLayer = providerLayers[0] || {{}};
       let activeIndex = 0;
       let activeRoleFilter = "all";
+      function syncProviderFrame(targetSrc) {{
+        if (!providerFrame) return;
+        const nextSrc = String(targetSrc || "about:blank");
+        providerFrame.dataset.src = nextSrc;
+        if (providerFrame.getAttribute("src") !== nextSrc) {{
+          providerFrame.setAttribute("src", nextSrc);
+        }}
+      }}
       document.querySelectorAll("[data-provider-layer]").forEach((button) => {{
         button.addEventListener("click", () => {{
           const layer = providerLayers.find((candidate) => candidate.id === button.dataset.providerLayer);
@@ -5532,7 +5602,7 @@ def _tour_control_external_iframe_html(
           selectedProviderLayer = layer;
           document.querySelectorAll("[data-provider-layer]").forEach((candidate) => candidate.setAttribute("aria-pressed", String(candidate === button)));
           if (providerLayerNote) providerLayerNote.textContent = layer.disclosure || "";
-          if (providerFrame) providerFrame.setAttribute("src", layer.src || "about:blank");
+          syncProviderFrame(layer.src || "about:blank");
         }});
       }});
       function visibleSceneIndexes() {{
@@ -5627,8 +5697,8 @@ def _tour_control_external_iframe_html(
     <div class="shell">
       <div class="badge">3D Tour</div>
       {f'<div class="layer-switch" aria-label="3D tour layer">{provider_layer_buttons}</div><p class="layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>' if has_provider_layers else ""}
-      <section class="summary" aria-label="Property tour summary">
-        <p>Property Tour</p>
+      <section class="summary" aria-label="Tour summary">
+        <p>Interactive tour</p>
         <h1>{title}</h1>
       </section>
     </div>

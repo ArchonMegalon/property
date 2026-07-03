@@ -444,6 +444,69 @@ def test_map_preview_flagship_gate_accepts_calm_premium_thumbnail(tmp_path: Path
     assert receipt["preview_results"][0]["metrics"]["stddev_mean"] >= 18.0
 
 
+def test_map_preview_flagship_gate_uses_canonical_renderer_when_live_state_has_no_preview(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from scripts import propertyquarry_map_preview_flagship_gate as gate
+
+    image = Image.new("RGB", (640, 368), (226, 222, 214))
+    draw = ImageDraw.Draw(image, "RGBA")
+    draw.polygon([(0, 24), (210, 0), (640, 80), (640, 128), (260, 104), (0, 120)], fill=(178, 204, 168, 150))
+    draw.polygon([(0, 280), (190, 248), (412, 286), (640, 264), (640, 368), (0, 368)], fill=(164, 194, 208, 150))
+    for index in range(-200, 760, 58):
+        draw.line([(index, 0), (index + 250, 368)], fill=(162, 154, 143, 180), width=7)
+        draw.line([(index, 0), (index + 250, 368)], fill=(255, 253, 247, 130), width=2)
+    for y in range(34, 370, 42):
+        draw.line([(0, y), (640, y - 28)], fill=(164, 156, 145, 170), width=6)
+        draw.line([(0, y), (640, y - 28)], fill=(255, 253, 247, 105), width=2)
+    selected = [(190, 90), (455, 72), (524, 184), (450, 292), (216, 288), (128, 190)]
+    draw.polygon(selected, fill=(218, 150, 150, 70))
+    draw.line(selected + [selected[0]], fill=(255, 250, 242, 155), width=4)
+    draw.line(selected + [selected[0]], fill=(132, 30, 36, 126), width=2)
+    path = tmp_path / "canonical.png"
+    image.save(path, format="PNG", compress_level=0)
+
+    monkeypatch.setattr(gate, "_discover_preview_urls", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        gate,
+        "_canonical_renderer_preview_sources",
+        lambda: [
+            {
+                "source": "canonical_renderer",
+                "label": "vienna_radius_overlay",
+                "status": "ready",
+                "query": "1020 Vienna",
+                "url": path.as_uri(),
+            }
+        ],
+    )
+
+    receipt = gate.build_map_preview_flagship_receipt(
+        base_url="http://localhost",
+        host_header="",
+        api_token="",
+        principal_id="",
+        image_urls=[],
+        discover_routes=["/app/search"],
+        timeout_seconds=1.0,
+        settle_seconds=0.0,
+        min_preview_count=1,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["canonical_fallback"] is True
+    assert receipt["preview_sources"] == [
+        {
+            "url": path.as_uri(),
+            "source": "canonical_renderer",
+            "label": "vienna_radius_overlay",
+            "query": "1020 Vienna",
+        }
+    ]
+    assert receipt["preview_results"][0]["source"] == "canonical_renderer"
+
+
 def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_gates() -> None:
     deploy = (ROOT / "scripts" / "deploy_propertyquarry.sh").read_text(encoding="utf-8")
     release = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
@@ -457,9 +520,13 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     assert "scripts/propertyquarry_3d_browser_gate.py" in release
     assert "scripts/propertyquarry_walkthrough_quality_gate.py" in release
     assert "scripts/propertyquarry_map_preview_flagship_gate.py" in release
+    assert "scripts/property_runtime_reconstruction_smoke.py" in release
+    assert "--require-glb" in release
     assert "--map-preview-flagship-receipt _completion/smoke/property-live-map-preview-flagship-release-gate.json" in release
     assert "--browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-release-gate.json" in release
+    assert "--runtime-reconstruction-receipt _completion/tours/property-runtime-reconstruction-release-gate.json" in release
     assert "--walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-release-gate.json" in release
+    assert "_completion/tours/property-runtime-reconstruction-release-gate.json" in release
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED" in deploy
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED_not_set" in deploy
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED" in release

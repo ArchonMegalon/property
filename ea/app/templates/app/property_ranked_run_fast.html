@@ -355,6 +355,22 @@
       || safeUrl(candidate.listing_url)
       || '';
   };
+  const listingCounts = (payload, candidates = []) => {
+    const summary = payload && typeof payload.summary === 'object' && payload.summary ? payload.summary : {};
+    const reviewed = Math.max(
+      number(summary.scanned_listing_total || summary.reviewed_listing_total),
+      0,
+    );
+    const found = Math.max(
+      number(summary.found_listing_total || summary.raw_listing_total),
+      reviewed,
+      number(summary.listing_total),
+      Array.isArray(candidates) ? candidates.length : 0,
+    );
+    const explicitToReview = number(summary.to_review_listing_total);
+    const toReview = explicitToReview > 0 ? explicitToReview : Math.max(0, found - reviewed);
+    return { found, reviewed, toReview };
+  };
   const collectRanked = (payload) => {
     const summary = payload && typeof payload.summary === 'object' && payload.summary ? payload.summary : {};
     const candidates = [];
@@ -383,7 +399,7 @@
   const statusCopy = (payload, candidates) => {
     const summary = payload && typeof payload.summary === 'object' && payload.summary ? payload.summary : {};
     const status = text(payload.status || summary.status, 'loading').replace(/_/g, ' ');
-    const listings = number(summary.listing_total || summary.raw_listing_total);
+    const { found, toReview } = listingCounts(payload, candidates);
     const sourceActualTotal = number(
       summary.source_variant_total
       || summary.sources_total
@@ -411,7 +427,10 @@
         : `${providerTotal}`;
       parts.push(`${providerLabel} provider checks`);
     }
-    if (listings) parts.push(`${listings} checked`);
+    if (found > 0) {
+      parts.push(`${found} homes found`);
+      parts.push(`${toReview} to review`);
+    }
     return { status, detail: parts.join(' · ') };
   };
 	  const isTerminalPayload = (payload) => {
@@ -504,7 +523,7 @@
 	    const terminal = isTerminalPayload(payload);
 	    if (!terminal) appendLoadingMore(payload, candidates);
     if (statusTitle) statusTitle.textContent = `${candidates.length} matching ${candidates.length === 1 ? 'home' : 'homes'}`;
-	    if (statusDetail) statusDetail.textContent = terminal ? (copy.detail || copy.status) : 'More homes are still being checked.';
+	    if (statusDetail) statusDetail.textContent = copy.detail || (terminal ? copy.status : 'More homes can still appear.');
 	    if (subtitle) subtitle.textContent = terminal
 	      ? 'Results are ready. Open a property or switch to the full view when you need the complete workspace.'
       : 'The first homes are ready. More can still appear below.';
@@ -595,6 +614,7 @@
 	    if (initialCandidates.length) {
 	      settled = true;
 	      renderCandidates(initialPayload, initialCandidates);
+	      if (isTerminalPayload(initialPayload)) return;
 	    }
 	  } catch (_error) {
 	    // Keep the skeleton and fall through to the normal status request.

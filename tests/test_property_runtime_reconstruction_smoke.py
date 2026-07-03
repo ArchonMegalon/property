@@ -50,6 +50,88 @@ def test_runtime_reconstruction_smoke_passes_when_container_generates_glb(monkey
     assert len(calls) == 2
 
 
+def test_runtime_reconstruction_smoke_passes_without_glb_when_glb_is_not_required(monkeypatch) -> None:
+    monkeypatch.setattr(smoke.shutil, "which", lambda command: "/usr/bin/docker" if command == "docker" else None)
+
+    def _fake_run(command: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+        script = command[-1]
+        if "generate_property_reconstruction.py" in script:
+            return subprocess.CompletedProcess(command, 0, stdout='{"status":"generated"}\n', stderr="")
+        payload = {
+            "manifest_generated_reconstruction": {
+                "provider": "propertyquarry_generated_reconstruction",
+                "verified_provider_capture": False,
+                "satisfies_verified_tour_gate": False,
+                "glb_export_status": "skipped",
+            },
+            "receipt_provider": "propertyquarry_generated_reconstruction",
+            "verified_provider_capture": False,
+            "satisfies_verified_tour_gate": False,
+            "glb_export_status": "skipped",
+            "paths": {
+                "viewer": {"exists": True, "size_bytes": 10},
+                "obj": {"exists": True, "size_bytes": 10},
+                "mtl": {"exists": True, "size_bytes": 10},
+                "glb": {"exists": False, "size_bytes": 0},
+                "receipt": {"exists": True, "size_bytes": 10},
+            },
+        }
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload) + "\n", stderr="")
+
+    monkeypatch.setattr(smoke, "_run", _fake_run)
+
+    receipt = smoke.build_runtime_reconstruction_receipt(container="propertyquarry-api", slug="runtime-smoke")
+
+    assert receipt["status"] == "pass"
+    assert receipt["required_paths_ok"] is True
+    assert receipt["glb_non_empty"] is False
+    assert receipt["glb_manifest_ok"] is False
+    assert receipt["glb_required"] is False
+    assert receipt["glb_capability_ok"] is True
+
+
+def test_runtime_reconstruction_smoke_fails_without_glb_when_glb_is_required(monkeypatch) -> None:
+    monkeypatch.setattr(smoke.shutil, "which", lambda command: "/usr/bin/docker" if command == "docker" else None)
+
+    def _fake_run(command: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+        script = command[-1]
+        if "generate_property_reconstruction.py" in script:
+            return subprocess.CompletedProcess(command, 0, stdout='{"status":"generated"}\n', stderr="")
+        payload = {
+            "manifest_generated_reconstruction": {
+                "provider": "propertyquarry_generated_reconstruction",
+                "verified_provider_capture": False,
+                "satisfies_verified_tour_gate": False,
+                "glb_export_status": "skipped",
+            },
+            "receipt_provider": "propertyquarry_generated_reconstruction",
+            "verified_provider_capture": False,
+            "satisfies_verified_tour_gate": False,
+            "glb_export_status": "skipped",
+            "paths": {
+                "viewer": {"exists": True, "size_bytes": 10},
+                "obj": {"exists": True, "size_bytes": 10},
+                "mtl": {"exists": True, "size_bytes": 10},
+                "glb": {"exists": False, "size_bytes": 0},
+                "receipt": {"exists": True, "size_bytes": 10},
+            },
+        }
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload) + "\n", stderr="")
+
+    monkeypatch.setattr(smoke, "_run", _fake_run)
+
+    receipt = smoke.build_runtime_reconstruction_receipt(
+        container="propertyquarry-api",
+        slug="runtime-smoke",
+        require_glb=True,
+    )
+
+    assert receipt["status"] == "failed"
+    assert receipt["required_paths_ok"] is False
+    assert receipt["glb_required"] is True
+    assert receipt["glb_capability_ok"] is False
+
+
 def test_runtime_reconstruction_smoke_fails_when_generated_asset_claims_verified(monkeypatch) -> None:
     monkeypatch.setattr(smoke.shutil, "which", lambda command: "/usr/bin/docker" if command == "docker" else None)
 
@@ -84,3 +166,97 @@ def test_runtime_reconstruction_smoke_fails_when_generated_asset_claims_verified
 
     assert receipt["status"] == "failed"
     assert receipt["honest_disclosure_ok"] is False
+
+
+def test_runtime_reconstruction_smoke_fails_when_required_browser_base_url_missing(monkeypatch) -> None:
+    monkeypatch.setattr(smoke.shutil, "which", lambda command: "/usr/bin/docker" if command == "docker" else None)
+
+    def _fake_run(command: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+        script = command[-1]
+        if "generate_property_reconstruction.py" in script:
+            return subprocess.CompletedProcess(command, 0, stdout='{"status":"generated"}\n', stderr="")
+        payload = {
+            "manifest_generated_reconstruction": {
+                "provider": "propertyquarry_generated_reconstruction",
+                "verified_provider_capture": False,
+                "satisfies_verified_tour_gate": False,
+                "glb_export_status": "generated",
+                "glb_model_relpath": "generated-reconstruction/model.glb",
+            },
+            "receipt_provider": "propertyquarry_generated_reconstruction",
+            "verified_provider_capture": False,
+            "satisfies_verified_tour_gate": False,
+            "glb_export_status": "generated",
+            "paths": {
+                "viewer": {"exists": True, "size_bytes": 10},
+                "obj": {"exists": True, "size_bytes": 10},
+                "mtl": {"exists": True, "size_bytes": 10},
+                "glb": {"exists": True, "size_bytes": 128},
+                "receipt": {"exists": True, "size_bytes": 10},
+            },
+        }
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload) + "\n", stderr="")
+
+    monkeypatch.setattr(smoke, "_run", _fake_run)
+
+    receipt = smoke.build_runtime_reconstruction_receipt(
+        container="propertyquarry-api",
+        slug="runtime-smoke",
+        require_browser=True,
+    )
+
+    assert receipt["status"] == "failed"
+    assert receipt["browser_render_ok"] is False
+    assert receipt["browser_render"]["reason"] == "public_base_url_missing"
+
+
+def test_runtime_reconstruction_smoke_requires_browser_render_when_public_base_url_is_set(monkeypatch) -> None:
+    monkeypatch.setattr(smoke.shutil, "which", lambda command: "/usr/bin/docker" if command == "docker" else None)
+
+    def _fake_run(command: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+        script = command[-1]
+        if "generate_property_reconstruction.py" in script:
+            return subprocess.CompletedProcess(command, 0, stdout='{"status":"generated"}\n', stderr="")
+        payload = {
+            "manifest_generated_reconstruction": {
+                "provider": "propertyquarry_generated_reconstruction",
+                "verified_provider_capture": False,
+                "satisfies_verified_tour_gate": False,
+                "glb_export_status": "generated",
+                "glb_model_relpath": "generated-reconstruction/model.glb",
+            },
+            "receipt_provider": "propertyquarry_generated_reconstruction",
+            "verified_provider_capture": False,
+            "satisfies_verified_tour_gate": False,
+            "glb_export_status": "generated",
+            "paths": {
+                "viewer": {"exists": True, "size_bytes": 10},
+                "obj": {"exists": True, "size_bytes": 10},
+                "mtl": {"exists": True, "size_bytes": 10},
+                "glb": {"exists": True, "size_bytes": 128},
+                "receipt": {"exists": True, "size_bytes": 10},
+            },
+        }
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload) + "\n", stderr="")
+
+    observed: dict[str, str] = {}
+
+    def _fake_browser_check(*, viewer_url: str) -> dict[str, object]:
+        observed["viewer_url"] = viewer_url
+        return {"status": "failed", "failures": ["mobile:wall_mesh_count_low"]}
+
+    monkeypatch.setattr(smoke, "_run", _fake_run)
+    monkeypatch.setattr(smoke, "_browser_check_generated_reconstruction_viewer", _fake_browser_check)
+
+    receipt = smoke.build_runtime_reconstruction_receipt(
+        container="propertyquarry-api",
+        slug="runtime-smoke",
+        public_base_url="https://propertyquarry.com",
+    )
+
+    assert observed["viewer_url"] == (
+        "https://propertyquarry.com/tours/files/runtime-smoke/generated-reconstruction/viewer.html"
+    )
+    assert receipt["status"] == "failed"
+    assert receipt["browser_render_ok"] is False
+    assert receipt["browser_render"]["failures"] == ["mobile:wall_mesh_count_low"]

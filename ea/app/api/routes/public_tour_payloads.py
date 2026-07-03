@@ -503,6 +503,17 @@ def public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
             privacy_class="generated_reconstruction_public",
             role="video",
         )
+        _add(
+            generated_reconstruction.get("floorplan_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="floorplan",
+        )
+        for value in list(generated_reconstruction.get("photo_relpaths") or []):
+            _add(
+                value,
+                privacy_class="generated_reconstruction_public",
+                role="photo",
+            )
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -601,6 +612,17 @@ def public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str
             privacy_class="generated_reconstruction_public",
             role="video",
         )
+        _record(
+            generated_reconstruction.get("floorplan_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="floorplan",
+        )
+        for value in list(generated_reconstruction.get("photo_relpaths") or []):
+            _record(
+                value,
+                privacy_class="generated_reconstruction_public",
+                role="photo",
+            )
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue

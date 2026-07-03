@@ -75,11 +75,76 @@ def test_property_walkthrough_scene_video_context_collects_verified_controls_and
     context = product_service._property_walkthrough_scene_video_context("/tours/sample-flat")
 
     assert context["tour_url"] == "/tours/sample-flat"
+    assert context["reference_provider"] == "3dvista"
+    assert context["first_party_open_url"].endswith("/tours/sample-flat/control/3dvista")
     assert context["verified_provider"] == "3dvista"
     assert context["verified_open_url"].endswith("/tours/sample-flat/control/3dvista")
+    assert context["control_url"].endswith("/tours/sample-flat/control/3dvista")
     assert context["control_urls"]["3dvista"].endswith("/tours/sample-flat/control/3dvista")
     assert context["provider_exports"] == ["3dvista"]
     assert context["route_labels"] == ["Entry", "Kitchen", "Balcony"]
+
+
+def test_property_walkthrough_scene_video_context_uses_generated_reconstruction_as_primary_reference(tmp_path, monkeypatch) -> None:
+    public_dir = tmp_path / "public_tours"
+    bundle_dir = public_dir / "sample-generated-flat"
+    generated_dir = bundle_dir / "generated-reconstruction"
+    generated_dir.mkdir(parents=True)
+    (generated_dir / "viewer.html").write_text("<!doctype html><title>viewer</title>", encoding="utf-8")
+    (generated_dir / "model.glb").write_bytes(b"glTF")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "title": "Generated Flat",
+                "display_title": "Generated Flat",
+                "scene_strategy": "generated_reconstruction",
+                "creation_mode": "generated_reconstruction_tour",
+                "covered_route_labels": ["Entry", "Living room", "Balcony"],
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "glb_model_relpath": "generated-reconstruction/model.glb",
+                    "verified_provider_capture": False,
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_dir))
+
+    context = product_service._property_walkthrough_scene_video_context("/tours/sample-generated-flat")
+
+    assert context["tour_url"] == "/tours/sample-generated-flat"
+    assert context["reference_provider"] == "generated_reconstruction"
+    assert context["verified_provider"] == ""
+    assert context["verified_open_url"] == ""
+    assert context["first_party_open_url"].endswith(
+        "/tours/files/sample-generated-flat/generated-reconstruction/viewer.html"
+    )
+    assert context["control_url"].endswith(
+        "/tours/files/sample-generated-flat/generated-reconstruction/viewer.html"
+    )
+    assert context["generated_reconstruction"]["viewer_url"].endswith(
+        "/tours/files/sample-generated-flat/generated-reconstruction/viewer.html"
+    )
+    assert context["generated_reconstruction"]["glb_model_url"].endswith(
+        "/tours/files/sample-generated-flat/generated-reconstruction/model.glb"
+    )
+    assert context["route_labels"] == ["Entry", "Living room", "Balcony"]
+
+    reference_text = product_service._property_walkthrough_context_reference_text(context)
+    assert "prepared PropertyQuarry 3D tour" in reference_text
+    assert "primary spatial reference" in reference_text
+
+    enriched = product_service._property_walkthrough_enrich_facts_with_context({}, tour_context_json=context)
+    assert enriched["tour_control_provider"] == "generated_reconstruction"
+    assert enriched["tour_control_url"].endswith(
+        "/tours/files/sample-generated-flat/generated-reconstruction/viewer.html"
+    )
+    assert enriched["room_visit_plan"] == ["Entry", "Living room", "Balcony"]
 
 
 def test_render_property_flythrough_does_not_silent_fallback_from_magicfit(monkeypatch) -> None:

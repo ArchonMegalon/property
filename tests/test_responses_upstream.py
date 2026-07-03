@@ -76,6 +76,34 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
     ]
 
 
+def test_provider_order_defaults_keep_onemin_before_gemini(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_RESPONSES_PROVIDER_ORDER", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_FAST_PROVIDER_ORDER", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_CHEAP_PROVIDER_ORDER", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_HARD_PROVIDER_ORDER", raising=False)
+
+    assert upstream._provider_order() == ("onemin", "gemini_vortex", "magixai")
+    assert upstream._fast_provider_order() == ("onemin", "gemini_vortex", "magixai")
+    assert upstream._groundwork_provider_order() == ("onemin", "gemini_vortex", "magixai")
+    assert upstream._hard_provider_order() == ("onemin", "gemini_vortex", "magixai")
+    assert upstream._cheap_provider_order() == ("onemin", "gemini_vortex", "magixai")
+
+
+def test_lane_provider_orders_are_configurable_without_making_gemini_primary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "magixai,onemin")
+    monkeypatch.setenv("EA_RESPONSES_FAST_PROVIDER_ORDER", "onemin,gemini_vortex")
+    monkeypatch.setenv("EA_RESPONSES_CHEAP_PROVIDER_ORDER", "onemin,magixai")
+    monkeypatch.setenv("EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER", "onemin,gemini_vortex,magixai")
+    monkeypatch.setenv("EA_RESPONSES_HARD_PROVIDER_ORDER", "onemin,gemini_vortex")
+
+    assert upstream._provider_order() == ("magixai", "onemin")
+    assert upstream._fast_provider_order() == ("onemin", "gemini_vortex")
+    assert upstream._cheap_provider_order() == ("onemin", "magixai")
+    assert upstream._groundwork_provider_order() == ("onemin", "gemini_vortex", "magixai")
+    assert upstream._hard_provider_order() == ("onemin", "gemini_vortex")
+
+
 def test_principal_identity_summary_includes_lane_role(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_PRINCIPAL_LANE_ROLE_OVERRIDES_JSON", json.dumps({"participant-review-1": "review"}))
     summary = upstream.principal_identity_summary("participant-review-1")
@@ -490,9 +518,10 @@ def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_s
     assert ("gemini_vortex", "gemini-2.5-flash") in candidates
 
 
-def test_repair_gemini_public_model_prefers_gemini_then_cheap_fallbacks(
+def test_repair_gemini_public_model_prefers_onemin_with_gemini_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-repair")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
 
@@ -502,10 +531,11 @@ def test_repair_gemini_public_model_prefers_gemini_then_cheap_fallbacks(
     ]
 
     assert candidates[:3] == [
-        ("gemini_vortex", "gemini-repair"),
         ("onemin", "anthropic/claude-4-sonnet"),
         ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
     ]
+    assert ("gemini_vortex", "gemini-repair") in candidates
     assert ("magixai", "mx-best") in candidates
 
 
@@ -1134,9 +1164,10 @@ def test_pick_onemin_key_respects_complete_provider_health_exhaustion_over_stale
     assert pick is None
 
 
-def test_groundwork_public_model_uses_gemini_only_candidates(
+def test_groundwork_public_model_prefers_onemin_with_gemini_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-groundwork")
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model,jury-model")
 
@@ -1145,12 +1176,18 @@ def test_groundwork_public_model_uses_gemini_only_candidates(
         for config, model in upstream._provider_candidates(upstream.GROUNDWORK_PUBLIC_MODEL)
     ]
 
-    assert candidates == [("gemini_vortex", "gemini-groundwork")]
+    assert candidates[:3] == [
+        ("onemin", "anthropic/claude-4-sonnet"),
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
+    ]
+    assert ("gemini_vortex", "gemini-groundwork") in candidates
 
 
-def test_groundwork_legacy_alias_routes_to_same_gemini_only_candidates(
+def test_groundwork_legacy_alias_prefers_onemin_with_gemini_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-groundwork")
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model,jury-model")
 
@@ -1159,7 +1196,12 @@ def test_groundwork_legacy_alias_routes_to_same_gemini_only_candidates(
         for config, model in upstream._provider_candidates(upstream.GROUNDWORK_PUBLIC_MODEL_ALIAS)
     ]
 
-    assert candidates == [("gemini_vortex", "gemini-groundwork")]
+    assert candidates[:3] == [
+        ("onemin", "anthropic/claude-4-sonnet"),
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
+    ]
+    assert ("gemini_vortex", "gemini-groundwork") in candidates
 
 
 def test_review_light_public_model_prefers_onemin_with_gemini_and_chatplayground_fallback(

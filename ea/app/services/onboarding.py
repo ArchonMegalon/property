@@ -2043,8 +2043,7 @@ class OnboardingService(AssistantOnboardingService):
             normalized_max = None
         elif normalized_max is not None:
             normalized_max = max(1, min(plan_result_cap or 10, normalized_max))
-        promoted_numeric: dict[str, int] = {}
-        for numeric_key in (
+        promoted_numeric_keys = (
             "max_price_eur",
             "min_rooms",
             "min_area_m2",
@@ -2053,25 +2052,20 @@ class OnboardingService(AssistantOnboardingService):
             "max_commute_minutes_drive",
             "max_commute_minutes_bike",
             "max_commute_minutes_walk",
-            "max_distance_to_playground_m",
-            "max_distance_to_library_m",
-            "max_distance_to_university_m",
-            "max_distance_to_supermarket_m",
-            "max_distance_to_subway_m",
-            "max_distance_to_market_m",
-            "max_distance_to_hardware_store_m",
-            "max_distance_to_shopping_center_m",
-            "max_distance_to_shopping_street_m",
-            "max_distance_to_theatre_m",
-            "max_distance_to_public_pool_m",
-            "max_distance_to_medical_care_m",
-            "max_distance_to_starbucks_m",
-            "max_distance_to_fitness_center_m",
-            "max_distance_to_cinema_m",
-            "max_distance_to_bouldering_m",
-            "max_distance_to_dog_park_m",
-            "max_distance_to_good_cafe_m",
-            "max_distance_to_zoo_m",
+        )
+        promoted_numeric: dict[str, int] = {}
+        for numeric_key in tuple(
+            dict.fromkeys(
+                (
+                    *promoted_numeric_keys,
+                    *(
+                        str(key or "").strip()
+                        for key in dict(raw).keys()
+                        if str(key or "").strip().startswith("max_distance_to_")
+                        and str(key or "").strip().endswith("_m")
+                    ),
+                )
+            )
         ):
             try:
                 value = int(float(str(raw.get(numeric_key) or "").strip()))
@@ -2079,20 +2073,33 @@ class OnboardingService(AssistantOnboardingService):
                 value = 0
             if value > 0:
                 promoted_numeric[numeric_key] = value
+        promoted_string_keys = (
+            "keywords",
+            "avoid_keywords",
+            "custom_location_query",
+            "custom_keywords",
+            "investment_research_mode",
+            "commute_destination",
+            "additional_reachability_targets",
+            "university_name",
+            "school_evidence_priority",
+            "parking_pressure_preference",
+            "search_goal",
+        )
         promoted_strings = {
             key: str(raw.get(key) or "").strip()
-            for key in (
-                "keywords",
-                "avoid_keywords",
-                "custom_location_query",
-                "custom_keywords",
-                "investment_research_mode",
-                "commute_destination",
-                "additional_reachability_targets",
-                "university_name",
-                "max_distance_to_playground_importance",
-                "max_distance_to_library_importance",
-                "max_distance_to_supermarket_importance",
+            for key in tuple(
+                dict.fromkeys(
+                    (
+                        *promoted_string_keys,
+                        *(
+                            str(key or "").strip()
+                            for key in dict(raw).keys()
+                            if str(key or "").strip().startswith("max_distance_to_")
+                            and str(key or "").strip().endswith("_importance")
+                        ),
+                    )
+                )
             )
             if str(raw.get(key) or "").strip()
         }

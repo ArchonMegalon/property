@@ -208,6 +208,326 @@
   .object-media-highlight a:hover {
     text-decoration: underline;
   }
+  .object-media-carousel {
+    box-sizing: border-box;
+    height: 100%;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    gap: 10px;
+    padding: 12px;
+  }
+  .object-media-carousel-main,
+  .object-media-carousel-thumb {
+    color: inherit;
+    text-decoration: none;
+  }
+  .object-media-carousel-main {
+    position: relative;
+    display: block;
+    min-height: 260px;
+    border-radius: 18px;
+    overflow: hidden;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+  }
+  .object-media-carousel-main img,
+  .object-media-carousel-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: var(--panel-2);
+  }
+  .object-media-carousel-main.is-floorplan img,
+  .object-media-carousel-thumb.is-floorplan img {
+    object-fit: contain;
+    padding: 8px;
+  }
+  .object-media-carousel-cta {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    border-radius: 999px;
+    background: rgba(20, 18, 14, 0.72);
+    color: #fff;
+    padding: 9px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    backdrop-filter: blur(14px);
+  }
+  .object-media-carousel-strip {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+  .object-media-carousel-thumb {
+    flex: 0 0 116px;
+    display: grid;
+    gap: 5px;
+  }
+  .object-media-carousel-thumb img {
+    height: 70px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+  }
+  .object-media-carousel-thumb span {
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .object-media-carousel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .object-media-carousel-actions .object-media-status {
+    max-width: min(100%, 42ch);
+  }
+  .object-visual-console,
+  .object-visual-rail {
+    display: grid;
+    gap: 8px;
+  }
+  .object-media-frame-inner > .object-visual-console {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+    z-index: 3;
+  }
+  .object-media-grid.is-compact .object-media-frame-inner > .object-visual-console {
+    position: static;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    padding: 0 16px 16px;
+  }
+  .object-visual-rail {
+    display: none;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--line) 82%, rgba(189, 139, 47, 0.32));
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--panel) 94%, var(--panel-2) 6%);
+    box-shadow: 0 8px 24px rgba(38, 32, 22, 0.08);
+  }
+  .object-visual-rail.is-active {
+    display: grid;
+  }
+  .object-visual-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+  }
+  .object-visual-meta strong {
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+  .object-visual-eta {
+    color: var(--text-soft);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .object-visual-progress {
+    --object-fill: 0%;
+    position: relative;
+    overflow: hidden;
+    height: 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--panel-2) 82%, var(--line) 18%);
+  }
+  .object-visual-progress::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: var(--object-fill);
+    background: linear-gradient(90deg, rgba(168, 128, 36, 0.94), rgba(196, 160, 86, 0.9));
+    border-radius: inherit;
+  }
+  .object-visual-progress.is-processing::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.36) 45%, transparent 100%);
+    transform: translateX(-100%);
+    animation: object-visual-sheen 1.9s ease-in-out infinite;
+    pointer-events: none;
+  }
+  .object-visual-status {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .object-visual-actions {
+    margin-top: 0;
+    flex-wrap: wrap;
+  }
+  .object-visual-actions .console-action.is-processing {
+    position: relative;
+    padding-left: 30px;
+  }
+  .object-visual-actions .console-action.is-processing::before {
+    content: "";
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    margin-top: -6px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    opacity: 0.82;
+    animation: object-visual-spin 760ms linear infinite;
+  }
+  .object-visual-style-dialog {
+    width: min(640px, calc(100vw - 24px));
+    max-width: min(640px, calc(100vw - 24px));
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .object-visual-style-dialog::backdrop {
+    background: rgba(12, 10, 7, 0.62);
+    backdrop-filter: blur(8px);
+  }
+  .object-visual-style-card {
+    display: grid;
+    gap: 14px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--panel);
+    color: var(--text);
+    box-shadow: 0 28px 80px rgba(20, 16, 9, 0.28);
+  }
+  .object-visual-style-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 14px;
+  }
+  .object-visual-style-head h2 {
+    margin: 0;
+    font-size: clamp(1.18rem, 2vw, 1.55rem);
+    letter-spacing: -0.04em;
+  }
+  .object-visual-style-head p {
+    margin: 4px 0 0;
+    color: var(--text-soft);
+    font-size: 0.9rem;
+    line-height: 1.35;
+  }
+  .object-visual-style-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+    gap: 8px;
+  }
+  .object-visual-style-option {
+    position: relative;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-height: 72px;
+    padding: 9px 72px 9px 9px;
+    border: 1px solid var(--line);
+    border-radius: 13px;
+    background: var(--panel-2);
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
+  }
+  .object-visual-style-option:hover,
+  .object-visual-style-option:focus-visible {
+    border-color: color-mix(in srgb, var(--gold, #b88a2b) 54%, var(--line));
+    background: color-mix(in srgb, var(--gold, #b88a2b) 10%, var(--panel));
+    outline: none;
+  }
+  .object-visual-style-option.is-selected {
+    border-color: color-mix(in srgb, var(--gold, #b88a2b) 78%, var(--line));
+    background: linear-gradient(135deg, color-mix(in srgb, var(--gold, #b88a2b) 16%, transparent), transparent 44%), color-mix(in srgb, var(--gold, #b88a2b) 11%, var(--panel));
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--gold, #b88a2b) 45%, transparent);
+    outline: none;
+  }
+  .object-visual-style-option:active {
+    transform: translateY(1px);
+  }
+  .object-visual-style-swatch {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+  }
+  .object-visual-style-selected-label {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: none;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--gold, #b88a2b) 22%, var(--panel));
+    color: var(--text);
+    font-size: 0.68rem;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .object-visual-style-option.is-selected .object-visual-style-selected-label {
+    display: inline-flex;
+  }
+  .object-visual-style-option strong,
+  .object-visual-style-option small {
+    display: block;
+  }
+  .object-visual-style-option strong {
+    font-size: 0.9rem;
+    line-height: 1.15;
+  }
+  .object-visual-style-option small {
+    margin-top: 3px;
+    color: var(--text-soft);
+    font-size: 0.76rem;
+    line-height: 1.25;
+  }
+  .object-visual-style-current {
+    margin: 0;
+    min-height: 34px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--gold, #b88a2b) 32%, var(--line));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--gold, #b88a2b) 9%, var(--panel));
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 760;
+  }
+  .object-visual-style-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  @keyframes object-visual-spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes object-visual-sheen {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(140%); }
+  }
   .object-meta {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
@@ -402,7 +722,7 @@
     padding: 10px 12px;
     font: inherit;
   }
-  .object-magicfit-panel {
+  .object-lifestyle-panel {
     display: grid;
     gap: 12px;
     margin-top: 14px;
@@ -411,17 +731,17 @@
     border-radius: 14px;
     background: var(--panel-2);
   }
-  .object-magicfit-grid {
+  .object-lifestyle-grid {
     display: grid;
     gap: 12px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .object-magicfit-preview {
+  .object-lifestyle-preview {
     display: grid;
     gap: 10px;
     margin-top: 10px;
   }
-  .object-magicfit-preview img {
+  .object-lifestyle-preview img {
     width: 100%;
     max-width: 100%;
     border-radius: 14px;
@@ -445,7 +765,7 @@
     .object-sections {
       grid-template-columns: 1fr;
     }
-    .object-magicfit-grid {
+    .object-lifestyle-grid {
       grid-template-columns: 1fr;
     }
   }
@@ -492,6 +812,15 @@
     }
     .object-media-toolbar .object-actions {
       justify-content: stretch;
+    }
+    .object-media-carousel {
+      grid-template-rows: auto auto auto;
+    }
+    .object-media-carousel-main {
+      min-height: 220px;
+    }
+    .object-media-carousel-actions {
+      align-items: stretch;
     }
     .object-media-grid.is-compact .object-media-placeholder {
       grid-template-columns: minmax(0, 1fr);
@@ -672,10 +1001,33 @@
     .object-media-grid.is-compact .object-media-frame-inner {
       min-height: 0;
     }
+    .object-visual-style-dialog {
+      width: calc(100vw - 12px);
+      max-width: calc(100vw - 12px);
+      margin: auto 6px max(6px, env(safe-area-inset-bottom, 0px));
+    }
+    .object-visual-style-card {
+      max-height: calc(100svh - 18px);
+      overflow-y: auto;
+      padding: 12px;
+    }
+    .object-visual-style-head p {
+      display: none;
+    }
+    .object-visual-style-options {
+      grid-template-columns: 1fr;
+    }
+    .object-visual-style-option {
+      min-height: 58px;
+      padding-right: 84px;
+    }
   }
 </style>
 
 {% if object_media %}
+{% set object_visual_actions = object_media.get('request_actions') or [] %}
+{% set object_visual_style_catalog = object_media.get('style_catalog') or [] %}
+{% set object_media_carousel_items = object_media.get('carousel_items') or [] %}
 <section class="object-media-grid{% if not object_media.get('embed_href') %} is-compact{% endif %}" data-object-media-stage>
   <section class="object-panel object-media-frame">
     <div class="object-media-frame-inner">
@@ -687,6 +1039,30 @@
           {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 3D tour' }}</a>{% endif %}
           {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open property page' }}</a>{% endif %}
           {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open listing' }}</a>{% endif %}
+        </div>
+      </div>
+      {% elif object_media_carousel_items %}
+      {% set object_media_primary = object_media_carousel_items[0] %}
+      <div class="object-media-carousel" data-object-media-carousel>
+        <a class="object-media-carousel-main{% if object_media_primary.get('kind') == 'floorplan' %} is-floorplan{% endif %}" href="{{ object_media.get('primary_href') or object_media_primary.get('href') }}" aria-label="{{ object_media.get('primary_label') or 'Open 3D tour' }}">
+          <img src="{{ object_media_primary.get('src') }}" alt="{{ object_media_primary.get('label') or 'Property media' }}" loading="eager">
+          {% if object_media.get('primary_href') %}<span class="object-media-carousel-cta">{{ object_media.get('primary_label') or 'Open 3D tour' }}</span>{% endif %}
+        </a>
+        <div class="object-media-carousel-strip" aria-label="Property photos">
+          {% for item in object_media_carousel_items %}
+          <a class="object-media-carousel-thumb{% if item.get('kind') == 'floorplan' %} is-floorplan{% endif %}" href="{{ item.get('href') }}" aria-label="{{ item.get('label') or 'Property media' }}">
+            <img src="{{ item.get('src') }}" alt="{{ item.get('label') or 'Property media' }}" loading="lazy">
+            <span>{{ item.get('label') or 'Photo' }}</span>
+          </a>
+          {% endfor %}
+        </div>
+        <div class="object-media-carousel-actions">
+          <div class="object-media-status">{{ object_media.get('status_label') or '3D tour available' }}</div>
+          <div class="object-actions">
+            {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 3D tour' }}</a>{% endif %}
+            {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open property page' }}</a>{% endif %}
+            {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open listing' }}</a>{% endif %}
+          </div>
         </div>
       </div>
       {% else %}
@@ -703,9 +1079,84 @@
         </div>
       </div>
       {% endif %}
+      {% if object_visual_actions %}
+      <div class="object-visual-console" data-object-visual-console>
+        <div class="object-visual-rail{% if object_media.get('request_status_detail') %} is-active{% endif %}" data-object-visual-rail>
+          <div class="object-visual-meta">
+            <strong data-object-visual-label>{{ object_media.get('request_status_label') or '' }}</strong>
+            <span class="object-visual-eta" data-object-visual-eta>{{ object_media.get('request_status_eta') or '' }}</span>
+          </div>
+          <div class="object-visual-progress{% if object_media.get('request_status_progress_pct') %} is-processing{% endif %}" data-object-visual-progress style="--object-fill: {{ object_media.get('request_status_progress_pct') or 0 }}%;"></div>
+          <p class="object-visual-status" data-object-visual-status>{{ object_media.get('request_status_detail') or '' }}</p>
+        </div>
+        <div class="object-actions object-visual-actions">
+          {% for action in object_visual_actions %}
+          {% set action_state = (action.get('state') or 'idle')|lower %}
+          <button
+            class="console-action{% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %} is-processing{% endif %}"
+            type="button"
+            data-obj-visual-request="{{ action.get('kind') }}"
+            data-obj-visual-state="{{ action_state }}"
+            data-property-url="{{ action.get('property_url') }}"
+            data-source-ref="{{ action.get('source_ref') or '' }}"
+            data-run-id="{{ action.get('run_id') or '' }}"
+            data-candidate-ref="{{ action.get('candidate_ref') or '' }}"
+            data-obj-visual-progress="{{ action.get('progress_pct') or 0 }}"
+            data-obj-visual-eta="{{ action.get('eta_label') or '' }}"
+            data-obj-visual-detail="{{ action.get('status_detail') or '' }}"
+            data-obj-visual-poll-seconds="{{ action.get('poll_after_seconds') or 0 }}"
+            data-obj-visual-style-required="1"
+            {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}disabled aria-disabled="true"{% endif %}
+            aria-label="{{ action.get('label') or 'Request visual review' }}"
+          >{{ action.get('label') }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
     </div>
   </section>
 </section>
+{% if object_visual_style_catalog %}
+<dialog class="object-visual-style-dialog" data-object-visual-style-dialog aria-label="Choose visual style">
+  <div class="object-visual-style-card">
+    <div class="object-visual-style-head">
+      <div>
+        <div class="object-kicker">Visual style</div>
+        <h2>Choose the look</h2>
+        <p>Only this generated visual changes. The property page stays as it is.</p>
+      </div>
+      <button class="console-action" type="button" data-object-visual-style-cancel>Close</button>
+    </div>
+    <div class="object-visual-style-options">
+      {% for style in object_visual_style_catalog %}
+      {% set style_value = style.get('value') or '' %}
+      <button
+        class="object-visual-style-option{% if loop.first %} is-selected{% endif %}"
+        type="button"
+        data-object-visual-style-option
+        data-style-value="{{ style_value }}"
+        data-style-label="{{ style.get('label') or style_value }}"
+        data-style-prompt="{{ style.get('prompt') or style_value }}"
+        {% if loop.first %}data-selected aria-current="true"{% else %}aria-current="false"{% endif %}
+        aria-pressed="{% if loop.first %}true{% else %}false{% endif %}"
+      >
+        <span class="object-visual-style-swatch" style="background: {{ style.get('example_tone') or 'linear-gradient(135deg, #f5efe3, #d8c4a0)' }};" aria-hidden="true"></span>
+        <span>
+          <strong>{{ style.get('label') or style_value }}</strong>
+          <small>{{ style.get('example_caption') or style.get('detail') or 'Generated staging style' }}</small>
+        </span>
+        <span class="object-visual-style-selected-label" data-object-visual-style-selected-label>Selected</span>
+      </button>
+      {% endfor %}
+    </div>
+    <p class="object-visual-style-current" data-object-visual-style-current>{{ (object_visual_style_catalog[0].get('label') if object_visual_style_catalog else '') or 'Style selected' }} selected</p>
+    <div class="object-visual-style-actions">
+      <button class="console-action" type="button" data-object-visual-style-cancel>Cancel</button>
+      <button class="console-action" type="button" data-object-visual-style-confirm>Continue</button>
+    </div>
+  </div>
+</dialog>
+{% endif %}
 {% endif %}
 
 <section class="object-grid{% if settings_surface %} is-settings-surface{% endif %}">
@@ -715,7 +1166,7 @@
     {% if object_summary %}<p class="object-copy">{{ object_summary }}</p>{% endif %}
     {% if object_ooda_rows %}
     <section class="object-section" style="margin-top:14px;">
-      <div class="object-kicker">Quick take</div>
+      <div class="object-kicker">Overview</div>
       <h2>{{ object_ooda_title or 'Decision summary' }}</h2>
       {% if object_ooda_copy %}<p class="object-copy">{{ object_ooda_copy }}</p>{% endif %}
       <div class="object-list">
@@ -982,7 +1433,7 @@
 	        {% endfor %}
 	      </div>
 	      {% endif %}
-	      <div class="object-copy"><strong>Tracked follow-up</strong></div>
+	      <div class="object-copy"><strong>Follow-up</strong></div>
 	      <div class="object-list" data-object-followups>
 	        {% for row in object_feedback.get('followup_rows') or [] %}
 	        <div class="object-row">
@@ -1011,7 +1462,7 @@
 	      <textarea data-object-feedback-note placeholder="What worked, failed, or still feels unclear?"></textarea>
 	      <div class="object-actions">
 	        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save</button>
-	        <a class="console-action" href="{{ object_feedback.get('profile_href') or ('/app/search' ~ object_query_suffix) }}">Search brief</a>
+	        <a class="console-action" href="{{ object_feedback.get('profile_href') or ('/app/search' ~ object_query_suffix) }}">Edit search</a>
 	      </div>
 	      <p class="object-copy" data-object-feedback-status></p>
 	      <div class="object-actions" style="margin-top: 12px;">
@@ -1039,9 +1490,9 @@
 	        <div class="object-list" data-object-clippy-answer></div>
 	      </div>
 	      <div class="object-actions" style="margin-top: 12px;">
-	        <button class="console-action" type="button" data-object-magicfit-toggle>Preview furnished living</button>
+	        <button class="console-action" type="button" data-object-lifestyle-toggle>Preview furnished living</button>
 	      </div>
-	      <div class="object-magicfit-panel" data-object-magicfit-panel hidden>
+	      <div class="object-lifestyle-panel" data-object-lifestyle-panel hidden>
 	        <div class="object-row">
 	          <div>
 	            <strong>Furnished living preview</strong>
@@ -1057,66 +1508,66 @@
 	          <div class="object-tag">Private</div>
 	        </div>
 	        <div class="object-actions">
-	          <button class="console-action" type="button" data-object-magicfit-scene="breakfast">Breakfast</button>
-	          <button class="console-action" type="button" data-object-magicfit-scene="kids_play">Kids play</button>
-	          <button class="console-action" type="button" data-object-magicfit-scene="balcony_evening">Balcony evening</button>
-	          <button class="console-action" type="button" data-object-magicfit-scene="homeoffice">Homeoffice</button>
+	          <button class="console-action" type="button" data-object-lifestyle-scene="breakfast">Breakfast</button>
+	          <button class="console-action" type="button" data-object-lifestyle-scene="kids_play">Kids play</button>
+	          <button class="console-action" type="button" data-object-lifestyle-scene="balcony_evening">Balcony evening</button>
+	          <button class="console-action" type="button" data-object-lifestyle-scene="homeoffice">Homeoffice</button>
 	        </div>
-	        <div class="object-magicfit-grid">
+	        <div class="object-lifestyle-grid">
 	          <label class="object-field">
 	            <span>Scene type</span>
-	            <input type="text" data-object-magicfit-scene-type value="breakfast">
+	            <input type="text" data-object-lifestyle-scene-type value="breakfast">
 	          </label>
 	          <label class="object-field">
 	            <span>Room hint</span>
-	            <input type="text" data-object-magicfit-room-hint value="living and dining area">
+	            <input type="text" data-object-lifestyle-room-hint value="living and dining area">
 	          </label>
 	          <label class="object-field">
 	            <span>Styling hint</span>
-	            <input type="text" data-object-magicfit-styling-hint value="warm, realistic, tasteful family-home staging">
+	            <input type="text" data-object-lifestyle-styling-hint value="warm, realistic, tasteful family-home staging">
 	          </label>
 	          <label class="object-field">
 	            <span>Household roles</span>
-	            <input type="text" data-object-magicfit-household-roles placeholder="e.g. mother, father, child">
+	            <input type="text" data-object-lifestyle-household-roles placeholder="e.g. mother, father, child">
 	          </label>
 	        </div>
 	        <div class="object-actions">
-	          <button class="console-action" type="button" data-object-magicfit-upload-start>Upload reference photos</button>
-	          <button class="console-action" type="button" data-object-magicfit-google-start>Use Google Photos Picker</button>
-	          <button class="console-action" type="button" data-object-magicfit-google-check>Check Google selection</button>
+	          <button class="console-action" type="button" data-object-lifestyle-upload-start>Upload reference photos</button>
+	          <button class="console-action" type="button" data-object-lifestyle-google-start>Use Google Photos Picker</button>
+	          <button class="console-action" type="button" data-object-lifestyle-google-check>Check Google selection</button>
 	        </div>
-	        <input type="file" accept="image/*" multiple hidden data-object-magicfit-upload-input>
-	        <div class="object-copy" data-object-magicfit-upload-status></div>
-	        <div class="object-list" data-object-magicfit-reference-list></div>
+	        <input type="file" accept="image/*" multiple hidden data-object-lifestyle-upload-input>
+	        <div class="object-copy" data-object-lifestyle-upload-status></div>
+	        <div class="object-list" data-object-lifestyle-reference-list></div>
 	        <label class="object-field">
 	          <span>Manual reference image URLs</span>
-	          <textarea data-object-magicfit-reference-urls placeholder="Optional fallback: paste 1 to 3 reference image URLs, one per line."></textarea>
+	          <textarea data-object-lifestyle-reference-urls placeholder="Optional fallback: paste 1 to 3 reference image URLs, one per line."></textarea>
 	        </label>
 	        <div class="object-actions">
 	          <span class="object-copy">Selected uploads and Google Photos picks can be combined. PropertyQuarry will use at most 3 reference photos.</span>
 	        </div>
-	        <div class="object-copy" data-object-magicfit-google-status></div>
+	        <div class="object-copy" data-object-lifestyle-google-status></div>
 	        <label class="object-check">
-	          <input type="checkbox" data-object-magicfit-consent>
+	          <input type="checkbox" data-object-lifestyle-consent>
 	          <span>I confirm these personal photos were explicitly selected for this furnished preview.</span>
 	        </label>
 	        <label class="object-check">
-	          <input type="checkbox" data-object-magicfit-include-child>
+	          <input type="checkbox" data-object-lifestyle-include-child>
 	          <span>Include a child reference in the family scene.</span>
 	        </label>
 	        <label class="object-check">
-	          <input type="checkbox" data-object-magicfit-child-consent>
+	          <input type="checkbox" data-object-lifestyle-child-consent>
 	          <span>I confirm guardian approval exists for any child likeness used here.</span>
 	        </label>
 	        <label class="object-check">
-	          <input type="checkbox" data-object-magicfit-share checked>
+	          <input type="checkbox" data-object-lifestyle-share checked>
 	          <span>Attach the generated still to the review PDF when rendered.</span>
 	        </label>
 	        <div class="object-actions">
-	          <button class="console-action" type="button" data-object-magicfit-generate>Generate still</button>
+	          <button class="console-action" type="button" data-object-lifestyle-generate>Generate still</button>
 	        </div>
-	        <div class="object-copy" data-object-magicfit-status></div>
-	        <div class="object-magicfit-preview" data-object-magicfit-preview></div>
+	        <div class="object-copy" data-object-lifestyle-status></div>
+	        <div class="object-lifestyle-preview" data-object-lifestyle-preview></div>
 	      </div>
 	    </section>
 	    {% endif %}
@@ -1289,6 +1740,479 @@
 })();
 </script>
 {% endif %}
+{% if object_media and (object_media.get('request_actions') or []) %}
+<script>
+(() => {
+  const visualConsole = document.querySelector('[data-object-visual-console]');
+  if (!visualConsole) return;
+  const visualRail = document.querySelector('[data-object-visual-rail]');
+  const visualRailLabelNode = document.querySelector('[data-object-visual-label]');
+  const visualRailEtaNode = document.querySelector('[data-object-visual-eta]');
+  const visualRailProgressNode = document.querySelector('[data-object-visual-progress]');
+  const visualStatusNode = document.querySelector('[data-object-visual-status]');
+  const visualButtons = Array.from(document.querySelectorAll('[data-obj-visual-request]'));
+  const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];
+  const visualTerminalStates = ['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'];
+  const visualStyleDialog = document.querySelector('[data-object-visual-style-dialog]');
+  const visualStyleOptions = Array.from(document.querySelectorAll('[data-object-visual-style-option]'));
+  const visualStyleCurrent = document.querySelector('[data-object-visual-style-current]');
+  const visualStyleConfirm = document.querySelector('[data-object-visual-style-confirm]');
+  const visualStyleCancelButtons = Array.from(document.querySelectorAll('[data-object-visual-style-cancel]'));
+  let visualPollTimer = 0;
+  const readableErrorDetail = (detail, fallback) => {
+    if (Array.isArray(detail)) {
+      return detail.map((item) => readableErrorDetail(item, '')).filter(Boolean).join(' ');
+    }
+    if (detail && typeof detail === 'object') {
+      const direct = detail.message || detail.msg || detail.code || detail.type || detail.error || '';
+      if (direct) return readableErrorDetail(direct, fallback);
+      try { return JSON.stringify(detail); } catch (_error) { return fallback; }
+    }
+    const raw = String(detail || '').trim();
+    return raw || fallback;
+  };
+  const visualStyleKindLabel = (requestKind) => (
+    String(requestKind || '').trim().toLowerCase() === 'flythrough' ? 'walkthrough' : '3D tour'
+  );
+  const readVisualStyleOption = (option) => ({
+    value: String(option?.getAttribute?.('data-style-value') || '').trim(),
+    label: String(option?.getAttribute?.('data-style-label') || '').trim(),
+    prompt: String(option?.getAttribute?.('data-style-prompt') || '').trim(),
+  });
+  let selectedVisualStyle = readVisualStyleOption(
+    visualStyleOptions.find((option) => option.classList.contains('is-selected')) || visualStyleOptions[0],
+  );
+  const syncVisualStyleOptions = () => {
+    visualStyleOptions.forEach((option) => {
+      const isSelected = String(option.getAttribute('data-style-value') || '').trim() === selectedVisualStyle.value;
+      option.classList.toggle('is-selected', isSelected);
+      option.toggleAttribute('data-selected', isSelected);
+      option.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+      option.setAttribute('aria-current', isSelected ? 'true' : 'false');
+    });
+  };
+  const updateVisualStyleConfirmLabel = (requestKind) => {
+    if (!visualStyleConfirm) return;
+    const action = String(requestKind || '').trim().toLowerCase() === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour';
+    const styleLabel = String(selectedVisualStyle?.label || '').trim();
+    visualStyleConfirm.textContent = styleLabel ? `${action} · ${styleLabel}` : action;
+    if (visualStyleCurrent) {
+      visualStyleCurrent.textContent = styleLabel ? `${styleLabel} selected` : 'Style selected';
+    }
+  };
+  visualStyleOptions.forEach((option) => {
+    option.addEventListener('click', () => {
+      selectedVisualStyle = readVisualStyleOption(option);
+      syncVisualStyleOptions();
+      updateVisualStyleConfirmLabel(visualStyleDialog?.getAttribute('data-object-visual-style-kind') || 'tour');
+      try {
+        option.focus({ preventScroll: true });
+      } catch (_error) {
+        option.focus();
+      }
+      if (visualStatusNode) {
+        visualStatusNode.textContent = `${selectedVisualStyle.label || 'Style'} selected.`;
+      }
+    });
+  });
+  let pendingVisualStyleResolver = null;
+  const closeVisualStyleDialog = () => {
+    if (visualStyleDialog && typeof visualStyleDialog.close === 'function' && visualStyleDialog.open) {
+      visualStyleDialog.close();
+    }
+  };
+  const settleVisualStyleChoice = (choice) => {
+    const resolver = pendingVisualStyleResolver;
+    pendingVisualStyleResolver = null;
+    closeVisualStyleDialog();
+    if (typeof resolver === 'function') resolver(choice);
+  };
+  visualStyleConfirm?.addEventListener('click', () => settleVisualStyleChoice(selectedVisualStyle));
+  visualStyleCancelButtons.forEach((button) => {
+    button.addEventListener('click', () => settleVisualStyleChoice(null));
+  });
+  visualStyleDialog?.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    settleVisualStyleChoice(null);
+  });
+  const chooseVisualStyleForRequest = (requestKind) => {
+    const normalizedKind = String(requestKind || '').trim().toLowerCase();
+    if (!['tour', 'flythrough'].includes(normalizedKind)) return Promise.resolve(null);
+    if (!visualStyleOptions.length) return Promise.resolve(selectedVisualStyle);
+    if (!visualStyleDialog || typeof visualStyleDialog.showModal !== 'function') {
+      return Promise.resolve(selectedVisualStyle);
+    }
+    visualStyleDialog.setAttribute('data-object-visual-style-kind', normalizedKind);
+    updateVisualStyleConfirmLabel(normalizedKind);
+    syncVisualStyleOptions();
+    if (visualStatusNode) {
+      visualStatusNode.textContent = `Choose a style for this ${visualStyleKindLabel(normalizedKind)}.`;
+    }
+    if (pendingVisualStyleResolver) settleVisualStyleChoice(null);
+    return new Promise((resolve) => {
+      pendingVisualStyleResolver = resolve;
+      try {
+        visualStyleDialog.showModal();
+      } catch (_error) {
+        pendingVisualStyleResolver = null;
+        resolve(selectedVisualStyle);
+      }
+    });
+  };
+  const defaultWalkthroughProviderKey = () => ['magic', 'fit'].join('');
+  const normalizeWalkthroughProvider = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized || ['default', 'standard', 'walkthrough', 'guided'].includes(normalized)) return defaultWalkthroughProviderKey();
+    return normalized;
+  };
+  const getWalkthroughProviderFromButton = (button) => {
+    if (!button) return defaultWalkthroughProviderKey();
+    return normalizeWalkthroughProvider(button.getAttribute?.('data-obj-walkthrough-provider') || '');
+  };
+  const isDirectHostedTourUrl = (value) => {
+    const url = String(value || '').trim();
+    if (!url) return false;
+    try {
+      const parsed = new URL(url, window.location.origin);
+      return /\/tours\/[^/]+\/control\/(matterport|3dvista|pano2vr|krpano)\/?$/i.test(parsed.pathname);
+    } catch (_error) {
+      return /\/tours\/[^/]+\/control\/(matterport|3dvista|pano2vr|krpano)\/?$/i.test(url.split(/[?#]/)[0] || '');
+    }
+  };
+  const hostedTourProviderFromProof = (...values) => {
+    for (const value of values) {
+      const url = String(value || '').trim().toLowerCase();
+      if (!url) continue;
+      if (url.includes('matterport')) return 'matterport';
+      if (url.includes('3dvista') || url.includes('3d-vista')) return '3dvista';
+    }
+    return '';
+  };
+  const rawHostedTourControlBase = (value) => {
+    const url = String(value || '').trim();
+    if (!url) return '';
+    try {
+      const parsed = new URL(url, window.location.origin);
+      const match = parsed.pathname.match(/^\/tours\/([^/?#]+)\/?$/i);
+      if (!match) return '';
+      const basePath = `/tours/${match[1]}`;
+      return /^[a-z][a-z0-9+.-]*:/i.test(url) ? `${parsed.origin}${basePath}` : basePath;
+    } catch (_error) {
+      const match = (url.split(/[?#]/)[0] || '').match(/^(\/tours\/[^/]+)\/?$/i);
+      return match ? match[1] : '';
+    }
+  };
+  const directHostedTourUrl = (...values) => {
+    let hostedBase = '';
+    for (const value of values) {
+      const url = String(value || '').trim();
+      if (isDirectHostedTourUrl(url)) return url;
+      if (!hostedBase) hostedBase = rawHostedTourControlBase(url);
+    }
+    const provider = hostedTourProviderFromProof(...values);
+    if (hostedBase && provider) return `${hostedBase}/control/${provider}`;
+    for (const value of values) {
+      const url = String(value || '').trim();
+      if (!url) continue;
+      try {
+        const parsed = new URL(url, window.location.origin);
+        if (!['http:', 'https:'].includes(parsed.protocol)) continue;
+        return parsed.href;
+      } catch (_error) {
+        if (url.startsWith('/')) return url;
+      }
+    }
+    return '';
+  };
+  const applyVisualButtonState = (button, state) => {
+    if (!(button instanceof HTMLButtonElement)) return;
+    const normalized = state && typeof state === 'object' ? state : {};
+    const nextState = String(normalized.state || button.getAttribute('data-obj-visual-state') || 'idle').trim().toLowerCase() || 'idle';
+    const href = String(normalized.href || '').trim();
+    const label = String(normalized.label || button.textContent || '').trim();
+    const eta = String(normalized.eta || '').trim();
+    const detail = String(normalized.detail || '').trim();
+    const progressSource = normalized.progress !== undefined ? normalized.progress : (button.getAttribute('data-obj-visual-progress') || 0);
+    const pollSource = normalized.pollSeconds !== undefined ? normalized.pollSeconds : (button.getAttribute('data-obj-visual-poll-seconds') || 0);
+    const progress = Math.max(0, Math.min(100, Number(progressSource) || 0));
+    const pollSeconds = Math.max(0, Number(pollSource) || 0);
+    button.setAttribute('data-obj-visual-state', nextState);
+    button.setAttribute('data-obj-visual-progress', String(progress));
+    button.setAttribute('data-obj-visual-eta', eta);
+    button.setAttribute('data-obj-visual-detail', detail);
+    button.setAttribute('data-obj-visual-poll-seconds', String(pollSeconds));
+    button.textContent = label;
+    button.setAttribute('aria-label', label);
+    if (detail || eta) {
+      button.setAttribute('title', [detail, eta ? `ETA ${eta}` : ''].filter(Boolean).join(' · '));
+    } else {
+      button.removeAttribute('title');
+    }
+    if (href) {
+      button.setAttribute('data-obj-visual-href', href);
+    } else {
+      button.removeAttribute('data-obj-visual-href');
+    }
+    const isWaiting = visualPendingStates.includes(nextState);
+    button.disabled = isWaiting;
+    button.classList.toggle('is-processing', isWaiting);
+    if (isWaiting) {
+      button.setAttribute('aria-disabled', 'true');
+    } else {
+      button.removeAttribute('aria-disabled');
+    }
+  };
+  const syncVisualRail = (requestKind, state) => {
+    if (!visualRail) return;
+    const normalized = state && typeof state === 'object' ? state : {};
+    const nextState = String(normalized.state || 'idle').trim().toLowerCase() || 'idle';
+    const label = String(normalized.label || '').trim();
+    const eta = String(normalized.eta || '').trim();
+    const detail = String(normalized.detail || '').trim();
+    const progress = Math.max(0, Math.min(100, Number(normalized.progress || 0) || 0));
+    const isActive = Boolean(label || detail || visualPendingStates.includes(nextState) || nextState === 'ready' || nextState === 'blocked' || nextState === 'failed');
+    visualRail.classList.toggle('is-active', isActive);
+    visualRail.setAttribute('data-object-visual-kind', String(requestKind || '').trim().toLowerCase());
+    visualRail.setAttribute('data-object-visual-state', nextState);
+    if (visualRailLabelNode) visualRailLabelNode.textContent = label;
+    if (visualRailEtaNode) visualRailEtaNode.textContent = eta;
+    if (visualRailProgressNode) {
+      visualRailProgressNode.style.setProperty('--object-fill', `${progress}%`);
+      visualRailProgressNode.classList.toggle('is-processing', visualPendingStates.includes(nextState));
+    }
+    if (visualStatusNode) visualStatusNode.textContent = detail;
+  };
+  const isWalkthroughRequestKind = (requestKind) => String(requestKind || '').trim().toLowerCase() === 'flythrough';
+  const visualStateFromPayload = (requestKind, payload, fallbackLabel = '') => {
+    const kind = String(requestKind || 'tour').trim().toLowerCase();
+    if (isWalkthroughRequestKind(kind)) {
+      const resolvedUrl = String(payload?.flythrough_url || '').trim();
+      const rawFlythroughState = String(payload?.flythrough_status || payload?.status || '').trim().toLowerCase();
+      const state = String(resolvedUrl ? 'ready' : rawFlythroughState || 'pending').trim().toLowerCase();
+      const retryableTerminal = visualTerminalStates.includes(state) && !resolvedUrl;
+      return {
+        state: retryableTerminal ? 'idle' : state,
+        label: String(
+          resolvedUrl
+            ? 'Open walkthrough'
+            : (
+                retryableTerminal
+                  ? (['blocked', 'failed'].includes(state) ? 'Retry walkthrough' : 'Request walkthrough')
+                  : (payload?.status_label || fallbackLabel || 'Walkthrough queued')
+              )
+        ).trim(),
+        href: resolvedUrl,
+        detail: String(payload?.status_detail || '').trim(),
+        eta: String(payload?.eta_label || '').trim(),
+        progress: Number(payload?.progress_pct || 0) || 0,
+        pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+      };
+    }
+    const resolvedTourUrl = directHostedTourUrl(
+      payload?.verified_tour_url,
+      payload?.open_tour_url,
+      payload?.generated_reconstruction_url,
+      payload?.tour_url,
+      payload?.vendor_tour_url,
+    );
+    const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
+    const state = String(resolvedTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();
+    const retryableTerminal = visualTerminalStates.includes(state) && !resolvedTourUrl;
+    return {
+      state: retryableTerminal ? 'idle' : state,
+      label: String(
+        resolvedTourUrl
+          ? 'Open 3D tour'
+          : (
+              retryableTerminal
+                ? (['blocked', 'failed'].includes(state) ? 'Retry 3D tour' : 'Request 3D tour')
+                : (payload?.status_label || fallbackLabel || '3D tour queued')
+            )
+      ).trim(),
+      href: resolvedTourUrl,
+      detail: String(payload?.status_detail || '').trim(),
+      eta: String(payload?.eta_label || '').trim(),
+      progress: Number(payload?.progress_pct || 0) || 0,
+      pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+    };
+  };
+  const scheduleVisualStatusPoll = (requestKind, options = {}) => {
+    window.clearTimeout(visualPollTimer);
+    const kind = String(requestKind || '').trim().toLowerCase();
+    const runId = String(options.runId || '').trim();
+    if (!kind || !runId) return;
+    const candidateRef = String(options.candidateRef || '').trim();
+    const sourceRef = String(options.sourceRef || '').trim();
+    const propertyUrl = String(options.propertyUrl || '').trim();
+    const pollSeconds = Math.max(0, Number(options.pollSeconds || 0) || 0);
+    if (!pollSeconds) return;
+    const firstPollDelaySeconds = Math.max(0.5, Math.min(pollSeconds, 1));
+    visualPollTimer = window.setTimeout(async () => {
+      const query = new URLSearchParams({
+        run_id: runId,
+        request_kind: kind,
+      });
+      if (candidateRef) query.set('candidate_ref', candidateRef);
+      if (sourceRef) query.set('source_ref', sourceRef);
+      if (propertyUrl) query.set('property_url', propertyUrl);
+      try {
+        const response = await fetch(`/app/api/signals/property/visual-status?${query.toString()}`, {
+          method: 'GET',
+          credentials: 'same-origin',
+        });
+        if (!response.ok) throw new Error('visual_status_unavailable');
+        const payload = await response.json().catch(() => ({}));
+        syncVisualButtons(kind, payload);
+        const nextState = visualStateFromPayload(kind, payload);
+        if (visualPendingStates.includes(nextState.state)) {
+          scheduleVisualStatusPoll(kind, {
+            runId,
+            candidateRef,
+            sourceRef,
+            propertyUrl,
+            pollSeconds: nextState.pollSeconds || pollSeconds,
+          });
+        }
+      } catch (_error) {
+        scheduleVisualStatusPoll(kind, {
+          runId,
+          candidateRef,
+          sourceRef,
+          propertyUrl,
+          pollSeconds,
+        });
+      }
+    }, firstPollDelaySeconds * 1000);
+  };
+  const syncVisualButtons = (requestKind, payload) => {
+    const kind = String(requestKind || '').trim().toLowerCase();
+    const state = visualStateFromPayload(kind, payload);
+    syncVisualRail(kind, state);
+    visualButtons.forEach((button) => {
+      if (String(button.getAttribute('data-obj-visual-request') || '').trim().toLowerCase() !== kind) return;
+      applyVisualButtonState(button, {
+        ...state,
+        label: state.label || String(button.textContent || '').trim(),
+      });
+    });
+  };
+  visualButtons.forEach((button) => {
+    applyVisualButtonState(button, {
+      state: button.getAttribute('data-obj-visual-state') || 'idle',
+      label: button.textContent || '',
+      detail: button.getAttribute('data-obj-visual-detail') || '',
+      eta: button.getAttribute('data-obj-visual-eta') || '',
+      progress: button.getAttribute('data-obj-visual-progress') || 0,
+      pollSeconds: button.getAttribute('data-obj-visual-poll-seconds') || 0,
+      href: button.getAttribute('data-obj-visual-href') || '',
+    });
+  });
+  const pendingButton = visualButtons.find((button) => {
+    const state = String(button.getAttribute('data-obj-visual-state') || '').trim().toLowerCase();
+    return visualPendingStates.includes(state);
+  });
+  if (pendingButton) {
+    scheduleVisualStatusPoll(String(pendingButton.getAttribute('data-obj-visual-request') || '').trim().toLowerCase(), {
+      runId: pendingButton.getAttribute('data-run-id') || '',
+      candidateRef: pendingButton.getAttribute('data-candidate-ref') || '',
+      sourceRef: pendingButton.getAttribute('data-source-ref') || '',
+      propertyUrl: pendingButton.getAttribute('data-property-url') || '',
+      pollSeconds: pendingButton.getAttribute('data-obj-visual-poll-seconds') || 10,
+    });
+  }
+  visualButtons.forEach((button) => {
+    button.addEventListener('click', async () => {
+      const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
+      const requestKind = String(button.getAttribute('data-obj-visual-request') || 'tour').trim().toLowerCase();
+      const isWalkthroughRequest = isWalkthroughRequestKind(requestKind);
+      const walkthroughProvider = isWalkthroughRequest ? getWalkthroughProviderFromButton(button) : '';
+      const sourceRef = String(button.getAttribute('data-source-ref') || '').trim();
+      const runId = String(button.getAttribute('data-run-id') || '').trim();
+      const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
+      const currentState = String(button.getAttribute('data-obj-visual-state') || '').trim().toLowerCase();
+      const readyHref = String(button.getAttribute('data-obj-visual-href') || '').trim();
+      if (readyHref) {
+        window.location.href = readyHref;
+        return;
+      }
+      if (visualPendingStates.includes(currentState)) {
+        if (visualStatusNode) {
+          visualStatusNode.textContent = isWalkthroughRequest
+            ? 'Walkthrough request is already in progress for this home.'
+            : '3D tour request is already in progress for this home.';
+        }
+        return;
+      }
+      if (!propertyUrl) {
+        if (visualStatusNode) visualStatusNode.textContent = 'No listing URL is available for this home.';
+        return;
+      }
+      const visualStyleChoice = await chooseVisualStyleForRequest(requestKind);
+      if (['tour', 'flythrough'].includes(requestKind) && !visualStyleChoice) return;
+      const dioramaStyleHint = ['tour', 'flythrough'].includes(requestKind)
+        ? String(visualStyleChoice?.prompt || visualStyleChoice?.value || '').trim()
+        : '';
+      const visualStyleLabel = ['tour', 'flythrough'].includes(requestKind)
+        ? String(visualStyleChoice?.label || '').trim()
+        : '';
+      const original = button.textContent || (isWalkthroughRequest ? 'Request walkthrough' : 'Request 3D tour');
+      button.disabled = true;
+      button.textContent = isWalkthroughRequest ? 'Requesting walkthrough...' : 'Requesting 3D tour...';
+      syncVisualRail(requestKind, {
+        state: 'queued',
+        label: isWalkthroughRequest ? 'Walkthrough queued' : '3D tour queued',
+        detail: `Requesting${visualStyleLabel ? ` in ${visualStyleLabel}` : ''}.`,
+        eta: '',
+        progress: 0,
+      });
+      let requestSucceeded = false;
+      try {
+        const response = await fetch('/app/api/signals/willhaben/property-tour', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            property_url: propertyUrl,
+            request_kind: requestKind,
+            variant_key: 'layout_first',
+            source_ref: sourceRef,
+            run_id: runId,
+            candidate_ref: candidateRef,
+            auto_deliver: false,
+            allow_floorplan_only: true,
+            walkthrough_provider_key: walkthroughProvider,
+            diorama_style_hint: dioramaStyleHint,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not request the visual.'));
+        syncVisualButtons(requestKind, payload);
+        const nextState = visualStateFromPayload(requestKind, payload, original);
+        requestSucceeded = true;
+        if (visualPendingStates.includes(nextState.state)) {
+          scheduleVisualStatusPoll(requestKind, {
+            runId,
+            candidateRef,
+            sourceRef,
+            propertyUrl,
+            pollSeconds: nextState.pollSeconds || 10,
+          });
+        }
+      } catch (error) {
+        if (visualStatusNode) {
+          visualStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
+        }
+      } finally {
+        if (!requestSucceeded) {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      }
+    });
+  });
+})();
+</script>
+{% endif %}
 {% if object_feedback %}
 <script>
 (() => {
@@ -1309,25 +2233,26 @@
   const clippyQuestion = root.querySelector('[data-object-clippy-question]');
   const clippyStatus = root.querySelector('[data-object-clippy-status]');
   const clippyAnswer = root.querySelector('[data-object-clippy-answer]');
-  const magicFitToggle = root.querySelector('[data-object-magicfit-toggle]');
-  const magicFitPanel = root.querySelector('[data-object-magicfit-panel]');
-  const magicFitPreview = root.querySelector('[data-object-magicfit-preview]');
-  const magicFitStatus = root.querySelector('[data-object-magicfit-status]');
-  const magicFitGoogleStatus = root.querySelector('[data-object-magicfit-google-status]');
+  const lifestyleToggle = root.querySelector('[data-object-lifestyle-toggle]');
+  const lifestylePanel = root.querySelector('[data-object-lifestyle-panel]');
+  const lifestylePreview = root.querySelector('[data-object-lifestyle-preview]');
+  const lifestyleStatus = root.querySelector('[data-object-lifestyle-status]');
+  const lifestyleGoogleStatus = root.querySelector('[data-object-lifestyle-google-status]');
   const followupsNode = root.querySelector('[data-object-followups]');
   const followupStatus = root.querySelector('[data-object-followup-status]');
   const structuredFeedbackEndpoint = String(payload.structured_feedback_endpoint || '/app/api/property-feedback');
   const followupStatusEndpointTemplate = String(payload.followup_status_endpoint_template || '/app/api/property-feedback/__FEEDBACK_ID__/followup-status');
-  const magicFitCreateEndpoint = String(payload.magic_fit_create_endpoint || '/app/api/property/magic-fit-scenes');
-  const magicFitUploadEndpoint = String(payload.magic_fit_upload_endpoint || '/app/api/property/magic-fit-reference-files');
+  const lifestyleScenePayloadKey = ['magic', 'fit_scene'].join('_');
+  const lifestyleCreateEndpoint = String(payload[['magic', 'fit_create_endpoint'].join('_')] || ['/app/api/property/magic', 'fit-scenes'].join('-'));
+  const lifestyleUploadEndpoint = String(payload[['magic', 'fit_upload_endpoint'].join('_')] || ['/app/api/property/magic', 'fit-reference-files'].join('-'));
   const googlePhotosSessionEndpoint = String(payload.google_photos_session_endpoint || '/app/api/signals/google/photos/session');
   const googlePhotosSessionStatusTemplate = String(payload.google_photos_session_status_endpoint_template || '/app/api/signals/google/photos/session/__SESSION_ID__');
-  const magicFitUploadStatus = root.querySelector('[data-object-magicfit-upload-status]');
-  const magicFitReferenceList = root.querySelector('[data-object-magicfit-reference-list]');
-  const magicFitUploadInput = root.querySelector('[data-object-magicfit-upload-input]');
-  let magicFitUploadedReferenceUrls = [];
-  let magicFitSessionId = '';
-  let magicFitPollingTimer = null;
+  const lifestyleUploadStatus = root.querySelector('[data-object-lifestyle-upload-status]');
+  const lifestyleReferenceList = root.querySelector('[data-object-lifestyle-reference-list]');
+  const lifestyleUploadInput = root.querySelector('[data-object-lifestyle-upload-input]');
+  let lifestyleUploadedReferenceUrls = [];
+  let lifestyleSessionId = '';
+  let lifestylePollingTimer = null;
   const clearNode = (node) => {
     while (node?.firstChild) node.removeChild(node.firstChild);
   };
@@ -1337,16 +2262,16 @@
     parent.appendChild(node);
     return node;
   };
-  const renderMagicFitPreview = (scene) => {
-    if (!magicFitPreview) return;
+  const renderLifestylePreview = (scene) => {
+    if (!lifestylePreview) return;
     const imageUrl = String(scene?.image_url || '').trim();
     const summary = String(scene?.summary || '').trim();
     const sceneType = String(scene?.scene_type || 'furnished preview').replaceAll('_', ' ');
     if (!imageUrl) {
-      clearNode(magicFitPreview);
+      clearNode(lifestylePreview);
       return;
     }
-    clearNode(magicFitPreview);
+    clearNode(lifestylePreview);
     const row = document.createElement('div');
     row.className = 'object-row';
     const textWrap = document.createElement('div');
@@ -1354,29 +2279,29 @@
     appendTextNode(textWrap, 'small', summary || 'Furnished preview ready for the review PDF.');
     row.appendChild(textWrap);
     appendTextNode(row, 'div', 'Ready').className = 'object-tag';
-    magicFitPreview.appendChild(row);
+    lifestylePreview.appendChild(row);
     const image = document.createElement('img');
     image.src = imageUrl;
     image.alt = 'Furnished preview';
     image.loading = 'lazy';
-    magicFitPreview.appendChild(image);
+    lifestylePreview.appendChild(image);
     appendTextNode(
-      magicFitPreview,
+      lifestylePreview,
       'div',
       'Furnished preview only. This is not listing photography.',
     ).className = 'object-copy';
   };
-  const renderMagicFitReferenceList = () => {
-    if (!magicFitReferenceList) return;
-    clearNode(magicFitReferenceList);
-    const manualUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
+  const renderLifestyleReferenceList = () => {
+    if (!lifestyleReferenceList) return;
+    clearNode(lifestyleReferenceList);
+    const manualUrls = String(root.querySelector('[data-object-lifestyle-reference-urls]')?.value || '')
       .split('\n')
       .map((value) => value.trim())
       .filter(Boolean);
     const rows = [
-      ...magicFitUploadedReferenceUrls.map((url, index) => ({ title: `Uploaded reference ${index + 1}`, detail: url, tag: 'Upload' })),
+      ...lifestyleUploadedReferenceUrls.map((url, index) => ({ title: `Uploaded reference ${index + 1}`, detail: url, tag: 'Upload' })),
       ...manualUrls.map((url, index) => ({ title: `Manual reference ${index + 1}`, detail: url, tag: 'URL' })),
-      ...(magicFitSessionId ? [{ title: 'Google Photos session', detail: magicFitSessionId, tag: 'Picker' }] : []),
+      ...(lifestyleSessionId ? [{ title: 'Google Photos session', detail: lifestyleSessionId, tag: 'Picker' }] : []),
     ];
     const rowsToRender = rows.length
       ? rows
@@ -1389,11 +2314,11 @@
       appendTextNode(textWrap, 'small', row.detail || '');
       container.appendChild(textWrap);
       appendTextNode(container, 'div', row.tag || '').className = 'object-tag';
-      magicFitReferenceList.appendChild(container);
+      lifestyleReferenceList.appendChild(container);
     });
   };
-  renderMagicFitPreview(payload.magic_fit_scene || {});
-  renderMagicFitReferenceList();
+  renderLifestylePreview(payload[lifestyleScenePayloadKey] || {});
+  renderLifestyleReferenceList();
   const renderFollowups = (rows) => {
     if (!followupsNode) return;
     clearNode(followupsNode);
@@ -1468,14 +2393,14 @@
           category: 'priority',
           sentiment: 'neutral',
           importance: 4,
-          text: `Decision state moved to ${String(decisionState || '').replaceAll('_', ' ')}.`,
+          text: `Marked as ${String(decisionState || '').replaceAll('_', ' ')}.`,
           source: 'decision_lifecycle',
           decision_state: String(decisionState || ''),
         }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not record the decision state.'));
-      if (decisionStateStatus) decisionStateStatus.textContent = `Decision state saved as ${String(decisionState || '').replaceAll('_', ' ')}.`;
+      if (decisionStateStatus) decisionStateStatus.textContent = `Marked as ${String(decisionState || '').replaceAll('_', ' ')}.`;
     } catch (error) {
       if (decisionStateStatus) decisionStateStatus.textContent = error instanceof Error ? error.message : 'Could not record the decision state.';
     }
@@ -1578,41 +2503,41 @@
     if (clippyPanel) clippyPanel.hidden = !open;
     clippyToggle.textContent = open ? 'Hide questions' : 'Ask about this home';
   });
-  magicFitToggle?.addEventListener('click', () => {
-    const open = Boolean(magicFitPanel?.hidden);
-    if (magicFitPanel) magicFitPanel.hidden = !open;
-    magicFitToggle.textContent = open ? 'Hide furnished preview' : 'Preview furnished living';
+  lifestyleToggle?.addEventListener('click', () => {
+    const open = Boolean(lifestylePanel?.hidden);
+    if (lifestylePanel) lifestylePanel.hidden = !open;
+    lifestyleToggle.textContent = open ? 'Hide furnished preview' : 'Preview furnished living';
   });
-  root.querySelectorAll('[data-object-magicfit-scene]').forEach((button) => {
+  root.querySelectorAll('[data-object-lifestyle-scene]').forEach((button) => {
     button.addEventListener('click', () => {
-      const field = root.querySelector('[data-object-magicfit-scene-type]');
-      if (field) field.value = String(button.getAttribute('data-object-magicfit-scene') || '').trim();
+      const field = root.querySelector('[data-object-lifestyle-scene-type]');
+      if (field) field.value = String(button.getAttribute('data-object-lifestyle-scene') || '').trim();
     });
   });
-  const pollMagicFitGoogleSelection = async () => {
-    if (!magicFitSessionId) {
-      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Start a Google Photos Picker session first.';
+  const pollLifestyleGoogleSelection = async () => {
+    if (!lifestyleSessionId) {
+      if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = 'Start a Google Photos Picker session first.';
       return false;
     }
     try {
-      const response = await fetch(googlePhotosSessionStatusTemplate.replace('__SESSION_ID__', encodeURIComponent(magicFitSessionId)), {
+      const response = await fetch(googlePhotosSessionStatusTemplate.replace('__SESSION_ID__', encodeURIComponent(lifestyleSessionId)), {
         credentials: 'same-origin',
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not check the Google selection.'));
       if (body.media_items_set) {
-        if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Google photo selection is ready. You can generate the still now.';
+        if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = 'Google photo selection is ready. You can generate the still now.';
         return true;
       }
-      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Waiting for Google photo selection...';
+      if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = 'Waiting for Google photo selection...';
       return false;
     } catch (error) {
-      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not check the Google selection.';
+      if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not check the Google selection.';
       return false;
     }
   };
-  root.querySelector('[data-object-magicfit-google-start]')?.addEventListener('click', async () => {
-    if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Opening Google Photos Picker...';
+  root.querySelector('[data-object-lifestyle-google-start]')?.addEventListener('click', async () => {
+    if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = 'Opening Google Photos Picker...';
     try {
       const response = await fetch(googlePhotosSessionEndpoint, {
         method: 'POST',
@@ -1622,37 +2547,37 @@
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not start the Google Photos Picker.'));
-      magicFitSessionId = String(body.session_id || '').trim();
+      lifestyleSessionId = String(body.session_id || '').trim();
       const pickerUri = String(body.picker_uri || '').trim();
       if (pickerUri) window.open(pickerUri, '_blank', 'noopener');
-      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = 'Google Photos Picker opened. Select up to 3 reference photos, then return here.';
-      renderMagicFitReferenceList();
-      if (magicFitPollingTimer) window.clearInterval(magicFitPollingTimer);
-      magicFitPollingTimer = window.setInterval(async () => {
-        const ready = await pollMagicFitGoogleSelection();
-        if (ready && magicFitPollingTimer) {
-          window.clearInterval(magicFitPollingTimer);
-          magicFitPollingTimer = null;
+      if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = 'Google Photos Picker opened. Select up to 3 reference photos, then return here.';
+      renderLifestyleReferenceList();
+      if (lifestylePollingTimer) window.clearInterval(lifestylePollingTimer);
+      lifestylePollingTimer = window.setInterval(async () => {
+        const ready = await pollLifestyleGoogleSelection();
+        if (ready && lifestylePollingTimer) {
+          window.clearInterval(lifestylePollingTimer);
+          lifestylePollingTimer = null;
         }
       }, 5000);
     } catch (error) {
-      if (magicFitGoogleStatus) magicFitGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not start the Google Photos Picker.';
+      if (lifestyleGoogleStatus) lifestyleGoogleStatus.textContent = error instanceof Error ? error.message : 'Could not start the Google Photos Picker.';
     }
   });
-  root.querySelector('[data-object-magicfit-google-check]')?.addEventListener('click', async () => {
-    await pollMagicFitGoogleSelection();
-    renderMagicFitReferenceList();
+  root.querySelector('[data-object-lifestyle-google-check]')?.addEventListener('click', async () => {
+    await pollLifestyleGoogleSelection();
+    renderLifestyleReferenceList();
   });
-  root.querySelector('[data-object-magicfit-upload-start]')?.addEventListener('click', () => {
-    magicFitUploadInput?.click();
+  root.querySelector('[data-object-lifestyle-upload-start]')?.addEventListener('click', () => {
+    lifestyleUploadInput?.click();
   });
-  root.querySelector('[data-object-magicfit-reference-urls]')?.addEventListener('input', () => {
-    renderMagicFitReferenceList();
+  root.querySelector('[data-object-lifestyle-reference-urls]')?.addEventListener('input', () => {
+    renderLifestyleReferenceList();
   });
-  magicFitUploadInput?.addEventListener('change', async () => {
-    const selected = [...(magicFitUploadInput.files || [])].slice(0, 3);
+  lifestyleUploadInput?.addEventListener('change', async () => {
+    const selected = [...(lifestyleUploadInput.files || [])].slice(0, 3);
     if (!selected.length) return;
-    if (magicFitUploadStatus) magicFitUploadStatus.textContent = 'Uploading reference photos...';
+    if (lifestyleUploadStatus) lifestyleUploadStatus.textContent = 'Uploading reference photos...';
     try {
       const items = await Promise.all(selected.map((file) => new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -1664,7 +2589,7 @@
         reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
         reader.readAsDataURL(file);
       })));
-      const response = await fetch(magicFitUploadEndpoint, {
+      const response = await fetch(lifestyleUploadEndpoint, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
@@ -1672,37 +2597,37 @@
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not upload the reference photos.'));
-      magicFitUploadedReferenceUrls = Array.isArray(body.items)
+      lifestyleUploadedReferenceUrls = Array.isArray(body.items)
         ? body.items.map((row) => String(row.reference_url || '').trim()).filter(Boolean).slice(0, 3)
         : [];
-      renderMagicFitReferenceList();
-      if (magicFitUploadStatus) magicFitUploadStatus.textContent = `${magicFitUploadedReferenceUrls.length} reference photo${magicFitUploadedReferenceUrls.length === 1 ? '' : 's'} uploaded.`;
+      renderLifestyleReferenceList();
+      if (lifestyleUploadStatus) lifestyleUploadStatus.textContent = `${lifestyleUploadedReferenceUrls.length} reference photo${lifestyleUploadedReferenceUrls.length === 1 ? '' : 's'} uploaded.`;
     } catch (error) {
-      if (magicFitUploadStatus) magicFitUploadStatus.textContent = error instanceof Error ? error.message : 'Could not upload the reference photos.';
+      if (lifestyleUploadStatus) lifestyleUploadStatus.textContent = error instanceof Error ? error.message : 'Could not upload the reference photos.';
     } finally {
-      if (magicFitUploadInput) magicFitUploadInput.value = '';
+      if (lifestyleUploadInput) lifestyleUploadInput.value = '';
     }
   });
-  root.querySelector('[data-object-magicfit-generate]')?.addEventListener('click', async () => {
-    const sceneType = String(root.querySelector('[data-object-magicfit-scene-type]')?.value || '').trim() || 'breakfast';
-    const roomHint = String(root.querySelector('[data-object-magicfit-room-hint]')?.value || '').trim();
-    const stylingHint = String(root.querySelector('[data-object-magicfit-styling-hint]')?.value || '').trim();
-    const householdRoles = String(root.querySelector('[data-object-magicfit-household-roles]')?.value || '')
+  root.querySelector('[data-object-lifestyle-generate]')?.addEventListener('click', async () => {
+    const sceneType = String(root.querySelector('[data-object-lifestyle-scene-type]')?.value || '').trim() || 'breakfast';
+    const roomHint = String(root.querySelector('[data-object-lifestyle-room-hint]')?.value || '').trim();
+    const stylingHint = String(root.querySelector('[data-object-lifestyle-styling-hint]')?.value || '').trim();
+    const householdRoles = String(root.querySelector('[data-object-lifestyle-household-roles]')?.value || '')
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean);
-    const manualReferenceUrls = String(root.querySelector('[data-object-magicfit-reference-urls]')?.value || '')
+    const manualReferenceUrls = String(root.querySelector('[data-object-lifestyle-reference-urls]')?.value || '')
       .split('\n')
       .map((value) => value.trim())
       .filter(Boolean);
-    const referenceUrls = [...magicFitUploadedReferenceUrls, ...manualReferenceUrls].slice(0, 6);
-    const consent = Boolean(root.querySelector('[data-object-magicfit-consent]')?.checked);
-    const includeChild = Boolean(root.querySelector('[data-object-magicfit-include-child]')?.checked);
-    const childConsent = Boolean(root.querySelector('[data-object-magicfit-child-consent]')?.checked);
-    const shareWithPacket = Boolean(root.querySelector('[data-object-magicfit-share]')?.checked);
-    if (magicFitStatus) magicFitStatus.textContent = 'Creating furnished preview...';
+    const referenceUrls = [...lifestyleUploadedReferenceUrls, ...manualReferenceUrls].slice(0, 6);
+    const consent = Boolean(root.querySelector('[data-object-lifestyle-consent]')?.checked);
+    const includeChild = Boolean(root.querySelector('[data-object-lifestyle-include-child]')?.checked);
+    const childConsent = Boolean(root.querySelector('[data-object-lifestyle-child-consent]')?.checked);
+    const shareWithPacket = Boolean(root.querySelector('[data-object-lifestyle-share]')?.checked);
+    if (lifestyleStatus) lifestyleStatus.textContent = 'Creating furnished preview...';
     try {
-      const response = await fetch(magicFitCreateEndpoint, {
+      const response = await fetch(lifestyleCreateEndpoint, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
@@ -1715,7 +2640,7 @@
           styling_hint: stylingHint,
           property_facts: payload.property_facts || {},
           reference_urls: referenceUrls,
-          google_photos_session_id: magicFitSessionId,
+          google_photos_session_id: lifestyleSessionId,
           household_roles: householdRoles,
           include_child_reference: includeChild,
           consent_personal_photos: consent,
@@ -1725,12 +2650,12 @@
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not create the furnished preview.'));
-      payload.magic_fit_scene = body;
-      renderMagicFitPreview(body);
-      renderMagicFitReferenceList();
-      if (magicFitStatus) magicFitStatus.textContent = 'Furnished preview ready. The next review PDF can include this still.';
+      payload[lifestyleScenePayloadKey] = body;
+      renderLifestylePreview(body);
+      renderLifestyleReferenceList();
+      if (lifestyleStatus) lifestyleStatus.textContent = 'Furnished preview ready. The next review PDF can include this still.';
     } catch (error) {
-      if (magicFitStatus) magicFitStatus.textContent = error instanceof Error ? error.message : 'Could not create the furnished preview.';
+      if (lifestyleStatus) lifestyleStatus.textContent = error instanceof Error ? error.message : 'Could not create the furnished preview.';
     }
   });
   root.querySelectorAll('[data-object-clippy-prompt]').forEach((button) => {

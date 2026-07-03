@@ -631,8 +631,8 @@ def _propertyquarry_verified_public_tour_href(value: object) -> str:
     tour_url = _propertyquarry_absolute_public_url(value)
     if not tour_url:
         return ""
-    verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url)
-    return _propertyquarry_public_href(verified_tour_href) if verified_tour_href else ""
+    first_party_tour_href = property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url)
+    return _propertyquarry_public_href(first_party_tour_href) if first_party_tour_href else ""
 
 
 def _property_account_preference_profile_timeout_seconds() -> float:
@@ -807,15 +807,16 @@ def _propertyquarry_normalize_public_tour_candidate(candidate: object) -> dict[s
         return candidate
     candidate_row = dict(candidate)
     tour_url = _propertyquarry_absolute_public_url(candidate_row.get("tour_url"))
-    verified_tour_url = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) if tour_url else ""
+    verified_tour_url = property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url) if tour_url else ""
     if verified_tour_url:
         candidate_row["tour_url"] = verified_tour_url
         tour_payload = dict(candidate_row.get("tour") or {}) if isinstance(candidate_row.get("tour"), dict) else {}
-        if tour_payload:
-            tour_payload["url"] = verified_tour_url
-            if str(tour_payload.get("embed_url") or "").strip():
-                tour_payload["embed_url"] = verified_tour_url
-            candidate_row["tour"] = tour_payload
+        tour_payload["url"] = verified_tour_url
+        if str(tour_payload.get("embed_url") or "").strip():
+            tour_payload["embed_url"] = verified_tour_url
+        elif "embed_url" not in tour_payload:
+            tour_payload["embed_url"] = verified_tour_url
+        candidate_row["tour"] = tour_payload
     return candidate_row
 
 
@@ -1158,26 +1159,26 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
             continue
         bundle_tour_url = _propertyquarry_absolute_public_url(bundle_tour_href)
         slug = str(payload.get("slug") or bundle_dir.name).strip()
-        verified_tour_href = ""
+        resolved_tour_href = ""
         tour_label = ""
         try:
             if property_tour_hosting._hosted_property_tour_has_3dvista_export(bundle_tour_url):
-                verified_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/3dvista"
+                resolved_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/3dvista"
                 tour_label = "3D tour available"
             elif property_tour_hosting._hosted_property_tour_has_matterport_export(bundle_tour_url):
-                verified_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/matterport"
+                resolved_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/matterport"
                 tour_label = "3D tour available"
         except Exception:
-            verified_tour_href = ""
-        if not verified_tour_href:
-            verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(bundle_tour_url)
-            if verified_tour_href:
+            resolved_tour_href = ""
+        if not resolved_tour_href:
+            resolved_tour_href = property_tour_hosting._hosted_property_tour_first_party_open_url(bundle_tour_url)
+            if resolved_tour_href:
                 tour_label = "3D tour available"
-        if not verified_tour_href:
+        if not resolved_tour_href:
             continue
         targets = {
             "demo_href": _propertyquarry_public_href(bundle_tour_url),
-            "tour_href": _propertyquarry_public_href(verified_tour_href),
+            "tour_href": _propertyquarry_public_href(resolved_tour_href),
             "tour_label": tour_label or "3D tour available",
         }
         walkthrough_asset_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(bundle_tour_url)
@@ -1189,6 +1190,7 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         score += 80 if "/control/3dvista" in targets.get("tour_href", "") else 0
         score += 40 if "/control/matterport" in targets.get("tour_href", "") else 0
         score += 20 if "/control/pano2vr" in targets.get("tour_href", "") else 0
+        score += 30 if "/generated-reconstruction/" in targets.get("tour_href", "") else 0
         candidates.append((score, str(payload.get("display_title") or payload.get("title") or slug), targets))
     if candidates:
         candidates.sort(key=lambda row: (-row[0], row[1]))
@@ -2499,7 +2501,7 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
 
     if request_brand(request)["key"] == "propertyquarry":
         billing_handoff = _property_brilliant_directories_billing_handoff()
-        billing_label, _billing_detail = _property_pricing_billing_link_copy(billing_handoff)
+        billing_label, billing_detail = _property_pricing_billing_link_copy(billing_handoff)
         billing_open_href = _property_billing_usable_open_href(billing_handoff)
         if billing_open_href:
             billing_target = billing_open_href
@@ -2510,6 +2512,7 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
     else:
         billing_target = "/app/billing"
         billing_label = "Billing account"
+        billing_detail = "Manage billing from your account."
         if request.url.path == "/app/search":
             billing_target = _property_billing_fallback_href()
 
@@ -2524,6 +2527,7 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
         "profile_label": "Search defaults",
         "billing_href": billing_href,
         "billing_label": billing_label,
+        "billing_detail": billing_detail,
         "settings_href": _with_run_suffix("/app/account#connected-services"),
         "sign_out_action": "/app/actions/sign-out",
         "sign_out_return_to": sign_out_return_to,
@@ -5583,14 +5587,14 @@ def property_research_packet(
     if str(candidate.get("packet_url") or review_url or "").strip():
         hero_actions.append({"href": str(candidate.get("packet_url") or review_url or "").strip(), "label": "Copy page link", "copy": True})
     visual_status_line = ""
-    if flythrough_url:
+    if (hosted_tour_ready or generated_reconstruction_ready) and tour_url:
+        visual_status_line = str(research_media.get("status_detail") or "3D tour available.").strip()
+    elif flythrough_url:
         visual_status_line = str(research_media.get("walkthrough_status_detail") or "Walkthrough is available on this page.").strip()
     elif flythrough_status in {"queued", "pending"}:
         visual_status_line = live_flythrough_detail or "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
         visual_status_line = live_flythrough_detail or "Walkthrough rendering."
-    elif (hosted_tour_ready or generated_reconstruction_ready) and tour_url:
-        visual_status_line = str(research_media.get("status_detail") or "3D tour available.").strip()
     elif tour_status in {"queued", "pending"}:
         visual_status_line = "3D tour queued."
     elif tour_status in {"processing", "running", "in_progress", "started"}:
@@ -6235,20 +6239,24 @@ def app_shell(
                     target = f"{target}?{target_query}"
                 return RedirectResponse(target, status_code=303)
         explicit_full_view = str(full or "").strip().lower() in {"1", "true", "yes"}
-        if resolved_section == "properties":
+        if resolved_section in {"properties", "shortlist"}:
             route_run_status = str(route_run.get("status") or "").strip().lower()
             route_run_summary = dict(route_run.get("summary") or {}) if isinstance(route_run.get("summary"), dict) else {}
             route_ranked_candidates = list(route_run_summary.get("ranked_candidates") or route_run.get("ranked_candidates") or [])
             route_sources = list(route_run_summary.get("sources") or route_run.get("sources") or [])
+            has_source_top_candidates = any(
+                isinstance(source, dict) and list(source.get("top_candidates") or [])
+                for source in route_sources
+            )
             if (
                 not explicit_full_view
                 and route_run_status in {"processed", "completed", "completed_partial"}
-                and route_ranked_candidates
-                and not str(route_run.get("status_url") or "").strip()
+                and (route_ranked_candidates or has_source_top_candidates)
             ):
                 return RedirectResponse(_propertyquarry_fast_ranked_run_href(normalized_run_id), status_code=307)
             if (
-                not explicit_full_view
+                resolved_section == "properties"
+                and not explicit_full_view
                 and route_run_status in {"in_progress", "running", "processing", "scanning", "starting"}
                 and not route_ranked_candidates
                 and not route_sources

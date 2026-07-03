@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 
-REQUIRED_TOUR_PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
+REQUIRED_TOUR_PROVIDER_MODES = ("matterport", "3dvista", "krpano", "magicfit")
+OPTIONAL_TOUR_PROVIDER_MODES = ("pano2vr",)
 ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES = ("AT", "DE", "CR")
 REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
     "research_candidate",
@@ -165,6 +166,7 @@ DEFAULT_RECEIPT_PATTERNS = {
     "tour_delivery_contract": ("_completion/tour_delivery/property-tour-delivery-contract*.json",),
     "map_preview_flagship": ("_completion/smoke/property-live-map-preview-flagship*.json",),
     "browser_3d_gate": ("_completion/smoke/property-live-3d-browser-gate*.json",),
+    "runtime_reconstruction": ("_completion/tours/property-runtime-reconstruction*.json",),
     "walkthrough_quality": ("_completion/smoke/property-live-walkthrough-quality*.json",),
     "scene_video_readiness": (
         "_completion/scene_video_readiness/release-gate.json",
@@ -205,6 +207,7 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "tour_delivery_contract": "_completion/tour_delivery/property-tour-delivery-contract-latest.json",
     "map_preview_flagship": "_completion/smoke/property-live-map-preview-flagship-latest.json",
     "browser_3d_gate": "_completion/smoke/property-live-3d-browser-gate-latest.json",
+    "runtime_reconstruction": "_completion/tours/property-runtime-reconstruction-release-gate.json",
     "walkthrough_quality": "_completion/smoke/property-live-walkthrough-quality-latest.json",
     "scene_video_readiness": "_completion/scene_video_readiness/release-gate.json",
     "scene_video_readiness_verifier": "_completion/scene_video_readiness/release-gate-verifier.json",
@@ -457,6 +460,14 @@ def _receipt_freshness_status(
 
 
 def _missing_provider_modes(tour_receipt: dict[str, Any]) -> list[str]:
+    required_modes = {
+        str(provider or "").strip().lower()
+        for provider in list(tour_receipt.get("required_provider_modes") or [])
+        if str(provider or "").strip()
+    } or set(REQUIRED_TOUR_PROVIDER_MODES)
+    required_modes.intersection_update(REQUIRED_TOUR_PROVIDER_MODES)
+    if not required_modes:
+        required_modes = set(REQUIRED_TOUR_PROVIDER_MODES)
     ready = {
         str(provider or "").strip().lower()
         for provider in list(tour_receipt.get("ready_provider_modes") or [])
@@ -465,12 +476,12 @@ def _missing_provider_modes(tour_receipt: dict[str, Any]) -> list[str]:
     missing = [
         provider
         for provider in REQUIRED_TOUR_PROVIDER_MODES
-        if provider not in ready
+        if provider in required_modes and provider not in ready
     ]
     explicit_missing = [
         str(provider or "").strip().lower()
         for provider in list(tour_receipt.get("missing_provider_modes") or [])
-        if str(provider or "").strip().lower() in REQUIRED_TOUR_PROVIDER_MODES
+        if str(provider or "").strip().lower() in required_modes
     ]
     for provider in explicit_missing:
         if provider not in missing:
@@ -1033,6 +1044,7 @@ def build_gold_status_receipt(
     tour_delivery_contract_receipt_path: Path | None = None,
     map_preview_flagship_receipt_path: Path | None = None,
     browser_3d_gate_receipt_path: Path | None = None,
+    runtime_reconstruction_receipt_path: Path | None = None,
     walkthrough_quality_receipt_path: Path | None = None,
     scene_video_readiness_receipt_path: Path | None = None,
     scene_video_readiness_verifier_receipt_path: Path | None = None,
@@ -1063,6 +1075,7 @@ def build_gold_status_receipt(
     tour_delivery_contract = _load_json(tour_delivery_contract_receipt_path) if tour_delivery_contract_receipt_path is not None else {}
     map_preview_flagship = _load_json(map_preview_flagship_receipt_path) if map_preview_flagship_receipt_path is not None else {}
     browser_3d_gate = _load_json(browser_3d_gate_receipt_path) if browser_3d_gate_receipt_path is not None else {}
+    runtime_reconstruction = _load_json(runtime_reconstruction_receipt_path) if runtime_reconstruction_receipt_path is not None else {}
     walkthrough_quality = _load_json(walkthrough_quality_receipt_path) if walkthrough_quality_receipt_path is not None else {}
     scene_video_readiness = _load_json(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else {}
     scene_video_readiness_verifier = _load_json(scene_video_readiness_verifier_receipt_path) if scene_video_readiness_verifier_receipt_path is not None else {}
@@ -1095,6 +1108,7 @@ def build_gold_status_receipt(
             **({"tour_delivery_contract": tour_delivery_contract} if tour_delivery_contract_receipt_path is not None else {}),
             **({"map_preview_flagship": map_preview_flagship} if map_preview_flagship_receipt_path is not None else {}),
             **({"browser_rendered_3d": browser_3d_gate} if browser_3d_gate_receipt_path is not None else {}),
+            **({"generated_reconstruction_glb": runtime_reconstruction} if runtime_reconstruction_receipt_path is not None else {}),
             **({"walkthrough_quality": walkthrough_quality} if walkthrough_quality_receipt_path is not None else {}),
             **({"scene_video_readiness": scene_video_readiness} if scene_video_readiness_receipt_path is not None else {}),
             **({"scene_video_readiness_verifier": scene_video_readiness_verifier} if scene_video_readiness_verifier_receipt_path is not None else {}),
@@ -1197,6 +1211,21 @@ def build_gold_status_receipt(
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes and magicfit_playback_ok
     browser_3d_gate_ok = browser_3d_gate_receipt_path is None or _hard_gate_receipt_ok(browser_3d_gate)
+    runtime_reconstruction_details = dict(runtime_reconstruction.get("details") or {})
+    runtime_reconstruction_paths = dict(runtime_reconstruction_details.get("paths") or {})
+    runtime_reconstruction_glb = dict(runtime_reconstruction_paths.get("glb") or {})
+    runtime_reconstruction_ok = (
+        runtime_reconstruction_receipt_path is None
+        or (
+            runtime_reconstruction.get("status") == "pass"
+            and runtime_reconstruction.get("browser_render_ok") is True
+            and runtime_reconstruction.get("glb_capability_ok") is True
+            and runtime_reconstruction.get("glb_manifest_ok") is True
+            and runtime_reconstruction.get("glb_non_empty") is True
+            and runtime_reconstruction.get("glb_required") is True
+            and runtime_reconstruction.get("required_paths_ok") is True
+        )
+    )
     walkthrough_quality_ok = walkthrough_quality_receipt_path is None or _hard_gate_receipt_ok(walkthrough_quality)
     scene_video_readiness_verifier_ok = (
         scene_video_readiness_verifier_receipt_path is None
@@ -1232,7 +1261,7 @@ def build_gold_status_receipt(
     expected_import_providers = (
         set()
         if import_manifest_not_needed
-        else (manifest_providers or {"3dvista", "pano2vr", "krpano", "magicfit"})
+        else (manifest_providers or {"3dvista", "krpano", "magicfit"})
     )
     prepared_drop_providers = set(_operator_drop_provider_rows(import_manifest))
     hardened_readmes_ok, hardened_readme_provider_count, missing_hardened_readme_providers, hardened_readme_failures = _operator_drop_readme_status(
@@ -1319,7 +1348,10 @@ def build_gold_status_receipt(
             and not list(tour_delivery_contract.get("failures") or [])
             and "matterport" in set(tour_delivery_contract.get("ready_provider_modes") or [])
             and int(tour_delivery_contract.get("matterport_ready_count") or 0) > 0
-            and set(tour_delivery_contract.get("required_providers") or []) == set(REQUIRED_TOUR_PROVIDER_MODES)
+            and (
+                set(tour_delivery_contract.get("required_provider_modes") or tour_delivery_contract.get("required_providers") or [])
+                == set(REQUIRED_TOUR_PROVIDER_MODES)
+            )
         )
     )
     map_preview_flagship_ok = map_preview_flagship_receipt_path is None or _hard_gate_receipt_ok(map_preview_flagship)
@@ -1418,6 +1450,21 @@ def build_gold_status_receipt(
                 "provider_results": browser_3d_gate.get("provider_results") or [],
                 "failed_checks": _failed_receipt_checks(browser_3d_gate),
                 "action": "rerun propertyquarry_3d_browser_gate.py and only claim 3D readiness when every visible 3D tour renders in a real browser without CSP, frame, network, loading, or blank-viewer failures",
+            }
+        )
+    if not runtime_reconstruction_ok:
+        blockers.append(
+            {
+                "area": "generated_reconstruction_glb",
+                "status": runtime_reconstruction.get("status") or ("not_configured" if runtime_reconstruction_receipt_path is None else "missing"),
+                "glb_export_status": runtime_reconstruction_details.get("glb_export_status"),
+                "glb_non_empty": runtime_reconstruction.get("glb_non_empty"),
+                "glb_manifest_ok": runtime_reconstruction.get("glb_manifest_ok"),
+                "glb_capability_ok": runtime_reconstruction.get("glb_capability_ok"),
+                "required_paths_ok": runtime_reconstruction.get("required_paths_ok"),
+                "browser_render_ok": runtime_reconstruction.get("browser_render_ok"),
+                "viewer_url": str(runtime_reconstruction.get("viewer_url") or ""),
+                "action": "rerun property_runtime_reconstruction_smoke.py with --require-glb and --require-browser; fix Blender/NumPy/runtime export or public viewer rendering before claiming generated 3D readiness",
             }
         )
     if not map_preview_flagship_ok:
@@ -1784,6 +1831,15 @@ def build_gold_status_receipt(
         if browser_3d_gate_receipt_path is not None and browser_3d_gate_ok
         else None,
         {
+            "area": "generated_reconstruction_glb",
+            "status": "pass",
+            "viewer_url": str(runtime_reconstruction.get("viewer_url") or ""),
+            "glb_size_bytes": runtime_reconstruction_glb.get("size_bytes"),
+            "receipt_path": str(runtime_reconstruction_receipt_path),
+        }
+        if runtime_reconstruction_receipt_path is not None and runtime_reconstruction_ok
+        else None,
+        {
             "area": "walkthrough_quality",
             "status": "pass",
             "video_relpath": str(walkthrough_quality.get("video_relpath") or ""),
@@ -1839,6 +1895,7 @@ def build_gold_status_receipt(
             and tour_delivery_contract_ok
             and map_preview_flagship_ok
             and browser_3d_gate_ok
+            and runtime_reconstruction_ok
             and walkthrough_quality_ok
             and scene_video_readiness_verifier_ok
             and scene_video_provider_refresh_packet_verifier_ok
@@ -1884,6 +1941,8 @@ def build_gold_status_receipt(
             notes.append("MagicFit is still blocked on renderer configuration, not just a missing imported walkthrough asset.")
         if not browser_3d_gate_ok:
             notes.append("3D browser readiness is blocked until the viewer renders in Chromium, not merely until a tour route exists.")
+        if not runtime_reconstruction_ok:
+            notes.append("Generated 3D readiness is blocked until the live runtime exports a non-empty GLB and the public viewer renders it in Chromium.")
         if not map_preview_flagship_ok:
             notes.append("Map preview readiness is blocked until generated thumbnails pass the visual-asset gate, not merely until the PNG route exists.")
         if not walkthrough_quality_ok:
@@ -1960,6 +2019,8 @@ def build_gold_status_receipt(
             "magicfit_playback": magicfit_playback,
             "magicfit_playback_ok": magicfit_playback_ok,
             "ready_provider_modes": tour_controls.get("ready_provider_modes"),
+            "required_provider_modes": tour_controls.get("required_provider_modes") or list(REQUIRED_TOUR_PROVIDER_MODES),
+            "optional_provider_modes": tour_controls.get("optional_provider_modes") or list(OPTIONAL_TOUR_PROVIDER_MODES),
             "missing_provider_modes": missing_provider_modes,
             "receipt_path": str(tour_control_receipt_path),
         },
@@ -1972,6 +2033,20 @@ def build_gold_status_receipt(
             "ready": browser_3d_gate_ok if browser_3d_gate_receipt_path is not None else None,
             "receipt_path": str(browser_3d_gate_receipt_path) if browser_3d_gate_receipt_path is not None else "",
             "note": "Hard browser gate: route existence or static labels do not prove 3D readiness.",
+        },
+        "generated_reconstruction_glb": {
+            "status": runtime_reconstruction.get("status") or ("not_configured" if runtime_reconstruction_receipt_path is None else "missing"),
+            "ready": runtime_reconstruction_ok if runtime_reconstruction_receipt_path is not None else None,
+            "glb_required": runtime_reconstruction.get("glb_required") if runtime_reconstruction_receipt_path is not None else None,
+            "glb_non_empty": runtime_reconstruction.get("glb_non_empty") if runtime_reconstruction_receipt_path is not None else None,
+            "glb_manifest_ok": runtime_reconstruction.get("glb_manifest_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "glb_capability_ok": runtime_reconstruction.get("glb_capability_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "required_paths_ok": runtime_reconstruction.get("required_paths_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "browser_render_ok": runtime_reconstruction.get("browser_render_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "viewer_url": str(runtime_reconstruction.get("viewer_url") or ""),
+            "glb_size_bytes": runtime_reconstruction_glb.get("size_bytes"),
+            "receipt_path": str(runtime_reconstruction_receipt_path) if runtime_reconstruction_receipt_path is not None else "",
+            "note": "Hard generated-tour gate: OBJ/viewer existence does not prove GLB export or public browser rendering.",
         },
         "map_preview_flagship": {
             "status": map_preview_flagship.get("status") or ("not_configured" if map_preview_flagship_receipt_path is None else "missing"),
@@ -2199,7 +2274,8 @@ def build_gold_status_receipt(
         "tour_delivery_contract_shape": {
             "status": tour_delivery_contract.get("status") or ("not_configured" if tour_delivery_contract_receipt_path is None else "missing"),
             "schema": str(tour_delivery_contract.get("schema") or "") if tour_delivery_contract_receipt_path is not None else "",
-            "required_providers": tour_delivery_contract.get("required_providers") or [],
+            "required_provider_modes": tour_delivery_contract.get("required_provider_modes") or tour_delivery_contract.get("required_providers") or [],
+            "optional_provider_modes": tour_delivery_contract.get("optional_provider_modes") or [],
             "ready_provider_modes": tour_delivery_contract.get("ready_provider_modes") or [],
             "missing_provider_modes": tour_delivery_contract.get("missing_provider_modes") or [],
             "matterport_ready_count": tour_delivery_contract.get("matterport_ready_count") if tour_delivery_contract_receipt_path is not None else None,
@@ -2240,6 +2316,7 @@ def main() -> int:
     parser.add_argument("--tour-delivery-contract-receipt", default="")
     parser.add_argument("--map-preview-flagship-receipt", default="")
     parser.add_argument("--browser-3d-gate-receipt", default="")
+    parser.add_argument("--runtime-reconstruction-receipt", default="")
     parser.add_argument("--walkthrough-quality-receipt", default="")
     parser.add_argument("--scene-video-readiness-receipt", default="")
     parser.add_argument("--scene-video-readiness-verifier-receipt", default="")
@@ -2271,6 +2348,11 @@ def main() -> int:
         tour_delivery_contract_receipt_path=Path(args.tour_delivery_contract_receipt) if args.tour_delivery_contract_receipt else _default_receipt_path("tour_delivery_contract"),
         map_preview_flagship_receipt_path=Path(args.map_preview_flagship_receipt) if args.map_preview_flagship_receipt else _default_receipt_path("map_preview_flagship"),
         browser_3d_gate_receipt_path=Path(args.browser_3d_gate_receipt) if args.browser_3d_gate_receipt else _default_receipt_path("browser_3d_gate"),
+        runtime_reconstruction_receipt_path=(
+            Path(args.runtime_reconstruction_receipt)
+            if args.runtime_reconstruction_receipt
+            else _default_receipt_path("runtime_reconstruction")
+        ),
         walkthrough_quality_receipt_path=Path(args.walkthrough_quality_receipt) if args.walkthrough_quality_receipt else _default_receipt_path("walkthrough_quality"),
         scene_video_readiness_receipt_path=(
             Path(args.scene_video_readiness_receipt)

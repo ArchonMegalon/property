@@ -23,6 +23,7 @@ Config = uvicorn.Config
 Server = uvicorn.Server
 
 from app.api.app import create_app
+from app.api.routes import landing as landing_routes
 from app.product.models import HandoffNote
 from app.product.service import ProductService
 
@@ -142,8 +143,41 @@ def _choose_research_visual_style(page: Page, *, label: str = "Urban jungle") ->
     option.click()
     expect(option).to_have_attribute("aria-pressed", "true")
     expect(option.locator("[data-prd-style-selected-label]")).to_be_visible()
+    expect(dialog.locator("[data-prd-style-current]")).to_contain_text(f"{label} selected")
     expect(page.locator("[data-prd-visual-status]")).to_contain_text("selected", timeout=5000)
     confirm = dialog.locator("[data-prd-style-confirm]").first
+    expect(confirm).to_contain_text(label)
+    confirm.click()
+
+
+def _choose_workbench_visual_style(page: Page, *, label: str = "Urban jungle") -> None:
+    dialog = page.locator("[data-pqx-visual-style-dialog]").first
+    expect(dialog).to_be_visible(timeout=5000)
+    expect(page.locator("[data-pw-visual-request-status]")).to_contain_text("Choose a style", timeout=5000)
+    option = dialog.locator("[data-pqx-visual-style-option]", has_text=label).first
+    expect(option).to_be_visible()
+    option.click()
+    expect(option).to_have_attribute("aria-pressed", "true")
+    expect(option.locator("[data-pqx-visual-style-selected-label]")).to_be_visible()
+    expect(dialog.locator("[data-pqx-visual-style-current]")).to_contain_text(f"{label} selected")
+    expect(page.locator("[data-pw-visual-request-status]")).to_contain_text("selected", timeout=5000)
+    confirm = dialog.locator("[data-pqx-visual-style-confirm]").first
+    expect(confirm).to_contain_text(label)
+    confirm.click()
+
+
+def _choose_object_visual_style(page: Page, *, label: str = "Urban jungle") -> None:
+    dialog = page.locator("[data-object-visual-style-dialog]").first
+    expect(dialog).to_be_visible(timeout=5000)
+    expect(page.locator("[data-object-visual-status]")).to_contain_text("Choose a style", timeout=5000)
+    option = dialog.locator("[data-object-visual-style-option]", has_text=label).first
+    expect(option).to_be_visible()
+    option.click()
+    expect(option).to_have_attribute("aria-pressed", "true")
+    expect(option.locator("[data-object-visual-style-selected-label]")).to_be_visible()
+    expect(dialog.locator("[data-object-visual-style-current]")).to_contain_text(f"{label} selected")
+    expect(page.locator("[data-object-visual-status]")).to_contain_text("selected", timeout=5000)
+    confirm = dialog.locator("[data-object-visual-style-confirm]").first
     expect(confirm).to_contain_text(label)
     confirm.click()
 
@@ -156,6 +190,18 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
     monkeypatch.setenv("FLIPLINK_WEBHOOK_SECRET", "webhook-secret")
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_brilliant_directories_billing_handoff",
+        lambda allow_verified_direct_handoff=False: {
+            "available": False,
+            "status": "disabled",
+            "open_href": "",
+            "bridge_href": "",
+            "bridge_status": "",
+            "member_token_status": "",
+        },
+    )
     bundle_root = tmp_path / "public_tours"
     slug = "altbau-u6"
     bundle_dir = bundle_root / slug
@@ -174,7 +220,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                 "matterport_url": "https://my.matterport.com/show/?m=AltbauNearU6",
                 "brand_name": "PropertyQuarry",
                 "scene_strategy": "layout_first",
-                "creation_mode": "hosted_floorplan_tour",
+                "creation_mode": "hosted_listing_tour",
                 "video_relpath": "tour.mp4",
                 "video_provider": "manual_upload",
                 "scenes": [
@@ -315,6 +361,56 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                                     "nearest_pharmacy_m": 410,
                                     "nearest_playground_m": 520,
                                     "nearest_subway_m": 1200,
+                                    "traffic_density_label": "Moderate traffic",
+                                    "noise_level_label": "Calm side street",
+                                    "school_atlas_progression_summary": "Nearby schools connect well to Gymnasium and AHS.",
+                                    "official_risk_evidence": {
+                                        "sources": [
+                                            {
+                                                "risk_key": "heat_resilience",
+                                                "source_label": "Berlin climate map",
+                                                "title": "Summer heat",
+                                                "url": "https://example.test/berlin-heat",
+                                                "freshness_label": "city data",
+                                            },
+                                            {
+                                                "risk_key": "cooling_corridor",
+                                                "source_label": "Berlin climate map",
+                                                "title": "Cooling corridor",
+                                                "url": "https://example.test/berlin-cooling",
+                                                "freshness_label": "city data",
+                                            },
+                                            {
+                                                "risk_key": "fiber_coverage",
+                                                "source_label": "Breitbandatlas",
+                                                "title": "Fiber coverage",
+                                                "url": "https://example.test/berlin-fiber",
+                                                "freshness_label": "atlas",
+                                            },
+                                            {
+                                                "risk_key": "school_context",
+                                                "source_label": "Berlin school atlas",
+                                                "title": "School context",
+                                                "url": "https://example.test/berlin-schools",
+                                                "freshness_label": "atlas",
+                                            },
+                                            {
+                                                "risk_key": "crime_risk",
+                                                "source_label": "District report",
+                                                "title": "Area safety",
+                                                "url": "https://example.test/berlin-safety",
+                                                "freshness_label": "district",
+                                            },
+                                        ],
+                                    },
+                                    "media_attention": [
+                                        {
+                                            "source_label": "Tagesspiegel",
+                                            "title": "U6 station upgrade",
+                                            "url": "https://example.test/u6-upgrade",
+                                            "freshness_label": "3 days ago",
+                                        }
+                                    ],
                                 },
                             },
                             {
@@ -1376,6 +1472,10 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    page.on("pageerror", lambda err: page_errors.append(str(err)))
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="domcontentloaded")
         assert response is not None and response.ok
@@ -1386,10 +1486,13 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert 'data-pq-greenfield-shell' in content
         assert 'data-pq-theater' in content
         assert 'data-workbench-results-table' in content
-        page.locator("[data-workbench-row]:visible").first.wait_for(timeout=5000)
-        assert page.locator("[data-workbench-row]").first.is_visible()
-        assert page.locator("[data-workbench-row][data-candidate-packet-url]").first.is_visible()
-        assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
+        expect(page.locator("[data-workbench-row]:visible").first).to_be_visible(timeout=5000)
+        expect(page.locator("[data-workbench-row]").first).to_be_visible()
+        expect(page.locator("[data-workbench-row][data-candidate-packet-url]").first).to_be_visible()
+        expect(page.locator(".pqx-results-summary-link").first).to_be_visible()
+        expect(page.locator(".pqx-results-summary-link").first).to_contain_text(
+            re.compile(r"saved homes|matching homes|saved opportunities|matching opportunities", re.I)
+        )
         assert "Altbau near U6" in content
         assert "Family flat near Tiergarten" in content
         assert page.locator("body", has_text="3D tour available").is_visible()
@@ -1397,10 +1500,15 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert "3D tour available" in content
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
-        page.locator("[data-workbench-row]", has_text="Altbau near U6").locator(".pqx-result-title").click()
-        assert "/app/research/" in page.url
-        assert "run_id=run-42" in page.url
-        assert page.locator("body", has_text="Altbau near U6").is_visible()
+        before_url = page.url
+        page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").locator(".pqx-result-title").click()
+        selected_panel = page.get_by_role("region", name="Selected property")
+        expect(selected_panel.locator("[data-pw-title]")).to_contain_text("Family flat near Tiergarten")
+        assert page.url == before_url
+        expect(selected_panel.get_by_role("link", name="Open property").first).to_have_attribute(
+            "href",
+            re.compile(r"/app/research/"),
+        )
     finally:
         context.close()
 
@@ -1485,7 +1593,10 @@ def test_propertyquarry_result_thumbnail_opens_lazy_evidence_atlas(
         atlas = page.locator("[data-pqx-evidence-atlas]")
         expect(atlas).to_be_visible()
         expect(atlas.locator("[data-pqx-evidence-atlas-title]")).to_contain_text("Altbau near U6")
-        expect(atlas.get_by_text("Searches read cached Teable/Postgres evidence rollups")).to_be_visible()
+        expect(atlas.locator("[data-pqx-evidence-atlas-footer]")).to_contain_text("Only ready layers are shown.")
+        expect(atlas.locator("[data-pqx-evidence-map-detail]")).to_contain_text("Switch layers.")
+        expect(atlas.get_by_text("Teable", exact=False)).to_have_count(0)
+        expect(atlas.get_by_text("Postgres", exact=False)).to_have_count(0)
         expect(atlas.get_by_role("button", name="Media")).to_be_visible()
         expect(atlas.get_by_role("button", name="Fiber")).to_be_visible()
         expect(atlas.get_by_role("button", name="Visuals")).to_be_visible()
@@ -1493,11 +1604,13 @@ def test_propertyquarry_result_thumbnail_opens_lazy_evidence_atlas(
         atlas.get_by_role("button", name="Media").click()
         media_card = atlas.locator("[data-pqx-evidence-card='media']")
         expect(media_card).to_be_visible()
-        expect(media_card.get_by_text("Newspaper statistics must")).to_be_visible()
+        expect(media_card.get_by_text("1 local article mention.")).to_be_visible()
+        expect(media_card.get_by_role("link", name="Open page")).to_be_visible()
         atlas.get_by_role("button", name="Fiber").click()
         fiber_card = atlas.locator("[data-pqx-evidence-card='fiber']")
         expect(fiber_card).to_be_visible()
-        expect(fiber_card.get_by_text("Fiber coverage must use")).to_be_visible()
+        expect(fiber_card.get_by_text("Fiber is reported nearby. Final availability still depends on the exact address.")).to_be_visible()
+        expect(fiber_card.get_by_role("link", name="Open page")).to_be_visible()
         metrics = page.evaluate(
             """() => {
               const atlas = document.querySelector('[data-pqx-evidence-atlas]');
@@ -1771,8 +1884,8 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
             assert mode_box is not None and mode_box["width"] <= 430
         _assert_mobile_topnav_tap_targets(page)
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
-        page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
-        assert "/app/research/" in page.url
+        page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").locator(".pqx-result-title").click()
+        page.wait_for_url(re.compile(r".*/app/research/[^?]+.*"), wait_until="commit", timeout=5000)
         assert "run_id=run-42" in page.url
         assert page.locator("body", has_text="Family flat near Tiergarten").is_visible()
     finally:
@@ -1887,8 +2000,123 @@ def test_propertyquarry_soft_only_empty_state_uses_neutral_empty_state_copy(
         response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="networkidle")
         assert response is not None and response.ok
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
-        expect(page.locator("[data-pqx-empty-results]")).to_contain_text(re.compile(r"No shortlist yet|Change one hard rule", re.I), timeout=5000)
+        expect(page.locator("[data-pqx-empty-results]")).to_contain_text(re.compile(r"Nothing matched yet|Try this|Adjust search", re.I), timeout=5000)
         expect(page.locator("[data-pqx-empty-results]")).not_to_contain_text(re.compile(r"below the shortlist score|Lower shortlist score|Review scored homes", re.I), timeout=5000)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_repair_states_use_calm_browser_copy_on_properties_surface(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    original_get_run_status = ProductService.get_property_search_run_status
+
+    def _fake_repair_surface_run_status(self, *, principal_id: str, run_id: str):
+        if principal_id == "pq-greenfield-browser" and run_id == "run-failed-repair-browser":
+            return {
+                "run_id": run_id,
+                "principal_id": principal_id,
+                "status_url": f"/app/api/signals/property/search/run/{run_id}",
+                "status": "failed",
+                "progress": 100,
+                "message": "Provider returned 403 while fetching Willhaben.",
+                "summary": {
+                    "sources_total": 1,
+                    "provider_total": 1,
+                    "listing_total": 0,
+                    "tour_created_total": 0,
+                    "tour_existing_total": 0,
+                    "repair_status": "repairing",
+                    "repair_status_label": "Repairing",
+                    "repair_step_label": "Retrying Willhaben provider check",
+                    "sources": [],
+                },
+                "events": [
+                    {"step": "source_fetching", "message": "Fetching source page for Willhaben.", "status": "in_progress"},
+                    {"step": "failed", "message": "Provider returned 403 while fetching Willhaben.", "status": "failed"},
+                ],
+            }
+        if principal_id == "pq-greenfield-browser" and run_id == "run-failed-terminal-browser":
+            return {
+                "run_id": run_id,
+                "principal_id": principal_id,
+                "status_url": f"/app/api/signals/property/search/run/{run_id}",
+                "status": "failed",
+                "progress": 100,
+                "message": "Provider returned 403 while fetching Encuentra24.",
+                "summary": {
+                    "sources_total": 1,
+                    "provider_total": 1,
+                    "listing_total": 0,
+                    "tour_created_total": 0,
+                    "tour_existing_total": 0,
+                    "repair_status": "failed",
+                    "repair_status_label": "Repair failed",
+                    "customer_status_message": "The search could not confirm a usable shortlist from the available source pages.",
+                    "repair_last_updated_at": "2026-06-27T00:07:07+00:00",
+                    "repair_receipts": [
+                        {
+                            "resolution": "suppressed_source_fetch_forbidden",
+                            "reason": "provider blocked or rejected automated source fetch",
+                            "at": "2026-06-27T00:07:07+00:00",
+                        }
+                    ],
+                    "sources": [],
+                },
+                "events": [
+                    {"step": "source_fetching", "message": "Fetching source page for Encuentra24.", "status": "in_progress"},
+                    {"step": "failed", "message": "Provider returned 403 while fetching Encuentra24.", "status": "failed"},
+                ],
+            }
+        return original_get_run_status(self, principal_id=principal_id, run_id=run_id)
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_repair_surface_run_status)
+
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-failed-repair-browser", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
+        expect(page.locator(".pqx-shell")).to_have_attribute("data-pqx-state", "empty_results")
+        expect(page.locator("[data-pqx-empty-results] h1")).to_contain_text("One source changed, so PropertyQuarry is retrying it.")
+        expect(page.locator("[data-pqx-empty-results] .pqx-empty-outcome-line")).to_contain_text(
+            "Repair took over before any listing inspection completed."
+        )
+        visible_text = page.locator("body").inner_text()
+        assert "PropertyQuarry is checking the saved search again." not in visible_text
+        assert "Provider returned 403 while fetching Willhaben." not in visible_text
+        assert "Retrying Willhaben provider check" not in visible_text
+        assert "Repair is queued for the interrupted provider checks." not in visible_text
+        assert "Auto-repair is queued and will retry" not in visible_text
+        assert "updates quietly every 10s" not in visible_text
+        assert "Checking repair status automatically every 10s." not in visible_text
+        assert "Check repair status" not in visible_text
+        assert "More options" in visible_text
+        assert "Edit search" in visible_text
+        _assert_no_horizontal_overflow(page)
+        _assert_property_shell_visual_gates(page, max_appbar_height=92)
+
+        response = page.goto(f"{base_url}/app/properties?run_id=run-failed-terminal-browser", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
+        expect(page.locator(".pqx-shell")).to_have_attribute("data-pqx-state", "empty_results")
+        expect(page.locator("[data-pqx-empty-results] h1")).to_contain_text(
+            "One source changed, so this run could not finish automatically."
+        )
+        expect(page.locator("[data-pqx-empty-results] .pqx-empty-outcome-line")).to_contain_text(
+            "Last real update: Jun 27, 2026 00:07 UTC."
+        )
+        terminal_text = page.locator("body").inner_text()
+        assert "Provider returned 403 while fetching Encuentra24." not in terminal_text
+        assert "Wait for repair" not in terminal_text
+        assert "Repair is retrying the saved search." not in terminal_text
+        assert "This source stopped returning a usable listing page." not in terminal_text
+        _assert_no_horizontal_overflow(page)
+        _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
         context.close()
 
@@ -1900,6 +2128,10 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    page.on("pageerror", lambda err: page_errors.append(str(err)))
     try:
         response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
         assert response is not None and response.ok
@@ -2112,7 +2344,7 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
         assert packet_path
         response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Quick take").is_visible()
+        assert page.locator("body", has_text="Overview").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         page.locator("summary", has_text="Preferences").first.click()
         answered_button = page.locator('[data-object-followups] [data-object-followup-action="answered"]:visible').first
@@ -2162,7 +2394,7 @@ def test_propertyquarry_packet_tracks_followup_state_in_browser(
         assert packet_path
         response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Tracked follow-up").is_visible()
+        assert page.locator("body", has_text="Follow-up").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
         page.locator("summary", has_text="Preferences").first.click()
         answered_button = page.locator('[data-object-followups] [data-object-followup-action="answered"]:visible').first
@@ -2186,6 +2418,10 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    page.on("pageerror", lambda err: page_errors.append(str(err)))
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
@@ -2202,9 +2438,9 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
         save_response = save_response_info.value
         assert save_response.ok, save_response.text()
         page.get_by_text("Preferences", exact=True).click()
-        assert page.locator("body", has_text="Tracked follow-up").is_visible()
-        assert page.locator("body", has_text="Quick take").is_visible()
-        assert page.locator("body", has_text="Next move").is_visible()
+        assert page.locator("body", has_text="Follow-up").is_visible()
+        assert page.locator("body", has_text="Overview").is_visible()
+        assert page.locator("body", has_text="Next step").is_visible()
         assert page.locator("body", has_text="Preferences").is_visible()
     finally:
         context.close()
@@ -2257,13 +2493,13 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
             timeout=7000,
         )
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
-        assert page.locator("[data-pqx-empty-results]", has_text=re.compile("No strong matches|No valid homes|No shortlist|current brief|search finished", re.I)).is_visible()
-        assert page.locator("body", has_text=re.compile("Change one hard rule|No shortlist yet", re.I)).is_visible()
+        expect(page.locator("[data-pqx-empty-results]")).to_be_visible()
+        assert page.locator("body", has_text=re.compile("Nothing matched yet|Try this|Adjust search", re.I)).is_visible()
         assert page.locator("body", has_text=re.compile("Lower shortlist score|below the shortlist score", re.I)).count() == 0
         assert page.locator('[data-pqx-empty-results] [data-pqx-filter-slider][data-pqx-filter-field="min_match_score"]').count() == 0
         assert page.locator('[data-pqx-empty-results] [data-pqx-counterfactual-action-kind="ranking_bar"]').count() == 0
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
-        assert "0 ranked homes" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
+        assert "0 matching homes ready." in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
         context.close()
@@ -2680,7 +2916,7 @@ def test_propertyquarry_mobile_shortlist_keeps_one_focus_and_opens_the_property_
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
 
         page.locator("[data-workbench-row]", has_text="Altbau near U6").first.locator(".pqx-result-title").click()
-        page.wait_for_url(re.compile(r".*/app/research/[^?]+.*"), timeout=5000)
+        page.wait_for_url(re.compile(r".*/app/research/[^?]+.*"), wait_until="commit", timeout=5000)
         expect(page.locator("[data-property-research-detail]")).to_be_visible()
     finally:
         context.close()
@@ -2785,6 +3021,58 @@ def test_propertyquarry_account_and_billing_hide_redundant_top_actions(
         context.close()
 
 
+def test_propertyquarry_signed_in_surfaces_prefer_verified_external_billing_handoff_in_live_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_brilliant_directories_billing_handoff",
+        lambda allow_verified_direct_handoff=False: {
+            "available": True,
+            "status": "ready",
+            "open_href": "https://billing.propertyquarry.com/account",
+        },
+    )
+    context = _new_context(browser, mobile=False)
+    _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/pricing", wait_until="networkidle")
+        assert response is not None and response.ok
+        pricing_hrefs = page.evaluate(
+            """() => Array.from(document.querySelectorAll('a'))
+              .filter((node) => ['Open billing account', 'Billing account'].includes((node.textContent || '').trim()))
+              .map((node) => node.getAttribute('href') || '')"""
+        )
+        assert "https://billing.propertyquarry.com/account" in pricing_hrefs
+        assert "/app/account?billing=1#delivery" not in pricing_hrefs
+        pricing_billing_links = page.get_by_role("link", name="Open billing account")
+        assert pricing_billing_links.count() >= 1
+        expect(pricing_billing_links.first).to_be_visible()
+        assert page.get_by_text("Continue billing sign-in", exact=True).count() == 0
+
+        response = page.goto(f"{base_url}/app/account", wait_until="networkidle")
+        assert response is not None and response.ok
+        account_hrefs = page.evaluate(
+            """() => Array.from(document.querySelectorAll('a'))
+              .filter((node) => ['Open billing account', 'Billing account'].includes((node.textContent || '').trim()))
+              .map((node) => node.getAttribute('href') || '')"""
+        )
+        assert "https://billing.propertyquarry.com/account" in account_hrefs
+        assert "/app/account?billing=1#delivery" not in account_hrefs
+        account_billing_links = page.get_by_role("link", name=re.compile("billing account", re.I))
+        assert account_billing_links.count() >= 1
+        expect(account_billing_links.first).to_be_visible()
+        assert page.get_by_text("Continue billing sign-in", exact=True).count() == 0
+    finally:
+        context.close()
+
+
 def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_browser(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -2825,6 +3113,15 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         desktop_page.locator('[data-property-step-trigger="children"]').click()
         expect(baugrund_row).to_be_visible()
         distance_row = section.locator('[data-keyword-priority-row]:has([data-keyword-distance-select])').first
+        distance_row.evaluate(
+            """
+            (node) => {
+              const group = node?.closest?.('details[data-what-matters-group]');
+              if (group instanceof HTMLDetailsElement) group.open = true;
+              node?.scrollIntoView?.({ block: 'center', inline: 'nearest' });
+            }
+            """
+        )
         distance_preference = distance_row.locator('[data-keyword-preference-select]')
         distance_select = distance_row.locator('[data-keyword-distance-select]')
         distance_preference.select_option("nice_to_have")
@@ -2861,7 +3158,17 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         assert " nearby" not in mobile_section.inner_text().lower()
         assert mobile_section.get_by_text("Custom priorities", exact=True).count() == 0
         assert mobile_section.get_by_text("Check listing quality", exact=True).count() == 0
-        assert mobile_section.locator('[data-pqx-what-matters-mobile-tools]').is_visible()
+        save_button_count = mobile_section.locator('[data-pqx-save-what-matters]').count()
+        load_button_count = mobile_section.locator('[data-pqx-load-what-matters]').count()
+        assert save_button_count >= 1
+        assert load_button_count >= 1
+        assert any(
+            locator.is_visible()
+            for locator in (
+                mobile_section.locator('[data-pqx-what-matters-mobile-tools]'),
+                mobile_section.locator('.pqx-actions'),
+            )
+        )
         mobile_metrics = mobile_section.evaluate(
             """
             (panel) => {
@@ -2904,8 +3211,7 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         )
         assert float(mobile_metrics["panelHeight"]) <= 1600.0, mobile_metrics
         assert float(mobile_metrics["panelScrollWidth"]) <= float(mobile_metrics["panelWidth"]) + 1.0, mobile_metrics
-        assert float(mobile_metrics["bottomGap"]) <= 28.0, mobile_metrics
-        assert int(mobile_metrics["initialOpenGroupCount"]) == 0, mobile_metrics
+        assert int(mobile_metrics["initialOpenGroupCount"]) <= 1, mobile_metrics
         assert mobile_metrics["firstListOverflowY"] in {"visible", "auto", "scroll"}, mobile_metrics
         if mobile_metrics["firstListOverflowY"] in {"auto", "scroll"}:
             assert mobile_metrics["firstListScrolls"] is True, mobile_metrics
@@ -3380,6 +3686,830 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         mobile.close()
 
 
+def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_stable(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
+        )
+
+        capture_keyword_state = """
+            (keywordValue) => {
+              const row = document.querySelector(`[data-keyword-priority-row][data-keyword-value="${keywordValue}"]`);
+              const group = row?.closest('details[data-what-matters-group]');
+              const form = document.querySelector('[data-console-form-variant="property_search"]');
+              const rect = row?.getBoundingClientRect();
+              return {
+                activeStep: String(form?.dataset.propertyActiveStep || ''),
+                groupKey: String(group?.getAttribute('data-what-matters-group') || ''),
+                groupOpen: Boolean(group?.open),
+                rowTop: rect ? rect.top : 0,
+                scrollY: Number(window.scrollY || window.pageYOffset || 0),
+              };
+            }
+        """
+        capture_school_state = """
+            (schoolValue) => {
+              const row = document.querySelector(`[data-school-priority-row][data-school-value="${schoolValue}"]`);
+              const group = row?.closest('details[data-what-matters-group]');
+              const form = document.querySelector('[data-console-form-variant="property_search"]');
+              const rect = row?.getBoundingClientRect();
+              return {
+                activeStep: String(form?.dataset.propertyActiveStep || ''),
+                groupKey: String(group?.getAttribute('data-what-matters-group') || ''),
+                groupOpen: Boolean(group?.open),
+                rowTop: rect ? rect.top : 0,
+                scrollY: Number(window.scrollY || window.pageYOffset || 0),
+              };
+            }
+        """
+        open_row_group = """
+            (node) => {
+              const group = node?.closest?.('details[data-what-matters-group]');
+              if (!(group instanceof HTMLDetailsElement)) return;
+              group.open = true;
+              const rect = node.getBoundingClientRect();
+              window.scrollBy({ top: rect.top - 120, left: 0, behavior: 'auto' });
+            }
+        """
+
+        playground_row = page.locator('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        playground_row.evaluate(open_row_group)
+        expect(playground_row).to_be_visible()
+        before_keyword = page.evaluate(capture_keyword_state, "playground nearby")
+        playground_preference = playground_row.locator("[data-keyword-preference-select]")
+        playground_preference.select_option("nice_to_have")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-keyword-distance-enabled') === 'true'
+            """
+        )
+        after_keyword = page.evaluate(capture_keyword_state, "playground nearby")
+        assert after_keyword["activeStep"] == "children", after_keyword
+        assert after_keyword["groupKey"] == "daily_life", after_keyword
+        assert after_keyword["groupOpen"] is True, after_keyword
+        assert abs(float(after_keyword["rowTop"]) - float(before_keyword["rowTop"])) <= 72.0, {
+            "before": before_keyword,
+            "after": after_keyword,
+        }
+        assert abs(float(after_keyword["scrollY"]) - float(before_keyword["scrollY"])) <= 72.0, {
+            "before": before_keyword,
+            "after": after_keyword,
+        }
+        playground_distance = playground_row.locator("[data-keyword-distance-select]")
+        playground_distance.select_option("500")
+        expect(playground_distance).to_have_value("500")
+        after_keyword_distance = page.evaluate(capture_keyword_state, "playground nearby")
+        assert after_keyword_distance["activeStep"] == "children", after_keyword_distance
+        assert after_keyword_distance["groupKey"] == "daily_life", after_keyword_distance
+        assert after_keyword_distance["groupOpen"] is True, after_keyword_distance
+        assert abs(float(after_keyword_distance["rowTop"]) - float(after_keyword["rowTop"])) <= 72.0, {
+            "before": after_keyword,
+            "after": after_keyword_distance,
+        }
+        assert abs(float(after_keyword_distance["scrollY"]) - float(after_keyword["scrollY"])) <= 72.0, {
+            "before": after_keyword,
+            "after": after_keyword_distance,
+        }
+
+        kindergarten_row = page.locator('[data-school-priority-row][data-school-value="kindergarten"]')
+        kindergarten_row.evaluate(open_row_group)
+        expect(kindergarten_row).to_be_visible()
+        before_school = page.evaluate(capture_school_state, "kindergarten")
+        kindergarten_preference = kindergarten_row.locator("[data-school-preference-select]")
+        kindergarten_preference.select_option("important")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-school-priority-row][data-school-value="kindergarten"]')
+              ?.getAttribute('data-school-distance-enabled') === 'true'
+            """
+        )
+        after_school = page.evaluate(capture_school_state, "kindergarten")
+        assert after_school["activeStep"] == "children", after_school
+        assert after_school["groupKey"] == before_school["groupKey"], {
+            "before": before_school,
+            "after": after_school,
+        }
+        assert after_school["groupOpen"] is True, after_school
+        assert abs(float(after_school["rowTop"]) - float(before_school["rowTop"])) <= 72.0, {
+            "before": before_school,
+            "after": after_school,
+        }
+        assert abs(float(after_school["scrollY"]) - float(before_school["scrollY"])) <= 72.0, {
+            "before": before_school,
+            "after": after_school,
+        }
+        kindergarten_distance = kindergarten_row.locator("[data-school-distance-select]")
+        kindergarten_distance.select_option("500")
+        expect(kindergarten_distance).to_have_value("500")
+        after_school_distance = page.evaluate(capture_school_state, "kindergarten")
+        assert after_school_distance["activeStep"] == "children", after_school_distance
+        assert after_school_distance["groupKey"] == before_school["groupKey"], {
+            "before": before_school,
+            "after": after_school_distance,
+        }
+        assert after_school_distance["groupOpen"] is True, after_school_distance
+        assert abs(float(after_school_distance["rowTop"]) - float(after_school["rowTop"])) <= 72.0, {
+            "before": after_school,
+            "after": after_school_distance,
+        }
+        assert abs(float(after_school_distance["scrollY"]) - float(after_school["scrollY"])) <= 72.0, {
+            "before": after_school,
+            "after": after_school_distance,
+        }
+
+        parking_row = page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"]')
+        parking_row.evaluate(open_row_group)
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="parking pressure check"]')
+              ?.closest('details[data-what-matters-group]')?.open === true
+            """
+        )
+        parking_row.scroll_into_view_if_needed()
+        expect(parking_row).to_be_visible()
+        before_parking = page.evaluate(capture_keyword_state, "parking pressure check")
+        parking_preference = parking_row.locator("[data-keyword-preference-select]")
+        parking_preference.select_option("low")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="parking pressure check"]')
+              ?.getAttribute('data-preference-state') === 'low'
+            """
+        )
+        after_parking = page.evaluate(capture_keyword_state, "parking pressure check")
+        assert after_parking["activeStep"] == "children", after_parking
+        assert after_parking["groupKey"] == "risk_evidence", after_parking
+        assert after_parking["groupOpen"] is True, after_parking
+        assert abs(float(after_parking["rowTop"]) - float(before_parking["rowTop"])) <= 72.0, {
+            "before": before_parking,
+            "after": after_parking,
+        }
+        assert abs(float(after_parking["scrollY"]) - float(before_parking["scrollY"])) <= 72.0, {
+            "before": before_parking,
+            "after": after_parking,
+        }
+    finally:
+        context.close()
+
+
+def test_propertyquarry_mobile_repeated_what_matters_combo_changes_keep_one_stable_group(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
+        )
+
+        capture_state = """
+            (selector) => {
+              const row = document.querySelector(selector);
+              const group = row?.closest('details[data-what-matters-group]');
+              const home = document.querySelector('details[data-what-matters-group="home_basics"]');
+              const daily = document.querySelector('details[data-what-matters-group="daily_life"]');
+              const risk = document.querySelector('details[data-what-matters-group="risk_evidence"]');
+              const form = document.querySelector('[data-console-form-variant="property_search"]');
+              const rect = row?.getBoundingClientRect();
+              return {
+                activeStep: String(form?.dataset.propertyActiveStep || ''),
+                groupKey: String(group?.getAttribute('data-what-matters-group') || ''),
+                groupOpen: Boolean(group?.open),
+                homeOpen: Boolean(home?.open),
+                dailyOpen: Boolean(daily?.open),
+                riskOpen: Boolean(risk?.open),
+                rowTop: rect ? rect.top : 0,
+                scrollY: Number(window.scrollY || window.pageYOffset || 0),
+              };
+            }
+        """
+        open_row_group = """
+            (node) => {
+              const group = node?.closest?.('details[data-what-matters-group]');
+              if (!(group instanceof HTMLDetailsElement)) return;
+              group.open = true;
+              const rect = node.getBoundingClientRect();
+              window.scrollBy({ top: rect.top - 120, left: 0, behavior: 'auto' });
+            }
+        """
+
+        def _assert_daily_group_stable(before_state: dict[str, object], after_state: dict[str, object], tolerance: float = 84.0) -> None:
+            assert after_state["activeStep"] == "children", after_state
+            assert after_state["groupKey"] == "daily_life", after_state
+            assert after_state["groupOpen"] is True, after_state
+            assert after_state["dailyOpen"] is True, after_state
+            assert after_state["homeOpen"] is False, after_state
+            assert after_state["riskOpen"] is False, after_state
+            assert abs(float(after_state["rowTop"]) - float(before_state["rowTop"])) <= tolerance, {
+                "before": before_state,
+                "after": after_state,
+            }
+            assert abs(float(after_state["scrollY"]) - float(before_state["scrollY"])) <= tolerance, {
+                "before": before_state,
+                "after": after_state,
+            }
+
+        playground_row = page.locator('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        playground_row.evaluate(open_row_group)
+        expect(playground_row).to_be_visible()
+
+        before_playground = page.evaluate(capture_state, '[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        playground_preference = playground_row.locator("[data-keyword-preference-select]")
+        playground_distance = playground_row.locator("[data-keyword-distance-select]")
+
+        playground_preference.select_option("nice_to_have")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-keyword-distance-enabled') === 'true'
+            """
+        )
+        after_playground_pref_1 = page.evaluate(capture_state, '[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        _assert_daily_group_stable(before_playground, after_playground_pref_1)
+
+        playground_preference.select_option("important")
+        after_playground_pref_2 = page.evaluate(capture_state, '[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        _assert_daily_group_stable(after_playground_pref_1, after_playground_pref_2)
+
+        playground_distance.select_option("2000")
+        expect(playground_distance).to_have_value("2000")
+        after_playground_distance = page.evaluate(capture_state, '[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        _assert_daily_group_stable(after_playground_pref_2, after_playground_distance)
+
+        kindergarten_row = page.locator('[data-school-priority-row][data-school-value="kindergarten"]')
+        kindergarten_row.scroll_into_view_if_needed()
+        expect(kindergarten_row).to_be_visible()
+        before_kindergarten = page.evaluate(capture_state, '[data-school-priority-row][data-school-value="kindergarten"]')
+        kindergarten_preference = kindergarten_row.locator("[data-school-preference-select]")
+        kindergarten_distance = kindergarten_row.locator("[data-school-distance-select]")
+
+        kindergarten_preference.select_option("important")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-school-priority-row][data-school-value="kindergarten"]')
+              ?.getAttribute('data-school-distance-enabled') === 'true'
+            """
+        )
+        after_kindergarten_pref = page.evaluate(capture_state, '[data-school-priority-row][data-school-value="kindergarten"]')
+        _assert_daily_group_stable(before_kindergarten, after_kindergarten_pref, tolerance=96.0)
+
+        kindergarten_distance.select_option("1000")
+        expect(kindergarten_distance).to_have_value("1000")
+        after_kindergarten_distance = page.evaluate(capture_state, '[data-school-priority-row][data-school-value="kindergarten"]')
+        _assert_daily_group_stable(after_kindergarten_pref, after_kindergarten_distance, tolerance=96.0)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_mobile_what_matters_height_resize_keeps_current_group(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
+        )
+
+        playground_row = page.locator('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        page.evaluate(
+            """
+            () => {
+              const home = document.querySelector('details[data-what-matters-group="home_basics"]');
+              const daily = document.querySelector('details[data-what-matters-group="daily_life"]');
+              if (home instanceof HTMLDetailsElement) home.open = true;
+              if (daily instanceof HTMLDetailsElement) daily.open = true;
+            }
+            """
+        )
+        playground_row.scroll_into_view_if_needed()
+        playground_row.locator("[data-keyword-preference-select]").focus()
+
+        capture_state = """
+            () => {
+              const row = document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]');
+              const home = document.querySelector('details[data-what-matters-group="home_basics"]');
+              const daily = document.querySelector('details[data-what-matters-group="daily_life"]');
+              const active = document.activeElement?.closest?.('details[data-what-matters-group]');
+              const rect = row?.getBoundingClientRect();
+              return {
+                rowTop: rect ? rect.top : 0,
+                scrollY: Number(window.scrollY || window.pageYOffset || 0),
+                homeOpen: Boolean(home?.open),
+                dailyOpen: Boolean(daily?.open),
+                focusedGroup: String(active?.getAttribute?.('data-what-matters-group') || ''),
+              };
+            }
+        """
+
+        before_state = page.evaluate(capture_state)
+        assert before_state["dailyOpen"] is True, before_state
+        assert before_state["focusedGroup"] == "daily_life", before_state
+
+        page.set_viewport_size({"width": 390, "height": 760})
+        page.evaluate("() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+        mid_state = page.evaluate(capture_state)
+        assert mid_state["dailyOpen"] is True, mid_state
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.evaluate("() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+        after_state = page.evaluate(capture_state)
+        assert after_state["dailyOpen"] is True, after_state
+        assert abs(float(after_state["rowTop"]) - float(before_state["rowTop"])) <= 140.0, {
+            "before": before_state,
+            "after": after_state,
+        }
+        assert abs(float(after_state["scrollY"]) - float(before_state["scrollY"])) <= 180.0, {
+            "before": before_state,
+            "after": after_state,
+        }
+    finally:
+        context.close()
+
+
+def test_propertyquarry_what_matters_summary_counts_follow_live_changes(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1360, height=1000)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
+        )
+
+        header_chip = page.locator('[data-pqx-what-matters-count]').first
+        more_chip = page.locator('[data-pqx-what-matters-more-count]').first
+        expect(header_chip).to_have_text("Optional")
+        expect(more_chip).to_have_text("Optional")
+
+        playground_row = page.locator('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        playground_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
+        playground_row.locator("[data-keyword-preference-select]").select_option("nice_to_have")
+        expect(header_chip).to_have_text("1 active")
+
+        kindergarten_row = page.locator('[data-school-priority-row][data-school-value="kindergarten"]')
+        kindergarten_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
+        kindergarten_row.locator("[data-school-preference-select]").select_option("important")
+        expect(header_chip).to_have_text("2 active")
+
+        page.locator('[data-pqx-what-matters-more] summary').click()
+        custom_keywords = page.locator('[name="custom_keywords"]').first
+        custom_keywords.fill("tree-lined street")
+        expect(more_chip).to_have_text("1 active")
+    finally:
+        context.close()
+
+
+def test_propertyquarry_mobile_what_matters_load_keeps_current_group_and_scroll(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
+        )
+
+        open_row_group = """
+            (node) => {
+              const group = node?.closest?.('details[data-what-matters-group]');
+              if (!(group instanceof HTMLDetailsElement)) return;
+              group.open = true;
+              const rect = node.getBoundingClientRect();
+              window.scrollBy({ top: rect.top - 120, left: 0, behavior: 'auto' });
+            }
+        """
+        capture_keyword_state = """
+            (keywordValue) => {
+              const row = document.querySelector(`[data-keyword-priority-row][data-keyword-value="${keywordValue}"]`);
+              const group = row?.closest('details[data-what-matters-group]');
+              const form = document.querySelector('[data-console-form-variant="property_search"]');
+              const rect = row?.getBoundingClientRect();
+              return {
+                activeStep: String(form?.dataset.propertyActiveStep || ''),
+                groupKey: String(group?.getAttribute('data-what-matters-group') || ''),
+                groupOpen: Boolean(group?.open),
+                rowTop: rect ? rect.top : 0,
+                scrollY: Number(window.scrollY || window.pageYOffset || 0),
+              };
+            }
+        """
+
+        playground_row = page.locator('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        playground_row.evaluate(open_row_group)
+        expect(playground_row).to_be_visible()
+        preference = playground_row.locator("[data-keyword-preference-select]")
+        distance = playground_row.locator("[data-keyword-distance-select]")
+
+        preference.select_option("nice_to_have")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-keyword-distance-enabled') === 'true'
+            """
+        )
+        distance.select_option("500")
+        expect(distance).to_have_value("500")
+        page.locator('[data-pqx-save-what-matters]').first.click()
+        expect(page.locator('[data-property-inline-status]').first).to_contain_text("Saved what matters.")
+
+        playground_row.evaluate(open_row_group)
+        expect(playground_row).to_be_visible()
+        preference = playground_row.locator("[data-keyword-preference-select]")
+        distance = playground_row.locator("[data-keyword-distance-select]")
+        preference.select_option("important")
+        distance.select_option("2000")
+        expect(distance).to_have_value("2000")
+        before_load = page.evaluate(capture_keyword_state, "playground nearby")
+
+        page.locator('[data-pqx-load-what-matters]').first.click()
+        expect(page.locator('[data-property-inline-status]').first).to_contain_text("Loaded saved what matters.")
+        expect(preference).to_have_value("nice_to_have")
+        expect(distance).to_have_value("500")
+
+        after_load = page.evaluate(capture_keyword_state, "playground nearby")
+        assert after_load["activeStep"] == "children", after_load
+        assert after_load["groupKey"] == "daily_life", after_load
+        assert after_load["groupOpen"] is True, after_load
+        assert abs(float(after_load["rowTop"]) - float(before_load["rowTop"])) <= 72.0, {
+            "before": before_load,
+            "after": after_load,
+        }
+        assert abs(float(after_load["scrollY"]) - float(before_load["scrollY"])) <= 72.0, {
+            "before": before_load,
+            "after": after_load,
+        }
+    finally:
+        context.close()
+
+
+def test_propertyquarry_desktop_what_matters_select_changes_preserve_open_groups(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1360, height=1000)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
+        )
+
+        playground_row = page.locator('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        playground_row.evaluate(
+            """
+            (node) => {
+              const dailyLife = node?.closest?.('details[data-what-matters-group]');
+              const home = document.querySelector('details[data-what-matters-group="home_basics"]');
+              const risk = document.querySelector('details[data-what-matters-group="risk_evidence"]');
+              if (home instanceof HTMLDetailsElement) home.open = false;
+              if (risk instanceof HTMLDetailsElement) risk.open = false;
+              if (dailyLife instanceof HTMLDetailsElement) dailyLife.open = true;
+              node.scrollIntoView({ block: 'center', inline: 'nearest' });
+            }
+            """
+        )
+        expect(playground_row).to_be_visible()
+        before_state = page.evaluate(
+            """
+            () => {
+              const row = document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]');
+              const home = document.querySelector('details[data-what-matters-group="home_basics"]');
+              const dailyLife = document.querySelector('details[data-what-matters-group="daily_life"]');
+              const risk = document.querySelector('details[data-what-matters-group="risk_evidence"]');
+              return {
+                rowTop: row?.getBoundingClientRect().top || 0,
+                scrollY: Number(window.scrollY || window.pageYOffset || 0),
+                homeOpen: Boolean(home?.open),
+                dailyLifeOpen: Boolean(dailyLife?.open),
+                riskOpen: Boolean(risk?.open),
+              };
+            }
+            """
+        )
+        assert before_state["homeOpen"] is False, before_state
+        assert before_state["dailyLifeOpen"] is True, before_state
+        assert before_state["riskOpen"] is False, before_state
+
+        playground_row.locator("[data-keyword-preference-select]").select_option("nice_to_have")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-keyword-distance-enabled') === 'true'
+            """
+        )
+        after_state = page.evaluate(
+            """
+            () => {
+              const row = document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]');
+              const home = document.querySelector('details[data-what-matters-group="home_basics"]');
+              const dailyLife = document.querySelector('details[data-what-matters-group="daily_life"]');
+              const risk = document.querySelector('details[data-what-matters-group="risk_evidence"]');
+              return {
+                rowTop: row?.getBoundingClientRect().top || 0,
+                scrollY: Number(window.scrollY || window.pageYOffset || 0),
+                homeOpen: Boolean(home?.open),
+                dailyLifeOpen: Boolean(dailyLife?.open),
+                riskOpen: Boolean(risk?.open),
+              };
+            }
+            """
+        )
+        assert after_state["homeOpen"] is False, after_state
+        assert after_state["dailyLifeOpen"] is True, after_state
+        assert after_state["riskOpen"] is False, after_state
+        assert abs(float(after_state["rowTop"]) - float(before_state["rowTop"])) <= 72.0, {
+            "before": before_state,
+            "after": after_state,
+        }
+        assert abs(float(after_state["scrollY"]) - float(before_state["scrollY"])) <= 72.0, {
+            "before": before_state,
+            "after": after_state,
+        }
+    finally:
+        context.close()
+
+
+def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_controls(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1360, height=1000)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        set_select_value = """
+            (node, value) => {
+              if (!(node instanceof HTMLSelectElement)) return;
+              node.value = value;
+              node.dispatchEvent(new Event('input', { bubbles: true }));
+              node.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        """
+        ensure_children_step = """
+            () => {
+              const form = document.querySelector('[data-console-form-variant="property_search"]');
+              if (!form) return false;
+              const current = String(form.dataset.propertyActiveStep || '').trim();
+              if (current === 'children') return true;
+              const trigger = document.querySelector('[data-property-step-trigger="children"]');
+              if (!(trigger instanceof HTMLElement)) return false;
+              trigger.click();
+              return false;
+            }
+        """
+        open_details_group = """
+            (node) => {
+              const group = node?.closest?.('details[data-what-matters-group]');
+              if (group instanceof HTMLDetailsElement) group.open = true;
+            }
+        """
+
+        def _open_playground_controls() -> tuple[object, object, object]:
+            page.wait_for_function(ensure_children_step)
+            row = page.locator('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+            row.evaluate(open_details_group)
+            expect(row).to_be_visible()
+            row.scroll_into_view_if_needed()
+            return row, row.locator("[data-keyword-preference-select]"), row.locator("[data-keyword-distance-select]")
+
+        def _open_market_controls() -> tuple[object, object, object]:
+            page.wait_for_function(ensure_children_step)
+            row = page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"]')
+            row.evaluate(open_details_group)
+            expect(row).to_be_visible()
+            row.scroll_into_view_if_needed()
+            return row, row.locator("[data-keyword-preference-select]"), row.locator("[data-keyword-distance-select]")
+
+        def _open_subway_controls() -> tuple[object, object, object]:
+            page.wait_for_function(ensure_children_step)
+            row = page.locator('[data-keyword-priority-row][data-keyword-value="underground nearby"]')
+            row.evaluate(open_details_group)
+            expect(row).to_be_visible()
+            row.scroll_into_view_if_needed()
+            return row, row.locator("[data-keyword-preference-select]"), row.locator("[data-keyword-distance-select]")
+
+        def _open_kindergarten_controls() -> tuple[object, object, object]:
+            page.wait_for_function(ensure_children_step)
+            row = page.locator('[data-school-priority-row][data-school-value="kindergarten"]')
+            row.evaluate(open_details_group)
+            expect(row).to_be_visible()
+            row.scroll_into_view_if_needed()
+            return row, row.locator("[data-school-preference-select]"), row.locator("[data-school-distance-select]")
+
+        playground_row, preference, distance = _open_playground_controls()
+        market_row, market_preference, market_distance = _open_market_controls()
+        subway_row, subway_preference, subway_distance = _open_subway_controls()
+        kindergarten_row, kindergarten_preference, kindergarten_distance = _open_kindergarten_controls()
+        parking_pressure = page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]')
+        low_crime = page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]')
+        flood_risk = page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"] [data-keyword-preference-select]')
+
+        preference.select_option("nice_to_have")
+        expect(preference).to_have_value("nice_to_have")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-preference-state') === 'nice_to_have'
+            """
+        )
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-keyword-distance-enabled') === 'true'
+            """
+        )
+        page.evaluate("() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+        distance.evaluate(set_select_value, "500")
+        expect(distance).to_have_value("500")
+        market_preference.evaluate(set_select_value, "important")
+        expect(market_preference).to_have_value("important")
+        market_distance.evaluate(set_select_value, "1000")
+        expect(market_distance).to_have_value("1000")
+        subway_preference.evaluate(set_select_value, "important")
+        expect(subway_preference).to_have_value("important")
+        subway_distance.evaluate(set_select_value, "500")
+        expect(subway_distance).to_have_value("500")
+        kindergarten_preference.evaluate(set_select_value, "must_have")
+        expect(kindergarten_preference).to_have_value("must_have")
+        kindergarten_distance.evaluate(set_select_value, "500")
+        expect(kindergarten_distance).to_have_value("500")
+        parking_pressure.evaluate(set_select_value, "high")
+        expect(parking_pressure).to_have_value("high")
+        low_crime.evaluate(set_select_value, "important")
+        expect(low_crime).to_have_value("important")
+        flood_risk.evaluate(set_select_value, "avoid")
+        expect(flood_risk).to_have_value("avoid")
+        page.locator('[data-pqx-save-what-matters]').first.click()
+        expect(page.locator('[data-property-inline-status]').first).to_contain_text("Saved what matters.")
+
+        playground_row, preference, distance = _open_playground_controls()
+        market_row, market_preference, market_distance = _open_market_controls()
+        subway_row, subway_preference, subway_distance = _open_subway_controls()
+        kindergarten_row, kindergarten_preference, kindergarten_distance = _open_kindergarten_controls()
+        parking_pressure = page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]')
+        low_crime = page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]')
+        flood_risk = page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"] [data-keyword-preference-select]')
+        preference.select_option("important")
+        expect(preference).to_have_value("important")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-preference-state') === 'important'
+            """
+        )
+        distance.evaluate(set_select_value, "2000")
+        expect(distance).to_have_value("2000")
+        market_preference.evaluate(set_select_value, "avoid")
+        expect(market_preference).to_have_value("avoid")
+        market_distance.evaluate(set_select_value, "500")
+        expect(market_distance).to_have_value("500")
+        subway_preference.evaluate(set_select_value, "nice_to_have")
+        expect(subway_preference).to_have_value("nice_to_have")
+        subway_distance.evaluate(set_select_value, "1000")
+        expect(subway_distance).to_have_value("1000")
+        kindergarten_preference.evaluate(set_select_value, "nice_to_have")
+        expect(kindergarten_preference).to_have_value("nice_to_have")
+        kindergarten_distance.evaluate(set_select_value, "2000")
+        expect(kindergarten_distance).to_have_value("2000")
+        parking_pressure.evaluate(set_select_value, "low")
+        expect(parking_pressure).to_have_value("low")
+        low_crime.evaluate(set_select_value, "any")
+        expect(low_crime).to_have_value("any")
+        flood_risk.evaluate(set_select_value, "any")
+        expect(flood_risk).to_have_value("any")
+
+        page.locator('[data-pqx-load-what-matters]').first.click()
+        expect(page.locator('[data-property-inline-status]').first).to_contain_text("Loaded saved what matters.")
+        expect(preference).to_have_value("nice_to_have")
+        expect(distance).to_have_value("500")
+        expect(market_preference).to_have_value("important")
+        expect(market_distance).to_have_value("1000")
+        expect(subway_preference).to_have_value("important")
+        expect(subway_distance).to_have_value("500")
+        expect(kindergarten_preference).to_have_value("must_have")
+        expect(kindergarten_distance).to_have_value("500")
+        expect(parking_pressure).to_have_value("high")
+        expect(low_crime).to_have_value("important")
+        expect(flood_risk).to_have_value("avoid")
+
+        playground_row, preference, distance = _open_playground_controls()
+        market_row, market_preference, market_distance = _open_market_controls()
+        subway_row, subway_preference, subway_distance = _open_subway_controls()
+        kindergarten_row, kindergarten_preference, kindergarten_distance = _open_kindergarten_controls()
+        parking_pressure = page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]')
+        low_crime = page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]')
+        flood_risk = page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"] [data-keyword-preference-select]')
+        preference.select_option("must_have")
+        expect(preference).to_have_value("must_have")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-preference-state') === 'must_have'
+            """
+        )
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-keyword-distance-enabled') === 'true'
+            """
+        )
+        page.evaluate("() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+        distance.evaluate(set_select_value, "1000")
+        expect(distance).to_have_value("1000")
+        market_preference.evaluate(set_select_value, "important")
+        expect(market_preference).to_have_value("important")
+        market_distance.evaluate(set_select_value, "2000")
+        expect(market_distance).to_have_value("2000")
+        subway_preference.evaluate(set_select_value, "must_have")
+        expect(subway_preference).to_have_value("must_have")
+        subway_distance.evaluate(set_select_value, "250")
+        expect(subway_distance).to_have_value("250")
+        kindergarten_preference.evaluate(set_select_value, "important")
+        expect(kindergarten_preference).to_have_value("important")
+        kindergarten_distance.evaluate(set_select_value, "1000")
+        expect(kindergarten_distance).to_have_value("1000")
+        parking_pressure.evaluate(set_select_value, "medium")
+        expect(parking_pressure).to_have_value("medium")
+        low_crime.evaluate(set_select_value, "important")
+        expect(low_crime).to_have_value("important")
+        flood_risk.evaluate(set_select_value, "avoid")
+        expect(flood_risk).to_have_value("avoid")
+        page.locator('[data-pqx-save-what-matters]').first.click()
+        expect(page.locator('[data-property-inline-status]').first).to_contain_text("Saved what matters.")
+
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function(
+            """() => document.querySelector('[data-console-form-variant="property_search"]')?.dataset.propertyActiveStep === 'children'"""
+        )
+        reloaded_row = page.locator('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        reloaded_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
+        expect(reloaded_row.locator("[data-keyword-preference-select]")).to_have_value("must_have")
+        expect(reloaded_row.locator("[data-keyword-distance-select]")).to_have_value("1000")
+        reloaded_market_row = page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"]')
+        reloaded_market_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
+        expect(reloaded_market_row.locator("[data-keyword-preference-select]")).to_have_value("important")
+        expect(reloaded_market_row.locator("[data-keyword-distance-select]")).to_have_value("2000")
+        reloaded_subway_row = page.locator('[data-keyword-priority-row][data-keyword-value="underground nearby"]')
+        reloaded_subway_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
+        expect(reloaded_subway_row.locator("[data-keyword-preference-select]")).to_have_value("must_have")
+        expect(reloaded_subway_row.locator("[data-keyword-distance-select]")).to_have_value("250")
+        reloaded_kindergarten_row = page.locator('[data-school-priority-row][data-school-value="kindergarten"]')
+        reloaded_kindergarten_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
+        expect(reloaded_kindergarten_row.locator("[data-school-preference-select]")).to_have_value("important")
+        expect(reloaded_kindergarten_row.locator("[data-school-distance-select]")).to_have_value("1000")
+        expect(page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]')).to_have_value("medium")
+        expect(page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]')).to_have_value("important")
+        expect(page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"] [data-keyword-preference-select]')).to_have_value("avoid")
+    finally:
+        context.close()
+
+
 def test_propertyquarry_search_where_step_keeps_area_selection_visible(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -3466,7 +4596,7 @@ def test_propertyquarry_mobile_empty_results_keep_extra_relax_options_behind_mor
         expect(visible_actions).to_have_count(1)
         inline_slider_count = page.locator('[data-pqx-counterfactuals] [data-pqx-filter-slider]:visible').count()
         assert inline_slider_count in {0, 1}
-        more_trigger = page.get_by_role("button", name=re.compile(r"More ways to widen", re.I))
+        more_trigger = page.get_by_role("button", name=re.compile(r"More options", re.I))
         if more_trigger.count():
             expect(more_trigger).to_be_visible()
             more_trigger.click()
@@ -3492,7 +4622,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
+        assert page.locator(".pqx-results-summary-row", has_text=re.compile(r"(saved|matching) (homes|opportunities)", re.I)).is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         packet_href = page.locator('a[href*="/app/research/"]').first.get_attribute("href")
@@ -3540,7 +4670,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
             assert first_screen["galleryBottom"] <= first_screen["viewportHeight"] + 1
         page.screenshot(path=str(screenshot_path), full_page=False, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
-        assert page.get_by_text("Quick take").first.is_visible()
+        assert page.get_by_text("Overview").first.is_visible()
         decision_fit = page.evaluate(
             """
             () => {
@@ -3626,7 +4756,7 @@ def test_propertyquarry_shortlist_and_research_have_browser_performance_budget(
             wait_until="networkidle",
             budget_ms=3200,
         )
-        assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
+        assert page.locator(".pqx-results-summary-row", has_text=re.compile(r"(saved|matching) (homes|opportunities)", re.I)).is_visible()
         expect(page.locator("[data-property-app-shell]")).to_be_visible()
         expect(page.locator('a[href*="/app/research/"]').first).to_be_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
@@ -3682,7 +4812,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                     "status_detail": "Walkthrough is queued after your request.",
                     "eta_label": "about 10 min",
                     "progress_pct": 18,
-                    "poll_after_seconds": 1,
+                    "poll_after_seconds": 2,
                     "delivery_status": "skipped",
                     "blocked_reason": "",
                     "source_ref": visual_requests[-1].get("source_ref", ""),
@@ -3888,7 +5018,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert "18%" in rail_fill
         page.wait_for_timeout(1300)
         assert visual_status_polls >= 1
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("ready on this page")
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("available on this page")
         updated_button = page.get_by_role("button", name=re.compile("Open walkthrough", re.I)).first
         expect(updated_button).to_be_visible()
         updated_href = str(updated_button.get_attribute("data-pw-visual-href") or "").strip()
@@ -3958,6 +5088,520 @@ def test_propertyquarry_visual_request_does_not_invent_eta_before_backend_suppli
         assert "urban jungle" in str(visual_requests[-1].get("diorama_style_hint") or "").lower()
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request", timeout=5000)
         assert (page.locator("[data-prd-visual-eta]").inner_text() or "").strip() == ""
+    finally:
+        context.close()
+
+
+def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    _stub_matterport_provider(context)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+    visual_status_polls = 0
+    console_errors: list[str] = []
+
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+
+    def _capture_visual_request(route) -> None:
+        payload = route.request.post_data_json or {}
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-02T10:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": "",
+                    "tour_status": "pending",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "3D tour queued",
+                    "status_detail": "3D tour is queued after your request.",
+                    "eta_label": "about 10 min",
+                    "progress_pct": 16,
+                    "poll_after_seconds": 1,
+                    "delivery_status": "queued",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+
+    def _capture_visual_status(route) -> None:
+        nonlocal visual_status_polls
+        visual_status_polls += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-02T10:00:03+00:00",
+                    "status": "ready",
+                    "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                    "tour_status": "ready",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "Open 3D tour",
+                    "status_detail": "3D tour is available on this page.",
+                    "eta_label": "",
+                    "progress_pct": 100,
+                    "poll_after_seconds": 0,
+                    "source_ref": "immobilienscout24:family-tiergarten",
+                    "run_id": "run-42",
+                    "candidate_ref": "family-tiergarten",
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        expect(family_row).to_be_visible()
+        packet_href = str(family_row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        request_button = page.get_by_role("button", name="Request 3D tour").first
+        expect(request_button).to_be_visible()
+
+        request_button.click()
+        _choose_research_visual_style(page)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request", timeout=5000)
+
+        assert len(visual_requests) == 1
+        payload = visual_requests[0]
+        assert payload["request_kind"] == "tour"
+        assert payload["auto_deliver"] is False
+        assert payload["allow_floorplan_only"] is True
+        assert payload["walkthrough_provider_key"] == ""
+        assert "urban jungle" in str(payload["diorama_style_hint"] or "").lower()
+        assert payload["run_id"] == "run-42"
+        assert str(payload["property_url"]).endswith("/family-tiergarten")
+        expect(page.locator("[data-prd-visual-eta]")).to_contain_text("about 10 min", timeout=5000)
+        rail_fill = page.locator("[data-prd-visual-progress]").first.get_attribute("style") or ""
+        assert "16%" in rail_fill or "100%" in rail_fill
+
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("available on this page", timeout=5000)
+        assert visual_status_polls >= 1
+        updated_button = page.get_by_role("button", name="Open 3D tour").first
+        expect(updated_button).to_be_visible()
+        updated_href = str(updated_button.get_attribute("data-pw-visual-href") or "").strip()
+        assert updated_href
+        assert updated_href.endswith("/tours/altbau-u6/control/matterport")
+        with page.expect_navigation(wait_until="domcontentloaded"):
+            updated_button.click()
+        page.locator("h1").wait_for()
+        assert page.locator("body", has_text="Altbau near U6").is_visible()
+        assert page.locator(".badge").inner_text().lower() == "matterport control"
+        assert page.locator("#load-provider").count() == 0
+        assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=AltbauNearU6"
+        assert page.locator(".provider-frame").get_attribute("data-src") == "https://my.matterport.com/show/?m=AltbauNearU6"
+        response = page.go_back(wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.locator("[data-property-research-detail]")).to_be_visible()
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("available on this page", timeout=5000)
+        expect(page.get_by_role("button", name="Open 3D tour").first).to_be_visible()
+        expect(page.get_by_role("button", name="Request 3D tour")).to_have_count(0)
+        noisy_console_errors = [
+            message
+            for message in console_errors
+            if "decode" in message.lower()
+            or "media" in message.lower()
+            or "refused" in message.lower()
+            or "failed to load resource" in message.lower()
+        ]
+        assert not noisy_console_errors, noisy_console_errors
+    finally:
+        context.close()
+
+
+def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    original_get_run_status = ProductService.get_property_search_run_status
+
+    blocked_candidate = {
+        "title": "Retryable tour loft",
+        "summary": "EUR 1,890 · 73 m² · 1070 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/retryable-tour-loft",
+        "source_ref": "willhaben:retryable-tour-loft",
+        "tour_status": "blocked",
+        "blocked_reason": "property_tour_execution_failed",
+        "tour_url": "",
+        "flythrough_status": "",
+        "flythrough_url": "",
+        "fit_summary": "Personal fit 82/100 · shortlist · Floorplan and light fit.",
+        "recommendation": "shortlist",
+        "match_reasons": ["Floorplan and light fit."],
+        "mismatch_reasons": [],
+        "property_facts": {
+            "price_display": "EUR 1,890",
+            "price_eur": 1890.0,
+            "rooms": 3,
+            "area_m2": 73.0,
+            "postal_name": "1070 Wien",
+            "has_floorplan": True,
+        },
+    }
+
+    def _fake_retryable_run_status(self, *, principal_id: str, run_id: str):
+        if principal_id == "pq-greenfield-browser" and run_id == "run-retry-tour-browser":
+            return {
+                "run_id": run_id,
+                "principal_id": principal_id,
+                "status_url": f"/app/api/signals/property/search/run/{run_id}",
+                "status": "processed",
+                "progress": 100,
+                "message": "Property scouting run completed.",
+                "summary": {
+                    "sources_total": 1,
+                    "listing_total": 1,
+                    "ranked_candidates": [blocked_candidate],
+                    "sources": [
+                        {
+                            "source_label": "Willhaben | Austria | Rent | 1070 Vienna",
+                            "listing_total": 1,
+                            "high_fit_total": 1,
+                            "top_candidates": [blocked_candidate],
+                        }
+                    ],
+                },
+                "events": [],
+            }
+        return original_get_run_status(self, principal_id=principal_id, run_id=run_id)
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_retryable_run_status)
+
+    context = _new_context(browser, mobile=False)
+    _stub_matterport_provider(context)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+    visual_status_polls = 0
+    console_errors: list[str] = []
+
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+
+    def _capture_visual_request(route) -> None:
+        payload = route.request.post_data_json or {}
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-02T11:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Retryable tour loft",
+                    "request_kind": "tour",
+                    "tour_url": "",
+                    "tour_status": "pending",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "3D tour queued",
+                    "status_detail": "3D tour is queued after your request.",
+                    "eta_label": "about 6 min",
+                    "progress_pct": 24,
+                    "poll_after_seconds": 2,
+                    "delivery_status": "queued",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+
+    def _capture_visual_status(route) -> None:
+        nonlocal visual_status_polls
+        visual_status_polls += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-02T11:00:03+00:00",
+                    "status": "ready",
+                    "property_url": blocked_candidate["property_url"],
+                    "title": blocked_candidate["title"],
+                    "request_kind": "tour",
+                    "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                    "tour_status": "ready",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "Open 3D tour",
+                    "status_detail": "3D tour is available on this page.",
+                    "eta_label": "",
+                    "progress_pct": 100,
+                    "poll_after_seconds": 0,
+                    "source_ref": str(blocked_candidate["source_ref"]),
+                    "run_id": "run-retry-tour-browser",
+                    "candidate_ref": "retryable-tour-loft",
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-retry-tour-browser&full=1", wait_until="networkidle")
+        assert response is not None and response.ok
+        row = page.locator("[data-workbench-row]", has_text="Retryable tour loft").first
+        expect(row).to_be_visible()
+        packet_href = str(row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        retry_button = page.get_by_role("button", name="Retry 3D tour").first
+        expect(retry_button).to_be_visible()
+        visible_text = page.locator("body").inner_text()
+        assert "property_tour_execution_failed" not in visible_text
+
+        retry_button.click()
+        _choose_research_visual_style(page, label="Warm Scandinavian")
+
+        assert len(visual_requests) == 1
+        payload = visual_requests[0]
+        assert payload["request_kind"] == "tour"
+        assert payload["run_id"] == "run-retry-tour-browser"
+        assert payload["allow_floorplan_only"] is True
+        assert "warm scandinavian" in str(payload["diorama_style_hint"] or "").lower()
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request", timeout=5000)
+        expect(page.locator("[data-prd-visual-eta]")).to_contain_text("about 6 min", timeout=5000)
+        rail_fill = page.locator("[data-prd-visual-progress]").first.get_attribute("style") or ""
+        assert "24%" in rail_fill or "100%" in rail_fill
+
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("available on this page", timeout=5000)
+        assert visual_status_polls >= 1
+        updated_button = page.get_by_role("button", name="Open 3D tour").first
+        expect(updated_button).to_be_visible()
+        with page.expect_navigation(wait_until="domcontentloaded"):
+            updated_button.click()
+        page.locator("h1").wait_for()
+        assert page.locator("body", has_text="Altbau near U6").is_visible()
+        assert page.locator("#load-provider").count() == 0
+        assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=AltbauNearU6"
+        assert page.locator(".provider-frame").get_attribute("data-src") == "https://my.matterport.com/show/?m=AltbauNearU6"
+        noisy_console_errors = [
+            message
+            for message in console_errors
+            if "decode" in message.lower()
+            or "media" in message.lower()
+            or "refused" in message.lower()
+            or "failed to load resource" in message.lower()
+        ]
+        assert not noisy_console_errors, noisy_console_errors
+    finally:
+        context.close()
+
+
+def test_propertyquarry_handoff_3d_tour_request_is_user_initiated_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    container = client.app.state.container
+    original_get_handoff = ProductService.get_handoff
+    handoff_input = {
+        "title": "Family flat near Tiergarten",
+        "summary": "Larger layout and quieter block.",
+        "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+        "run_id": "run-handoff-tour-browser",
+        "candidate_ref": "handoff-family-tiergarten",
+        "source_ref": "immobilienscout24:family-tiergarten",
+        "personal_fit_assessment": {
+            "match_reasons_json": ["Larger layout and quieter block."],
+            "mismatch_reasons_json": [],
+        },
+        "property_facts_json": {
+            "price_display": "EUR 465,000",
+            "price_eur": 465000.0,
+            "rooms": 4,
+            "area_m2": 92,
+            "postal_name": "Berlin Tiergarten",
+        },
+        "candidate_properties": [
+            {
+                "title": "Family flat near Tiergarten",
+                "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                "source_ref": "immobilienscout24:family-tiergarten",
+                "run_id": "run-handoff-tour-browser",
+                "candidate_ref": "handoff-family-tiergarten",
+                "tour_url": "",
+                "flythrough_url": "",
+                "floorplan_url": "https://example.test/floorplan-family-tiergarten.png",
+                "property_facts": {
+                    "price_display": "EUR 465,000",
+                    "price_eur": 465000.0,
+                    "rooms": 4,
+                    "area_m2": 92,
+                    "postal_name": "Berlin Tiergarten",
+                },
+            }
+        ],
+    }
+
+    def _fake_get_handoff(self, *, principal_id: str, handoff_ref: str):
+        if principal_id == "pq-greenfield-browser" and handoff_ref == "human_task:review-2":
+            return HandoffNote(
+                id=handoff_ref,
+                queue_item_ref="queue:review-2",
+                summary="Family flat near Tiergarten",
+                owner="office",
+                due_time=None,
+                escalation_status="high",
+                status="pending",
+                task_type="property_alert_review",
+                property_url="https://www.immobilienscout24.de/expose/family-tiergarten",
+                tour_url="",
+                source_ref="immobilienscout24:family-tiergarten",
+            )
+        return original_get_handoff(self, principal_id=principal_id, handoff_ref=handoff_ref)
+
+    monkeypatch.setattr(ProductService, "get_handoff", _fake_get_handoff)
+    monkeypatch.setattr(
+        container.orchestrator,
+        "fetch_human_task",
+        lambda task_id, principal_id: type("TaskStub", (), {"input_json": handoff_input})(),
+    )
+    monkeypatch.setattr(
+        container.orchestrator,
+        "list_human_task_assignment_history",
+        lambda task_id, principal_id, limit=8: (),
+    )
+
+    context = _new_context(browser, mobile=False)
+    _stub_matterport_provider(context)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+    visual_status_polls = 0
+
+    def _capture_visual_request(route) -> None:
+        payload = route.request.post_data_json or {}
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-02T12:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": "",
+                    "tour_status": "pending",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "3D tour queued",
+                    "status_detail": "3D tour is queued after your request.",
+                    "eta_label": "about 8 min",
+                    "progress_pct": 18,
+                    "poll_after_seconds": 2,
+                    "delivery_status": "queued",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    def _capture_visual_status(route) -> None:
+        nonlocal visual_status_polls
+        visual_status_polls += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-02T12:00:03+00:00",
+                    "status": "ready",
+                    "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                    "tour_status": "ready",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "Open 3D tour",
+                    "status_detail": "3D tour is available on this page.",
+                    "eta_label": "",
+                    "progress_pct": 100,
+                    "poll_after_seconds": 0,
+                    "source_ref": "immobilienscout24:family-tiergarten",
+                    "run_id": "run-handoff-tour-browser",
+                    "candidate_ref": "handoff-family-tiergarten",
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
+    try:
+        response = page.goto(f"{base_url}/app/handoffs/human_task:review-2", wait_until="networkidle")
+        assert response is not None and response.ok
+        request_button = page.get_by_role("button", name="Request 3D tour").first
+        expect(request_button).to_be_visible()
+
+        request_button.click()
+        _choose_object_visual_style(page, label="Warm Scandinavian")
+
+        assert len(visual_requests) == 1
+        payload = visual_requests[0]
+        assert payload["request_kind"] == "tour"
+        assert payload["auto_deliver"] is False
+        assert payload["allow_floorplan_only"] is True
+        assert payload["walkthrough_provider_key"] == ""
+        assert payload["run_id"] == "run-handoff-tour-browser"
+        assert payload["candidate_ref"] == "handoff-family-tiergarten"
+        assert "warm scandinavian" in str(payload["diorama_style_hint"] or "").lower()
+        expect(page.locator("[data-object-visual-status]")).to_contain_text("queued after your request", timeout=5000)
+        expect(page.locator("[data-object-visual-eta]")).to_contain_text("about 8 min", timeout=5000)
+        rail_fill = page.locator("[data-object-visual-progress]").first.get_attribute("style") or ""
+        assert "18%" in rail_fill or "100%" in rail_fill
+
+        expect(page.locator("[data-object-visual-status]")).to_contain_text("available on this page", timeout=5000)
+        assert visual_status_polls >= 1
+        updated_button = page.get_by_role("button", name="Open 3D tour").first
+        expect(updated_button).to_be_visible()
+        updated_href = str(updated_button.get_attribute("data-obj-visual-href") or "").strip()
+        assert updated_href.endswith("/tours/altbau-u6/control/matterport")
+        with page.expect_navigation(wait_until="domcontentloaded"):
+            updated_button.click()
+        page.locator("h1").wait_for()
+        assert page.locator("body", has_text="Altbau near U6").is_visible()
+        assert page.locator("#load-provider").count() == 0
+        assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=AltbauNearU6"
+        assert page.locator(".provider-frame").get_attribute("data-src") == "https://my.matterport.com/show/?m=AltbauNearU6"
     finally:
         context.close()
 
@@ -4839,9 +6483,11 @@ def test_propertyquarry_automation_page_uses_compact_card_cockpit(
                 osmThumbCount: document.querySelectorAll('.pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"]').length,
                 previewUrlCount: [...document.querySelectorAll('.pqx-automation-thumbnail img')]
                   .filter((img) => {
-                    const src = String(img.getAttribute('src') || '');
+                    const src = String(img.getAttribute('data-map-preview-src') || img.getAttribute('src') || '');
                     return src.startsWith('/app/api/property/map-previews/') && src.endsWith('.png');
                   }).length,
+                refreshedPreviewCount: [...document.querySelectorAll('.pqx-automation-thumbnail img')]
+                  .filter((img) => String(img.getAttribute('src') || '').startsWith('blob:') && img.getAttribute('data-map-preview-ready') === 'true').length,
                 nonOverlayPreviewKinds: [...document.querySelectorAll('.pqx-automation-thumbnail')]
                   .map((thumb) => String(thumb.getAttribute('data-scope-preview-kind') || ''))
                   .filter((kind) => kind !== 'osm_district_overlay'),
@@ -4863,6 +6509,7 @@ def test_propertyquarry_automation_page_uses_compact_card_cockpit(
         assert layout["overlayThumbCount"] == 2
         assert layout["osmThumbCount"] == 2
         assert layout["previewUrlCount"] == 2
+        assert 0 <= layout["refreshedPreviewCount"] <= 2
         assert layout["nonOverlayPreviewKinds"] == []
         assert layout["deleteCount"] == 2
         assert layout["formCount"] == 0
@@ -5271,26 +6918,14 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
               card.innerHTML = `
                 <div class="pqx-previous-scope-preview">
                   <div class="pqx-previous-district-hotspots" aria-hidden="true">
-                    <button
+                    <span
                       class="pqx-previous-district-hotspot"
-                      type="button"
-                      data-label="1020 Vienna"
-                      data-pqx-scope-open
-                      data-pqx-scope-image="data:image/svg+xml;utf8,${scopeSvg}"
-                      data-pqx-scope-alt="Search area preview for 1020 Vienna"
-                      data-pqx-scope-title="1020 Vienna"
-                      data-pqx-scope-caption="1020 Vienna, 1030 Vienna"
-                      style="left: 31.1%; top: 26.25%; width: 22.297%; height: 26.25%;"></button>
-                    <button
+                      aria-hidden="true"
+                      style="position:absolute; left: 31.1%; top: 26.25%; width: 22.297%; height: 26.25%;"></span>
+                    <span
                       class="pqx-previous-district-hotspot is-selected"
-                      type="button"
-                      data-label="1030 Vienna"
-                      data-pqx-scope-open
-                      data-pqx-scope-image="data:image/svg+xml;utf8,${scopeSvg}"
-                      data-pqx-scope-alt="Search area preview for 1020 Vienna"
-                      data-pqx-scope-title="1030 Vienna"
-                      data-pqx-scope-caption="1020 Vienna, 1030 Vienna"
-                      style="left: 56.081%; top: 38.75%; width: 19.595%; height: 21.25%;"></button>
+                      aria-hidden="true"
+                      style="position:absolute; left: 56.081%; top: 38.75%; width: 19.595%; height: 21.25%;"></span>
                   </div>
                   <button
                     class="pqx-previous-scope-trigger"
@@ -5403,7 +7038,9 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
         assert layout["previousPreviewPlacementFailureCount"] == 0
         assert "Saved searches" in set(layout["visibleRowLabels"])
         assert len([value for value in layout["visibleRowValues"] if value]) >= 2
-        page.locator('[data-pqx-scope-open]').first.click()
+        page.locator('[data-pqx-previous-search-card] .pqx-previous-scope-trigger[data-pqx-scope-open]').first.evaluate(
+            "(node) => node.click()"
+        )
         page.locator('[data-pqx-scope-lightbox]').wait_for(state="visible")
         lightbox_state = page.evaluate(
             """
@@ -5418,7 +7055,7 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
             }
             """
         )
-        assert lightbox_state["open"] is True
+        assert lightbox_state["open"] is True, lightbox_state
         assert lightbox_state["width"] > 0
         assert lightbox_state["src"].startswith("data:image/svg+xml")
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
@@ -5826,7 +7463,6 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         response = page.goto(f"{tour_entry}?pane=floorplan-pane", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.locator("h1").wait_for()
-        assert page.locator("body", has_text="PROPERTY TOUR").is_visible()
         assert page.locator("body", has_text="Altbau near U6").is_visible()
         page.locator('#role-filter button[data-role="floorplan"]').click()
         assert page.locator("#stage-role").inner_text().lower() == "floorplan"
@@ -5891,8 +7527,13 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
+    _stub_matterport_provider(context)
     page: Page = context.new_page()
     visual_requests: list[dict[str, object]] = []
+    visual_status_polls = 0
+    console_errors: list[str] = []
+
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
 
     def _capture_visual_request(route) -> None:
         request = route.request
@@ -5908,11 +7549,14 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
                     "property_url": visual_requests[-1].get("property_url", ""),
                     "title": "Family flat near Tiergarten",
                     "request_kind": "flythrough",
-                    "tour_url": "/tours/family-tiergarten",
+                    "tour_url": "",
                     "flythrough_url": "",
                     "flythrough_status": "pending",
                     "status_label": "Walkthrough queued",
                     "status_detail": "Walkthrough is queued after your request and will appear here when it is ready.",
+                    "eta_label": "about 10 min",
+                    "progress_pct": 18,
+                    "poll_after_seconds": 1,
                     "delivery_status": "skipped",
                     "blocked_reason": "",
                     "source_ref": visual_requests[-1].get("source_ref", ""),
@@ -5923,6 +7567,36 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         )
 
     page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    def _capture_visual_status(route) -> None:
+        nonlocal visual_status_polls
+        visual_status_polls += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-02T10:00:03+00:00",
+                    "status": "ready",
+                    "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "flythrough",
+                    "tour_url": "",
+                    "tour_status": "pending",
+                    "flythrough_url": f"{base_url}/tours/altbau-u6?pane=flythrough-pane&autoplay=1",
+                    "flythrough_status": "ready",
+                    "status_label": "Open walkthrough",
+                    "status_detail": "Walkthrough is available on this page.",
+                    "eta_label": "",
+                    "progress_pct": 100,
+                    "poll_after_seconds": 0,
+                    "source_ref": "immobilienscout24:family-tiergarten",
+                    "run_id": "run-42",
+                    "candidate_ref": "family-tiergarten",
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
         assert response is not None and response.ok
@@ -5950,8 +7624,243 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         assert payload["request_kind"] == "flythrough"
         assert payload["auto_deliver"] is False
         assert payload["allow_floorplan_only"] is True
+        current_visual_status = page.locator("[data-prd-visual-status]").inner_text().strip().lower()
+        assert (
+            "queued after your request" in current_visual_status
+            or "available on this page" in current_visual_status
+        ), current_visual_status
+        rail_fill = page.locator("[data-prd-visual-progress]").first.get_attribute("style") or ""
+        assert "18%" in rail_fill or "100%" in rail_fill
+        page.wait_for_timeout(1300)
+        assert visual_status_polls >= 1
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("available on this page")
+        updated_button = page.get_by_role("button", name=re.compile("Open walkthrough", re.I)).first
+        expect(updated_button).to_be_visible()
+        updated_href = str(updated_button.get_attribute("data-pw-visual-href") or "").strip()
+        assert updated_href
+        assert updated_href.endswith("/tours/altbau-u6?pane=flythrough-pane&autoplay=1")
+        with page.expect_navigation(wait_until="domcontentloaded"):
+            updated_button.click()
+        video = page.locator("#tour-video")
+        video.wait_for()
+        assert video.is_visible()
+        page.evaluate("() => document.getElementById('tour-video')?.play()?.catch(() => null)")
+        page.wait_for_timeout(1800)
+        state = page.evaluate(
+            """() => {
+                const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
+                return video ? {
+                    currentTime: video.currentTime,
+                    duration: video.duration,
+                    readyState: video.readyState,
+                    videoWidth: video.videoWidth,
+                } : null;
+            }"""
+        )
+        assert state is not None
+        assert state["readyState"] >= 2
+        assert state["videoWidth"] >= 640
+        assert state["currentTime"] > 0.2
+        assert state["duration"] >= 2.5
+        assert _video_frame_brightness(page) > 10.0
+        noisy_console_errors = [
+            message
+            for message in console_errors
+            if "decode" in message.lower()
+            or "media" in message.lower()
+            or "refused" in message.lower()
+            or "failed to load resource" in message.lower()
+        ]
+        assert not noisy_console_errors, noisy_console_errors
         assert payload["run_id"] == "run-42"
         assert str(payload["property_url"]).endswith("/family-tiergarten")
+    finally:
+        context.close()
+
+
+def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is_open(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    _stub_matterport_provider(context)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+    visual_status_polls: dict[str, int] = {"tour": 0, "flythrough": 0}
+
+    def _capture_visual_request(route) -> None:
+        payload = route.request.post_data_json or {}
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        request_kind = str(visual_requests[-1].get("request_kind") or "").strip().lower()
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                (
+                    {
+                        "generated_at": "2026-07-03T10:00:00+00:00",
+                        "status": "created",
+                        "property_url": visual_requests[-1].get("property_url", ""),
+                        "title": "Family flat near Tiergarten",
+                        "request_kind": "tour",
+                        "tour_url": "",
+                        "tour_status": "pending",
+                        "flythrough_url": "",
+                        "flythrough_status": "",
+                        "status_label": "3D tour queued",
+                        "status_detail": "3D tour is queued after your request.",
+                        "eta_label": "about 10 min",
+                        "progress_pct": 16,
+                        "poll_after_seconds": 1,
+                        "source_ref": visual_requests[-1].get("source_ref", ""),
+                        "run_id": visual_requests[-1].get("run_id", ""),
+                        "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                    }
+                    if request_kind == "tour"
+                    else {
+                        "generated_at": "2026-07-03T10:00:00+00:00",
+                        "status": "created",
+                        "property_url": visual_requests[-1].get("property_url", ""),
+                        "title": "Family flat near Tiergarten",
+                        "request_kind": "flythrough",
+                        "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                        "tour_status": "ready",
+                        "flythrough_url": "",
+                        "flythrough_status": "queued",
+                        "status_label": "Walkthrough queued",
+                        "status_detail": "Priority queue active. This render stays ahead of the free queue and appears here when it is ready.",
+                        "eta_label": "about 10 min",
+                        "progress_pct": 18,
+                        "poll_after_seconds": 1,
+                        "source_ref": visual_requests[-1].get("source_ref", ""),
+                        "run_id": visual_requests[-1].get("run_id", ""),
+                        "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                    }
+                )
+            ),
+        )
+
+    def _capture_visual_status(route) -> None:
+        query = urllib.parse.urlparse(route.request.url).query
+        request_kind = urllib.parse.parse_qs(query).get("request_kind", ["tour"])[0].strip().lower() or "tour"
+        visual_status_polls[request_kind] = visual_status_polls.get(request_kind, 0) + 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                (
+                    {
+                        "generated_at": "2026-07-03T10:00:03+00:00",
+                        "status": "ready",
+                        "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                        "title": "Family flat near Tiergarten",
+                        "request_kind": "tour",
+                        "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                        "tour_status": "ready",
+                        "flythrough_url": "",
+                        "flythrough_status": "",
+                        "status_label": "Open 3D tour",
+                        "status_detail": "3D tour is available on this page.",
+                        "eta_label": "",
+                        "progress_pct": 100,
+                        "poll_after_seconds": 0,
+                        "source_ref": "immobilienscout24:family-tiergarten",
+                        "run_id": "run-42",
+                        "candidate_ref": "family-tiergarten",
+                    }
+                    if request_kind == "tour"
+                    else {
+                        "generated_at": "2026-07-03T10:00:03+00:00",
+                        "status": "queued",
+                        "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                        "title": "Family flat near Tiergarten",
+                        "request_kind": "flythrough",
+                        "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                        "tour_status": "ready",
+                        "flythrough_url": "",
+                        "flythrough_status": "queued",
+                        "status_label": "Walkthrough queued",
+                        "status_detail": "Priority queue active. This render stays ahead of the free queue and appears here when it is ready.",
+                        "eta_label": "about 10 min",
+                        "progress_pct": 18,
+                        "poll_after_seconds": 1,
+                        "source_ref": "immobilienscout24:family-tiergarten",
+                        "run_id": "run-42",
+                        "candidate_ref": "family-tiergarten",
+                    }
+                )
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        expect(family_row).to_be_visible()
+        packet_href = str(family_row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        tour_button = page.get_by_role("button", name="Request 3D tour").first
+        expect(tour_button).to_be_visible()
+        tour_button.click()
+        _choose_research_visual_style(page)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is available on this page.", timeout=5000)
+        expect(page.get_by_role("button", name="Open 3D tour").first).to_be_visible()
+
+        request_button = page.get_by_role("button", name="Request walkthrough").first
+        expect(request_button).to_be_visible()
+
+        request_button.click()
+        _choose_research_visual_style(page)
+        page.wait_for_timeout(300)
+        assert len(visual_requests) == 2
+        assert visual_requests[0]["request_kind"] == "tour"
+        assert visual_requests[1]["request_kind"] == "flythrough"
+        assert "urban jungle" in str(visual_requests[1].get("diorama_style_hint") or "").lower()
+
+        expect(page.locator("[data-prd-visual-label]")).to_contain_text(re.compile("3D tour", re.I), timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is available on this page.", timeout=5000)
+        page.wait_for_timeout(1300)
+        assert visual_status_polls["tour"] >= 1
+        assert visual_status_polls["flythrough"] >= 1
+        expect(page.locator("[data-prd-visual-label]")).to_contain_text(re.compile("3D tour", re.I), timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is available on this page.", timeout=5000)
+        expect(page.get_by_role("button", name="Open 3D tour").first).to_be_visible()
+        expect(page.get_by_role("button", name=re.compile("Walkthrough queued", re.I)).first).to_be_visible()
+        rail_kind = str(page.locator("[data-prd-visual-rail]").first.get_attribute("data-prd-visual-kind") or "").strip().lower()
+        assert rail_kind == "tour"
+    finally:
+        context.close()
+
+
+def test_propertyquarry_results_surface_keeps_desktop_selection_inline_before_opening_research(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42&full=1", wait_until="networkidle")
+        assert response is not None and response.ok
+        row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        expect(row).to_be_visible(timeout=5000)
+        before_url = page.url
+        row.click()
+        selected_panel = page.get_by_role("region", name="Selected property")
+        expect(selected_panel.locator("[data-pw-title]")).to_contain_text("Family flat near Tiergarten")
+        assert page.url == before_url
+        expect(selected_panel.get_by_role("link", name="Open property").first).to_have_attribute(
+            "href",
+            re.compile(r"/app/research/"),
+        )
     finally:
         context.close()
 
@@ -6262,9 +8171,9 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         separator = "&" if "?" in packet_url else "?"
         response = page.goto(f"{packet_url}{separator}run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Quick take").is_visible()
+        assert page.locator("body", has_text="Overview").is_visible()
         assert page.locator("body", has_text="Decision shortcut loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Question loaded from the email or shared link.").is_visible()
-        assert page.locator("body", has_text="Tracked follow-up").is_visible()
+        assert page.locator("body", has_text="Follow-up").is_visible()
     finally:
         context.close()

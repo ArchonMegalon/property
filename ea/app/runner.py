@@ -1094,18 +1094,33 @@ def _run_scheduler_property_search_recovery(container, log: logging.Logger) -> d
     from app.product.service import build_product_service
 
     service = build_product_service(container)
-    try:
-        summary = service.reconcile_stale_property_search_runs(limit=80)
-    except Exception:
-        log.exception("scheduler property search recovery failed")
-        return {"ran": True, "scanned": 0, "stale_total": 0, "repaired": 0, "replacement_started": 0, "errors": 1}
+    principal_ids = tuple(str(value or "").strip() for value in _scheduler_property_scout_principal_ids(container) if str(value or "").strip())
+    aggregate = {"scanned": 0, "stale_total": 0, "repaired": 0, "replacement_started": 0, "errors": 0}
+    if principal_ids:
+        for principal_id in principal_ids:
+            try:
+                summary = service.reconcile_stale_property_search_runs(principal_id=principal_id, limit=80)
+            except Exception:
+                aggregate["errors"] += 1
+                log.exception("scheduler property search recovery failed principal=%s", principal_id)
+                continue
+            for key in ("scanned", "stale_total", "repaired", "replacement_started", "errors"):
+                aggregate[key] += int(summary.get(key) or 0)
+    else:
+        try:
+            summary = service.reconcile_stale_property_search_runs(limit=80)
+        except Exception:
+            log.exception("scheduler property search recovery failed")
+            return {"ran": True, "scanned": 0, "stale_total": 0, "repaired": 0, "replacement_started": 0, "errors": 1}
+        for key in ("scanned", "stale_total", "repaired", "replacement_started", "errors"):
+            aggregate[key] = int(summary.get(key) or 0)
     return {
         "ran": True,
-        "scanned": int(summary.get("scanned") or 0),
-        "stale_total": int(summary.get("stale_total") or 0),
-        "repaired": int(summary.get("repaired") or 0),
-        "replacement_started": int(summary.get("replacement_started") or 0),
-        "errors": int(summary.get("errors") or 0),
+        "scanned": int(aggregate.get("scanned") or 0),
+        "stale_total": int(aggregate.get("stale_total") or 0),
+        "repaired": int(aggregate.get("repaired") or 0),
+        "replacement_started": int(aggregate.get("replacement_started") or 0),
+        "errors": int(aggregate.get("errors") or 0),
     }
 
 

@@ -4175,6 +4175,16 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         payload["max_results_per_source"] = max(1, min(plan_result_cap or 10, requested_max_results))
     else:
         payload.pop("max_results_per_source", None)
+    distance_numeric_keys = tuple(
+        key
+        for key in dict.fromkeys(
+            str(raw_key or "").strip()
+            for raw_key in dict(payload).keys()
+            if str(raw_key or "").strip().startswith("max_distance_to_")
+            and str(raw_key or "").strip().endswith("_m")
+        )
+        if key
+    )
     for numeric_key in (
         "min_price_eur",
         "max_price_eur",
@@ -4188,24 +4198,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         "max_commute_minutes_drive",
         "max_commute_minutes_bike",
         "max_commute_minutes_walk",
-        "max_distance_to_playground_m",
-        "max_distance_to_library_m",
-        "max_distance_to_university_m",
-        "max_distance_to_supermarket_m",
-        "max_distance_to_market_m",
-        "max_distance_to_hardware_store_m",
-        "max_distance_to_shopping_center_m",
-        "max_distance_to_shopping_street_m",
-        "max_distance_to_theatre_m",
-        "max_distance_to_public_pool_m",
-        "max_distance_to_medical_care_m",
-        "max_distance_to_starbucks_m",
-        "max_distance_to_fitness_center_m",
-        "max_distance_to_cinema_m",
-        "max_distance_to_bouldering_m",
-        "max_distance_to_dog_park_m",
-        "max_distance_to_good_cafe_m",
-        "max_distance_to_zoo_m",
+        *distance_numeric_keys,
     ):
         try:
             numeric_value = int(float(str(payload.get(numeric_key) or "").strip()))
@@ -4227,34 +4220,32 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
                 "max_commute_minutes_walk",
             }:
                 payload[numeric_key] = max(5, min(180, numeric_value))
-            elif numeric_key in {
-                "max_distance_to_playground_m",
-                "max_distance_to_library_m",
-                "max_distance_to_university_m",
-                "max_distance_to_supermarket_m",
-                "max_distance_to_market_m",
-                "max_distance_to_starbucks_m",
-                "max_distance_to_fitness_center_m",
-                "max_distance_to_cinema_m",
-                "max_distance_to_bouldering_m",
-                "max_distance_to_dog_park_m",
-                "max_distance_to_good_cafe_m",
-                "max_distance_to_zoo_m",
-            }:
-                payload[numeric_key] = max(50, min(5000, numeric_value))
-            elif numeric_key in {
-                "max_distance_to_hardware_store_m",
-                "max_distance_to_shopping_center_m",
-                "max_distance_to_shopping_street_m",
-                "max_distance_to_theatre_m",
-                "max_distance_to_public_pool_m",
-                "max_distance_to_medical_care_m",
-            }:
-                payload[numeric_key] = max(50, min(7000, numeric_value))
+            elif numeric_key.startswith("max_distance_to_") and numeric_key.endswith("_m"):
+                if numeric_key in {
+                    "max_distance_to_hardware_store_m",
+                    "max_distance_to_shopping_center_m",
+                    "max_distance_to_shopping_street_m",
+                    "max_distance_to_theatre_m",
+                    "max_distance_to_public_pool_m",
+                    "max_distance_to_medical_care_m",
+                }:
+                    payload[numeric_key] = max(50, min(7000, numeric_value))
+                else:
+                    payload[numeric_key] = max(50, min(5000, numeric_value))
             else:
                 payload[numeric_key] = numeric_value
         else:
             payload.pop(numeric_key, None)
+    parking_pressure_preference = str(
+        payload.get("parking_pressure_preference")
+        or payload.get("parking_pressure_tolerance")
+        or ""
+    ).strip().lower()
+    if parking_pressure_preference in {"any", "low", "medium", "high"}:
+        payload["parking_pressure_preference"] = parking_pressure_preference
+    else:
+        payload.pop("parking_pressure_preference", None)
+    payload.pop("parking_pressure_tolerance", None)
     payload.pop("min_match_score", None)
     raw_flatbee_penalty = payload.get("use_flatbee_reputation_penalty")
     payload["use_flatbee_reputation_penalty"] = not (

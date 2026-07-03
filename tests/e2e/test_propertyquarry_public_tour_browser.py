@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -74,6 +76,17 @@ def _write_cube_face_png(path: Path, *, label: str, fill: tuple[int, int, int]) 
     image.save(path)
 
 
+def _write_photo_panel(path: Path, *, label: str, fill: tuple[int, int, int]) -> None:
+    image = Image.new("RGB", (960, 720), fill)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((44, 44, 916, 676), outline=(248, 245, 240), width=10)
+    draw.rectangle((108, 160, 452, 612), fill=(236, 232, 226))
+    draw.rectangle((520, 160, 852, 612), fill=(196, 168, 128))
+    draw.text((88, 88), label, fill=(255, 255, 255))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path, format="JPEG", quality=92)
+
+
 def _write_h264_flythrough(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     command = [
@@ -106,6 +119,57 @@ def _write_h264_flythrough(path: Path) -> None:
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _generate_reconstruction_bundle(*, bundle_root: Path, slug: str) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    bundle_dir = bundle_root / slug
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Generated Reconstruction Browser Tour",
+                "display_title": "Generated Reconstruction Browser Tour",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "public_url": f"https://propertyquarry.com/tours/{slug}",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    source_dir = bundle_dir / "_generator-source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    floorplan_path = source_dir / "floorplan.jpg"
+    photo_one_path = source_dir / "photo-01.jpg"
+    photo_two_path = source_dir / "photo-02.jpg"
+    _write_floorplan_png(floorplan_path)
+    _write_photo_panel(photo_one_path, label="Living reference", fill=(112, 86, 62))
+    _write_photo_panel(photo_two_path, label="Bedroom reference", fill=(84, 104, 122))
+    env = dict(os.environ)
+    env["EA_PUBLIC_TOUR_DIR"] = str(bundle_root)
+    subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "generate_property_reconstruction.py"),
+            "--slug",
+            slug,
+            "--floorplan",
+            str(floorplan_path),
+            "--photo",
+            str(photo_one_path),
+            "--photo",
+            str(photo_two_path),
+            "--skip-video",
+        ],
+        cwd=repo_root,
+        env=env,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=120,
+    )
+
+
 def _video_frame_brightness(page) -> float:
     return float(
         page.evaluate(
@@ -127,6 +191,130 @@ def _video_frame_brightness(page) -> float:
             }"""
         )
     )
+
+
+def _video_playback_profile(page) -> dict[str, list[float]]:
+    return dict(
+        page.evaluate(
+            """async () => {
+                const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
+                if (!video || !video.videoWidth || !video.videoHeight) {
+                    return { times: [], presentedFrames: [], droppedFrames: [], frameSignatures: [] };
+                }
+                const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.min(video.videoWidth, 96);
+                canvas.height = Math.min(video.videoHeight, 54);
+                const ctx = canvas.getContext('2d');
+                const frameSignature = () => {
+                    if (!ctx) return 0;
+                    try {
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                        let total = 0;
+                        const stride = Math.max(4, Math.floor(data.length / 120));
+                        for (let index = 0; index < data.length; index += stride) {
+                            total = (total + (data[index] || 0) * 3 + (data[index + 1] || 0) * 5 + (data[index + 2] || 0) * 7) % 1000003;
+                        }
+                        return total;
+                    } catch (_error) {
+                        return 0;
+                    }
+                };
+                const sample = () => {
+                    const quality = typeof video.getVideoPlaybackQuality === 'function'
+                        ? video.getVideoPlaybackQuality()
+                        : null;
+                    return {
+                        time: Number(video.currentTime || 0),
+                        presentedFrames: Number(quality?.totalVideoFrames || 0),
+                        droppedFrames: Number(quality?.droppedVideoFrames || 0),
+                        frameSignature: Number(frameSignature() || 0),
+                    };
+                };
+                if (Number(video.duration || 0) > 0.8) {
+                    try {
+                        video.currentTime = 0.2;
+                        await wait(120);
+                    } catch (_error) {
+                        /* keep going if headless seek behaves differently */
+                    }
+                }
+                await video.play().catch(() => null);
+                const captures = [sample()];
+                for (let index = 0; index < 4; index += 1) {
+                    await wait(320);
+                    captures.push(sample());
+                }
+                return {
+                    times: captures.map((capture) => capture.time),
+                    presentedFrames: captures.map((capture) => capture.presentedFrames),
+                    droppedFrames: captures.map((capture) => capture.droppedFrames),
+                    frameSignatures: captures.map((capture) => capture.frameSignature),
+                };
+            }"""
+        )
+    )
+
+
+def _canvas_visual_metrics(page, selector: str) -> dict[str, float]:
+    _ = selector
+    metrics = dict(
+        page.evaluate(
+            """() => {
+                const debug = window.__pqReconstructionDebug;
+                if (!debug || typeof debug.getRenderMetrics !== 'function') {
+                    return { ready: false, reason: 'debug_hook_missing' };
+                }
+                return debug.getRenderMetrics();
+            }"""
+        )
+        or {}
+    )
+    return {
+        "ready": bool(metrics.get("ready")),
+        "frame_count": float(metrics.get("frameCount") or 0),
+        "wall_rect_count": float(metrics.get("wallRectCount") or 0),
+        "wall_mesh_count": float(metrics.get("wallMeshCount") or 0),
+        "visible_wall_count": float(metrics.get("visibleWallCount") or 0),
+        "scene_child_count": float(metrics.get("sceneChildCount") or 0),
+        "projected_coverage_pct": float(metrics.get("projectedCoveragePct") or 0),
+        "max_projected_wall_pct": float(metrics.get("maxProjectedWallPct") or 0),
+        "render_calls": float(metrics.get("renderCalls") or 0),
+        "render_triangles": float(metrics.get("renderTriangles") or 0),
+        "width": float(metrics.get("sampleWidth") or 0),
+        "height": float(metrics.get("sampleHeight") or 0),
+    }
+
+
+def _wait_for_reconstruction_viewer_ready(page, *, timeout: int = 30000) -> None:
+    page.wait_for_function(
+        """() => {
+            const canvas = document.querySelector('#viewport canvas');
+            const debug = window.__pqReconstructionDebug;
+            if (!canvas || !debug || typeof debug.getRenderMetrics !== 'function') {
+                return false;
+            }
+            const metrics = debug.getRenderMetrics();
+            return Boolean(metrics?.ready && Number(metrics?.frameCount || 0) >= 2);
+        }""",
+        timeout=timeout,
+    )
+
+
+def _click_viewer_control(page, selector: str) -> None:
+    box = page.evaluate(
+        """(selector) => {
+            const node = document.querySelector(selector);
+            if (!node) return null;
+            const rect = node.getBoundingClientRect();
+            return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        }""",
+        selector,
+    )
+    assert box is not None, f"missing viewer control: {selector}"
+    assert box["width"] > 0 and box["height"] > 0, f"hidden viewer control: {selector}"
+    page.mouse.click(box["x"] + (box["width"] / 2), box["y"] + (box["height"] / 2))
 
 
 @pytest.fixture()
@@ -174,6 +362,49 @@ def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         ),
         encoding="utf-8",
     )
+    video_slug = "real-browser-video-tour"
+    video_bundle_dir = bundle_root / video_slug
+    video_bundle_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(bundle_dir / "floorplan-01.png", video_bundle_dir / "floorplan-01.png")
+    shutil.copy2(bundle_dir / "tour.mp4", video_bundle_dir / "tour.mp4")
+    shutil.copy2(bundle_dir / "scene-01.png", video_bundle_dir / "scene-01.png")
+    (video_bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": video_slug,
+                "title": "Real Browser Video Tour",
+                "display_title": "Real Browser Video Tour",
+                "hosted_url": f"https://propertyquarry.com/tours/{video_slug}",
+                "public_url": f"https://propertyquarry.com/tours/{video_slug}",
+                "brand_name": "PropertyQuarry",
+                "scene_strategy": "layout_first",
+                "creation_mode": "hosted_floorplan_tour",
+                "video_relpath": "tour.mp4",
+                "scenes": [
+                    {
+                        "scene_id": "panorama-1",
+                        "name": "Living room anchor",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.png",
+                        "image_url": "scene-01.png",
+                        "mime_type": "image/png",
+                    },
+                    {
+                        "scene_id": "floorplan-1",
+                        "name": "Main floorplan",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.png",
+                        "mime_type": "image/png",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    generated_reconstruction_slug = "generated-reconstruction-browser-tour"
+    _generate_reconstruction_bundle(bundle_root=bundle_root, slug=generated_reconstruction_slug)
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_root))
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
@@ -191,7 +422,12 @@ def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     browser_base_url = f"http://propertyquarry.com:{port}"
     _wait_for_http(local_base_url)
     try:
-        yield {"base_url": browser_base_url, "slug": slug}
+        yield {
+            "base_url": browser_base_url,
+            "slug": slug,
+            "video_slug": video_slug,
+            "generated_reconstruction_slug": generated_reconstruction_slug,
+        }
     finally:
         server.should_exit = True
         thread.join(timeout=10.0)
@@ -226,6 +462,22 @@ def _new_context(browser: Browser, *, mobile: bool = False) -> BrowserContext:
             "(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
             if mobile
             else None
+        ),
+    )
+
+
+def _stub_matterport_provider(context: BrowserContext) -> None:
+    context.route(
+        "**://my.matterport.com/**",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="text/html",
+            body=(
+                "<!doctype html><html><body style='margin:0;background:#f5f0e8;"
+                "display:grid;place-items:center;font:16px ui-sans-serif,sans-serif;color:#3c3124'>"
+                "Matterport provider stub"
+                "</body></html>"
+            ),
         ),
     )
 
@@ -274,6 +526,7 @@ def test_public_tour_panorama_lane_opens_in_real_browser(
     browser: Browser,
 ) -> None:
     context = _new_context(browser)
+    _stub_matterport_provider(context)
     page = context.new_page()
     console_errors: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
@@ -281,7 +534,7 @@ def test_public_tour_panorama_lane_opens_in_real_browser(
 
     page.goto(url, wait_until="networkidle")
     page.locator("h1").wait_for()
-    assert "PROPERTY TOUR" in page.locator("body").inner_text()
+    assert "Property Tour" not in page.locator("body").inner_text()
     page.wait_for_timeout(1500)
     viewer = page.locator("#viewer")
     viewer.wait_for()
@@ -303,6 +556,7 @@ def test_public_tour_floorplan_lane_renders_in_real_browser(
     browser: Browser,
 ) -> None:
     context = _new_context(browser)
+    _stub_matterport_provider(context)
     page = context.new_page()
     console_errors: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
@@ -311,11 +565,17 @@ def test_public_tour_floorplan_lane_renders_in_real_browser(
     page.goto(url, wait_until="networkidle")
     expect_title = page.locator("h1")
     expect_title.wait_for()
-    assert "PROPERTY TOUR" in page.locator("body").inner_text()
+    assert "Property Tour" not in page.locator("body").inner_text()
     page.locator('#role-filter button[data-role="floorplan"]').click()
     assert page.locator("#stage-role").inner_text().lower() == "floorplan"
     floorplan_image = page.locator("#stage-image")
     assert floorplan_image.is_visible()
+    page.wait_for_function(
+        """() => {
+            const image = document.getElementById('stage-image');
+            return Boolean(image && image.naturalWidth >= 1000);
+        }"""
+    )
     natural_width = page.evaluate("() => document.getElementById('stage-image')?.naturalWidth || 0")
     assert natural_width >= 1000
     assert not [message for message in console_errors if "Failed to load resource" in message or "Refused" in message]
@@ -327,10 +587,11 @@ def test_public_tour_flythrough_video_decodes_and_advances_in_real_browser(
     browser: Browser,
 ) -> None:
     context = _new_context(browser)
+    _stub_matterport_provider(context)
     page = context.new_page()
     console_errors: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
-    url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['slug']}?pane=flythrough-pane&autoplay=1"
+    url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['video_slug']}?pane=flythrough-pane&autoplay=1"
 
     page.goto(url, wait_until="networkidle")
     video = page.locator("#tour-video")
@@ -356,16 +617,38 @@ def test_public_tour_flythrough_video_decodes_and_advances_in_real_browser(
     assert state["currentTime"] > 0.2
     assert state["duration"] >= 2.5
     assert _video_frame_brightness(page) > 10.0
+    profile = _video_playback_profile(page)
+    assert len(profile["times"]) == 5
+    assert all(later >= earlier for earlier, later in zip(profile["times"], profile["times"][1:])), profile
+    assert profile["times"][-1] - profile["times"][0] >= 0.6, profile
+    assert len(profile["presentedFrames"]) == 5
+    assert all(
+        later >= earlier for earlier, later in zip(profile["presentedFrames"], profile["presentedFrames"][1:])
+    ), profile
+    presented_delta = profile["presentedFrames"][-1] - profile["presentedFrames"][0]
+    assert len(profile["frameSignatures"]) == 5
+    assert len(profile["droppedFrames"]) == 5
+    dropped_delta = profile["droppedFrames"][-1] - profile["droppedFrames"][0]
+    if presented_delta > 0:
+        assert presented_delta >= 6, profile
+        assert dropped_delta < presented_delta, profile
+        assert dropped_delta <= max(16, presented_delta * 0.8), profile
+    else:
+        distinct_signatures = len(set(profile["frameSignatures"]))
+        assert distinct_signatures >= 2, profile
+        assert profile["frameSignatures"][-1] != profile["frameSignatures"][0], profile
+        assert dropped_delta <= 16, profile
     assert page.locator("#tour-video source").get_attribute("type") == "video/mp4"
     assert not [message for message in console_errors if "MEDIA" in message.upper() or "decode" in message.lower()]
     context.close()
 
 
-def test_public_tour_provider_control_is_mobile_safe_and_lazy_loads_vendor(
+def test_public_tour_provider_control_is_mobile_safe_and_opens_vendor_immediately(
     public_tour_browser_server: dict[str, str],
     browser: Browser,
 ) -> None:
     context = _new_context(browser, mobile=True)
+    _stub_matterport_provider(context)
     page = context.new_page()
     console_errors: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
@@ -376,15 +659,27 @@ def test_public_tour_provider_control_is_mobile_safe_and_lazy_loads_vendor(
 
     page.goto(url, wait_until="networkidle")
     page.locator("h1").wait_for()
-    assert "PROPERTY TOUR" in page.locator("body").inner_text()
-    assert page.locator(".badge").inner_text().lower() == "matterport control"
-    assert page.locator("#load-provider").is_visible()
-    assert page.locator(".provider-frame").get_attribute("src") == "about:blank"
+    assert "Property Tour" not in page.locator("body").inner_text()
+    assert page.locator(".badge").inner_text().lower() == "3d tour"
+    assert "Matterport control" not in page.locator("body").inner_text()
+    assert "MagicFit" not in page.locator("body").inner_text()
+    assert page.locator("#load-provider").count() == 0
+    assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=REALBROWSER123"
     assert page.locator(".provider-frame").get_attribute("data-src") == "https://my.matterport.com/show/?m=REALBROWSER123"
-    assert page.locator("#tour-video").is_visible()
+    assert page.locator("#tour-video").count() == 0
+    assert page.get_by_role("link", name="Open walkthrough").is_visible()
+    assert page.get_by_role("link", name="Open walkthrough").get_attribute("href").endswith(
+        f"/tours/{public_tour_browser_server['slug']}/walkthrough"
+    )
     assert page.locator("#stage-role").inner_text().lower() == "floorplan"
     floorplan_image = page.locator("#stage-image")
     assert floorplan_image.is_visible()
+    page.wait_for_function(
+        """() => {
+            const image = document.getElementById('stage-image');
+            return Boolean(image && image.naturalWidth >= 1000);
+        }"""
+    )
     natural_width = page.evaluate("() => document.getElementById('stage-image')?.naturalWidth || 0")
     assert natural_width >= 1000
     _assert_no_horizontal_overflow(page)
@@ -405,10 +700,11 @@ def test_public_tour_flythrough_video_decodes_on_mobile_viewport(
     browser: Browser,
 ) -> None:
     context = _new_context(browser, mobile=True)
+    _stub_matterport_provider(context)
     page = context.new_page()
     console_errors: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
-    url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['slug']}?pane=flythrough-pane&autoplay=1"
+    url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['video_slug']}?pane=flythrough-pane&autoplay=1"
 
     page.goto(url, wait_until="networkidle")
     video = page.locator("#tour-video")
@@ -431,9 +727,143 @@ def test_public_tour_flythrough_video_decodes_on_mobile_viewport(
     assert state["videoWidth"] >= 640
     assert state["currentTime"] > 0.2
     assert _video_frame_brightness(page) > 10.0
+    profile = _video_playback_profile(page)
+    assert len(profile["times"]) == 5
+    assert all(later >= earlier for earlier, later in zip(profile["times"], profile["times"][1:])), profile
+    assert profile["times"][-1] - profile["times"][0] >= 0.6, profile
+    assert len(profile["presentedFrames"]) == 5
+    assert all(
+        later >= earlier for earlier, later in zip(profile["presentedFrames"], profile["presentedFrames"][1:])
+    ), profile
+    presented_delta = profile["presentedFrames"][-1] - profile["presentedFrames"][0]
+    assert len(profile["frameSignatures"]) == 5
+    assert len(profile["droppedFrames"]) == 5
+    dropped_delta = profile["droppedFrames"][-1] - profile["droppedFrames"][0]
+    if presented_delta > 0:
+        assert presented_delta >= 6, profile
+        assert dropped_delta < presented_delta, profile
+        assert dropped_delta <= max(16, presented_delta * 0.8), profile
+    else:
+        distinct_signatures = len(set(profile["frameSignatures"]))
+        assert distinct_signatures >= 2, profile
+        assert profile["frameSignatures"][-1] != profile["frameSignatures"][0], profile
+        assert dropped_delta <= 16, profile
     assert not [
         message
         for message in console_errors
         if "decode" in message.lower() or "media" in message.lower() or "refused" in message.lower()
+    ]
+    context.close()
+
+
+def test_generated_reconstruction_viewer_renders_real_geometry_in_browser(
+    public_tour_browser_server: dict[str, str],
+    browser: Browser,
+) -> None:
+    context = _new_context(browser)
+    page = context.new_page()
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+    slug = str(public_tour_browser_server["generated_reconstruction_slug"])
+    url = f"{public_tour_browser_server['base_url']}/tours/files/{slug}/generated-reconstruction/viewer.html"
+
+    page.goto(url, wait_until="networkidle")
+    assert page.locator("h1").inner_text().strip() == "3D tour"
+    _wait_for_reconstruction_viewer_ready(page)
+    page.wait_for_timeout(250)
+    startup_metrics = _canvas_visual_metrics(page, "#viewport canvas")
+    assert startup_metrics["ready"], startup_metrics
+    assert startup_metrics["frame_count"] >= 2, startup_metrics
+    assert startup_metrics["wall_rect_count"] >= 20, startup_metrics
+    assert startup_metrics["wall_mesh_count"] >= 20, startup_metrics
+    assert startup_metrics["visible_wall_count"] >= 8, startup_metrics
+    assert startup_metrics["scene_child_count"] >= 4, startup_metrics
+    assert startup_metrics["width"] >= 140
+    assert startup_metrics["height"] >= 140
+    assert startup_metrics["projected_coverage_pct"] >= 5, startup_metrics
+    assert startup_metrics["max_projected_wall_pct"] >= 0.3, startup_metrics
+    assert startup_metrics["max_projected_wall_pct"] <= 50, startup_metrics
+    assert startup_metrics["render_calls"] >= 10, startup_metrics
+    assert startup_metrics["render_triangles"] >= 150, startup_metrics
+    _click_viewer_control(page, "#view-inside")
+    page.wait_for_timeout(700)
+    metrics = _canvas_visual_metrics(page, "#viewport canvas")
+    assert metrics["ready"], metrics
+    assert metrics["frame_count"] >= 2, metrics
+    assert metrics["wall_rect_count"] >= 20, metrics
+    assert metrics["wall_mesh_count"] >= 20, metrics
+    assert metrics["visible_wall_count"] >= 4, metrics
+    assert metrics["scene_child_count"] >= 4, metrics
+    assert metrics["width"] >= 140
+    assert metrics["height"] >= 140
+    assert metrics["projected_coverage_pct"] >= 5, metrics
+    assert metrics["max_projected_wall_pct"] >= 0.3, metrics
+    assert metrics["render_calls"] >= 10, metrics
+    assert metrics["render_triangles"] >= 150, metrics
+    assert page.locator(".floorplan").is_visible()
+    assert page.locator(".photos img").count() == 2
+    assert not page_errors
+    assert not [
+        message
+        for message in console_errors
+        if "failed to resolve module specifier" in message.lower()
+        or "cannot use import statement" in message.lower()
+        or ("webgl" in message.lower() and "context lost" in message.lower())
+    ]
+    context.close()
+
+
+def test_generated_reconstruction_viewer_is_mobile_safe(
+    public_tour_browser_server: dict[str, str],
+    browser: Browser,
+) -> None:
+    context = _new_context(browser, mobile=True)
+    page = context.new_page()
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+    slug = str(public_tour_browser_server["generated_reconstruction_slug"])
+    url = f"{public_tour_browser_server['base_url']}/tours/files/{slug}/generated-reconstruction/viewer.html"
+
+    page.goto(url, wait_until="networkidle")
+    _wait_for_reconstruction_viewer_ready(page)
+    page.wait_for_timeout(250)
+    _assert_no_horizontal_overflow(page)
+    _assert_visible_controls_meet_mobile_target_floor(page)
+    startup_metrics = _canvas_visual_metrics(page, "#viewport canvas")
+    assert startup_metrics["ready"], startup_metrics
+    assert startup_metrics["frame_count"] >= 2, startup_metrics
+    assert startup_metrics["wall_rect_count"] >= 20, startup_metrics
+    assert startup_metrics["wall_mesh_count"] >= 20, startup_metrics
+    assert startup_metrics["visible_wall_count"] >= 8, startup_metrics
+    assert startup_metrics["scene_child_count"] >= 4, startup_metrics
+    assert startup_metrics["projected_coverage_pct"] >= 4, startup_metrics
+    assert startup_metrics["max_projected_wall_pct"] >= 0.25, startup_metrics
+    assert startup_metrics["max_projected_wall_pct"] <= 55, startup_metrics
+    assert startup_metrics["render_calls"] >= 10, startup_metrics
+    assert startup_metrics["render_triangles"] >= 150, startup_metrics
+    _click_viewer_control(page, "#view-inside")
+    page.wait_for_timeout(500)
+    metrics = _canvas_visual_metrics(page, "#viewport canvas")
+    assert metrics["ready"], metrics
+    assert metrics["frame_count"] >= 2, metrics
+    assert metrics["wall_rect_count"] >= 20, metrics
+    assert metrics["wall_mesh_count"] >= 20, metrics
+    assert metrics["visible_wall_count"] >= 4, metrics
+    assert metrics["scene_child_count"] >= 4, metrics
+    assert metrics["projected_coverage_pct"] >= 4, metrics
+    assert metrics["max_projected_wall_pct"] >= 0.25, metrics
+    assert metrics["render_calls"] >= 10, metrics
+    assert metrics["render_triangles"] >= 150, metrics
+    assert page.locator(".floorplan").is_visible()
+    assert not page_errors
+    assert not [
+        message
+        for message in console_errors
+        if "failed to resolve module specifier" in message.lower()
+        or "cannot use import statement" in message.lower()
     ]
     context.close()

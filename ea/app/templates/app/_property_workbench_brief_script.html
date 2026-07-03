@@ -15,6 +15,7 @@
       renderCheckboxOptions,
       setCheckboxGroupStatus,
       applyCheckboxSelection,
+      syncWhatMattersGroupDistanceActivity,
       revealSelectedProviderGroups,
       selectAllCheckboxValues,
       clearAllCheckboxValues,
@@ -163,43 +164,66 @@
     };
     const setKeywordPreferenceValues = (form, values, state = 'important') => {
       const selected = new Set((values || []).map((item) => String(item || '').trim().toLowerCase()).filter(Boolean));
+      if (!selected.size) return;
       form?.querySelectorAll('[data-keyword-preference-select]').forEach((node) => {
         const keywordValue = String(node.getAttribute('data-keyword-value') || '').trim().toLowerCase();
-        node.value = selected.has(keywordValue) ? state : 'any';
+        if (!selected.has(keywordValue)) return;
+        const currentValue = String(node.value || 'any').trim().toLowerCase();
+        if (currentValue && currentValue !== 'any') return;
+        node.value = state;
       });
     };
-    const syncWhatMattersMobileGroups = (form, { reset = false } = {}) => {
+    const syncWhatMattersMobileGroups = (form, { reset = false, preferredGroup = null } = {}) => {
       const groups = [...(form?.querySelectorAll('.pqx-what-matters-panel details[data-what-matters-group]') || [])];
       if (!groups.length) return;
       const mobile = Boolean(window.matchMedia('(max-width: 760px)').matches);
+      const preferredGroupNode = preferredGroup instanceof HTMLDetailsElement
+        ? preferredGroup
+        : preferredGroup instanceof HTMLElement
+          ? preferredGroup.closest('details[data-what-matters-group]')
+          : null;
+      const currentOpenGroup = groups.find((group) => group.open) || null;
       const activeGroups = groups.filter((group) => (
         group.dataset.activeDistanceRows === 'true'
         || Boolean(group.querySelector('[data-preference-state]:not([data-preference-state="any"])'))
       ));
-      groups.forEach((group) => {
-        const active = activeGroups.includes(group);
-        if (!mobile) {
-          group.open = true;
+      const nextOpenGroup = groups.includes(preferredGroupNode)
+        ? preferredGroupNode
+        : (currentOpenGroup && groups.includes(currentOpenGroup) ? currentOpenGroup : (activeGroups[0] || null));
+      if (!mobile) {
+        groups.forEach((group) => {
           group.dataset.mobileOpenInitialized = '';
-        } else if (reset || group.dataset.mobileOpenInitialized !== 'true') {
-          group.open = activeGroups.length ? group === activeGroups[0] : false;
-          group.dataset.mobileOpenInitialized = 'true';
-        } else if (active) {
-          group.open = true;
-        }
+        });
+        return;
+      }
+      const shouldSyncOpenState = reset
+        || !currentOpenGroup
+        || groups.some((group) => group.dataset.mobileOpenInitialized !== 'true')
+        || (preferredGroupNode && currentOpenGroup !== preferredGroupNode);
+      if (shouldSyncOpenState) {
+        groups.forEach((group) => {
+          group.open = nextOpenGroup ? group === nextOpenGroup : false;
+        });
+      }
+      groups.forEach((group) => {
+        group.dataset.mobileOpenInitialized = 'true';
       });
     };
-    const scrollMobileDistanceRowIntoView = (row) => {
-      if (!row || !window.matchMedia('(max-width: 760px)').matches) return;
-      const group = row.closest('[data-what-matters-group]');
-      if (group) {
-        group.open = true;
-        group.dataset.activeDistanceRows = 'true';
-        group.dataset.mobileDistanceControlActive = 'true';
-      }
-    };
-    const briefSyncKeywordDistanceSelects = (form) => {
+    const syncWhatMattersGroupDistanceActivity = (form) => {
       const activeGroups = new Map();
+      form?.querySelectorAll('[data-keyword-priority-row], [data-school-priority-row]').forEach((row) => {
+        const group = row.closest('[data-what-matters-group]');
+        if (!group) return;
+        const active = String(row.dataset.distanceControlActive || '').trim() === 'true';
+        if (active) activeGroups.set(group, true);
+      });
+      form?.querySelectorAll('[data-what-matters-group]').forEach((group) => {
+        const active = Boolean(activeGroups.get(group));
+        group.dataset.activeDistanceRows = active ? 'true' : 'false';
+        group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';
+      });
+    };
+    const briefSyncKeywordDistanceSelects = (form, preferredGroup = null) => {
       form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
         const preferenceSelect = row.querySelector('[data-keyword-preference-select]');
         const distanceSelect = row.querySelector('[data-keyword-distance-select]');
@@ -215,15 +239,9 @@
         if (distanceSelect instanceof HTMLSelectElement) {
           distanceSelect.disabled = !enabled;
         }
-        const group = row.closest('[data-what-matters-group]');
-        if (group) activeGroups.set(group, Boolean(activeGroups.get(group) || enabled));
       });
-      form?.querySelectorAll('[data-what-matters-group]').forEach((group) => {
-        const active = Boolean(activeGroups.get(group));
-        group.dataset.activeDistanceRows = active ? 'true' : 'false';
-        group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';
-      });
-      syncWhatMattersMobileGroups(form);
+      syncWhatMattersGroupDistanceActivity(form);
+      syncWhatMattersMobileGroups(form, { preferredGroup });
     };
     const briefSyncSchoolPreferenceFields = (form) => {
       const selectedStages = [];
@@ -248,6 +266,29 @@
       if (schoolEvidenceField instanceof HTMLInputElement) schoolEvidenceField.checked = selectedStages.length > 0;
       const schoolPriorityField = form?.querySelector('[name="school_evidence_priority"]');
       if (schoolPriorityField instanceof HTMLSelectElement) schoolPriorityField.value = strongest;
+      form?.querySelectorAll('[data-school-priority-row]').forEach((row) => {
+        const preferenceSelect = row.querySelector('[data-school-preference-select]');
+        const distanceSelect = row.querySelector('[data-school-distance-select]');
+        if (!(preferenceSelect instanceof HTMLSelectElement)) return;
+        const state = String(preferenceSelect.value || 'any').trim().toLowerCase() || 'any';
+        const enabled = state !== 'any' && distanceSelect instanceof HTMLSelectElement;
+        row.dataset.schoolDistanceEnabled = enabled ? 'true' : 'false';
+        row.dataset.distanceControlActive = enabled ? 'true' : 'false';
+        if (distanceSelect instanceof HTMLSelectElement) {
+          distanceSelect.disabled = !enabled;
+          const distanceFieldName = String(distanceSelect.getAttribute('data-distance-field') || '').trim();
+          const distanceField = distanceFieldName ? form.querySelector(`[name="${CSS.escape(distanceFieldName)}"]`) : null;
+          if (distanceField instanceof HTMLInputElement || distanceField instanceof HTMLSelectElement || distanceField instanceof HTMLTextAreaElement) {
+            distanceField.value = enabled ? String(distanceSelect.value || '500') : '0';
+          }
+        }
+        const schoolValue = String(preferenceSelect.getAttribute('data-school-value') || '').trim();
+        const importanceField = schoolValue ? form.querySelector(`[name="max_distance_to_${CSS.escape(schoolValue)}_importance"]`) : null;
+        if (importanceField instanceof HTMLSelectElement) {
+          importanceField.value = enabled ? (state === 'must_have' ? 'must_have' : state === 'nice_to_have' ? 'nice_to_have' : 'important') : 'important';
+        }
+      });
+      syncWhatMattersGroupDistanceActivity(form);
     };
     const syncSchoolPreferenceDetailRows = (form) => {
       form?.querySelectorAll('[data-school-priority-row]').forEach((row) => {
@@ -1046,6 +1087,12 @@
           school_stage_preferences: selectedSchoolStages,
           school_evidence_priority: schoolEvidenceEnabled ? (fieldValue(form, 'school_evidence_priority') || 'any') : 'any',
           require_school_evidence: schoolEvidenceEnabled ? Boolean(form.querySelector('input[name="require_school_evidence"]')?.checked) : false,
+          max_distance_to_kindergarten_m: schoolEvidenceEnabled ? integerValue(form, 'max_distance_to_kindergarten_m') : null,
+          max_distance_to_kindergarten_importance: schoolEvidenceEnabled ? (fieldValue(form, 'max_distance_to_kindergarten_importance') || 'important') : 'important',
+          max_distance_to_ganztags_volksschule_m: schoolEvidenceEnabled ? integerValue(form, 'max_distance_to_ganztags_volksschule_m') : null,
+          max_distance_to_ganztags_volksschule_importance: schoolEvidenceEnabled ? (fieldValue(form, 'max_distance_to_ganztags_volksschule_importance') || 'important') : 'important',
+          max_distance_to_halbtags_volksschule_m: schoolEvidenceEnabled ? integerValue(form, 'max_distance_to_halbtags_volksschule_m') : null,
+          max_distance_to_halbtags_volksschule_importance: schoolEvidenceEnabled ? (fieldValue(form, 'max_distance_to_halbtags_volksschule_importance') || 'important') : 'important',
           university_name: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? (fieldValue(form, 'university_name') || '') : '',
           desired_project_stages: Boolean(form.querySelector('input[name="include_developer_project_signals"]')?.checked) ? checkedValues(form, 'desired_project_stages') : [],
           apply_unknowns_penalty: Boolean(form.querySelector('input[name="apply_unknowns_penalty"]')?.checked),
@@ -1335,6 +1382,7 @@
       renderCheckboxOptions,
       setCheckboxGroupStatus,
       applyCheckboxSelection,
+      syncWhatMattersGroupDistanceActivity,
       revealSelectedProviderGroups,
       selectAllCheckboxValues,
       clearAllCheckboxValues,

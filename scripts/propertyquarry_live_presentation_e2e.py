@@ -164,9 +164,9 @@ def build_live_presentation_e2e_receipt(
         [
             _check("hero_route_ok", int(home.get("status_code") or 0) == 200, status_code=home.get("status_code")),
             _check("hero_demo_listing_visible", "Danube Flats demo" in home_body),
-            _check("hero_demo_link_points_to_public_tour", f'href="/tours/{slug}"' in home_body),
-            _check("hero_3d_tour_chip_visible", "3D tour ready" in home_body and "/control/" in home_body),
-            _check("hero_walkthrough_chip_visible", "Walkthrough ready" in home_body and f"/tours/files/{slug}/" in home_body),
+            _check("hero_demo_link_points_to_example", 'href="/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo"' in home_body),
+            _check("hero_3d_tour_chip_visible", "3D tour available" in home_body and f"/tours/{slug}/control/" in home_body),
+            _check("hero_walkthrough_chip_visible", "Walkthrough available" in home_body and f"/tours/files/{slug}/" in home_body),
         ]
     )
 
@@ -196,7 +196,7 @@ def build_live_presentation_e2e_receipt(
             _check("demo_tour_hides_panorama_export", f"{demo_path}/control/pano2vr" not in demo_body),
             _check(
                 "demo_tour_has_walkthrough",
-                'data-provider-backed-walkthrough="true"' in demo_body and "magicfit-walkthrough.mp4" in demo_body,
+                f'href="/tours/{slug}/walkthrough"' in demo_body and "Open walkthrough" in demo_body,
             ),
             _check(
                 "demo_tour_no_generated_cube_fallback",
@@ -226,18 +226,22 @@ def build_live_presentation_e2e_receipt(
                 ),
             ]
         )
-    hidden_3d_export_route = f"{demo_path}/control/3dvista"
-    hidden_3d_export = _fetch(
-        f"{base}{hidden_3d_export_route}",
+    three_d_vista_route = f"{demo_path}/control/3dvista"
+    three_d_vista_control = _fetch(
+        f"{base}{three_d_vista_route}",
         timeout_seconds=timeout_seconds,
         host_header=host_header,
     )
+    three_d_vista_body = str(three_d_vista_control.get("body") or "")
     checks.append(
         _check(
-            "3d_export_control_hidden_without_clean_proof",
-            int(hidden_3d_export.get("status_code") or 0) == 404,
-            route=hidden_3d_export_route,
-            status_code=hidden_3d_export.get("status_code"),
+            "3dvista_control_route_ok",
+            int(three_d_vista_control.get("status_code") or 0) == 200
+            and "provider-frame" in three_d_vista_body
+            and f"/tours/3dvista/{slug}/3dvista/index.htm" in three_d_vista_body
+            and "Load 3D tour" not in three_d_vista_body,
+            route=three_d_vista_route,
+            status_code=three_d_vista_control.get("status_code"),
         )
     )
 
@@ -294,7 +298,11 @@ def build_live_presentation_e2e_receipt(
             [
                 _check("app_research_detail_route_ok", int(detail.get("status_code") or 0) == 200, status_code=detail.get("status_code")),
                 _check("app_research_detail_visual_controls", 'data-pw-visual-request="tour"' in detail_body and 'data-pw-visual-request="flythrough"' in detail_body),
-                _check("app_research_detail_walkthrough_provider_bound", 'data-pw-walkthrough-provider="magicfit"' in detail_body),
+                _check(
+                    "app_research_detail_walkthrough_provider_bound",
+                    'data-pw-walkthrough-provider="default"' in detail_body
+                    or 'data-pw-walkthrough-provider="magicfit"' in detail_body,
+                ),
             ]
         )
 

@@ -241,6 +241,7 @@
           label: 'Request 3D tour',
           attributes: {
             'data-pw-visual-request': 'tour',
+            'data-pw-visual-style-required': '1',
             'data-property-url': visualPropertyUrl,
             'data-source-ref': String(candidate.source_ref || ''),
             'data-candidate-ref': candidateRef,
@@ -254,11 +255,11 @@
           label: 'Request walkthrough',
           attributes: {
             'data-pw-visual-request': 'flythrough',
+            'data-pw-visual-style-required': '1',
             'data-property-url': visualPropertyUrl,
             'data-source-ref': String(candidate.source_ref || ''),
             'data-candidate-ref': candidateRef,
             'data-run-id': runId,
-            'data-pw-walkthrough-provider': 'magicfit',
             'data-rybbit-event': 'pq.flythrough.opened',
             'data-rybbit-prop-cta-key': 'request_flythrough',
             'data-rybbit-prop-surface': 'research',

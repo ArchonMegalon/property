@@ -98,6 +98,10 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert "<h1>3D tour</h1>" in viewer_html
     assert "Layout preview" in viewer_html
     assert "Built from the floorplan and listing photos" in viewer_html
+    assert "three.module.js" in viewer_html
+    assert "OrbitControls" in viewer_html
+    assert "wallRectangles" in viewer_html
+    assert "const points = [" not in viewer_html
     assert "Generated reconstruction" not in viewer_html
     assert "not a verified" not in viewer_html
     assert "Matterport" not in viewer_html
@@ -108,12 +112,20 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert "Download OBJ" not in viewer_html
     assert "Download GLB" not in viewer_html
     assert "receipt stored" not in viewer_html
-    assert "propertyquarry_generated_room" in (output_dir / "model.obj").read_text(encoding="utf-8")
+    assert "propertyquarry_generated_layout" in (output_dir / "model.obj").read_text(encoding="utf-8")
     receipt = json.loads((output_dir / "reconstruction.json").read_text(encoding="utf-8"))
     assert receipt["verified_provider_capture"] is False
     assert receipt["satisfies_verified_tour_gate"] is False
-    assert receipt["viewer"]["version"] == "propertyquarry_3d_tour_viewer_v2"
+    assert receipt["disclosure"] == "Planning preview built from the floor plan and listing photos. Use it as a layout aid, not as a captured tour."
+    for provider_name in ("Matterport", "3DVista", "Pano2VR", "krpano", "MagicFit", "verified provider"):
+        assert provider_name not in receipt["disclosure"]
+    assert receipt["viewer"]["version"] == "propertyquarry_3d_tour_viewer_v3"
     assert receipt["room_dimensions_m"]["width"] == 10.0
+    assert receipt["room_dimensions_m"]["depth"] < 10.0
+    assert receipt["geometry"]["wall_rect_count"] > 0
+    assert len(receipt["geometry"]["wall_rectangles"]) == receipt["geometry"]["wall_rect_count"]
+    assert receipt["geometry"]["content_size_px"]["width"] < receipt["floorplan"]["width"]
+    assert receipt["geometry"]["content_size_px"]["height"] < receipt["floorplan"]["height"]
     assert len(receipt["photos"]) == 2
     assert receipt["model"]["glb_export"]["status"] in {"generated", "failed", "skipped"}
     if receipt["model"]["glb_export"]["status"] == "generated":
@@ -131,14 +143,25 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert generated_reconstruction["viewer_relpath"] == "generated-reconstruction/viewer.html"
     assert generated_reconstruction["model_relpath"] == "generated-reconstruction/model.obj"
     assert generated_reconstruction["material_relpath"] == "generated-reconstruction/model.mtl"
+    assert generated_reconstruction["floorplan_relpath"] in {
+        "generated-reconstruction/source-floorplan.jpg",
+        "generated-reconstruction/source-floorplan-inferred.jpg",
+    }
+    assert generated_reconstruction["photo_relpaths"] == [
+        "generated-reconstruction/photo-01.jpg",
+        "generated-reconstruction/photo-02.jpg",
+    ]
     assert generated_reconstruction["glb_export_status"] in {"generated", "failed", "skipped"}
     if generated_reconstruction["glb_export_status"] == "generated":
         assert generated_reconstruction["glb_model_relpath"] == "generated-reconstruction/model.glb"
-    assert generated_reconstruction["viewer_version"] == "propertyquarry_3d_tour_viewer_v2"
+    assert generated_reconstruction["viewer_version"] == "propertyquarry_3d_tour_viewer_v3"
     if receipt["walkthrough"]["status"] == "generated":
         assert generated_reconstruction["walkthrough_sidecar_relpath"] == "generated-reconstruction/generated-walkthrough.quality.json"
         assert generated_reconstruction["walkthrough_coverage_proof"]["status"] == "pass"
     assert generated_reconstruction["verified_provider_capture"] is False
+    assert generated_reconstruction["disclosure"] == receipt["disclosure"]
+    for provider_name in ("Matterport", "3DVista", "Pano2VR", "krpano", "MagicFit", "verified provider"):
+        assert provider_name not in generated_reconstruction["disclosure"]
     assert "control_mode" not in manifest
     assert "viewer_provider" not in manifest
     assert "video_provider" not in manifest
@@ -177,7 +200,8 @@ def test_generated_reconstruction_does_not_satisfy_verified_provider_gate(tmp_pa
     assert receipt["provider_counts"]["pano2vr"] == 0
     assert receipt["provider_counts"]["krpano"] == 0
     assert receipt["provider_counts"]["magicfit"] == 0
-    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "pano2vr", "krpano", "magicfit"}
+    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "krpano", "magicfit"}
+    assert receipt["optional_provider_modes"] == ["pano2vr"]
 
 
 def test_generated_reconstruction_can_disclose_inferred_floorplan_from_photos(tmp_path: Path) -> None:
@@ -218,6 +242,11 @@ def test_generated_reconstruction_public_allowlist_exposes_viewer_model_and_vide
             "viewer_relpath": "generated-reconstruction/viewer.html",
             "model_relpath": "generated-reconstruction/model.obj",
             "material_relpath": "generated-reconstruction/model.mtl",
+            "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+            "photo_relpaths": [
+                "generated-reconstruction/photo-01.jpg",
+                "generated-reconstruction/photo-02.jpg",
+            ],
             "glb_model_relpath": "generated-reconstruction/model.glb",
             "manifest_relpath": "generated-reconstruction/reconstruction.json",
             "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
@@ -229,6 +258,9 @@ def test_generated_reconstruction_public_allowlist_exposes_viewer_model_and_vide
     assert "generated-reconstruction/viewer.html" in allowed
     assert "generated-reconstruction/model.obj" in allowed
     assert "generated-reconstruction/model.mtl" in allowed
+    assert "generated-reconstruction/source-floorplan.jpg" in allowed
+    assert "generated-reconstruction/photo-01.jpg" in allowed
+    assert "generated-reconstruction/photo-02.jpg" in allowed
     assert "generated-reconstruction/model.glb" in allowed
     assert "generated-reconstruction/generated-walkthrough.mp4" in allowed
     assert "generated-reconstruction/reconstruction.json" not in allowed

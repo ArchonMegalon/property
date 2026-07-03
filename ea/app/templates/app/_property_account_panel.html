@@ -19,6 +19,9 @@
 {% set plan_item = plan_items[0] if plan_items else {} %}
 {% set plan_value = (plan_item.get('detail') or '').split('|')[0].strip() or 'Free' %}
 {% set plan_detail = (plan_item.get('detail') or '').split('|', 1)[1].strip() if '|' in (plan_item.get('detail') or '') else 'Billing access.' %}
+{% set billing_action_label = account_nav.billing_label if account_nav and account_nav.billing_label else 'Billing account' %}
+{% set billing_action_detail = account_nav.billing_detail if account_nav and account_nav.billing_detail else 'Open billing in your billing account.' %}
+{% set billing_action_href = account_nav.billing_href if account_nav and account_nav.billing_href else '/app/account?billing=1#delivery' %}
 {% set rendered_account_status = account_status if account_status is defined and account_status else (status if status is defined and status else {}) %}
 {% set delivery_preferences = rendered_account_status.get('delivery_preferences') or {} %}
 {% set property_notifications = delivery_preferences.get('property_notifications') or {} %}
@@ -204,9 +207,9 @@
         <span class="pqx-small">Plan</span>
         <h2>{{ plan_value }}</h2>
         <p>{{ plan_detail or 'Billing access.' }}</p>
-        <div class="pqx-note">Open billing in your billing account.</div>
+        <div class="pqx-note">{{ billing_action_detail }}</div>
       </div>
-      <a class="pqx-link-button" href="{{ account_nav.billing_href if account_nav else '/app/account?billing=1#delivery' }}">Billing account</a>
+      <a class="pqx-link-button" href="{{ billing_action_href }}">{{ billing_action_label }}</a>
     </section>
 
     <details class="pqx-account-action-card pqx-mobile-fold" id="connected-services"{% if connected_services_open %} open{% endif %}>

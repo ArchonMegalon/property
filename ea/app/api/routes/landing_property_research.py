@@ -785,7 +785,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
 def _property_tour_detail_line(candidate: dict[str, object]) -> str:
     tour_url = str(candidate.get("tour_url") or "").strip()
     vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
-    if _property_hosted_tour_ready(tour_url):
+    if str(property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url) or "").strip():
         return "Open the 3D tour on PropertyQuarry."
     if vendor_tour_url:
         return "An original tour exists, but the in-page 3D tour is not ready yet."

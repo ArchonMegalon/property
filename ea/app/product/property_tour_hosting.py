@@ -24,6 +24,7 @@ _KRPANO_PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 _KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
 _KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
 _CUSTOMER_FACING_TOUR_PROVIDERS = ("matterport", "3dvista")
+_PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION = "propertyquarry_3d_tour_viewer_v3"
 _3DVISTA_FORBIDDEN_PUBLIC_MARKERS = (
     "created with the trial of 3dvista",
     "created with 3dvista",
@@ -643,6 +644,16 @@ def _hosted_property_tour_verified_open_url(tour_url: object) -> str:
     return _hosted_property_tour_control_url(normalized_url, viewer=provider)
 
 
+def _hosted_property_tour_first_party_open_url(tour_url: object) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ""
+    return (
+        _hosted_property_tour_verified_open_url(normalized_url)
+        or _hosted_property_tour_generated_reconstruction_asset_url(normalized_url)
+    )
+
+
 def _hosted_property_tour_walkthrough_asset_url(tour_url: object) -> str:
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
@@ -686,6 +697,7 @@ def _hosted_property_tour_generated_reconstruction_asset_url(tour_url: object, *
         "model_relpath",
         "material_relpath",
         "glb_model_relpath",
+        "floorplan_relpath",
         "walkthrough_video_relpath",
     }:
         return ""
@@ -707,6 +719,9 @@ def _hosted_property_tour_generated_reconstruction_asset_url(tour_url: object, *
         return ""
     if bool(generated_reconstruction.get("verified_provider_capture")):
         return ""
+    viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
+    if viewer_version != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
+        return ""
     relpath = str(generated_reconstruction.get(normalized_key) or "").strip().lstrip("/")
     if not relpath:
         return ""
@@ -714,6 +729,50 @@ def _hosted_property_tour_generated_reconstruction_asset_url(tour_url: object, *
     if bundle_dir.resolve() not in asset_path.parents or not asset_path.exists() or not asset_path.is_file():
         return ""
     return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=relpath)
+
+
+def _hosted_property_tour_generated_reconstruction_asset_urls(
+    tour_url: object,
+    *,
+    asset_key: str = "photo_relpaths",
+) -> tuple[str, ...]:
+    normalized_url = str(tour_url or "").strip()
+    normalized_key = str(asset_key or "photo_relpaths").strip()
+    if not normalized_url or normalized_key not in {"photo_relpaths"}:
+        return ()
+    slug = _hosted_property_tour_slug_from_url(normalized_url)
+    if not slug:
+        return ()
+    bundle_dir = _public_tour_dir() / slug
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return ()
+    payload = _load_hosted_property_tour_payload(bundle_dir)
+    if not payload or not isinstance(payload, dict):
+        return ()
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return ()
+    provider = str(generated_reconstruction.get("provider") or "").strip().lower()
+    if provider != "propertyquarry_generated_reconstruction":
+        return ()
+    if bool(generated_reconstruction.get("verified_provider_capture")):
+        return ()
+    viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
+    if viewer_version != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
+        return ()
+    urls: list[str] = []
+    for raw_relpath in list(generated_reconstruction.get(normalized_key) or []):
+        relpath = str(raw_relpath or "").strip().lstrip("/")
+        if not relpath:
+            continue
+        asset_path = (bundle_dir / relpath).resolve()
+        if bundle_dir.resolve() not in asset_path.parents or not asset_path.exists() or not asset_path.is_file():
+            continue
+        asset_url = _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=relpath)
+        if asset_url and asset_url not in urls:
+            urls.append(asset_url)
+    return tuple(urls)
 
 
 def _published_walkthrough_asset_url(value: object) -> str:
@@ -759,6 +818,8 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     scenes = [dict(entry) for entry in (payload.get("scenes") or []) if isinstance(entry, dict)]
     source_virtual_tour_url = str(payload.get("source_virtual_tour_url") or "").strip()
     hosted_url = f"{base_url}/{slug}"
+    if _hosted_property_tour_generated_reconstruction_asset_url(hosted_url):
+        return hosted_url
     if source_virtual_tour_url and not scenes:
         return f"{hosted_url}#live-360"
     if not scenes:
@@ -1365,6 +1426,15 @@ def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
     payload = _load_hosted_property_tour_payload(bundle_dir)
     if not payload:
         return ""
+
+    for image_url in _hosted_property_tour_generated_reconstruction_asset_urls(normalized_url):
+        return image_url
+    floorplan_url = _hosted_property_tour_generated_reconstruction_asset_url(
+        normalized_url,
+        asset_key="floorplan_relpath",
+    )
+    if floorplan_url:
+        return floorplan_url
 
     role_priority = {
         "diorama": 0,
