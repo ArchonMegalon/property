@@ -2446,6 +2446,8 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
         {"value": "barrier-free", "label": "Barrier-free", "detail": "Wheelchair accessible or step-free"},
         {"value": "balcony", "label": "Balcony", "detail": "Outdoor private space"},
         {"value": "terrace", "label": "Terrace", "detail": "Large outdoor space"},
+        {"value": "klimaanlage", "label": "Klimaanlage", "detail": "Active cooling mentioned in the listing"},
+        {"value": "dachgeschosswohnung", "label": "Dachgeschoßwohnung", "detail": "Top-floor or attic apartment signal"},
         {"value": "baugrund", "label": "Building plot", "detail": "Land / building plot"},
         {"value": "seezugang", "label": "Lake access", "detail": "Lake access or lakeside potential"},
         {"value": "wasserzugang", "label": "Water access", "detail": "Access to water"},
@@ -2684,6 +2686,19 @@ def _property_keyword_options() -> list[dict[str, str]]:
             {"value": "important", "label": "Strong wish"},
             {"value": "must_have", "label": "Must have"},
         ],
+        "klimaanlage": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
+        "dachgeschosswohnung": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "avoid", "label": "Avoid"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
         "avoid noise-risk area": [
             {"value": "any", "label": "Neutral"},
             {"value": "avoid", "label": "Avoid"},
@@ -2754,12 +2769,36 @@ def _property_keyword_options() -> list[dict[str, str]]:
     heat_resilience_copy = _property_heat_resilience_copy("de")
     localized_details = {
         "klimaerwaermungsfit": dict(heat_resilience_copy.get("detail_i18n") or {}),
+        "klimaanlage": {
+            "de": "Bevorzugt Wohnungen mit ausdrücklich genannter Klimaanlage oder aktiver Kühlung.",
+            "en": "Prefers homes where air conditioning or active cooling is explicitly mentioned.",
+        },
+        "dachgeschosswohnung": {
+            "de": "Bewertet Dachgeschoßwohnungen als weichen Wunsch oder Malus, nicht als versteckten Ausschluss.",
+            "en": "Treats attic or top-floor apartments as a soft wish or penalty, not as a hidden exclusion.",
+        },
     }
     localized_labels = {
         "klimaerwaermungsfit": dict(heat_resilience_copy.get("label_i18n") or {}),
+        "klimaanlage": {
+            "de": "Klimaanlage",
+            "en": "Air conditioning",
+        },
+        "dachgeschosswohnung": {
+            "de": "Dachgeschoßwohnung",
+            "en": "Top-floor apartment",
+        },
     }
     localized_tooltips = {
         "klimaerwaermungsfit": dict(heat_resilience_copy.get("tooltip_i18n") or {}),
+        "klimaanlage": {
+            "de": "Hebt Inserate mit Klimaanlage, Splitgerät oder anderer aktiver Kühlung im Ranking. Fehlende Angabe senkt nur leicht, solange es kein Must-have ist.",
+            "en": "Raises listings with air conditioning, split units, or other active cooling. Missing evidence only lowers the rank lightly unless marked must-have.",
+        },
+        "dachgeschosswohnung": {
+            "de": "Kann als Wunsch oder Vermeiden-Regel gesetzt werden. Bei Sommerhitze zählt Dachgeschoß zusätzlich als Risiko, sofern Kühlung oder Verschattung nicht dagegen sprechen.",
+            "en": "Can be set as a wish or avoid rule. For summer heat, top-floor homes also count as a risk unless cooling or shade offsets it.",
+        },
     }
     return [
         {
@@ -3553,7 +3592,17 @@ def app_section_payload(
     selected_keyword_values, custom_keyword_values = _split_known_and_custom_values(keyword_options, selected_keyword_values)
     show_land_keywords = _property_type_selection_allows_land(selected_property_type_values)
     land_only_search = _property_type_selection_is_land_only(selected_property_type_values)
-    dwelling_only_keywords = {"lift", "barrier-free", "balcony", "terrace", "no gas", "district heating", "bright"}
+    dwelling_only_keywords = {
+        "lift",
+        "barrier-free",
+        "balcony",
+        "terrace",
+        "klimaanlage",
+        "dachgeschosswohnung",
+        "no gas",
+        "district heating",
+        "bright",
+    }
     keyword_preference_options: list[dict[str, object]] = []
     nearby_keyword_distance_fields = {
         "playground nearby": "max_distance_to_playground_m",
@@ -3650,6 +3699,17 @@ def app_section_payload(
         elif option_value == "klimaerwaermungsfit":
             if state not in {"nice_to_have", "important", "must_have"}:
                 state = "important" if bool(property_preferences.get("prefer_heat_resilient_home")) else "any"
+        elif option_value == "klimaanlage":
+            if state not in {"nice_to_have", "important", "must_have"}:
+                state = "important" if bool(property_preferences.get("prefer_air_conditioning")) else "any"
+        elif option_value == "dachgeschosswohnung":
+            if state not in {"avoid", "nice_to_have", "important", "must_have"}:
+                if bool(property_preferences.get("avoid_attic_apartment")):
+                    state = "avoid"
+                elif bool(property_preferences.get("prefer_attic_apartment")):
+                    state = "important"
+                else:
+                    state = "any"
         elif option_value == "avoid noise-risk area":
             if state not in {"avoid", "must_have"}:
                 state = "avoid" if bool(property_preferences.get("avoid_noise_risk_area")) else "any"

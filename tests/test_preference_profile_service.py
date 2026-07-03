@@ -172,6 +172,67 @@ def test_preference_profile_service_scores_willhaben_candidate_from_profile() ->
     assert assessment["blocking_constraints_json"] == []
 
 
+def test_preference_profile_service_scores_air_conditioning_and_attic_preferences() -> None:
+    service = _service()
+    service.ensure_profile(
+        principal_id="pref-principal",
+        person_id="self",
+        consent_mode="behavioral_learning",
+        learning_enabled=True,
+    )
+    service.upsert_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="willhaben",
+        category="soft_preference",
+        key="prefer_air_conditioning",
+        value_json=True,
+        confidence=1.0,
+    )
+    service.upsert_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="willhaben",
+        category="aversion",
+        key="avoid_attic_apartment",
+        value_json=True,
+        confidence=1.0,
+    )
+
+    weak = service.assess_candidate(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="willhaben",
+        object_type="listing",
+        object_id="listing-attic",
+        object_payload={
+            "title": "Dachgeschosswohnung ohne Klimaanlage",
+            "dachgeschoss": True,
+        },
+        persist=False,
+        require_existing_profile=True,
+    )
+    strong = service.assess_candidate(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="willhaben",
+        object_type="listing",
+        object_id="listing-cool",
+        object_payload={
+            "title": "Ruhige Wohnung mit Klimaanlage",
+        },
+        persist=False,
+        require_existing_profile=True,
+    )
+
+    assert weak is not None
+    assert strong is not None
+    assert weak["fit_score"] < strong["fit_score"]
+    assert "Air conditioning is not confirmed." in weak["mismatch_reasons_json"]
+    assert any("top-floor or attic" in reason for reason in weak["mismatch_reasons_json"])
+    assert "Air conditioning or active cooling is mentioned." in strong["match_reasons_json"]
+
+
 def test_preference_profile_service_uses_candidate_currency_in_rent_reasons() -> None:
     service = _service()
     service.ensure_profile(

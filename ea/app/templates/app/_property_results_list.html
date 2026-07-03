@@ -185,7 +185,9 @@
       <span class="pqx-result-aside">
         <span class="pqx-result-value-row">
           <strong class="pqx-result-price">{{ primary_price }}</strong>
-          <span class="pqx-result-fit-score">Fit {{ candidate.get('fit_score') or 0 }} <button type="button" class="pqx-tooltip" title="{{ fit_tooltip }}" aria-label="{{ fit_tooltip }}" aria-expanded="false" data-tooltip-trigger>?</button></span>
+          {% if candidate.get('fit_score') or candidate.get('personal_fit_score') %}
+          <span class="pqx-result-fit-score">Fit {{ candidate.get('fit_score') or candidate.get('personal_fit_score') }} <button type="button" class="pqx-tooltip" title="{{ fit_tooltip }}" aria-label="{{ fit_tooltip }}" aria-expanded="false" data-tooltip-trigger>?</button></span>
+          {% endif %}
         </span>
         {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('dscr_display') %}
         <span class="pqx-result-secondary">{{ candidate.get('investment', {}).get('dscr_display') }}</span>

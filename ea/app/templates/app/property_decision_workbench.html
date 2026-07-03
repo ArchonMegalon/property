@@ -362,13 +362,14 @@
   {% set progress_message_display_lower = progress_message_display|lower %}
 {% endif %}
 {% set progress_compact_found_message = found_total|string ~ ' homes found' %}
-{% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ to_review_total|string ~ ' to review' %}
+{% set progress_queue_label = to_review_total|string ~ ' to review' if to_review_total > 0 else 'details caught up' %}
+{% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ progress_queue_label %}
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or 'scoring enriched candidate' in progress_message_display_lower or 'ranking homes' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
     {% if source_open_total > 0 %}
-      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review · ' ~ source_check_label %}
+      {% set progress_message_display = progress_compact_queue_message ~ ' · ' ~ source_check_label %}
     {% else %}
-      {% set progress_message_display = found_total ~ ' homes found · ' ~ to_review_total ~ ' to review' %}
+      {% set progress_message_display = progress_compact_queue_message %}
     {% endif %}
   {% elif provider_display_total > 0 %}
   {% set progress_message_display = 'Preparing providers.' %}
@@ -405,24 +406,24 @@
     </div>
     <div class="pqx-pulse-line" aria-hidden="true"></div>
   </div>
-	  <div class="pqx-source-progress" data-pqx-source-progress>
-	    <div class="pqx-source-progress-head">
-			      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-					      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total %}0 to review{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first listings{% endif %}</span>
-					      {% if found_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
-				    </div>
+		  <div class="pqx-source-progress" data-pqx-source-progress>
+		    <div class="pqx-source-progress-head">
+				      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
+						      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total and source_open_total > 0 %}{{ source_open_total }} {{ source_unit }} left{% elif found_total %}details caught up{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first listings{% endif %}</span>
+						      {% if found_total and to_review_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
+					    </div>
 				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider.' }}</span>
 				    <div class="pqx-live-review-bars" aria-label="Search totals">
 		      <span>
 		        <b>Found</b>
 		        <i>{{ found_total or 0 }}</i>
 		        <em><u style="--progress: {{ found_bar_pct }}"></u></em>
-		      </span>
-		      <span>
-			        <b>To review</b>
-		        <i>{{ to_review_total or 0 }}</i>
-		        <em><u style="--progress: {{ to_review_bar_pct }}"></u></em>
-		      </span>
+			      </span>
+			      <span>
+				        <b>{% if to_review_total > 0 %}To review{% else %}Details{% endif %}</b>
+			        <i>{% if to_review_total > 0 %}{{ to_review_total }}{% else %}caught up{% endif %}</i>
+			        <em><u style="--progress: {{ to_review_bar_pct }}"></u></em>
+			      </span>
 		      <span>
 				        <b>Sources</b>
 		        <i>{% if source_variant_total > 0 %}{{ source_check_done }} / {{ source_check_total }}{% else %}{{ provider_display_total or 0 }}{% endif %}</i>
@@ -10893,16 +10894,17 @@
 		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared' %}
 		          {% endif %}
 		          {% set live_run_message_display_lower = live_run_message_display|lower %}
-          {% endif %}
+{% endif %}
           {% set live_compact_found_message = live_found_total|string ~ ' homes found' %}
-	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_to_review_total|string ~ ' to review' %}
+	          {% set live_queue_label = live_to_review_total|string ~ ' to review' if live_to_review_total > 0 else 'details caught up' %}
+	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_queue_label %}
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or 'scoring enriched candidate' in live_run_message_display_lower or 'ranking homes' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
-		          {% if live_found_total %}
-		            {% if live_source_open_total > 0 %}
-				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review · ' ~ live_source_check_label %}
-			            {% else %}
-				            {% set live_run_message_display = live_found_total ~ ' homes found · ' ~ live_to_review_total ~ ' to review' %}
-		            {% endif %}
+			          {% if live_found_total %}
+			            {% if live_source_open_total > 0 %}
+					            {% set live_run_message_display = live_compact_queue_message ~ ' · ' ~ live_source_check_label %}
+				            {% else %}
+					            {% set live_run_message_display = live_compact_queue_message %}
+			            {% endif %}
 		          {% elif live_provider_total > 0 %}
 				          {% set live_run_message_display = 'Preparing providers.' %}
 			          {% else %}
@@ -10920,9 +10922,9 @@
 	            <div class="pqx-pref-list">
 	              <div class="pqx-pref-row">
 	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
-		                  <div><strong>Sources</strong><small>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} providers selected{% else %}Preparing{% endif %}</small></div>
-	                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
-			                <div><strong>To review</strong><small>{{ live_to_review_total }} homes</small></div>
+			                  <div><strong>Sources</strong><small>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} providers selected{% else %}Preparing{% endif %}</small></div>
+		                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
+				                <div><strong>{% if live_to_review_total > 0 %}To review{% else %}Details{% endif %}</strong><small>{% if live_to_review_total > 0 %}{{ live_to_review_total }} homes{% else %}caught up{% endif %}</small></div>
 	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
 	              </div>
           {% if live_preview %}
@@ -12210,7 +12212,9 @@
                     </div>
                     <div class="pqx-result-trust">
                       <span class="pqx-trust-chip">#{{ candidate.get('rank') or loop.index }}</span>
-                      <span class="pqx-trust-chip">Match {{ candidate.get('fit_score') or 0 }}/100</span>
+                      {% if candidate.get('fit_score') or candidate.get('personal_fit_score') %}
+                      <span class="pqx-trust-chip">Match {{ candidate.get('fit_score') or candidate.get('personal_fit_score') }}/100</span>
+                      {% endif %}
                       {% set candidate_facts = candidate.get('property_facts') or {} %}
                       <span class="pqx-trust-chip">Floorplan {{ 'yes' if candidate.get('has_floorplan') or candidate.get('floorplan_count') or candidate.get('floorplan_urls_json') or candidate_facts.get('has_floorplan') or candidate_facts.get('floorplan_count') or candidate_facts.get('floorplan_urls_json') else 'missing' }}</span>
                       {% set tour_status = candidate.get('tour_status') or candidate.get('tour', {}).get('status') or '' %}
@@ -12235,7 +12239,7 @@
                     <span class="pqx-small">Routes not available yet</span>
                     {% endif %}
                   </td>
-                  <td>{{ candidate.get('fit_score') or 0 }}</td>
+                  <td>{{ candidate.get('fit_score') or candidate.get('personal_fit_score') or '—' }}</td>
                   <td>{{ candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Open the property page for more context'])[0] }}</td>
                   <td>
                     {% set hosted_tour_url = candidate.get('tour_url') or candidate.get('tour', {}).get('url') or '' %}

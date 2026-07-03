@@ -12,11 +12,12 @@
 	        {% set run_source_total_head = (run_summary_head.get('source_variant_total') or run_summary_head.get('sources_total') or run_sources|length or 0)|int %}
 	        {% set run_source_completed_head = (run_summary_head.get('sources_completed') or run_summary_head.get('completed_sources') or 0)|int %}
 	        {% set run_source_check_total_head = run_source_total_head if run_source_total_head > run_provider_display_head else run_provider_display_head %}
-	        {% set run_source_check_done_head = run_source_completed_head if run_source_completed_head > 0 else 0 %}
-	        {% set run_source_check_done_head = run_source_check_done_head if run_source_check_total_head <= 0 or run_source_check_done_head < run_source_check_total_head else run_source_check_total_head %}
-	        {% set run_source_unit_head = 'search pages' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'providers' %}
-	        {% set run_source_check_label_head = run_source_check_done_head|string ~ ' / ' ~ run_source_check_total_head|string ~ ' ' ~ run_source_unit_head if run_source_check_total_head > 0 and run_source_total_head > 0 else '' %}
-	        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head %}{{ run_found_head }} found · {{ run_to_review_head }} to review · {{ run_source_check_label_head }}{% elif run_found_head %}{{ run_found_head }} found · {{ run_to_review_head }} to review{% else %}Waiting for first listings{% endif %}</div>
+		        {% set run_source_check_done_head = run_source_completed_head if run_source_completed_head > 0 else 0 %}
+		        {% set run_source_check_done_head = run_source_check_done_head if run_source_check_total_head <= 0 or run_source_check_done_head < run_source_check_total_head else run_source_check_total_head %}
+		        {% set run_source_unit_head = 'search pages' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'providers' %}
+		        {% set run_source_check_label_head = run_source_check_done_head|string ~ ' / ' ~ run_source_check_total_head|string ~ ' ' ~ run_source_unit_head if run_source_check_total_head > 0 and run_source_total_head > 0 else '' %}
+		        {% set run_queue_label_head = run_to_review_head|string ~ ' to review' if run_to_review_head > 0 else 'details caught up' %}
+		        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head and run_found_head %}{{ run_found_head }} found · {{ run_queue_label_head }} · {{ run_source_check_label_head }}{% elif run_source_total_head %}{{ run_source_check_label_head }}{% elif run_found_head %}{{ run_found_head }} found · {{ run_queue_label_head }}{% else %}Waiting for first listings{% endif %}</div>
       </div>
       <div class="pqx-inline-actions">
         {% if run_active %}
@@ -78,14 +79,15 @@
       {% set run_message_display_lower = run_message_display|lower %}
     {% endif %}
     {% set run_compact_found_message = run_found_total|string ~ ' homes found' %}
-    {% set run_compact_queue_message = run_found_total|string ~ ' homes found · ' ~ run_to_review_total|string ~ ' to review' %}
-	    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or 'scoring enriched candidate' in run_message_display_lower or 'ranking homes' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] or (run_found_total and run_message_display == run_compact_found_message) or (run_found_total and run_message_display == run_compact_queue_message) %}
-	      {% if run_found_total %}
-	        {% if run_source_open_total > 0 %}
-	          {% set run_message_display = run_found_total ~ ' homes found · ' ~ run_to_review_total ~ ' to review · ' ~ run_source_check_label %}
-	        {% else %}
-	          {% set run_message_display = run_found_total ~ ' homes found · ' ~ run_to_review_total ~ ' to review' %}
-	        {% endif %}
+    {% set run_queue_label = run_to_review_total|string ~ ' to review' if run_to_review_total > 0 else 'details caught up' %}
+    {% set run_compact_queue_message = run_found_total|string ~ ' homes found · ' ~ run_queue_label %}
+		    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or 'scoring enriched candidate' in run_message_display_lower or 'ranking homes' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] or (run_found_total and run_message_display == run_compact_found_message) or (run_found_total and run_message_display == run_compact_queue_message) %}
+		      {% if run_found_total %}
+		        {% if run_source_open_total > 0 %}
+		          {% set run_message_display = run_compact_queue_message ~ ' · ' ~ run_source_check_label %}
+		        {% else %}
+		          {% set run_message_display = run_compact_queue_message %}
+		        {% endif %}
       {% elif run_provider_total %}
       {% set run_message_display = 'Preparing providers.' %}
       {% else %}
@@ -106,7 +108,7 @@
         {% set event_step = (event.get('step') or '')|lower %}
         {% set event_message = event.get('message') or '' %}
         {% set event_message_lower = event_message|lower %}
-        {% set event_message_display = event_message|replace('homes reviewed', 'homes found')|replace('home reviewed', 'home found')|replace('reviewed so far', 'to review')|replace('list update', 'search update') %}
+        {% set event_message_display = event_message|replace('homes reviewed', 'homes found')|replace('home reviewed', 'home found')|replace('reviewed so far', 'checked so far')|replace('list update', 'search update') %}
         {% if visible_event_count.value < 10 and not ('suppressed_generic_listing_page' in event_message_lower or 'could not load property search status' in event_message_lower or 'checking run status' in event_message_lower or 'starting property search run' in event_message_lower or (event_step == 'status_refresh')) %}
         {% set visible_event_count.value = visible_event_count.value + 1 %}
         {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}

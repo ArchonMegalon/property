@@ -342,6 +342,48 @@ def test_normalize_property_search_preferences_strips_soft_keyword_filters_from_
     }
 
 
+def test_normalize_property_search_preferences_promotes_attic_and_air_conditioning_soft_filters() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "keywords": "Klimaanlage, custom term, Dachgeschoss",
+            "avoid_keywords": "Dachgeschoßwohnung, noisy street",
+            "keyword_preferences": {
+                "Air conditioning": "important",
+                "Dachgeschoßwohnung": "avoid",
+            },
+        }
+    )
+
+    assert payload["keyword_preferences"] == {
+        "klimaanlage": "important",
+        "dachgeschosswohnung": "avoid",
+    }
+    assert payload["prefer_air_conditioning"] is True
+    assert payload["avoid_attic_apartment"] is True
+    assert payload["prefer_attic_apartment"] is False
+    assert payload["keywords"] == "custom term"
+    assert payload["avoid_keywords"] == "Dachgeschoßwohnung, noisy street"
+
+
+def test_normalize_property_search_preferences_land_only_drops_dwelling_soft_filters() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "property_type": ["land"],
+            "keywords": "Klimaanlage, Dachgeschoßwohnung, baugrund",
+            "avoid_keywords": "Dachgeschoss, noisy street",
+            "keyword_preferences": {
+                "AC": "important",
+                "attic apartment": "avoid",
+                "baugrund": "must_have",
+            },
+        }
+    )
+
+    assert payload["keyword_preferences"] == {"baugrund": "must_have"}
+    assert payload["keywords"] == "baugrund"
+    assert payload["avoid_keywords"] == "noisy street"
+
+
 def test_generated_source_specs_pushes_only_hard_keywords_to_provider_search() -> None:
     specs = generated_source_specs(
         preferences={

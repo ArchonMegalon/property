@@ -3170,7 +3170,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "Could not load property search status." not in visible_message
-    assert "179 homes found · 0 to review" in visible_message
+    assert "179 homes found · details caught up" in visible_message
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
         response.text,
@@ -3183,7 +3183,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "179" in visible_source
     assert "29 providers selected" in visible_source
     assert "Found" in visible_source
-    assert "To review" in visible_source
+    assert "Details" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
 
 
@@ -3224,7 +3224,7 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "70 homes found · 0 to review · 70 / 250 search pages" in visible_message
+    assert "70 homes found · details caught up · 70 / 250 search pages" in visible_message
 
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
@@ -3237,8 +3237,8 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     assert "70 / 250 checked" not in visible_source
     assert "Found" in visible_source
     assert "70" in visible_source
-    assert "To review" in visible_source
-    assert "0" in visible_source
+    assert "Details" in visible_source
+    assert "caught up" in visible_source
     assert "Reviewed" not in visible_source
 
 
@@ -3367,7 +3367,7 @@ def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "102 homes found · 0 to review" in visible_message
+    assert "102 homes found · details caught up" in visible_message
     assert "Now: RE/MAX Austria" not in visible_message
 
 
@@ -3490,6 +3490,10 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert ">Must check</option>" not in risk_evidence_html.group("section")
     assert '<select name="keyword_preference__lift"' in section_html
     assert '<select name="keyword_preference__barrier-free"' in section_html
+    assert '<select name="keyword_preference__klimaanlage"' in section_html
+    assert '<select name="keyword_preference__dachgeschosswohnung"' in section_html
+    assert "Klimaanlage" in section_html
+    assert "Dachgeschoßwohnung" in section_html
     assert '<select name="keyword_distance__playground nearby"' in section_html
     assert '<select name="keyword_preference__library nearby"' in section_html
     assert '<select name="keyword_preference__public pool nearby"' in section_html
@@ -3585,7 +3589,7 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert "syncSchoolDistanceSelects" in workbench_script_source
     assert "const runWhatMattersInteractionSync = (target, callback, { preserveScroll = true, restoreFocus = true } = {}) => {" in workbench_script_source
     assert "if (target instanceof HTMLSelectElement && target.hasAttribute('data-keyword-distance-select')) {\n          runWhatMattersInteractionSync(target, () => {" in workbench_script_source
-    assert "if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-distance-select')) {\n          runWhatMattersInteractionSync(target, () => {" in workbench_script_source
+    assert "if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-distance-select')) {\n          const preferredGroup = resolveWhatMattersGroup(target);\n          runWhatMattersInteractionSync(target, () => {" in workbench_script_source
     assert "locationMapPointerDistance" in workbench_script_source
     assert "locationMapPinching" in workbench_script_source
     assert 'type="checkbox"' not in section_html
@@ -3667,7 +3671,11 @@ def test_propertyquarry_search_route_restores_keyword_preferences_from_saved_jso
             "country_code": "AT",
             "listing_mode": "rent",
             "location_query": "1020 Vienna",
-            "keyword_preferences": {"playground nearby": "nice_to_have"},
+            "keyword_preferences": {
+                "playground nearby": "nice_to_have",
+                "klimaanlage": "important",
+                "dachgeschosswohnung": "avoid",
+            },
             "max_distance_to_playground_m": 500,
             "max_distance_to_playground_importance": "nice_to_have",
         },
@@ -3685,6 +3693,16 @@ def test_propertyquarry_search_route_restores_keyword_preferences_from_saved_jso
     )
     assert re.search(
         r'<select name="keyword_distance__playground nearby"[^>]*>.*?<option value="500" selected>',
+        html,
+        re.S,
+    )
+    assert re.search(
+        r'<select name="keyword_preference__klimaanlage"[^>]*>.*?<option value="important" selected>',
+        html,
+        re.S,
+    )
+    assert re.search(
+        r'<select name="keyword_preference__dachgeschosswohnung"[^>]*>.*?<option value="avoid" selected>',
         html,
         re.S,
     )
@@ -4277,10 +4295,23 @@ def test_propertyquarry_fast_ranked_run_status_copy_uses_found_and_to_review_cou
     assert "const listingCounts = (payload, candidates = []) => {" in template
     assert "const { found, toReview } = listingCounts(payload, candidates);" in template
     assert "parts.push(`${found} homes found`);" in template
-    assert "parts.push(`${toReview} to review`);" in template
+    assert "parts.push(toReview > 0 ? `${toReview} to review` : 'details caught up');" in template
     assert "parts.push(`${listings} checked`);" not in template
     assert "statusDetail.textContent = copy.detail || (terminal ? copy.status : 'More homes can still appear.');" in template
     assert "if (isTerminalPayload(initialPayload)) return;" in template
+
+
+def test_propertyquarry_fast_ranked_run_shows_personal_fit_not_internal_rank_score() -> None:
+    template = (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_ranked_run_fast.html"
+    ).read_text(encoding="utf-8")
+
+    assert "const candidatePersonalFitScore = (candidate) => {" in template
+    assert "(?:personal\\s+fit|pers[oö]nliche\\s+passung)" in template
+    assert "score.textContent = `Fit ${fitScore}`;" in template
+    assert "number(candidate.fit_score || candidate.ranking_score || candidate.score)" not in template
+    assert "score.textContent = `${candidateScore(candidate)}`;" not in template
+    assert ".sort((a, b) => candidateSortScore(b) - candidateSortScore(a));" in template
 
 
 def test_propertyquarry_root_redirects_signed_in_users_to_search(monkeypatch) -> None:
@@ -5633,8 +5664,8 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     )
 
     assert snapshot["status_label"] == "Running"
-    assert snapshot["status_note"] == "102 homes found · 0 to review"
-    assert snapshot["message"] == "102 homes found · 0 to review"
+    assert snapshot["status_note"] == "102 homes found · details caught up"
+    assert snapshot["message"] == "102 homes found · details caught up"
 
 
 def test_property_surface_state_builds_filtered_total_from_summary_components() -> None:
@@ -9903,7 +9934,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "25 homes found · 0 to review · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "25 homes found · details caught up · Willhaben · 25 / 60"
     assert "156 scans" not in snapshot["summary_label"]
     assert snapshot["phase_label"] == "Playground: Sigmund-Freud-Park playground is 830 m away. Limit 400 m."
     assert snapshot["source_count_label"] == "25 / 60"
@@ -11321,7 +11352,7 @@ def test_property_search_status_replaces_internal_suppression_only_compact_event
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert "Willhaben: suppressed_generic_listing_page." not in messages
-    assert any("179 homes found" in message and "0 to review" in message for message in messages)
+    assert any("179 homes found" in message and "details caught up" in message for message in messages)
 
 
 def test_property_search_status_replaces_stale_status_refresh_noise(monkeypatch) -> None:
@@ -11408,8 +11439,7 @@ def test_property_search_status_hides_active_source_fetch_suppression_receipt_no
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert not any("suppressed_source_fetch_forbidden" in message for message in messages)
-    assert "12 providers selected for this search." in messages
-    assert any("42 homes found · 0 to review" in message for message in messages)
+    assert "12 providers · 42 homes found · details caught up" in messages
 
 
 def test_property_search_status_replaces_raw_provider_failure_with_repair_copy(monkeypatch) -> None:
@@ -11621,7 +11651,7 @@ def test_property_search_status_appends_current_progress_event_after_stale_start
     assert response.status_code == 200
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Starting property search run." not in messages
-    assert any("Willhaben · 3 / 10" in message and "179 homes found · 0 to review" in message for message in messages)
+    assert "179 homes found · property pages are still being prepared" in messages
 
 
 def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources(monkeypatch) -> None:
@@ -14330,7 +14360,9 @@ def test_property_live_ranked_candidates_filter_repair_and_false_positive_rows()
     assert "String(candidate.hard_filter_reason || candidate.filter_reason || '').trim()" not in body
     assert "topCandidates.forEach((candidate) => {" in body
     assert "if (!isRankableCandidate(candidate)) return;" in body
-    assert "Number(right?.ranking_score || right?.investment_score || right?.fit_score || 0)" in body
+    assert "const candidatePersonalFitScore = (candidate) => {" in body
+    assert "Fit ${escapeHtml(candidate?.ranking_score || candidate?.investment_score || candidate?.fit_score || 0)}" not in body
+    assert "collected.sort((left, right) => candidateSortScore(right) - candidateSortScore(left));" in body
     assert "filter_reason in hard_filter_reasons" in helper
     assert 'candidate.get("hard_filter_reason") or candidate.get("filter_reason")' not in helper
     assert "filter_reason in hard_filter_reasons" in view_model
@@ -14367,7 +14399,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "details updating" in script_body
     assert "source_review_packet_failed" in script_body
     assert script_body.count("const reviewed = listingWork.scanned;") == 1
-    assert "${found} homes found · ${toReview} to review" in script_body
+    assert "runListingQueueMessage(found, toReview)" in script_body
     assert "Nothing waiting to review" not in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body

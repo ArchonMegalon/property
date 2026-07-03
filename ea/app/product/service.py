@@ -7727,6 +7727,18 @@ def _property_austria_preference_score_adjustment(
         for key in ("postal_code", "postal_name", "district", "location", "street_address")
         if str(facts.get(key) or "").strip()
     )
+    cooling_negated = any(
+        marker in text
+        for marker in ("ohne klimaanlage", "keine klimaanlage", "no air conditioning", "without air conditioning")
+    )
+    has_air_conditioning_signal = bool(facts.get("air_conditioning")) or (not cooling_negated and any(
+        marker in text
+        for marker in ("klimaanlage", "air conditioning", "aircondition", "splitgerät", "splitgeraet")
+    ))
+    has_attic_apartment_signal = bool(facts.get("top_floor")) or bool(facts.get("dachgeschoss")) or any(
+        marker in text
+        for marker in ("dachgeschoss", "dg-wohnung", "top floor", "attic apartment", "mansarde")
+    )
     family_mode = bool(payload.get("enable_family_mode"))
     school_requested = family_mode or bool(payload.get("require_school_evidence")) or bool(list(payload.get("school_stage_preferences") or []))
     public_or_cooperative = _property_austria_provider_is_public_or_cooperative(facts)
@@ -7824,6 +7836,29 @@ def _property_austria_preference_score_adjustment(
             adjustment -= 5.0
             notes.append("broadband evidence missing")
 
+    if bool(payload.get("prefer_air_conditioning")):
+        if has_air_conditioning_signal:
+            adjustment += 4.0
+            notes.append("air conditioning mentioned")
+        else:
+            adjustment -= 3.0
+            notes.append("air conditioning not confirmed")
+
+    if bool(payload.get("avoid_attic_apartment")):
+        if has_attic_apartment_signal:
+            adjustment -= 8.0
+            notes.append("top-floor apartment signal")
+        else:
+            adjustment += 1.0
+            notes.append("no top-floor signal found")
+    elif bool(payload.get("prefer_attic_apartment")):
+        if has_attic_apartment_signal:
+            adjustment += 4.0
+            notes.append("top-floor apartment signal")
+        else:
+            adjustment -= 2.0
+            notes.append("top-floor apartment not confirmed")
+
     if bool(payload.get("prefer_heat_resilient_home")):
         heat_score = 0.0
         heat_notes: list[str] = []
@@ -7831,7 +7866,7 @@ def _property_austria_preference_score_adjustment(
         cooling_corridor_signal = str(facts.get("cooling_corridor_signal") or "").strip().lower()
         cooling_corridor_summary = str(facts.get("cooling_corridor_summary") or "").strip()
         flowing_water_distance_m = _float_or_none(facts.get("nearest_flowing_water_m"))
-        if bool(facts.get("air_conditioning")) or any(marker in text for marker in ("klimaanlage", "air conditioning", "aircondition", "splitgerät", "splitgeraet")):
+        if has_air_conditioning_signal:
             heat_score += 5.0
             heat_notes.append("cooling present")
         if bool(facts.get("altbau")) or any(marker in text for marker in ("altbau", "dicke wände", "dicke waende", "thick walls")):
@@ -7857,7 +7892,7 @@ def _property_austria_preference_score_adjustment(
         elif "cooling_corridor" in official_risk_keys:
             heat_score += 1.0
             heat_notes.append("cooling-corridor evidence attached")
-        if bool(facts.get("top_floor")) or bool(facts.get("dachgeschoss")) or any(marker in text for marker in ("dachgeschoss", "dg-wohnung", "top floor", "attic apartment", "mansarde")):
+        if has_attic_apartment_signal:
             heat_score -= 7.0
             heat_notes.append("top-floor heat risk")
         if bool(facts.get("large_south_windows")) or any(marker in text for marker in ("südseitige fenster", "suedseitige fenster", "südseitig", "suedseitig", "south-facing windows", "south facing windows")):

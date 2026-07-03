@@ -665,6 +665,37 @@ class PreferenceProfileService:
             or "lift" in _normalize_key(facts.get("headline_hook"))
             or "lift" in _normalize_key(attributes.get("GENERAL_TEXT_ADVERT/Ausstattung"))
         )
+        feature_text = " ".join(
+            str(part or "").strip()
+            for part in (
+                facts.get("title"),
+                facts.get("headline_hook"),
+                facts.get("summary"),
+                facts.get("description_text"),
+                attributes.get("GENERAL_TEXT_ADVERT/Ausstattung"),
+                attributes.get("GENERAL_TEXT_ADVERT"),
+                attributes.get("AUSSTATTUNG"),
+                attributes.get("FLOOR"),
+            )
+            if str(part or "").strip()
+        ).lower()
+        cooling_negated = any(
+            marker in feature_text
+            for marker in ("ohne klimaanlage", "keine klimaanlage", "no air conditioning", "without air conditioning")
+        )
+        has_air_conditioning = bool(facts.get("air_conditioning") or facts.get("has_air_conditioning")) or (not cooling_negated and any(
+            marker in feature_text
+            for marker in ("klimaanlage", "air conditioning", "aircondition", "splitgerät", "splitgeraet")
+        ))
+        has_attic_apartment = bool(
+            facts.get("top_floor")
+            or facts.get("dachgeschoss")
+            or facts.get("attic_apartment")
+            or facts.get("is_attic_apartment")
+        ) or any(
+            marker in feature_text
+            for marker in ("dachgeschoss", "dachgeschoß", "dg-wohnung", "top floor", "attic apartment", "mansarde")
+        )
         quiet_score = float(facts.get("quiet_score") or facts.get("micro_location_quiet_score") or 0.0)
         noise_risk = _normalize_key(
             facts.get("street_noise_risk")
@@ -766,6 +797,30 @@ class PreferenceProfileService:
                     else:
                         score -= 5.0 * weight
                         mismatch_reasons.append("Lift access is not clearly available, which conflicts with the preferred accessibility workflow.")
+            elif category == "soft_preference" and key in {"prefer_air_conditioning", "klimaanlage"}:
+                if bool(value):
+                    if has_air_conditioning:
+                        score += 4.0 * weight
+                        match_reasons.append("Air conditioning or active cooling is mentioned.")
+                    else:
+                        score -= 3.0 * weight
+                        mismatch_reasons.append("Air conditioning is not confirmed.")
+            elif category == "aversion" and key in {"avoid_attic_apartment", "dachgeschosswohnung"}:
+                if bool(value):
+                    if has_attic_apartment:
+                        score -= 7.0 * weight
+                        mismatch_reasons.append("The listing appears to be top-floor or attic, which matches an avoid preference.")
+                    else:
+                        score += 1.0 * weight
+                        match_reasons.append("No top-floor or attic signal is visible.")
+            elif category == "soft_preference" and key in {"prefer_attic_apartment", "dachgeschosswohnung"}:
+                if bool(value):
+                    if has_attic_apartment:
+                        score += 3.0 * weight
+                        match_reasons.append("The listing appears to be top-floor or attic, which matches the stated preference.")
+                    else:
+                        score -= 2.0 * weight
+                        mismatch_reasons.append("Top-floor or attic status is not confirmed.")
             elif category == "soft_preference" and key == "prefer_360_for_remote_review":
                 if bool(value):
                     if has_360:

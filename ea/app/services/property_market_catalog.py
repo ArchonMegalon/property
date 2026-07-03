@@ -3979,15 +3979,39 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
             values = [str(item or "").strip() for item in raw_value if str(item or "").strip()]
         else:
             values = [part.strip() for part in str(raw_value or "").replace(";", ",").split(",") if part.strip()]
-        filtered = [value for value in values if str(value or "").strip().lower() not in blocked]
+        filtered = [value for value in values if _canonical_keyword_preference_key(value) not in blocked]
         return ", ".join(dict.fromkeys(filtered))
+
+    keyword_preference_aliases = {
+        "air conditioning": "klimaanlage",
+        "air-conditioning": "klimaanlage",
+        "air_conditioning": "klimaanlage",
+        "aircondition": "klimaanlage",
+        "airconditioner": "klimaanlage",
+        "ac": "klimaanlage",
+        "klima": "klimaanlage",
+        "klimatisiert": "klimaanlage",
+        "dachgeschoss": "dachgeschosswohnung",
+        "dachgeschoß": "dachgeschosswohnung",
+        "dachgeschoss-wohnung": "dachgeschosswohnung",
+        "dachgeschoßwohnung": "dachgeschosswohnung",
+        "top floor": "dachgeschosswohnung",
+        "top-floor": "dachgeschosswohnung",
+        "attic": "dachgeschosswohnung",
+        "attic apartment": "dachgeschosswohnung",
+        "attic_apartment": "dachgeschosswohnung",
+    }
+
+    def _canonical_keyword_preference_key(value: object) -> str:
+        keyword = str(value or "").strip().lower()
+        return keyword_preference_aliases.get(keyword, keyword)
 
     def _normalize_keyword_preferences(raw_value: object) -> dict[str, str]:
         if not isinstance(raw_value, dict):
             return {}
         normalized: dict[str, str] = {}
         for key, value in dict(raw_value or {}).items():
-            keyword = str(key or "").strip().lower()
+            keyword = _canonical_keyword_preference_key(key)
             state = str(value or "").strip().lower()
             if not keyword or not state:
                 continue
@@ -4001,7 +4025,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
             values = [part.strip() for part in str(raw_value or "").replace(";", ",").split(",") if part.strip()]
         filtered: list[str] = []
         for value in values:
-            lowered = str(value or "").strip().lower()
+            lowered = _canonical_keyword_preference_key(value)
             if not lowered:
                 continue
             state = keyword_preferences.get(lowered)
@@ -4081,9 +4105,20 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload["keywords"] = str(payload.get("keywords") or "").strip()
     payload["avoid_keywords"] = str(payload.get("avoid_keywords") or "").strip()
     payload["keyword_preferences"] = _normalize_keyword_preferences(payload.get("keyword_preferences"))
+    positive_keyword_preference_states = {"nice_to_have", "important", "must_have", "hard", "required", "strict"}
     heat_preference_state = str(payload["keyword_preferences"].get("klimaerwaermungsfit") or "").strip().lower()
-    if heat_preference_state in {"nice_to_have", "important", "must_have", "hard", "required", "strict"}:
+    if heat_preference_state in positive_keyword_preference_states:
         payload["prefer_heat_resilient_home"] = True
+    air_conditioning_preference_state = str(payload["keyword_preferences"].get("klimaanlage") or "").strip().lower()
+    if air_conditioning_preference_state in positive_keyword_preference_states:
+        payload["prefer_air_conditioning"] = True
+    attic_preference_state = str(payload["keyword_preferences"].get("dachgeschosswohnung") or "").strip().lower()
+    if attic_preference_state == "avoid":
+        payload["avoid_attic_apartment"] = True
+        payload["prefer_attic_apartment"] = False
+    elif attic_preference_state in positive_keyword_preference_states:
+        payload["prefer_attic_apartment"] = True
+        payload["avoid_attic_apartment"] = False
     if payload["keyword_preferences"]:
         payload["keywords"] = _csv_keep_states(
             payload.get("keywords"),
@@ -4270,6 +4305,9 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         "ganztag_required",
         "prefer_good_air_quality",
         "prefer_heat_resilient_home",
+        "prefer_air_conditioning",
+        "prefer_attic_apartment",
+        "avoid_attic_apartment",
         "avoid_noise_risk_area",
         "require_energy_certificate",
         "require_operating_cost_statement",
@@ -4419,7 +4457,17 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
             payload.pop(key, None)
         payload["require_floorplan"] = bool(payload.get("require_floorplan")) or bool(payload.get("investment_require_floorplan"))
     if land_only_search:
-        blocked_land_keywords = {"lift", "barrier-free", "balcony", "terrace", "no gas", "district heating", "bright"}
+        blocked_land_keywords = {
+            "lift",
+            "barrier-free",
+            "balcony",
+            "terrace",
+            "klimaanlage",
+            "dachgeschosswohnung",
+            "no gas",
+            "district heating",
+            "bright",
+        }
         payload["require_floorplan"] = False
         payload["require_energy_certificate"] = False
         payload["require_operating_cost_statement"] = False
@@ -4432,7 +4480,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
             payload["keyword_preferences"] = {
                 str(key or "").strip(): str(value or "").strip()
                 for key, value in dict(payload.get("keyword_preferences") or {}).items()
-                if str(key or "").strip() and str(key or "").strip().lower() not in blocked_land_keywords
+                if str(key or "").strip() and _canonical_keyword_preference_key(key) not in blocked_land_keywords
             }
     return payload
 
@@ -4459,6 +4507,8 @@ def _provider_discovery_keywords(preferences: dict[str, object] | None) -> str:
         "barrier-free",
         "balcony",
         "terrace",
+        "klimaanlage",
+        "dachgeschosswohnung",
         "baugrund",
         "seezugang",
         "wasserzugang",

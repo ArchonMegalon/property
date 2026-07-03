@@ -11224,6 +11224,46 @@ def test_property_austria_preference_adjustment_scores_heat_resilience() -> None
     assert "official climate evidence lane attached" in strong_notes
 
 
+def test_property_austria_preference_adjustment_scores_air_conditioning_and_attic_soft_filters() -> None:
+    weak_adjustment, weak_notes = product_service._property_austria_preference_score_adjustment(
+        preferences={
+            "country_code": "AT",
+            "prefer_air_conditioning": True,
+            "avoid_attic_apartment": True,
+        },
+        property_facts={
+            "postal_code": "1070",
+            "postal_name": "1070 Wien Neubau",
+            "dachgeschoss": True,
+            "official_risk_evidence": {"sources": []},
+        },
+        title="Dachgeschosswohnung ohne Klimaanlage",
+        summary="Sehr hell.",
+    )
+    strong_adjustment, strong_notes = product_service._property_austria_preference_score_adjustment(
+        preferences={
+            "country_code": "AT",
+            "prefer_air_conditioning": True,
+            "avoid_attic_apartment": True,
+        },
+        property_facts={
+            "postal_code": "1180",
+            "postal_name": "1180 Wien",
+            "air_conditioning": True,
+            "official_risk_evidence": {"sources": []},
+        },
+        title="Wohnung mit Klimaanlage",
+        summary="Ruhig und beschattet.",
+    )
+
+    assert weak_adjustment < 0
+    assert "air conditioning not confirmed" in weak_notes
+    assert "top-floor apartment signal" in weak_notes
+    assert strong_adjustment > 0
+    assert "air conditioning mentioned" in strong_notes
+    assert "no top-floor signal found" in strong_notes
+
+
 def test_property_austria_preference_adjustment_rewards_flowing_water_cooling_corridor() -> None:
     adjustment, notes = product_service._property_austria_preference_score_adjustment(
         preferences={"country_code": "AT", "prefer_heat_resilient_home": True},

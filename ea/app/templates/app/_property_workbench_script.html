@@ -633,6 +633,24 @@
       candidate?.title ||
       'property'
     ).trim() || 'property';
+    const clampedPersonalFitScore = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number))) : null;
+    };
+    const candidatePersonalFitScore = (candidate) => {
+      const summary = String(candidate?.fit_summary || candidate?.summary || candidate?.compare_reason || '').trim();
+      const summaryMatch = summary.match(/(?:personal\s+fit|pers[oö]nliche\s+passung)\s+([0-9]{1,3})(?:\s*\/\s*100)?/i);
+      if (summaryMatch) return clampedPersonalFitScore(summaryMatch[1]);
+      const facts = candidate?.property_facts && typeof candidate.property_facts === 'object' ? candidate.property_facts : {};
+      const assessment = candidate?.assessment && typeof candidate.assessment === 'object' ? candidate.assessment : {};
+      const factAssessment = facts?.personal_fit_assessment && typeof facts.personal_fit_assessment === 'object' ? facts.personal_fit_assessment : {};
+      const fitValue = candidate?.fit_score ?? candidate?.personal_fit_score ?? assessment.fit_score ?? factAssessment.fit_score;
+      return clampedPersonalFitScore(fitValue);
+    };
+    const candidateSortScore = (candidate) => {
+      const sortValue = candidate?.ranking_score ?? candidate?.investment_score ?? candidate?.fit_score ?? candidate?.score;
+      return clampedPersonalFitScore(sortValue) ?? candidatePersonalFitScore(candidate) ?? 0;
+    };
     const absoluteUrl = (value) => {
       const raw = String(value || '').trim();
       if (!raw) return '';
@@ -665,7 +683,7 @@
         layout_display: String(candidate?.layout_display || '').trim(),
         location_label: String(candidate?.location_label || '').trim(),
         description_text: String(candidate?.description_text || '').trim(),
-        fit_score: Number(candidate?.fit_score || candidate?.ranking_score || 0),
+        fit_score: candidatePersonalFitScore(candidate) ?? 0,
         fit_summary: String(candidate?.fit_summary || '').trim(),
         recommendation: String(candidate?.recommendation || '').trim(),
         match_reasons: Array.isArray(candidate?.match_reasons) ? candidate.match_reasons.slice(0, 8) : [],
@@ -1465,9 +1483,9 @@
       let text = String(value || '').trim();
       if (!text) return 'Waiting for the first provider.';
       text = text
-        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes found · 0 to review')
+        .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes checked')
         .replace(/\b(\d+)\s+homes?\s+reviewed\b/ig, '$1 homes found')
-        .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 to review')
+        .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 homes checked')
         .replace(/\bleft to sort\b/ig, 'to review')
         .replace(/\blists left\b/ig, 'search pages waiting')
         .replace(/\blists open\b/ig, 'search pages still running')
@@ -2091,17 +2109,27 @@
         toReview: hasExplicitToReview ? Math.max(0, parsedToReview) : Math.max(0, found - scanned),
       };
     };
-	    const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '') => {
+    const runListingQueueMessage = (found, toReview) => {
+      if (!(found > 0)) return 'checking';
+      if (toReview > 0) return `${found} homes found · ${toReview} to review`;
+      return `${found} homes found · details caught up`;
+    };
+	    const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '', providerDisplayTotal = 0, summary = {}) => {
 	      if (found > 0 && toReview > 0) return `${toReview} to review`;
-	      if (found > 0) return '0 to review';
+      if (found > 0 && Number(counts?.open || 0) > 0) {
+        const unit = runSourceUnitLabel(summary, Number(counts?.total || 0), providerDisplayTotal);
+        return `${Number(counts.open)} ${unit} left`;
+      }
+	      if (found > 0) return 'details caught up';
 	      return fallback || 'Waiting for first listings';
     };
     const runFoundQueueMessage = (found, toReview, sourceWork, providerDisplayTotal = 0, summary = {}) => {
-      if (!(found > 0)) return '';
+	      if (!(found > 0)) return '';
+      const queueMessage = runListingQueueMessage(found, toReview);
       if (sourceWork?.open > 0) {
-        return `${found} homes found · ${toReview} to review · ${runSourceWorkLabel(sourceWork, providerDisplayTotal, summary)}`;
+        return `${queueMessage} · ${runSourceWorkLabel(sourceWork, providerDisplayTotal, summary)}`;
       }
-      return `${found} homes found · ${toReview} to review`;
+      return queueMessage;
     };
     const runDetailQueueMessage = (summary = {}, status = '', rawMessage = '', providerDisplayTotal = 0) => {
       const listingWork = runListingWorkCounts(summary);
@@ -2146,7 +2174,7 @@
       const listingWork = runListingWorkCounts(summary);
       const found = listingWork.found;
       const toReview = listingWork.toReview;
-      const checkedLabel = found > 0 ? `${found} homes found · ${toReview} to review` : 'checking';
+	      const checkedLabel = runListingQueueMessage(found, toReview);
       const scanLabel = found > 0
         ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary) : checkedLabel)
         : (providerDisplayTotal ? `${providerDisplayTotal} providers selected` : checkedLabel);
@@ -2226,7 +2254,7 @@
 	      const providers = Number(providerDisplayTotal || summary.source_variant_total || 0);
       const sourceWork = runSourceWorkCounts(summary, status);
       const compactFoundMessage = `${found} homes found`;
-      const compactQueueMessage = `${found} homes found · ${toReview} to review`;
+	      const compactQueueMessage = runListingQueueMessage(found, toReview);
       const detailQueueMessage = runDetailQueueMessage(
 	        { ...summary, current_step: runPayload?.current_step || summary.current_step },
 	        status,
@@ -2639,6 +2667,8 @@
       const reviewDenominator = Math.max(found, reviewed, 1);
       const foundBarPct = (found > 0 || reviewed > 0) ? 100 : 0;
       const toReviewBarPct = toReview > 0 ? Math.round((toReview / reviewDenominator) * 100) : 0;
+      const detailQueueLabel = toReview > 0 ? 'To review' : 'Details';
+      const detailQueueValue = toReview > 0 ? String(toReview) : 'caught up';
       const layout = Number(summary.filtered_floorplan_total || 0);
       const title = status === 'processed' || status === 'completed' || status === 'completed_partial'
         ? 'Results ready'
@@ -2657,6 +2687,8 @@
         found,
         toReview,
         providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Waiting for first listings',
+        providerDisplayTotal,
+        summary,
       );
 	      const providerCheckTotal = Math.max(0, Number(sourceWork.total || 0), Number(providerDisplayTotal || 0));
 	      const providerCheckDone = providerCheckTotal > 0 ? Math.min(providerCheckTotal, Math.max(0, Number(sourceWork.done || 0))) : 0;
@@ -2683,8 +2715,8 @@
 		              <em><u style="--progress: ${escapeHtml(foundBarPct)}"></u></em>
 		            </span>
 	            <span>
-              <b>To review</b>
-		              <i>${escapeHtml(toReview || 0)}</i>
+	              <b>${escapeHtml(detailQueueLabel)}</b>
+			              <i>${escapeHtml(detailQueueValue)}</i>
 		              <em><u style="--progress: ${escapeHtml(toReviewBarPct)}"></u></em>
 		            </span>
 		            <span>
@@ -2888,6 +2920,7 @@
           propertyUrl && visualMediaReady && !shortlistSurface && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="results" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough">Request walkthrough</button>` : '',
           shortlistSurface ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-decision-state="archived" data-candidate-ref="${escapeHtml(candidateRef)}" data-pw-remove-row>Remove</button>` : '',
         ].filter(Boolean).join('');
+        const personalFitScore = candidatePersonalFitScore(candidate);
         return `
           <article class="pqx-result pqx-card${index === 0 ? ' is-top-ranked' : ''}" role="button" tabindex="0" aria-selected="${index === 0 ? 'true' : 'false'}" data-candidate-ref="${escapeHtml(candidateRef)}" data-candidate-packet-url="${escapeHtml(packetUrl)}" data-candidate-listing-url="${escapeHtml(propertyUrl)}" data-workbench-row>
             <span class="pqx-result-main">
@@ -2904,7 +2937,7 @@
             <span class="pqx-result-aside">
               <span class="pqx-result-value-row">
                 <strong class="pqx-result-price">${escapeHtml(primaryPrice)}</strong>
-                <span class="pqx-result-fit-score">Fit ${escapeHtml(candidate?.ranking_score || candidate?.investment_score || candidate?.fit_score || 0)}</span>
+                ${personalFitScore !== null ? `<span class="pqx-result-fit-score">Fit ${escapeHtml(personalFitScore)}</span>` : ''}
               </span>
               ${secondaryPrice ? `<span class="pqx-result-secondary">${escapeHtml(secondaryPrice)}</span>` : ''}
               <span class="pqx-result-actions">${actions}</span>
@@ -2967,7 +3000,7 @@
           collected.push({ ...candidate, source_label: candidate.source_label || source?.source_label || source?.label || '' });
         });
       });
-      collected.sort((left, right) => Number(right?.ranking_score || right?.investment_score || right?.fit_score || 0) - Number(left?.ranking_score || left?.investment_score || left?.fit_score || 0));
+      collected.sort((left, right) => candidateSortScore(right) - candidateSortScore(left));
       return limitRowsForPlan(collected, 50).map((candidate, index) => ({
         rank: candidate.rank || index + 1,
         ...candidate,

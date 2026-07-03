@@ -869,6 +869,8 @@ _PROPERTY_PREFERENCE_VALUE_SPECS = {
     ("soft_preference", "prefer_medical_care_nearby"): "bool",
     ("soft_preference", "prefer_low_crime_area"): "bool",
     ("soft_preference", "prefer_good_air_quality"): "bool",
+    ("soft_preference", "prefer_air_conditioning"): "bool",
+    ("soft_preference", "prefer_attic_apartment"): "bool",
     ("soft_preference", "prefer_low_parking_pressure"): "bool",
     ("soft_preference", "prefer_high_quality_drinking_water"): "bool",
     ("soft_preference", "prefer_quiet_micro_location"): "bool",
@@ -879,6 +881,7 @@ _PROPERTY_PREFERENCE_VALUE_SPECS = {
     ("soft_preference", "min_area_sqm_preference"): "positive_number",
     ("aversion", "avoid_heating_types"): "text_list",
     ("aversion", "avoided_areas"): "text_list",
+    ("aversion", "avoid_attic_apartment"): "bool",
 }
 _GENERAL_PREFERENCE_VALUE_SPECS = {
     ("decision_style", "needs_side_by_side_comparison"): "bool",
