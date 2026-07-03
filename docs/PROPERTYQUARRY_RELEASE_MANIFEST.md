@@ -31,16 +31,18 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `9965ff8521e5e6c8864133e68d052a5796f34271` |
+| Runtime commit SHA | `6318a3bd0184e178317fa20722d1b3d4cb8b1efc` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current local/live proof candidate on 2026-07-03 after `9965ff85`, carrying the premium mobile/research/search polish, provider-safe walkthrough routing, public cube-fallback interstitial removal, registration verification-link copy polish, optional hidden Pano2VR posture, refreshed AT/DE/CR provider matrix, 3D browser gates, walkthrough quality gate, map-preview flagship gate, billing verification refresh, token-redacted billing smoke receipts, explicit signed billing-handoff readiness reporting, OneMinute-first Responses lane order, deployment provider-matrix receipt preservation, tour import gold-gate wording hardening, and release-security posture checks |
+| Deployment ID | current local/live proof candidate on 2026-07-03 after `6318a3bd`, carrying the premium mobile/research/search polish, provider-safe walkthrough routing, public cube-fallback interstitial removal, registration verification-link copy polish, area-layer popup copy polish, optional hidden Pano2VR posture, refreshed AT/DE/CR provider matrix, 3D browser gates, walkthrough quality gate, map-preview flagship gate, billing verification refresh, token-redacted billing smoke receipts, explicit signed billing-handoff readiness reporting, OneMinute-first Responses lane order, deployment provider-matrix receipt preservation, tour import gold-gate wording hardening, and release-security posture checks |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
 The local/live proof pass on 2026-07-03 verified:
 
+- Commit `6318a3bd` is the current runtime candidate for the area-layer popup copy pass. It replaces the user-visible `Only ready layers are shown.` wording with `Showing available layers.` and adds `ready layers` to the premium public-copy forbidden phrase gate.
+- Area-layer copy regressions passed: `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_property_workbench_evidence_atlas_avoids_internal_storage_language tests/test_propertyquarry_design_system_gate.py::test_propertyquarry_public_copy_avoids_proof_heavy_language` returned `2 passed`.
 - Commit `9965ff85` is the current runtime candidate for the registration/auth copy pass. It removes bare full magic-link URLs from the fallback registration note, replaces visible `magic link` / `verification mail` wording with `secure verification link` / `verification email`, and adds a registration-template copy contract.
 - Registration regressions passed: `PYTHONPATH=ea python3 -m pytest -q tests/test_registration_contracts.py` returned `60 passed`.
 - Commit `4b50da55` is the current runtime candidate for the public-tour cleanup pass. It removes the customer-facing cube-fallback interstitial from the tour renderer, makes direct pure-cube renderer calls fail closed with `tour_disabled_fallback`, and returns neutral unavailable copy for removed cube assets.
