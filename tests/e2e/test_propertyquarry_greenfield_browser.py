@@ -1593,7 +1593,7 @@ def test_propertyquarry_result_thumbnail_opens_lazy_evidence_atlas(
         atlas = page.locator("[data-pqx-evidence-atlas]")
         expect(atlas).to_be_visible()
         expect(atlas.locator("[data-pqx-evidence-atlas-title]")).to_contain_text("Altbau near U6")
-        expect(atlas.locator("[data-pqx-evidence-atlas-footer]")).to_contain_text("Only ready layers are shown.")
+        expect(atlas.locator("[data-pqx-evidence-atlas-footer]")).to_contain_text("Showing available layers.")
         expect(atlas.locator("[data-pqx-evidence-map-detail]")).to_contain_text("Switch layers.")
         expect(atlas.get_by_text("Teable", exact=False)).to_have_count(0)
         expect(atlas.get_by_text("Postgres", exact=False)).to_have_count(0)

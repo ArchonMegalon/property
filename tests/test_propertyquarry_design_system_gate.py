@@ -128,6 +128,7 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "ranked homes",
         "provider scope",
         "hard rules",
+        "ready layers",
         "visible ranking",
         "how ranking works",
         "how each home is scored",

@@ -12014,7 +12014,8 @@ def test_property_workbench_evidence_atlas_avoids_internal_storage_language() ->
     script = script_path.read_text(encoding="utf-8")
 
     assert 'data-pqx-evidence-atlas' in template
-    assert "Only ready layers are shown." in template
+    assert "Showing available layers." in template
+    assert "ready layers" not in template.lower()
     assert "Switch layers." in template
     assert "Teable" not in template
     assert "Postgres" not in template
