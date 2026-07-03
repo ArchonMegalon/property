@@ -435,6 +435,8 @@
       || (sourceActualTotal && ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'].includes(text(payload.status || summary.status, '').toLowerCase()) ? sourceActualTotal : 0)
       || 0
     );
+    const providerLeft = providerTotal > providerDone ? providerTotal - providerDone : 0;
+    const sourceUnit = sourceActualTotal > 0 && sourceActualTotal >= providerTotal ? 'search pages' : 'provider checks';
     const parts = [];
     parts.push(`${candidates.length} ranked ${candidates.length === 1 ? 'home' : 'homes'}`);
     if (providerTotal) {
@@ -445,7 +447,7 @@
     }
     if (found > 0) {
       parts.push(`${found} homes found`);
-      parts.push(toReview > 0 ? `${toReview} to review` : 'details caught up');
+      parts.push(toReview > 0 ? `${toReview} to review` : (providerLeft > 0 ? `${providerLeft} ${sourceUnit} left` : 'details caught up'));
     }
     return { status, detail: parts.join(' · ') };
   };

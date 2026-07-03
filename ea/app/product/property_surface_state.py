@@ -806,8 +806,11 @@ def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
     )
     if found > 0:
         source_label = _property_run_provider_check_label(summary)
+        source_left_label = _property_run_source_work_left_label(summary)
         if source_label and source_work["open"] > 0:
-            return f"{_property_run_listing_queue_label(found, to_review)} · {source_label}"
+            if to_review > 0:
+                return f"{_property_run_listing_queue_label(found, to_review)} · {source_left_label or source_label}"
+            return f"{found} homes found · {source_left_label or source_label}"
         return _property_run_listing_queue_label(found, to_review)
     if provider_total > 0:
         return "Preparing providers."
@@ -918,6 +921,25 @@ def _property_run_provider_check_label(summary: dict[str, object], *, status: st
     return ""
 
 
+def _property_run_source_work_left_label(summary: dict[str, object], *, status: str = "") -> str:
+    source_work = _property_run_source_work_counts(summary, status=status)
+    provider_total = _positive_int(
+        summary.get("provider_display_total")
+        or summary.get("provider_total")
+        or summary.get("source_variant_total")
+        or summary.get("sources_total")
+    )
+    total = max(source_work["total"], provider_total)
+    if total <= 0 or source_work["open"] <= 0:
+        return ""
+    done = min(total, max(0, source_work["done"]))
+    left = max(0, total - done)
+    if left <= 0:
+        return ""
+    unit = _property_run_source_unit_label(summary, total=total)
+    return f"{left} {unit} left"
+
+
 def _property_run_source_unit_label(summary: dict[str, object], *, total: int = 0) -> str:
     source_variant_total = _positive_int(summary.get("source_variant_total") or summary.get("sources_total"))
     provider_total = _positive_int(summary.get("provider_display_total") or summary.get("provider_total"))
@@ -958,12 +980,13 @@ def _property_run_detail_queue_message(
         return ""
     source_work = _property_run_source_work_counts(summary, status=status)
     source_label = _property_run_provider_check_label(summary, status=status)
+    source_left_label = _property_run_source_work_left_label(summary, status=status)
     parts = [
         _property_run_count_label(found_total, "home") + " found",
         "property pages are still being prepared",
     ]
     if source_work["open"] > 0 and source_label:
-        parts.append(source_label)
+        parts.append(source_left_label or source_label)
     return " · ".join(parts)
 
 
@@ -1027,8 +1050,12 @@ def _property_run_synthetic_progress_events(
     to_review = listing_work["to_review"]
     if found_total > 0:
         source_label = _property_run_provider_check_label(summary, status=status)
+        source_left_label = _property_run_source_work_left_label(summary, status=status)
         if source_work["open"] > 0 and source_label:
-            add("source_fetch", f"{_property_run_listing_queue_label(found_total, to_review)} · {source_label}.")
+            if to_review > 0:
+                add("source_fetch", f"{_property_run_listing_queue_label(found_total, to_review)} · {source_left_label or source_label}.")
+            else:
+                add("source_fetch", f"{found_total} homes found · {source_left_label or source_label}.")
         else:
             add("source_fetch", f"{_property_run_listing_queue_label(found_total, to_review)}.")
     detail_queue_message = _property_run_detail_queue_message(summary, status=status, message=payload.get("message"))
@@ -1988,9 +2015,14 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     )
     if found_total > 0 and source_work["open"] > 0:
         source_label = _property_run_provider_check_label(summary, status=status)
-        scan_label = _property_run_listing_queue_label(found_total, to_review_total)
+        source_left_label = _property_run_source_work_left_label(summary, status=status)
+        scan_label = (
+            _property_run_listing_queue_label(found_total, to_review_total)
+            if to_review_total > 0
+            else f"{found_total} homes found"
+        )
         if source_label:
-            scan_label = f"{scan_label} · {source_label}"
+            scan_label = f"{scan_label} · {source_left_label or source_label}"
     no_floorplans = _positive_int(summary.get("filtered_floorplan_total"))
     current_step = str(payload.get("current_step") or "").strip().lower()
     packet_prepared = _positive_int(summary.get("review_created_total")) + _positive_int(summary.get("review_existing_total"))
@@ -2033,7 +2065,16 @@ def build_property_run_live_board_snapshot(
     active_source_label = _canonical_property_run_source_label(current_info.get("source_label") or live_info.get("source_label") or "")
     message_text = str(payload.get("message") or "").strip().lower()
 
-    aggregate_label = _property_run_listing_queue_label(found_total, to_review_total)
+    live_source_work = _property_run_source_work_counts(summary, status=status)
+    live_source_left_label = _property_run_source_work_left_label(summary, status=status)
+    if found_total > 0 and live_source_work["open"] > 0 and live_source_left_label:
+        aggregate_label = (
+            f"{_property_run_listing_queue_label(found_total, to_review_total)} · {live_source_left_label}"
+            if to_review_total > 0
+            else f"{found_total} homes found · {live_source_left_label}"
+        )
+    else:
+        aggregate_label = _property_run_listing_queue_label(found_total, to_review_total)
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} floorplans pending"
     phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first provider."

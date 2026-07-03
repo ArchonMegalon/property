@@ -63,6 +63,8 @@
     {% set run_source_check_done = run_source_check_done if run_source_check_total <= 0 or run_source_check_done < run_source_check_total else run_source_check_total %}
     {% set run_source_unit = 'search pages' if run_source_total > run_provider_display_total and run_provider_display_total > 0 else 'providers' %}
     {% set run_source_check_label = run_source_check_done|string ~ ' / ' ~ run_source_check_total|string ~ ' ' ~ run_source_unit if run_source_check_total > 0 and run_source_total > 0 else '' %}
+    {% set run_source_left_total = run_source_check_total - run_source_check_done if run_source_check_total > run_source_check_done else 0 %}
+    {% set run_source_left_label = run_source_left_total|string ~ ' ' ~ run_source_unit ~ ' left' if run_source_left_total > 0 else '' %}
     {% set run_repair_status = (run_summary.get('repair_status') or run_summary.get('repair_status_label') or '')|lower %}
     {% set run_has_repair_copy = status|lower == 'failed' or run_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
     {% set run_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
@@ -79,12 +81,12 @@
       {% set run_message_display_lower = run_message_display|lower %}
     {% endif %}
     {% set run_compact_found_message = run_found_total|string ~ ' homes found' %}
-    {% set run_queue_label = run_to_review_total|string ~ ' to review' if run_to_review_total > 0 else 'details caught up' %}
+    {% set run_queue_label = run_to_review_total|string ~ ' to review' if run_to_review_total > 0 else (run_source_left_label if run_source_open_total > 0 and run_source_left_label else 'details caught up') %}
     {% set run_compact_queue_message = run_found_total|string ~ ' homes found · ' ~ run_queue_label %}
 		    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or 'scoring enriched candidate' in run_message_display_lower or 'ranking homes' in run_message_display_lower or run_message_display_lower in ['starting', 'checking'] or (run_found_total and run_message_display == run_compact_found_message) or (run_found_total and run_message_display == run_compact_queue_message) %}
 		      {% if run_found_total %}
-		        {% if run_source_open_total > 0 %}
-		          {% set run_message_display = run_compact_queue_message ~ ' · ' ~ run_source_check_label %}
+		        {% if run_source_open_total > 0 and run_to_review_total > 0 and run_source_left_label %}
+		          {% set run_message_display = run_compact_queue_message ~ ' · ' ~ run_source_left_label %}
 		        {% else %}
 		          {% set run_message_display = run_compact_queue_message %}
 		        {% endif %}

@@ -3183,7 +3183,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "179" in visible_source
     assert "29 providers selected" in visible_source
     assert "Found" in visible_source
-    assert "Details" in visible_source
+    assert "details caught up" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
 
 
@@ -3224,7 +3224,7 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "70 homes found · details caught up · 70 / 250 search pages" in visible_message
+    assert "70 homes found · 180 search pages left" in visible_message
 
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
@@ -3237,8 +3237,8 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     assert "70 / 250 checked" not in visible_source
     assert "Found" in visible_source
     assert "70" in visible_source
-    assert "Details" in visible_source
-    assert "caught up" in visible_source
+    assert "To review" in visible_source
+    assert "0" in visible_source
     assert "Reviewed" not in visible_source
 
 
@@ -3286,7 +3286,7 @@ def test_propertyquarry_running_panel_explains_page_preparation_queue_without_ov
 
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
-    assert "30 homes found · property pages are still being prepared · 223 / 231 search pages" in visible
+    assert "30 homes found · property pages are still being prepared · 8 search pages left" in visible
     eta_match = re.search(r'<span class="pqx-small pqx-progress-eta"[^>]*>(?P<eta>.*?)</span>', response.text, re.S)
     assert eta_match
     assert html.unescape(re.sub(r"<[^>]+>", " ", eta_match.group("eta"))).strip() == "93% · details updating"
@@ -3331,7 +3331,7 @@ def test_propertyquarry_running_panel_does_not_treat_listing_total_as_reviewed(m
 
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
-    assert "70 homes found · 70 to review · 70 / 250 search pages" in visible
+    assert "70 homes found · 70 to review · 180 search pages left" in visible
     assert "Reviewed" not in visible
 
 
@@ -4295,7 +4295,7 @@ def test_propertyquarry_fast_ranked_run_status_copy_uses_found_and_to_review_cou
     assert "const listingCounts = (payload, candidates = []) => {" in template
     assert "const { found, toReview } = listingCounts(payload, candidates);" in template
     assert "parts.push(`${found} homes found`);" in template
-    assert "parts.push(toReview > 0 ? `${toReview} to review` : 'details caught up');" in template
+    assert "providerLeft > 0 ? `${providerLeft} ${sourceUnit} left` : 'details caught up'" in template
     assert "parts.push(`${listings} checked`);" not in template
     assert "statusDetail.textContent = copy.detail || (terminal ? copy.status : 'More homes can still appear.');" in template
     assert "if (isTerminalPayload(initialPayload)) return;" in template
@@ -9934,7 +9934,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "25 homes found · details caught up · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "25 homes found · 35 search pages left · Willhaben · 25 / 60"
     assert "156 scans" not in snapshot["summary_label"]
     assert snapshot["phase_label"] == "Playground: Sigmund-Freud-Park playground is 830 m away. Limit 400 m."
     assert snapshot["source_count_label"] == "25 / 60"
@@ -11580,7 +11580,7 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     messages = [str(event.get("message") or "") for event in events]
     assert "9 providers selected for this search." in messages
     assert "Providers: 1 checked, 1 running, 7 waiting of 9." in messages
-    assert "42 homes found · 30 to review · 1 / 9 providers." in messages
+    assert "42 homes found · 30 to review · 8 providers left." in messages
     assert "3 homes outside the current brief." in messages
 
 

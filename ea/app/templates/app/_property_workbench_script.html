@@ -2081,6 +2081,14 @@
       if (total > 0) return `${total} providers selected`;
       return 'Search warming up';
     };
+    const runSourceWorkLeftLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
+      const countTotal = Math.max(0, Number(counts?.total || 0));
+      const total = Math.max(countTotal, Math.max(0, Number(providerDisplayTotal || 0)));
+      const done = Math.min(total, Math.max(0, Number(counts?.done || 0)));
+      const left = Math.max(0, total - done);
+      if (!(left > 0)) return '';
+      return `${left} ${runSourceUnitLabel(summary, total, providerDisplayTotal)} left`;
+    };
     const runListingWorkCounts = (summary = {}) => {
       const asNumber = (value) => {
         const parsed = Number(value || 0);
@@ -2125,9 +2133,11 @@
     };
     const runFoundQueueMessage = (found, toReview, sourceWork, providerDisplayTotal = 0, summary = {}) => {
 	      if (!(found > 0)) return '';
-      const queueMessage = runListingQueueMessage(found, toReview);
-      if (sourceWork?.open > 0) {
-        return `${queueMessage} · ${runSourceWorkLabel(sourceWork, providerDisplayTotal, summary)}`;
+      const sourceLeftLabel = sourceWork?.open > 0 ? runSourceWorkLeftLabel(sourceWork, providerDisplayTotal, summary) : '';
+      const queueLabel = toReview > 0 ? `${toReview} to review` : (sourceLeftLabel || 'details caught up');
+      const queueMessage = `${found} homes found · ${queueLabel}`;
+      if (toReview > 0 && sourceLeftLabel) {
+        return `${queueMessage} · ${sourceLeftLabel}`;
       }
       return queueMessage;
     };
@@ -2145,7 +2155,8 @@
       );
 	      if (!waitingOnPages) return '';
 	      const sourceWork = runSourceWorkCounts(summary, status);
-      return `${found} homes found · property pages are still being prepared${sourceWork.open > 0 ? ` · ${runSourceWorkLabel(sourceWork, providerDisplayTotal, summary)}` : ''}`;
+      const sourceLeftLabel = runSourceWorkLeftLabel(sourceWork, providerDisplayTotal, summary);
+      return `${found} homes found · property pages are still being prepared${sourceWork.open > 0 ? ` · ${sourceLeftLabel || runSourceWorkLabel(sourceWork, providerDisplayTotal, summary)}` : ''}`;
 	    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
@@ -2667,8 +2678,8 @@
       const reviewDenominator = Math.max(found, reviewed, 1);
       const foundBarPct = (found > 0 || reviewed > 0) ? 100 : 0;
       const toReviewBarPct = toReview > 0 ? Math.round((toReview / reviewDenominator) * 100) : 0;
-      const detailQueueLabel = toReview > 0 ? 'To review' : 'Details';
-      const detailQueueValue = toReview > 0 ? String(toReview) : 'caught up';
+      const detailQueueLabel = 'To review';
+      const detailQueueValue = toReview > 0 ? String(toReview) : '0';
       const layout = Number(summary.filtered_floorplan_total || 0);
       const title = status === 'processed' || status === 'completed' || status === 'completed_partial'
         ? 'Results ready'

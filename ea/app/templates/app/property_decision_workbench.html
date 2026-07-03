@@ -353,21 +353,23 @@
 {% set progress_message_display_lower = progress_message_display|lower %}
 {% set progress_current_step = (summary.get('current_step') or run.get('current_step') or '')|lower %}
 {% set progress_detail_preparing = found_total > 0 and ('review page preparation timed out' in progress_message_display_lower or 'reviewing candidate' in progress_message_display_lower or progress_current_step in ['source_review_packet', 'source_review_packet_failed']) %}
+{% set progress_source_left_total = source_check_total - source_check_done if source_check_total > source_check_done else 0 %}
+{% set progress_source_left_label = progress_source_left_total|string ~ ' ' ~ source_unit ~ ' left' if progress_source_left_total > 0 else '' %}
 {% if progress_detail_preparing %}
   {% if source_open_total > 0 %}
-    {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared · ' ~ source_check_label %}
+    {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared · ' ~ (progress_source_left_label or source_check_label) %}
   {% else %}
     {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared' %}
   {% endif %}
   {% set progress_message_display_lower = progress_message_display|lower %}
 {% endif %}
 {% set progress_compact_found_message = found_total|string ~ ' homes found' %}
-{% set progress_queue_label = to_review_total|string ~ ' to review' if to_review_total > 0 else 'details caught up' %}
+{% set progress_queue_label = to_review_total|string ~ ' to review' if to_review_total > 0 else (progress_source_left_label if source_open_total > 0 and progress_source_left_label else 'details caught up') %}
 {% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ progress_queue_label %}
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or 'scoring enriched candidate' in progress_message_display_lower or 'ranking homes' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
-    {% if source_open_total > 0 %}
-      {% set progress_message_display = progress_compact_queue_message ~ ' · ' ~ source_check_label %}
+    {% if source_open_total > 0 and to_review_total > 0 and progress_source_left_label %}
+      {% set progress_message_display = progress_compact_queue_message ~ ' · ' ~ progress_source_left_label %}
     {% else %}
       {% set progress_message_display = progress_compact_queue_message %}
     {% endif %}
@@ -420,8 +422,8 @@
 		        <em><u style="--progress: {{ found_bar_pct }}"></u></em>
 			      </span>
 			      <span>
-				        <b>{% if to_review_total > 0 %}To review{% else %}Details{% endif %}</b>
-			        <i>{% if to_review_total > 0 %}{{ to_review_total }}{% else %}caught up{% endif %}</i>
+				        <b>To review</b>
+			        <i>{% if to_review_total > 0 %}{{ to_review_total }}{% else %}0{% endif %}</i>
 			        <em><u style="--progress: {{ to_review_bar_pct }}"></u></em>
 			      </span>
 		      <span>
@@ -10887,21 +10889,23 @@
           {% set live_run_message_display = live_run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'search pages waiting')|replace('Lists left', 'Search pages waiting')|replace('lists open', 'search pages still running')|replace('Lists open', 'Search pages still running') %}
           {% set live_run_message_display_lower = live_run_message_display|lower %}
           {% set live_prepared_total = ((run_summary.get('review_created_total') or 0)|int) + ((run_summary.get('review_existing_total') or 0)|int) %}
+          {% set live_source_left_total = live_source_check_total - live_source_check_done if live_source_check_total > live_source_check_done else 0 %}
+          {% set live_source_left_label = live_source_left_total|string ~ ' ' ~ live_source_unit ~ ' left' if live_source_left_total > 0 else '' %}
           {% if live_found_total > 0 and live_prepared_total <= 0 and ('review page preparation timed out' in live_run_message_display_lower or 'reviewing candidate' in live_run_message_display_lower or (run_summary.get('current_step') or run.get('current_step') or '')|lower == 'source_review_packet') %}
 		          {% if live_source_open_total > 0 %}
-		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared · ' ~ live_source_check_label %}
+		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared · ' ~ (live_source_left_label or live_source_check_label) %}
 		          {% else %}
 		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared' %}
 		          {% endif %}
 		          {% set live_run_message_display_lower = live_run_message_display|lower %}
 {% endif %}
           {% set live_compact_found_message = live_found_total|string ~ ' homes found' %}
-	          {% set live_queue_label = live_to_review_total|string ~ ' to review' if live_to_review_total > 0 else 'details caught up' %}
+	          {% set live_queue_label = live_to_review_total|string ~ ' to review' if live_to_review_total > 0 else (live_source_left_label if live_source_open_total > 0 and live_source_left_label else 'details caught up') %}
 	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_queue_label %}
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or 'scoring enriched candidate' in live_run_message_display_lower or 'ranking homes' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
 			          {% if live_found_total %}
-			            {% if live_source_open_total > 0 %}
-					            {% set live_run_message_display = live_compact_queue_message ~ ' · ' ~ live_source_check_label %}
+			            {% if live_source_open_total > 0 and live_to_review_total > 0 and live_source_left_label %}
+					            {% set live_run_message_display = live_compact_queue_message ~ ' · ' ~ live_source_left_label %}
 				            {% else %}
 					            {% set live_run_message_display = live_compact_queue_message %}
 			            {% endif %}
@@ -10924,7 +10928,7 @@
 	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
 			                  <div><strong>Sources</strong><small>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} providers selected{% else %}Preparing{% endif %}</small></div>
 		                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
-				                <div><strong>{% if live_to_review_total > 0 %}To review{% else %}Details{% endif %}</strong><small>{% if live_to_review_total > 0 %}{{ live_to_review_total }} homes{% else %}caught up{% endif %}</small></div>
+				                <div><strong>To review</strong><small>{% if live_to_review_total > 0 %}{{ live_to_review_total }} homes{% else %}0 homes{% endif %}</small></div>
 	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
 	              </div>
           {% if live_preview %}
