@@ -1848,7 +1848,7 @@ def property_workspace_payload(
             0,
             {
                 "label": "Decide",
-                "value": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
+                "value": str(candidate.get("recommendation") or candidate.get("tag") or "Home").strip().replace("_", " ").title(),
                 "detail": match_reasons[0] if match_reasons else (mismatch_reasons[0] if mismatch_reasons else "Open the property page for the full decision read."),
             },
         )
@@ -2980,7 +2980,7 @@ def property_workspace_payload(
             build_property_workbench_candidate_snapshot(
                 candidate_ref=candidate_ref,
                 rank=len(workbench_results) + 1,
-                title=_property_result_title_display(candidate.get("title") or "Candidate"),
+                title=_property_result_title_display(candidate.get("title") or "Home"),
                 recovered_by_filter=bool(candidate.get("recovered_by_filter") or candidate.get("counterfactual_recovered")),
                 relaxed_filter_label=str(candidate.get("relaxed_filter_label") or candidate.get("counterfactual_label") or "").strip(),
                 preview_image_url=_property_workbench_lightweight_image_url(
@@ -2998,7 +2998,7 @@ def property_workspace_payload(
                 layout_display=" | ".join(part for part in layout_parts if part) or "n/a",
                 layout_verification_label="verified" if layout_verified else "unverified",
                 fit_score=fit_score,
-                fit_label=str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
+                fit_label=str(candidate.get("recommendation") or candidate.get("tag") or "Home").strip().replace("_", " ").title(),
                 fit_summary=_clean_property_candidate_copy(candidate.get("fit_summary") or ""),
                 tour=tour_payload,
                 flythrough=_flythrough_payload(candidate),
@@ -3076,8 +3076,8 @@ def property_workspace_payload(
             {
                 "cells": [
                     {"title": "Open 3D tour" if str(tour_payload.get("url") or "").strip() else tour_status_line, "detail": "Hosted 3D tour" if str(tour_payload.get("url") or "").strip() else "", "href": str(tour_payload.get("url") or "").strip()},
-                    {"title": f"#{len(results_table_rows) + 1} {str(candidate.get('title') or 'Candidate').strip() or 'Candidate'}", "detail": str(candidate.get("source_label") or "").strip()},
-                    {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
+                    {"title": f"#{len(results_table_rows) + 1} {str(candidate.get('title') or 'Home').strip() or 'Home'}", "detail": str(candidate.get("source_label") or "").strip()},
+                    {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Home").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
                     {"title": "Open Map" if map_url else "Map pending", "detail": "", "href": map_url},
                     {"title": price_line, "detail": ""},
                     {"title": " | ".join(part for part in layout_parts if part) or "n/a", "detail": ""},
@@ -3879,14 +3879,14 @@ def property_workspace_payload(
             "show_run_panel": run_in_progress,
             "show_shortlist_cards": False,
             "show_results_table": run_status_value in {"processed", "completed"} and bool(results_table_rows),
-            "results_table_headers": ["360", "Candidate", "Fit", "Map", "Price", "Layout", "Quick read", "Review"],
+            "results_table_headers": ["360", "Home", "Fit", "Map", "Price", "Layout", "Quick read", "Review"],
             "results_table_rows": results_table_rows,
         },
         "shortlist": {
             "title": "Shortlist",
             "summary": "Use one calm results table for the strongest homes and open the full property page only when a card deserves it.",
             "hero_kicker": "Shortlist",
-            "hero_title": "Review the best candidates before you open deeper property pages.",
+            "hero_title": "Review the best homes before you open deeper property pages.",
             "hero_summary": "Best matches first.",
             "hero_actions": hero_actions["shortlist"],
             "hero_highlights": hero_highlights["shortlist"],

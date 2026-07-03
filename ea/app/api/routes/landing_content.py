@@ -108,8 +108,8 @@ LANDING_FAQS = (
 PRODUCT_MODULES = (
     {"title": "Property brief", "body": "Capture country, search mode, budget, household needs, and requirements once so every later search starts from the same frame."},
     {"title": "Provider sweep", "body": "Scan the selected portals as one run instead of forcing the user to maintain separate browser rituals for every source."},
-    {"title": "Property page", "body": "Attach fit reasons, missing information, distances, and follow-up cues to each strong candidate."},
-    {"title": "Shortlist review", "body": "Keep the best candidates in one place with review links, tours, and clear next actions."},
+    {"title": "Property page", "body": "Attach fit reasons, missing information, distances, and follow-up cues to each strong home."},
+    {"title": "Shortlist review", "body": "Keep the best homes in one place with review links, tours, and clear next actions."},
     {"title": "Learning loop", "body": "Turn likes, dislikes, and requirements into better future matches instead of leaving them as forgotten opinions."},
     {"title": "Preferences", "body": "Keep profile, limits, integrations, and billing visible without dragging the user through unrelated assistant tooling."},
 )

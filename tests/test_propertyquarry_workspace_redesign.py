@@ -18729,6 +18729,51 @@ def test_property_candidate_copy_strips_score_filter_hints_across_surfaces() -> 
         assert "Start a fresh search." in cleaned
 
 
+def test_property_customer_copy_uses_home_language_instead_of_candidate() -> None:
+    from app.api.routes import landing
+    from app.api.routes import landing_content
+    from app.api.routes import landing_property_research
+
+    raw = "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist."
+    cleaned_workspace = landing_view_models._clean_property_candidate_copy(raw)
+    cleaned_marketing = landing._clean_property_candidate_copy(raw)
+
+    for cleaned in (cleaned_workspace, cleaned_marketing):
+        assert cleaned == "Included because no stronger fit cleared the shortlist."
+        assert "candidate" not in cleaned.lower()
+
+    assert landing_property_research._property_review_detail_line({}) == "No property page exists for this home yet."
+    product_copy = " ".join(str(row.get("body") or "") for row in landing_content.PRODUCT_MODULES)
+    template_copy = "\n".join(
+        [
+            (Path(__file__).resolve().parents[1] / "ea/app/templates/marketing_home.html").read_text(encoding="utf-8"),
+            (Path(__file__).resolve().parents[1] / "ea/app/templates/register.html").read_text(encoding="utf-8"),
+            (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_packets.html").read_text(encoding="utf-8"),
+            (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8"),
+        ]
+    )
+    for phrase in (
+        "One home needs a deeper check",
+        "Review the top homes",
+        "Review the best homes",
+        "Mark one home",
+        "open a strong home",
+        '"Home"',
+    ):
+        assert phrase in f"{product_copy}\n{template_copy}"
+    for removed in (
+        "each strong candidate",
+        "best candidates",
+        "One candidate needs",
+        "Review the top candidates",
+        "Review the best candidates",
+        "Mark one candidate",
+        "strong candidate",
+        '"Candidate"',
+    ):
+        assert removed not in f"{product_copy}\n{template_copy}"
+
+
 def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> None:
     principal_id = "pq-failed-run-visible"
     client = build_property_client(principal_id=principal_id)

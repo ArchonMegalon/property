@@ -3024,7 +3024,7 @@ def build_property_workbench_candidate_snapshot(
     return PropertyWorkbenchCandidateSnapshot(
         candidate_ref=str(candidate_ref or "").strip(),
         rank=max(1, int(rank or 1)),
-        title=str(title or "Candidate").strip() or "Candidate",
+        title=str(title or "Home").strip() or "Home",
         source_label=str(source_label or "").strip(),
         location_label=str(location_label or "").strip(),
         price_display=str(price_display or "").strip() or "n/a",
@@ -3033,7 +3033,7 @@ def build_property_workbench_candidate_snapshot(
         layout_display=str(layout_display or "").strip() or "n/a",
         layout_verification_label=str(layout_verification_label or "").strip() or "unverified",
         fit_score=max(0, min(100, int(fit_score or 0))),
-        fit_label=str(fit_label or "Candidate").strip() or "Candidate",
+        fit_label=str(fit_label or "Home").strip() or "Home",
         fit_summary=str(fit_summary or "").strip(),
         tour=dict(tour or {}),
         flythrough=dict(flythrough or {}),

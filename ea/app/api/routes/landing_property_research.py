@@ -886,7 +886,7 @@ def _property_review_detail_line(candidate: dict[str, object]) -> str:
     review_url = str(candidate.get("review_url") or "").strip()
     if review_url:
         return "Open the property page on PropertyQuarry."
-    return "No review page exists for this candidate yet."
+    return "No property page exists for this home yet."
 
 
 def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str, str]]:

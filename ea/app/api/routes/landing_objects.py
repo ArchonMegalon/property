@@ -1081,7 +1081,7 @@ def handoff_detail(
             ),
             _object_detail_row(
                 "Next step",
-                str(assessment.get("recommendation") or primary_candidate.get("recommendation") or "Candidate").replace("_", " "),
+                str(assessment.get("recommendation") or primary_candidate.get("recommendation") or "Home").replace("_", " "),
                 "Decision",
             ),
         ]
@@ -1145,8 +1145,8 @@ def handoff_detail(
             candidate_rows.append(
                 _object_detail_row(
                     candidate_title,
-                    " | ".join(part for part in candidate_detail_parts if part) or "Candidate projected from the property alert.",
-                    "Candidate",
+                    " | ".join(part for part in candidate_detail_parts if part) or "Home projected from the property alert.",
+                    "Home",
                     href=candidate_url,
                     secondary_action_href=candidate_url,
                     secondary_action_label="Open listing" if candidate_url else "",

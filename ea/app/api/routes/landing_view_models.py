@@ -190,13 +190,12 @@ def _clean_property_candidate_copy(value: object) -> str:
     if re.match(r"^Personal fit \d+/100(?:\s*·.*)?$", text, flags=re.IGNORECASE):
         return ""
     noisy_exact = {
-        "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.",
         "The listing does not provide a live 360 source, so remote screening has higher uncertainty.",
     }
     if text in noisy_exact:
         return ""
     replacements = {
-        "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.": "Fallback candidate because no stronger fit cleared the shortlist.",
+        "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist.": "Included because no stronger fit cleared the shortlist.",
         "· ask for clarification": "",
         "ask for clarification": "",
     }

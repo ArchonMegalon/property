@@ -5257,13 +5257,13 @@ def property_research_packet(
         _object_detail_row(
             "Best reason to act",
             _clean_property_candidate_copy(str(decision_rows[0].get("detail") or fit_summary).strip())
-            or "The current packet sees enough signal to keep this candidate open.",
+            or "The current packet sees enough signal to keep this home open.",
             "Quick read",
         ),
         _object_detail_row("Main concern", _clean_property_candidate_copy(mismatch_reasons[0]), "Risk")
         if mismatch_reasons
         else _object_detail_row("Main concern", "Some details are still missing, so treat this as a review page, not final diligence.", "Risk"),
-        _object_detail_row("Next step", str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate", "Decision"),
+        _object_detail_row("Next step", str(candidate.get("tag") or candidate.get("recommendation") or "Home").strip() or "Home", "Decision"),
     ]
     for item in _property_missing_fact_items(facts):
         if str(item.get("status") or "").strip().lower() == "filled":
