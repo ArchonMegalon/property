@@ -16023,6 +16023,89 @@ def test_property_search_run_upsert_skips_noop_conflict_updates() -> None:
     assert "property_search_runs.updated_at IS DISTINCT FROM EXCLUDED.updated_at" not in source
 
 
+def test_property_search_run_storage_defaults_limit_connection_pressure() -> None:
+    source = Path(property_search_storage.__file__).read_text(encoding="utf-8")
+    env_example = Path(".env.example").read_text(encoding="utf-8")
+
+    assert "_PROPERTY_SEARCH_RUN_DB_CONNECT_RETRY_SECONDS = 45.0" in source
+    assert "return 4" in inspect.getsource(property_search_storage._property_search_run_db_max_connections)  # type: ignore[attr-defined]
+    assert "min(parsed, 16)" in inspect.getsource(property_search_storage._property_search_run_db_max_connections)  # type: ignore[attr-defined]
+    assert "PROPERTYQUARRY_SEARCH_DB_MAX_CONNECTIONS=4" in env_example
+    assert "PROPERTYQUARRY_SEARCH_DB_CONNECT_RETRY_SECONDS=45" in env_example
+
+
+def test_property_search_run_load_falls_back_to_memory_during_db_pressure(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_id = f"run-pressure-fallback-{uuid.uuid4().hex}"
+    principal_id = "exec-property-pressure-fallback"
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna"},
+        force_refresh=False,
+    )
+    state["status"] = "in_progress"
+    state["updated_at"] = "2026-07-03T12:00:00+00:00"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+
+    def _raise_pressure(**kwargs):  # noqa: ANN003
+        raise RuntimeError('connection failed: FATAL: sorry, too many clients already')
+
+    monkeypatch.setattr(product_service, "_load_property_search_run_record_storage", _raise_pressure)
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record_storage", _raise_pressure)
+
+    try:
+        loaded = product_service._load_property_search_run_record(run_id=run_id, principal_id=principal_id)
+        compact = product_service._load_property_search_run_compact_record(run_id=run_id, principal_id=principal_id)
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
+
+    assert loaded is not None
+    assert loaded["run_id"] == run_id
+    assert loaded["status"] == "in_progress"
+    assert compact is not None
+    assert compact["run_id"] == run_id
+    assert compact["status"] == "in_progress"
+
+
+def test_property_search_run_list_falls_back_to_memory_during_db_pressure(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-pressure-list"
+    run_id = f"run-pressure-list-{uuid.uuid4().hex}"
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1020 Vienna"},
+        force_refresh=False,
+    )
+    state["status"] = "processed"
+    state["progress"] = 100
+    state["updated_at"] = "2026-07-03T12:01:00+00:00"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+
+    def _raise_pressure(**kwargs):  # noqa: ANN003
+        raise RuntimeError("database_busy: property search storage connection queue is full")
+
+    monkeypatch.setattr(product_service, "_list_property_search_run_records_storage", _raise_pressure)
+
+    try:
+        rows = product_service._list_property_search_run_records(
+            limit=5,
+            statuses=("processed",),
+            principal_id=principal_id,
+            lightweight=True,
+        )
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
+
+    assert [row.get("run_id") for row in rows] == [run_id]
+    assert rows[0]["status"] == "processed"
+
+
 def test_property_source_listing_cache_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
     if not db_url:

@@ -15,7 +15,7 @@ from uuid import uuid4
 _PROPERTY_SEARCH_RUN_TTL_SECONDS = 90 * 24 * 60 * 60
 _PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_READY = False
-_PROPERTY_SEARCH_RUN_DB_CONNECT_RETRY_SECONDS = 12.0
+_PROPERTY_SEARCH_RUN_DB_CONNECT_RETRY_SECONDS = 45.0
 _PROPERTY_SEARCH_RUN_DB_CONNECT_TIMEOUT_SECONDS = 3
 
 
@@ -26,12 +26,12 @@ def _property_search_run_db_max_connections() -> int:
         or ""
     ).strip()
     if not raw_value:
-        return 12
+        return 4
     try:
         parsed = int(raw_value)
     except Exception:
-        return 12
-    return max(2, min(parsed, 60))
+        return 4
+    return max(2, min(parsed, 16))
 
 
 _PROPERTY_SEARCH_RUN_DB_SEMAPHORE = threading.BoundedSemaphore(_property_search_run_db_max_connections())
@@ -254,6 +254,7 @@ def _property_search_run_db_pressure_error(exc: BaseException) -> bool:
             "remaining connection slots are reserved",
             "sorry, too many clients already",
             "connection pool exhausted",
+            "database_busy",
             "timeout expired",
             "connection timed out",
             "could not connect to server",

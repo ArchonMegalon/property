@@ -4113,22 +4113,66 @@ def _list_property_search_run_records(
             for key, value in _PROPERTY_SEARCH_RUN_REGISTRY.items()
             if isinstance(value, dict)
         }
-    return _list_property_search_run_records_storage(
-        limit=limit,
-        statuses=statuses,
-        principal_id=principal_id,
-        admin=admin,
-        lightweight=lightweight,
-        registry=registry_snapshot,
-    )
+    try:
+        return _list_property_search_run_records_storage(
+            limit=limit,
+            statuses=statuses,
+            principal_id=principal_id,
+            admin=admin,
+            lightweight=lightweight,
+            registry=registry_snapshot,
+        )
+    except Exception as exc:
+        if not _property_search_storage._property_search_run_db_pressure_error(exc):  # type: ignore[attr-defined]
+            raise
+    normalized_limit = max(int(limit or 0), 1)
+    normalized_principal = str(principal_id or "").strip()
+    normalized_statuses = {
+        str(value or "").strip().lower()
+        for value in statuses
+        if str(value or "").strip()
+    }
+    rows = [dict(value) for value in registry_snapshot.values()]
+    if normalized_principal:
+        rows = [row for row in rows if str(row.get("principal_id") or "").strip() == normalized_principal]
+    elif not admin:
+        return ()
+    if normalized_statuses:
+        rows = [row for row in rows if str(row.get("status") or "").strip().lower() in normalized_statuses]
+    rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
+    if lightweight:
+        rows = [_property_search_storage._compact_property_search_run_record(row) for row in rows]  # type: ignore[attr-defined]
+    return tuple(rows[:normalized_limit])
 
 
 def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
-    return _load_property_search_run_record_storage(run_id=run_id, principal_id=principal_id)
+    normalized_run_id = str(run_id or "").strip()
+    normalized_principal = str(principal_id or "").strip()
+    try:
+        return _load_property_search_run_record_storage(run_id=normalized_run_id, principal_id=normalized_principal)
+    except Exception as exc:
+        if not _property_search_storage._property_search_run_db_pressure_error(exc):  # type: ignore[attr-defined]
+            raise
+    with _PROPERTY_SEARCH_RUN_LOCK:
+        state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id) or {})
+    if state and str(state.get("principal_id") or "").strip() == normalized_principal:
+        return state
+    return None
 
 
 def _load_property_search_run_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
-    return _load_property_search_run_compact_record_storage(run_id=run_id, principal_id=principal_id)
+    normalized_run_id = str(run_id or "").strip()
+    normalized_principal = str(principal_id or "").strip()
+    try:
+        return _load_property_search_run_compact_record_storage(run_id=normalized_run_id, principal_id=normalized_principal)
+    except Exception as exc:
+        if not _property_search_storage._property_search_run_db_pressure_error(exc):  # type: ignore[attr-defined]
+            raise
+    with _PROPERTY_SEARCH_RUN_LOCK:
+        state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id) or {})
+    if state and str(state.get("principal_id") or "").strip() == normalized_principal:
+        return _property_search_storage._compact_property_search_run_record(state)  # type: ignore[attr-defined]
+    return None
 
 
 def _delete_property_search_run_record(*, run_id: str, principal_id: str) -> bool:
