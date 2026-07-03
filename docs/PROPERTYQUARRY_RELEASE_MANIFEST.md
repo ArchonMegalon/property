@@ -31,17 +31,17 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `019b3d09cad9116d21bc8c672c08fc9bd127275c` |
+| Runtime commit SHA | `90f3e0f621057b89d0ff91ba6b20c48e97e8ebbd` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current local/live proof candidate on 2026-07-03 after `019b3d09`, carrying the premium mobile/research/search polish, provider-safe walkthrough routing, optional hidden Pano2VR posture, refreshed AT/DE/CR provider matrix, 3D browser gates, walkthrough quality gate, map-preview flagship gate, billing verification refresh, OneMinute-first Responses lane order, deployment provider-matrix receipt preservation, and release-security posture checks |
+| Deployment ID | current local/live proof candidate on 2026-07-03 after `90f3e0f6`, carrying the premium mobile/research/search polish, provider-safe walkthrough routing, optional hidden Pano2VR posture, refreshed AT/DE/CR provider matrix, 3D browser gates, walkthrough quality gate, map-preview flagship gate, billing verification refresh, token-redacted billing smoke receipts, OneMinute-first Responses lane order, deployment provider-matrix receipt preservation, and release-security posture checks |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
 The local/live proof pass on 2026-07-03 verified:
 
-- Commit `019b3d09` is the current runtime candidate for the refreshed flagship-gate pass, including the deploy-side provider-matrix receipt preservation that prevents catalog smoke from replacing full targeted E2E evidence.
+- Commit `90f3e0f6` is the current runtime candidate for the refreshed flagship-gate pass, including deploy-side provider-matrix receipt preservation and token-redacted billing handoff smoke receipts.
 - `PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 python3 scripts/property_live_provider_smoke.py --base-url http://127.0.0.1:8097 --country AT --country DE --country CR --execute-search-matrix --search-run-timeout-seconds 30 --write _completion/provider_smoke/production-e2e-provider-matrix-current.refreshing.json` returned `status=pass`, `targeted_search_matrix_status=pass`, `targeted_search_matrix_count=160`, `passed_case_count=160`, `failed_case_count=0`, `strict_case_count=80`, `soft_filter_case_count=80`, `dispatch_acceptance_complete=true`, `status_readback_complete=true`, and `cross_country_sanitization_summary.status_counts={"pass":3}`.
 - The fresh provider matrix was promoted to `_completion/provider_smoke/production-e2e-provider-matrix-current.json` and `_completion/smoke/property-live-provider-latest.json`.
 - `python3 scripts/propertyquarry_live_mobile_surface_smoke.py --base-url http://127.0.0.1:8097 --host-header propertyquarry.com --seed-research-detail-fixture --require-research-detail --write _completion/smoke/property-live-mobile-current.json` returned `status=pass`, `failed_count=0`, and verified the seeded research-detail visual controls, mobile What Matters behavior, district-map modal controls, and account logout sheet.
