@@ -3638,9 +3638,8 @@
               {% else %}
               <strong>{{ row.get('title') }}</strong>
               {% endif %}
-              <small>{{ row.get('source_label') }} · Score {{ row.get('score') }}</small>
-              {% if row.get('fit_summary') %}
-              <small>{{ row.get('fit_summary') }}</small>
+              {% if row.get('source_label') or row.get('fit_summary') %}
+              <small>{% if row.get('source_label') %}{{ row.get('source_label') }}{% endif %}{% if row.get('source_label') and row.get('fit_summary') %} · {% endif %}{% if row.get('fit_summary') %}{{ row.get('fit_summary') }}{% endif %}</small>
               {% endif %}
             </div>
             <div class="object-tag">#{{ loop.index }}</div>

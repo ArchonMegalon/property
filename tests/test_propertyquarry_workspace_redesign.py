@@ -483,6 +483,7 @@ def test_property_research_detail_right_rail_stays_compact() -> None:
     research = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
 
     assert "Open the exact pin in Google Maps here" not in research
+    assert " · Score {{ row.get('score') }}" not in research
     assert "prd-map-actions" in research
     assert "Open overlay" not in research
     assert ">Map</a>" in research
@@ -11104,6 +11105,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Other ranked homes from this run" not in packet.text
     assert "More from this search" in packet.text
     assert 'data-research-ranking-list' in packet.text
+    assert " · Score " not in packet.text
     assert "Family flat near Tiergarten" in packet.text
     assert "Listing" in packet.text
     assert "Review page" not in packet.text

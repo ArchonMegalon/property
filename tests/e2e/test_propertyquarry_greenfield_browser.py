@@ -4772,6 +4772,7 @@ def test_propertyquarry_shortlist_and_research_have_browser_performance_budget(
         )
         expect(page.locator("[data-property-research-detail]")).to_be_visible()
         expect(page.locator("[data-research-ranking-list]")).to_be_visible()
+        expect(page.locator("[data-research-ranking-list]")).not_to_contain_text(re.compile(r"·\\s*Score\\s+\\d+", re.I))
         expect(page.locator(".prd-media-frame")).to_be_visible()
         _assert_research_packet_360_first(page, min_stage_height=190, max_stage_height=380)
         _assert_no_horizontal_overflow(page)
