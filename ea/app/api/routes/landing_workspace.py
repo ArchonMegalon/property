@@ -827,7 +827,7 @@ def settings_usage_detail(
         latest_run_rows = [
             _object_detail_row(
                 f"Run {row['run_id'][:8] or 'latest'}",
-                f"{row['status']} · {row['ranked']} matches · {row['filtered']} hidden",
+                f"{row['status']} · {row['ranked']} matches · {row['filtered']} outside brief",
                 "Search",
                 href=row["href"],
             )
@@ -835,7 +835,7 @@ def settings_usage_detail(
         ]
         results_items = [
             _object_detail_row("Matches", str(property_usage["ranked_total"]), "Shortlist"),
-            _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), "Rules"),
+            _object_detail_row("Outside brief", str(property_usage["filtered_total"]), "Rules"),
             _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Lists"),
             _object_detail_row("Lists used", str(property_usage["source_total"]), "Lists"),
         ]
@@ -933,18 +933,18 @@ def settings_usage_detail(
             page_title="PropertyQuarry usage and activation",
             current_nav="settings",
             console_title="Usage and activation",
-            console_summary="Search activation, matches, hidden homes, property pages, and tours stay visible in one account view.",
+            console_summary="Search activation, matches, outside-brief homes, property pages, and tours stay visible in one account view.",
             object_kind="Property usage",
             object_title=f"{property_usage['run_total']} recent search runs",
             object_summary=(
                 f"{property_usage['ranked_total']} matches · "
-                f"{property_usage['filtered_total']} hidden · "
+                f"{property_usage['filtered_total']} outside brief · "
                 f"{property_usage['repair_status']}"
             ),
             object_meta=[
                 {"label": "Searches opened", "value": str(property_usage["run_total"])},
                 {"label": "Matches", "value": str(property_usage["ranked_total"])},
-                {"label": "Hidden homes", "value": str(property_usage["filtered_total"])},
+                {"label": "Outside brief", "value": str(property_usage["filtered_total"])},
                 {"label": "Lists used", "value": str(property_usage["source_total"])},
                 {"label": "Recovery", "value": str(property_usage["repair_status"])},
             ],
@@ -1116,7 +1116,7 @@ def settings_support_detail(
                     "title": "What is ready while support works",
                     "items": [
                         _object_detail_row("Matches", str(property_usage["ranked_total"]), ""),
-                        _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), ""),
+                        _object_detail_row("Outside brief", str(property_usage["filtered_total"]), ""),
                         _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), ""),
                         _object_detail_row("3D tours ready", str(property_usage["tour_ready_total"]), ""),
                     ],
@@ -1456,7 +1456,7 @@ def settings_outcomes_detail(
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Matches", str(property_usage["ranked_total"]), "Shortlist"),
-                _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), "Rules"),
+                _object_detail_row("Outside brief", str(property_usage["filtered_total"]), "Rules"),
                 _object_detail_row("List failures", str(property_usage["failed_source_total"]), "Retry"),
                 _object_detail_row("Recovery", str(property_usage["repair_status"]), "Retry"),
                 _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Account"),
@@ -1477,7 +1477,7 @@ def settings_outcomes_detail(
                     "title": "Shortlist and rule pressure",
                     "items": [
                         _object_detail_row("Matches", str(property_usage["ranked_total"]), "Shortlist"),
-                        _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), "Rules"),
+                        _object_detail_row("Outside brief", str(property_usage["filtered_total"]), "Rules"),
                         _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Lists"),
                         _object_detail_row("Lists used", str(property_usage["source_total"]), "Lists"),
                     ],
@@ -2111,7 +2111,7 @@ def settings_trust_detail(
                     "title": "Settings and retention",
                     "items": [
                         _object_detail_row("Matches", str(property_usage["ranked_total"]), "Summary"),
-                        _object_detail_row("Hidden homes", str(property_usage["filtered_total"]), "Settings"),
+                        _object_detail_row("Outside brief", str(property_usage["filtered_total"]), "Settings"),
                         _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Lists"),
                         _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Pages"),
                         _object_detail_row("Export data", "Download your account, searches, saved results, and preference records.", "Data", href="/app/api/property/account/export?download=1", action_href="/app/api/property/account/export?download=1", action_label="Export data", action_method="get"),

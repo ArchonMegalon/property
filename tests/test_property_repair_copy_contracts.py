@@ -25,7 +25,7 @@ def test_alerts_and_delivery_copy_stay_customer_facing() -> None:
     view_model_body = Path("/docker/property/ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
     surface_state_body = Path("/docker/property/ea/app/product/property_surface_state.py").read_text(encoding="utf-8")
 
-    assert "No provider follow-up is active right now." in payload_body
+    assert "No list follow-up is active right now." in payload_body
     assert "Pick only the channels you actually want to hear from." in payload_body
     assert 'return "Search update"' in payload_body
     assert "address confirmed" in governance_body
@@ -33,7 +33,8 @@ def test_alerts_and_delivery_copy_stay_customer_facing() -> None:
     assert "Connect Google sign-in if you want a faster return path and account access without another sign-up." in view_model_body
     assert "Community-sourced hits should stay separate until a human confirms identity, freshness, and legitimacy." in view_model_body
     assert "def _property_run_progress_fallback_message(" in surface_state_body
-    assert 'return "Preparing provider checks."' in surface_state_body
+    assert 'return "Preparing providers."' in surface_state_body
+    assert "Preparing provider checks." not in surface_state_body
 
 
 def test_property_search_service_drops_removed_match_bar_copy_at_source() -> None:

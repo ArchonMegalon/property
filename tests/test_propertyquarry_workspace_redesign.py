@@ -1796,7 +1796,7 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
 
     assert page.status_code == 200
     assert "Usage" in page.text
-    assert "Search activation, matches, hidden homes" in page.text
+    assert "Search activation, matches, outside-brief homes" in page.text
     assert "property pages, and tours" in page.text
     assert "Property usage" in page.text
     assert "Matches" in page.text
@@ -3249,6 +3249,60 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     assert "180" in visible_source
     assert "0 to review" not in visible_source.lower()
     assert "Reviewed" not in visible_source
+
+
+def test_propertyquarry_running_panel_replaces_stale_zero_review_copy_while_pages_remain(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-running-stale-zero-review")
+    start_workspace(client, mode="personal", workspace_name="Running Stale Zero Review Office")
+
+    def _fake_active_run(self, *, principal_id: str):
+        return {"run_id": "run-live-stale-zero-review", "status": "in_progress"}
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 97,
+            "message": "4097 homes found · 0 to review · 279 / 285 search pages",
+            "summary": {
+                "status": "in_progress",
+                "provider_total": 29,
+                "source_variant_total": 285,
+                "sources_total": 285,
+                "sources_completed": 279,
+                "found_listing_total": 4097,
+                "reviewed_listing_total": 4097,
+                "to_review_listing_total": 0,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-live-stale-zero-review"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
+    assert message_match
+    visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
+    assert "4097 homes found · 6 search pages left" in visible_message
+    assert "0 to review" not in visible_message.lower()
+
+    source_match = re.search(
+        r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
+        response.text,
+        re.S,
+    )
+    assert source_match
+    visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
+    assert "279 / 285 search pages" in visible_source
+    assert "Pages left" in visible_source
+    assert "6" in visible_source
+    assert "0 to review" not in visible_source.lower()
 
 
 def test_propertyquarry_running_panel_explains_page_preparation_queue_without_overcounting_sources(monkeypatch) -> None:
@@ -9957,6 +10011,31 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     assert snapshot["source_count_label"] == "25 / 60"
 
 
+def test_property_run_live_board_replaces_stale_zero_review_copy_while_pages_remain() -> None:
+    snapshot = property_surface_state.build_property_run_live_board_snapshot(
+        {
+            "status": "running",
+            "progress": 97,
+            "message": "4097 homes found · 0 to review · 279 / 285 search pages",
+            "summary": {
+                "provider_total": 29,
+                "source_variant_total": 285,
+                "sources_total": 285,
+                "sources_completed": 279,
+                "found_listing_total": 4097,
+                "reviewed_listing_total": 4097,
+                "to_review_listing_total": 0,
+                "sources": [],
+            },
+        },
+        plan_key="agent",
+    )
+
+    assert snapshot["aggregate_label"] == "4097 homes found · 6 search pages left"
+    assert snapshot["phase_label"] == "Checking remaining search pages"
+    assert "0 to review" not in snapshot["summary_label"].lower()
+
+
 def test_property_run_live_board_distinguishes_found_from_reviewed_candidates() -> None:
     snapshot = property_surface_state.build_property_run_live_board_snapshot(
         {
@@ -14418,6 +14497,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "source_review_packet_failed" in script_body
     assert script_body.count("const reviewed = listingWork.scanned;") == 1
     assert "runListingQueueMessage(found, toReview)" in script_body
+    assert "lowered.includes('0 to review')" in script_body
     assert "const detailQueueIsSourceBacklog = !(toReview > 0) && Number(sourceWork.total || 0) > 0 && sourceLeft > 0;" in script_body
     assert "detailQueueIsSourceBacklog ? 'Pages left' : 'To review'" in script_body
     assert "Nothing waiting to review" not in script_body

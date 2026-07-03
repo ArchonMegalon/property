@@ -2296,6 +2296,7 @@
 	        || lowered.includes('starting property search run')
 	        || lowered.includes('scoring enriched candidate')
 	        || lowered.includes('ranking homes')
+	        || (found > 0 && toReview <= 0 && Number(sourceWork.open || 0) > 0 && lowered.includes('0 to review'))
 	        || lowered === 'checking'
         || (found > 0 && (raw === compactFoundMessage || raw === compactQueueMessage))
       ) {

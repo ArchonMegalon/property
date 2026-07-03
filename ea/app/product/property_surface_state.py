@@ -530,16 +530,16 @@ def property_run_customer_safe_status_detail(
     ) or any(token in lowered for token in _RAW_PROVIDER_FAILURE_TOKENS)
 
     if repair_step and raw_failure_like and prefer_repair_step:
-        return customer_status or calm_repair_copy or "Checking affected provider checks."
+        return customer_status or calm_repair_copy or "Refreshing affected sources."
     if customer_status and (status in {"failed", "completed_partial"} or raw_failure_like):
         return customer_status
     if repair_step and raw_failure_like:
         return calm_repair_copy or _join_customer_sentences(
-            "PropertyQuarry is checking affected provider checks again",
+            "PropertyQuarry is refreshing affected sources",
             "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
         )
     if raw_failure_like and repair_status:
-        return calm_repair_copy or "PropertyQuarry is checking affected provider checks again."
+        return calm_repair_copy or "PropertyQuarry is refreshing affected sources."
     if status == "failed" and raw_failure_like:
         return calm_repair_copy or "The search stopped before the shortlist settled."
     if status == "failed" and repair_flags.get("active"):
@@ -1258,7 +1258,7 @@ def property_run_customer_visible_events(
             {
                 "step": "repair_status",
                 "status": str(summary.get("repair_status") or "repairing").strip() or "repairing",
-                "message": "Checking affected provider checks.",
+                "message": "Refreshing affected sources.",
                 "created_at": str(summary.get("repair_last_updated_at") or payload.get("updated_at") or payload.get("generated_at") or ""),
             }
         )
@@ -2113,6 +2113,13 @@ def build_property_run_live_board_snapshot(
         )
     ):
         phase_label = f"{shortlist_ready} matching home{'s' if shortlist_ready != 1 else ''} ready"
+    if (
+        found_total > 0
+        and to_review_total <= 0
+        and live_source_left_label
+        and "0 to review" in phase_label.lower()
+    ):
+        phase_label = "Checking remaining search pages"
 
     normalized_rows: list[dict[str, object]] = []
     for source in source_rows:
@@ -2680,7 +2687,7 @@ def build_property_empty_outcome_summary(
         if previous_ranked_total:
             history_parts.append(f"{previous_ranked_total} matches")
         if previous_filtered_total:
-            history_parts.append(f"{previous_filtered_total} hidden")
+            history_parts.append(f"{previous_filtered_total} outside brief")
         historical_detail = " · ".join(history_parts) if history_parts else "historical counts are kept with the old run"
         return {
             "happened": "This run used an earlier brief.",
@@ -2802,7 +2809,7 @@ def build_property_empty_outcome_summary(
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         happened = "Nothing landed in the selected area yet."
         stopped_context = (
-            f"{filtered_total} home{'s' if filtered_total != 1 else ''} stayed hidden; "
+            f"{filtered_total} home{'s' if filtered_total != 1 else ''} stayed outside the brief; "
             "most were outside the selected area or were overview pages."
         )
     elif legacy_ranking_gate_empty:

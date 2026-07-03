@@ -281,7 +281,7 @@
       <span class="pqx-actions">
         <a class="pqx-button primary" href="/app/search{{ results_query_suffix }}" data-pqx-loading-link>Adjust search</a>
         {% if filtered_total %}
-        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Review hidden homes</button>
+        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Review outside-brief homes</button>
         {% endif %}
       </span>
       {% endif %}
@@ -325,7 +325,7 @@
       </article>
       {% endfor %}
       {% if not run_sources %}
-      <div class="pqx-empty">Hidden homes are tracked. List-by-list detail is still loading.</div>
+      <div class="pqx-empty">Outside-brief homes are tracked. Source detail is still loading.</div>
       {% endif %}
     </div>
   </details>

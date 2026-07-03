@@ -90,7 +90,7 @@
           <div class="pqx-suppression-panel" data-pqx-filtered-breakdown data-pqx-suppression-summary>
   <button class="pqx-suppression-trigger" type="button" data-pqx-filtered-open aria-label="Open relaxed search options">
     <span class="pqx-suppression-trigger-copy">
-      <strong>{% if ns.total %}{{ ns.total }} hidden{% else %}Adjust search{% endif %}</strong>
+      <strong>{% if ns.total %}{{ ns.total }} outside brief{% else %}Adjust search{% endif %}</strong>
       <span class="pqx-note">
         Choose one small change, then rerun.
       </span>
@@ -100,14 +100,14 @@
 {% endif %}
 {%- endmacro %}
 {% macro filtered_recovery_dialog(counterfactual_rows, suppression_rows) -%}
-          <dialog class="pqx-filtered-dialog" data-pqx-filtered-dialog aria-label="Review hidden homes">
+          <dialog class="pqx-filtered-dialog" data-pqx-filtered-dialog aria-label="Review outside-brief homes">
               <div class="pqx-filtered-dialog-card">
               <div class="pqx-filtered-dialog-head">
                 <div>
                   <strong>Widen one requirement</strong>
                   <div class="pqx-note">Change one thing, then rerun.</div>
                 </div>
-                <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close hidden homes">×</button>
+                <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close outside-brief homes">×</button>
               </div>
               <div class="pqx-filtered-dialog-actions">
                 {% if counterfactual_rows %}
@@ -366,7 +366,7 @@
 {% set progress_compact_found_message = found_total|string ~ ' homes found' %}
 {% set progress_queue_label = to_review_total|string ~ ' to review' if to_review_total > 0 else (progress_source_left_label if source_open_total > 0 and progress_source_left_label else 'details caught up') %}
 {% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ progress_queue_label %}
-{% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or 'scoring enriched candidate' in progress_message_display_lower or 'ranking homes' in progress_message_display_lower or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
+{% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or 'scoring enriched candidate' in progress_message_display_lower or 'ranking homes' in progress_message_display_lower or (found_total and to_review_total <= 0 and progress_source_left_total > 0 and '0 to review' in progress_message_display_lower) or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
     {% if source_open_total > 0 and to_review_total > 0 and progress_source_left_label %}
       {% set progress_message_display = progress_compact_queue_message ~ ' · ' ~ progress_source_left_label %}
@@ -448,7 +448,7 @@
 	  <div class="pqx-reliability-strip" data-pqx-run-reliability>
     <div class="pqx-reliability-head">
       <span class="pqx-pill {{ reliability.get('health_tone') }}">{{ reliability.get('health_label') or 'Working' }}</span>
-      {% if reliability.get('repair_step_label') %}<strong>Checking affected provider checks</strong>{% endif %}
+      {% if reliability.get('repair_step_label') %}<strong>Refreshing affected sources</strong>{% endif %}
       {% if reliability.get('next_useful_update_eta_label') %}<span class="pqx-small">Next useful update: {{ reliability.get('next_useful_update_eta_label') }}</span>{% endif %}
       {% if reliability.get('final_eta_label') %}<span class="pqx-small">Finish: {{ reliability.get('final_eta_label') }}</span>{% endif %}
     </div>
@@ -10916,7 +10916,7 @@
             {% set live_detail_queue_label = 'Pages left' %}
             {% set live_detail_queue_value = live_source_left_total|string ~ ' ' ~ live_source_unit %}
           {% endif %}
-          {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or 'scoring enriched candidate' in live_run_message_display_lower or 'ranking homes' in live_run_message_display_lower or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
+          {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or 'scoring enriched candidate' in live_run_message_display_lower or 'ranking homes' in live_run_message_display_lower or (live_found_total and live_to_review_total <= 0 and live_source_left_total > 0 and '0 to review' in live_run_message_display_lower) or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
 			          {% if live_found_total %}
 			            {% if live_source_open_total > 0 and live_to_review_total > 0 and live_source_left_label %}
 					            {% set live_run_message_display = live_compact_queue_message ~ ' · ' ~ live_source_left_label %}
