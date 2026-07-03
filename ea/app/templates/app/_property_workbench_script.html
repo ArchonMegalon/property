@@ -2786,7 +2786,7 @@
         : (investmentSearch ? 'matching opportunities' : 'matching homes');
       const filteredLabel = !shortlistSurface && filteredTotal > 0 ? (
         `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
-        `aria-label="${escapeHtml(filteredTotal)} homes need a wider brief">${escapeHtml(filteredTotal)} ${locationMismatchTotal ? 'outside area' : 'hidden'}</a>`
+        `aria-label="${escapeHtml(filteredTotal)} homes need a wider brief">${escapeHtml(filteredTotal)} ${locationMismatchTotal ? 'outside area' : 'outside brief'}</a>`
       ) : '';
       const filteredBreakdown = (!shortlistSurface && filteredTotal > 0) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>

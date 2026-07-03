@@ -3217,8 +3217,9 @@
         {% endfor %}
       </div>
       {% endif %}
+      {% set visual_rail_active_states = ['ready', 'pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'repairing'] %}
       <div
-        class="prd-visual-rail{% if visual_rail.label or visual_rail.detail %} is-active{% endif %}"
+        class="prd-visual-rail{% if visual_rail.state in visual_rail_active_states %} is-active{% endif %}"
         data-prd-visual-rail
         data-prd-visual-kind="{{ visual_rail.kind }}"
         data-prd-visual-state="{{ visual_rail.state }}"
@@ -4203,7 +4204,7 @@
       visualRail.setAttribute('data-prd-primary-tour-detail', detail);
       visualRail.setAttribute('data-prd-primary-tour-progress', String(progress || 100));
     }
-    const isActive = Boolean(label || detail || visualPendingStates.includes(nextState) || nextState === 'ready' || nextState === 'blocked' || nextState === 'failed');
+    const isActive = Boolean(visualPendingStates.includes(nextState) || nextState === 'ready');
     visualRail.classList.toggle('is-active', isActive);
     visualRail.setAttribute('data-prd-visual-kind', nextKind);
     visualRail.setAttribute('data-prd-visual-state', nextState);

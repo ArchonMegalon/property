@@ -12177,7 +12177,7 @@
               <div class="pqx-section-head">
                 <div>
                   <div class="pqx-small">{{ hero_kicker or 'Research pages' }}</div>
-                  <h2>{{ hero_title or 'Open the strongest homes first.' }}</h2>
+                  <h2>{{ hero_title or 'Open property research' }}</h2>
                   <div class="pqx-note">{{ hero_summary or 'Open the property page first. Listing links stay secondary.' }}</div>
                 </div>
               </div>
@@ -12192,7 +12192,7 @@
             {% endif %}
             <div class="pqx-section-head">
               <div>
-                <h2>{% if surface_mode == 'research' %}Open the strongest homes first{% else %}Best matches{% endif %}</h2>
+                <h2>{% if surface_mode == 'research' %}Property research{% else %}Best matches{% endif %}</h2>
                 <div class="pqx-note" data-pqx-run-summary>{% if surface_mode == 'research' %}{{ results|length }} homes are ready{% if run_active %} while the search keeps checking in the background{% endif %}.{% else %}{{ results|length }} homes match the current brief{% if run_active %} · search is still checking the rest in the background{% endif %}{% endif %}</div>
               </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>

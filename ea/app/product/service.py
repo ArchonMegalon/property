@@ -46646,6 +46646,13 @@ class ProductService:
             return
 
     def _heyy_whatsapp_contact_hint(self, *, principal_id: str) -> dict[str, str]:
+        def _normalize_phone(value: object) -> str:
+            raw = str(value or "").strip()
+            if not raw:
+                return ""
+            digits = "".join(ch for ch in raw if ch.isdigit())
+            return f"+{digits}" if len(digits) >= 7 else raw
+
         phone_number = ""
         binding_phone = ""
         binding_channel = ""
@@ -46667,7 +46674,7 @@ class ProductService:
             if binding_phone or binding_channel:
                 break
         return {
-            "phone_number": phone_number or binding_phone,
+            "phone_number": _normalize_phone(phone_number or binding_phone),
             "channel_id": binding_channel,
         }
 

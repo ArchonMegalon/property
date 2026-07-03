@@ -19,7 +19,7 @@
       {% if is_research_surface %}
       <div class="pqx-title" style="margin-bottom:12px;">
         <span>{{ hero_kicker or 'Research pages' }}</span>
-        <h1>{{ hero_title or 'Open the strongest homes first.' }}</h1>
+        <h1>{{ hero_title or 'Open property research' }}</h1>
         <p class="pqx-note">{{ hero_summary or 'Property pages and 3D tours are ready first.' }}</p>
       </div>
       {% if hero_actions %}
@@ -34,12 +34,12 @@
         <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> {{ results_label }}</a>
         {% if filtered_total %}
         <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} homes need a wider brief">
-          {{ filtered_total }} {{ 'outside area' if location_mismatch.total else 'hidden' }}
+          {{ filtered_total }} {{ 'outside area' if location_mismatch.total else 'outside brief' }}
         </a>
         {% endif %}
       </div>
       {% if is_research_surface %}
-      <div class="pqx-note">Open the strongest homes first.</div>
+      <div class="pqx-note">Open property pages first.</div>
       {% endif %}
     </div>
   </div>

@@ -11581,6 +11581,7 @@ def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal
         json={"selected_platforms": ["not-a-real-platform"]},
     )
     assert response.status_code == 400
+    assert response.json()["error"]["code"] == "unsupported_property_provider"
 
     observed_sync: dict[str, object] = {}
 
@@ -11650,7 +11651,7 @@ def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal
     assert intruder_status.status_code == 404
 
 
-def test_property_search_run_requests_market_initialization_for_unsupported_country() -> None:
+def test_property_search_run_rejects_market_outside_current_customer_scope() -> None:
     principal_id = "cf-email:bootstrap.market@example.com"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Bootstrap Request Office")
@@ -11666,23 +11667,8 @@ def test_property_search_run_requests_market_initialization_for_unsupported_coun
             }
         },
     )
-    assert started.status_code == 200, started.text
-
-    body = started.json()
-    assert body["status"] == "initialization_required"
-    assert body["run_id"] == ""
-    assert body["bootstrap_required"] is True
-    assert body["bootstrap_country_code"] == "NO"
-    assert body["bootstrap_country_label"] == "NO"
-    assert body["bootstrap_eta_hours"] == 3
-    assert body["bootstrap_handoff_ref"].startswith("human_task:")
-    assert body["status_url"] == ""
-
-    handoffs = client.get("/app/api/handoffs")
-    assert handoffs.status_code == 200
-    bootstrap = next(item for item in handoffs.json() if item["task_type"] == "property_market_bootstrap")
-    assert bootstrap["id"] == body["bootstrap_handoff_ref"]
-    assert "Initialize PropertyQuarry market" in bootstrap["summary"]
+    assert started.status_code == 400, started.text
+    assert started.json()["error"]["code"] == "unsupported_property_market"
 
 
 def test_property_search_run_sends_results_ready_email_when_processed(monkeypatch) -> None:
@@ -11948,7 +11934,7 @@ def test_property_search_results_delivery_refresh_promotes_generated_reconstruct
     assert refreshed["pending_tour_total"] == 0
 
 
-def test_property_search_run_status_snapshot_finishes_results_email_after_restart(monkeypatch) -> None:
+def test_property_search_run_status_snapshot_recovers_tour_readiness_without_email_side_effect(monkeypatch) -> None:
     principal_id = "cf-email:tour.restart@example.com"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Results Restart Office")
@@ -12014,8 +12000,7 @@ def test_property_search_run_status_snapshot_finishes_results_email_after_restar
     status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
 
     assert status is not None
-    assert sent
-    assert sent[0]["hosted_tour_total"] == 1
+    assert sent == []
     assert status["summary"]["ready_tour_total"] == 1
 
 
@@ -12381,10 +12366,18 @@ def test_property_scout_flythrough_uses_shared_scene_video_skill(monkeypatch: py
     service = ProductService(client.app.state.container)
     observed: dict[str, object] = {"delivery_calls": 0}
 
-    def _fake_run_scene_video_skill(*, title: str, actor: str, provider_key: str = "", input_json=None):
+    def _fake_run_scene_video_skill(
+        *,
+        title: str,
+        actor: str,
+        provider_key: str = "",
+        input_json=None,
+        task_principal_id: str = "",
+    ):
         observed["title"] = title
         observed["actor"] = actor
         observed["provider_key"] = provider_key
+        observed["task_principal_id"] = task_principal_id
         observed["input_json"] = dict(input_json or {})
         return {
             "status": "completed",
@@ -12424,12 +12417,12 @@ def test_property_scout_flythrough_uses_shared_scene_video_skill(monkeypatch: py
     assert observed["provider_key"] == "magic"
     assert observed["title"] == "North Tower"
     assert observed["actor"] == "property-scout"
-    assert observed["input_json"] == {
-        "context_kind": "property_walkthrough",
-        "tour_url": "https://property.example/tours/north-tower",
-        "property_facts_json": {"bedrooms": 3},
-        "diorama_style_hint": "miniature realism",
-    }
+    assert observed["task_principal_id"] == "exec-property-scout-flythrough"
+    assert observed["input_json"]["context_kind"] == "property_walkthrough"
+    assert observed["input_json"]["tour_url"] == "https://property.example/tours/north-tower"
+    assert observed["input_json"]["property_facts_json"] == {"bedrooms": 3}
+    assert observed["input_json"]["diorama_style_hint"] == "miniature realism"
+    assert isinstance(observed["input_json"].get("tour_context_json"), dict)
     assert result["status"] == "completed"
     assert result["provider_key"] == "omagic"
     assert result["provider_backend_key"] == "onemin_i2v"
@@ -13725,7 +13718,7 @@ def test_property_search_run_does_not_reapply_stale_saved_agent_area_filter(monk
     assert "re_cr_mls" in tuple(observed["selected_platforms"] or ())
     assert preferences.get("min_area_m2") not in {80, "80"}
     assert preferences["require_floorplan"] is False
-    assert preferences["min_match_score"] == 25
+    assert preferences["min_match_score"] == 0.0
 
 
 def test_property_search_execution_preferences_relax_only_floorplan_for_discovery_mode() -> None:

@@ -2062,12 +2062,26 @@ def build_property_run_live_board_snapshot(
 
     live_info = _latest_property_run_fraction_info(payload)
     current_info = _parse_property_run_message_info(payload.get("message"))
+    review_fraction_is_listing_work = False
+    review_fraction = re.fullmatch(r"\s*(\d+)\s*/\s*(\d+)\s*", str(live_info.get("fraction_label") or ""))
+    review_fraction_raw = str(live_info.get("raw") or current_info.get("raw") or "").strip()
+    if review_fraction and re.search(
+        r"\b(?:reviewing(?: candidate)?|scoring enriched candidate|ranked|scored)\b",
+        review_fraction_raw,
+        flags=re.IGNORECASE,
+    ):
+        reviewed_from_fraction = _positive_int(review_fraction.group(1))
+        found_from_fraction = _positive_int(review_fraction.group(2))
+        if found_from_fraction > 0:
+            found_total = max(found_total, found_from_fraction)
+            to_review_total = max(0, found_total - reviewed_from_fraction)
+            review_fraction_is_listing_work = True
     active_source_label = _canonical_property_run_source_label(current_info.get("source_label") or live_info.get("source_label") or "")
     message_text = str(payload.get("message") or "").strip().lower()
 
     live_source_work = _property_run_source_work_counts(summary, status=status)
     live_source_left_label = _property_run_source_work_left_label(summary, status=status)
-    if found_total > 0 and live_source_work["open"] > 0 and live_source_left_label:
+    if found_total > 0 and live_source_work["open"] > 0 and live_source_left_label and not review_fraction_is_listing_work:
         aggregate_label = (
             f"{_property_run_listing_queue_label(found_total, to_review_total)} · {live_source_left_label}"
             if to_review_total > 0

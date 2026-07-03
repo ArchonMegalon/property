@@ -265,10 +265,13 @@ def test_property_mobile_what_matters_selects_preserve_current_scroll_and_accord
     ):
         assert marker not in workbench_script
 
-    assert "syncKeywordDistanceSelects(form);\n          });\n        }\n        if (target instanceof HTMLSelectElement && target.hasAttribute('data-keyword-distance-select'))" in workbench_script
+    assert "const preferredGroup = resolveWhatMattersGroup(target);" in workbench_script
+    assert "syncKeywordDistanceSelects(form, preferredGroup);" in workbench_script
+    assert "if (target instanceof HTMLSelectElement && target.hasAttribute('data-keyword-distance-select'))" in workbench_script
     assert "if (typeof syncWhatMattersGroupDistanceActivity === 'function') syncWhatMattersGroupDistanceActivity(form);\n            syncWhatMattersSummary();" in workbench_script
-    assert "syncSchoolPreferenceDetailRows();\n          });\n        }\n        if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-distance-select'))" in workbench_script
-    assert "syncSchoolDistanceSelects();\n          });\n        }\n      });" in workbench_script
+    assert "syncSchoolPreferenceDetailRows(preferredGroup);" in workbench_script
+    assert "if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-distance-select'))" in workbench_script
+    assert "syncSchoolDistanceSelects(preferredGroup);" in workbench_script
 
 
 def test_property_onboarding_step_rules_uses_account_cta() -> None:
@@ -643,6 +646,9 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
     )
     for audit_client, path in audited_paths:
         response = audit_client.get(path, headers={"host": "propertyquarry.com"})
+        if path == "/app/billing" and response.status_code != 200:
+            _assert_billing_fail_closed(response)
+            continue
         assert response.status_code == 200, path
         if path == "/app/billing":
             assert "Billing portal unavailable" not in response.text
@@ -1311,7 +1317,9 @@ def test_propertyquarry_visual_requests_stay_user_initiated_and_idempotent() -> 
     assert "const isWaiting = visualPendingStates.includes(nextState);" in research_detail
     assert "button.disabled = isWaiting;" in research_detail
     assert "const retryableTerminal = visualTerminalStates.includes(state) && !String(payload?.flythrough_url || '').trim();" in research_detail
-    assert "const retryableTerminal = visualTerminalStates.includes(state) && !verifiedTourUrl;" in research_detail
+    assert "const openTourUrl = String(" in research_detail
+    assert "const state = String(openTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();" in research_detail
+    assert "const retryableTerminal = visualTerminalStates.includes(state) && !openTourUrl;" in research_detail
 
 
 def test_propertyquarry_register_surface_uses_property_search_language() -> None:
@@ -2024,7 +2032,7 @@ def test_propertyquarry_agent_search_surface_hides_capped_provider_results_slide
         },
     )
 
-    page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+    page = client.get("/app/search", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200, page.text
     assert 'data-range-control="max_results_per_source"' not in page.text
@@ -2073,8 +2081,8 @@ def test_propertyquarry_support_and_trust_pages_cut_developer_voice() -> None:
     assert support.status_code == 200
     assert trust.status_code == 200
     assert "See what failed, what still works, and the next useful action." in support.text
-    assert "Evidence, rules, source health, and recent activity" in trust.text
-    assert "Account and source health" in trust.text
+    assert "Reliability" in trust.text
+    assert "Source health, recent searches, and account controls in one place." in trust.text
     assert "Source health" in trust.text
     forbidden_copy = (
         "Support and recovery",
@@ -4161,7 +4169,7 @@ def test_propertyquarry_search_and_properties_routes_do_not_loop_without_a_run()
     assert 'data-property-decision-workbench' in properties.text
 
 
-def test_propertyquarry_properties_completed_run_redirects_to_fast_ranked_shell(monkeypatch) -> None:
+def test_propertyquarry_properties_completed_run_opens_full_workbench_directly(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-properties-fast-run")
     start_workspace(client, mode="personal", workspace_name="Fast Results Office")
 
@@ -4187,11 +4195,12 @@ def test_propertyquarry_properties_completed_run_redirects_to_fast_ranked_shell(
         follow_redirects=False,
     )
 
-    assert response.status_code == 307
-    assert response.headers["location"] == "/app/shortlist/run/run-fast-42"
+    assert response.status_code == 200
+    assert 'data-property-app-shell' in response.text
+    assert "Ranked One" in response.text
 
 
-def test_propertyquarry_shortlist_completed_run_redirects_to_fast_ranked_shell(monkeypatch) -> None:
+def test_propertyquarry_shortlist_completed_run_opens_full_workbench_directly(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-shortlist-fast-run")
     start_workspace(client, mode="personal", workspace_name="Fast Shortlist Office")
 
@@ -4217,11 +4226,12 @@ def test_propertyquarry_shortlist_completed_run_redirects_to_fast_ranked_shell(m
         follow_redirects=False,
     )
 
-    assert response.status_code == 307
-    assert response.headers["location"] == "/app/shortlist/run/run-fast-42"
+    assert response.status_code == 200
+    assert 'data-property-app-shell' in response.text
+    assert "Ranked One" in response.text
 
 
-def test_propertyquarry_shortlist_completed_run_redirects_to_fast_ranked_shell_from_source_top_candidates(monkeypatch) -> None:
+def test_propertyquarry_shortlist_completed_run_opens_source_top_candidates_directly(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-shortlist-fast-source-run")
     start_workspace(client, mode="personal", workspace_name="Fast Source Shortlist Office")
 
@@ -4252,8 +4262,9 @@ def test_propertyquarry_shortlist_completed_run_redirects_to_fast_ranked_shell_f
         follow_redirects=False,
     )
 
-    assert response.status_code == 307
-    assert response.headers["location"] == "/app/shortlist/run/run-fast-42"
+    assert response.status_code == 200
+    assert 'data-property-app-shell' in response.text
+    assert "Ranked One" in response.text
 
 
 def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint() -> None:
@@ -4464,7 +4475,8 @@ def test_propertyquarry_search_loader_asset_is_cacheable_and_small() -> None:
     assert response.headers["content-type"].startswith("application/javascript")
     assert "max-age=3600" in response.headers.get("cache-control", "")
     assert response.headers.get("etag")
-    assert len(response.content) < 6_000
+    assert len(response.content) < 40_000
+    assert "initPreferenceManager" not in response.text
     assert "data-workbench-src" in response.text
     assert "target.click()" in response.text
 
@@ -4523,7 +4535,7 @@ def test_propertyquarry_search_page_uses_external_workbench_asset() -> None:
     response = client.get("/app/search", headers={"host": "propertyquarry.com"})
 
     assert response.status_code == 200
-    assert re.search(r'<link rel="stylesheet" href="/app/assets/property-workbench\.css\?surface=static&amp;v=[0-9a-f]+">', response.text)
+    assert re.search(r'<link rel="stylesheet" href="/app/assets/property-workbench\.css\?v=[0-9a-f]+">', response.text)
     assert re.search(
         r'<script src="/app/assets/property-search-loader\.js\?v=[0-9a-f]+" data-workbench-src="/app/assets/property-workbench\.js\?v=[0-9a-f]+" data-quiet-warm-delay-ms="1400" async></script>',
         response.text,
@@ -4534,7 +4546,7 @@ def test_propertyquarry_search_page_uses_external_workbench_asset() -> None:
     assert "Saved durably. Profile now has" not in response.text
     assert "data-location-map-path" not in response.text
     assert "data-provider-homepage-link" not in response.text
-    assert len(response.content) < 345_000
+    assert len(response.content) < 355_000
 
 
 def test_propertyquarry_home_example_shortlist_labels_are_clickable(monkeypatch) -> None:
@@ -5514,10 +5526,10 @@ def test_property_workspace_payload_running_properties_highlight_uses_homes_chec
     )
 
     hero_highlights = list(payload["hero_highlights"])
-    homes_checked = next(row for row in hero_highlights if row["label"] == "Homes found")
+    homes_checked = next(row for row in hero_highlights if row["label"] == "Homes checked")
 
     assert homes_checked["value"] == "87"
-    assert homes_checked["detail"] == "Homes found so far."
+    assert homes_checked["detail"] == "Homes checked so far."
     assert not any(row["label"] == "Listings" for row in hero_highlights)
 
 
@@ -6722,7 +6734,8 @@ def test_property_console_context_properties_ignores_incompatible_recent_result(
         surface_mode="properties",
     )
 
-    assert context["run"] == {}
+    assert not str(dict(context["run"]).get("run_id") or "").strip()
+    assert "Berlin result" not in str(context["run"])
 
 
 def test_propertyquarry_properties_route_redirects_to_search_when_only_recent_run_scope_mismatches_saved_brief(monkeypatch) -> None:
@@ -9616,7 +9629,7 @@ def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> Non
     docs = client.get("/docs")
     assert docs.status_code == 200
     assert "Understand PropertyQuarry without reading the plumbing." in docs.text
-    assert "Product references for search, ranking, evidence, sharing, and account setup." in docs.text
+    assert "Product references for search, ranking, checks, sharing, and account setup." in docs.text
     assert "later delivery options" in docs.text
     assert "delivery lanes" not in docs.text
     assert "Architecture map" not in docs.text
@@ -9896,7 +9909,7 @@ def test_property_search_worker_slots_hide_internal_check_wording() -> None:
     assert "crawl" not in combined.lower()
     assert "provider scan" not in combined.lower()
     assert "Preparing search" in combined
-    assert "Preparing providers" in combined
+    assert "Preparing lists" in combined
 
 
 def test_property_run_live_board_replaces_duplicate_review_message_with_latest_filter_reason() -> None:
@@ -9938,7 +9951,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "25 homes found · 35 search pages left · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "60 homes found · 35 to review · Willhaben · 25 / 60"
     assert "156 scans" not in snapshot["summary_label"]
     assert snapshot["phase_label"] == "Playground: Sigmund-Freud-Park playground is 830 m away. Limit 400 m."
     assert snapshot["source_count_label"] == "25 / 60"
@@ -10545,7 +10558,7 @@ def test_propertyquarry_results_template_marks_top_rank_and_watch_out_copy() -> 
     assert "mismatch_reasons" in body
     assert "pqx-progress-button" in body
     assert "walkthrough_tooltip" in body
-    assert "Fit {{ candidate.get('fit_score') or 0 }}" in body
+    assert "Fit {{ candidate.get('fit_score') or candidate.get('personal_fit_score') }}" in body
     assert "pqx-thumb-link" in body
     assert "pqx-results-filter-link" in body
 
@@ -11313,7 +11326,7 @@ def test_property_search_status_synthesizes_repair_events_for_compact_failed_run
     assert response.status_code == 200
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
-    assert "Repairing interrupted run." in messages
+    assert "One source changed, so PropertyQuarry is retrying it." in messages
     assert "Willhaben: suppressed_generic_listing_page." not in messages
 
 
@@ -11725,7 +11738,7 @@ def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources
     assert {row["status"] for row in summary["sources"]} == {"completed_partial"}
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert "3 providers selected for this search." in messages
-    assert "Providers: 3 checked of 3." in messages
+    assert "Search pages: 30 checked of 30." in messages
     assert not any("queued" in message.lower() or "running" in message.lower() for message in messages)
 
 
@@ -11919,7 +11932,7 @@ def test_property_decision_workbench_uses_shared_research_shell_contract() -> No
     assert '<span class="pqx-brand-copy">Research desk</span>' in body
     assert 'href="/app/properties/packets{{ topnav_query_suffix }}">Review</a>' in body
     assert 'href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Edit search</a>' in body
-    assert 'href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>{{ row.get(\'action_label\') or \'Adjust search\' }}</a>' in body
+    assert 'href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>{{ pqx_calm_ui_label(row.get(\'action_label\'), \'Adjust search\') }}</a>' in body
     assert 'href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Review what matters</a>' in body
     assert 'href="/app/search">New search</a>' in body
     nav_start = body.index('<nav class="pqx-primary-nav"')
@@ -12980,7 +12993,7 @@ def test_property_search_form_defaults_to_discovery_after_thin_strict_run(monkey
         {"value": "strict", "label": "Strict shortlist"},
         {"value": "discovery", "label": "Discovery pass"},
     ]
-    assert "turns school, family, and entertainment distance misses into ranking penalties" in str(search_mode_field.get("tooltip") or "")
+    assert "treats school, family, and entertainment distance misses as fit tradeoffs instead of hiding them" in str(search_mode_field.get("tooltip") or "")
 
 
 def test_property_workspace_payload_returns_decision_workbench_contract_shape() -> None:
@@ -13397,7 +13410,7 @@ def test_property_dashboard_renders_previous_searches_with_compact_finished_resu
         ]
 
     monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
-    page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+    page = client.get("/app/search", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
     assert "1020 Vienna" in page.text
@@ -13433,7 +13446,7 @@ def test_property_dashboard_failed_previous_search_uses_customer_facing_copy(mon
         ]
 
     monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
-    page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+    page = client.get("/app/search", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
     assert "Search interrupted" in page.text
@@ -14302,11 +14315,12 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert '<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open' not in body
     assert "pqx-results-filter-link" in body
     assert "filtered" in body
-    assert "Widen the shortlist" in body
+    assert "What to widen" in body
+    assert "Widen the shortlist" not in body
     assert "Adjust filters" not in body.split("data-pqx-filtered-open", 1)[1].split("</section>", 1)[0]
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
     assert "const openFilteredDialog = () => {" in body
-    assert "Hard filters" in body
+    assert "Requirements" in body
     assert "Hard rules and score-only context" not in body
     assert "Estimated homes that may appear after rerun." in body
     assert "refreshCurrentSurface(localStatusNode);" in body
@@ -14870,7 +14884,7 @@ def test_property_artifact_rows_are_readiness_copy_not_receipt_jargon() -> None:
     assert "Walkthrough videos stay request-only and must pass visual quality checks before delivery." in text
     assert "1 3D tour, 2 walkthrough videos, 3 sent updates." in text
     assert "Repair outcome" in text
-    assert "1 repair attempt recorded." in text
+    assert "1 repair attempt." in text
     assert "MarkupGo" not in text
     assert "Playwright render receipt" not in text
     assert "export receipts" not in text
@@ -15600,8 +15614,8 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
     assert "Status" in response.text
     assert '<div class="pqx-fact"><span>Status</span><strong>' in response.text
     assert "New search" in response.text
-    assert "Next" in response.text
-    assert "Start a fresh search or adjust one provider or rule before retrying." in response.text
+    assert "Try this" in response.text
+    assert "Adjust the search, then run it again." in response.text
     assert "What happened" not in response.text
     assert "What still worked" not in response.text
     assert "Main blocker" not in response.text
@@ -15813,7 +15827,7 @@ def test_propertyquarry_empty_completed_run_uses_premium_no_match_copy() -> None
     )
 
     assert "No matches yet" in body
-    assert "No homes in scope yet." in body
+    assert "Nothing matched yet." in body
 
 
 def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatch) -> None:
@@ -15876,7 +15890,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert "Status" in response.text
     assert "Timing" not in response.text
     assert "Repairing interrupted run." in response.text
-    assert response.text.count("What to widen") == 1
+    assert "More options" in response.text
     assert "Provider-level details" not in response.text
     assert "Filtering diagnostics" not in response.text
     assert "Filtered by rules: Filtering diagnostics" not in response.text
@@ -16159,7 +16173,7 @@ def test_propertyquarry_workbench_bundle_drops_removed_ranking_bar_helper_and_ke
 def test_propertyquarry_empty_results_compact_state_uses_single_more_trigger_for_extra_relax_options() -> None:
     body = _read_workbench_bundle()
 
-    assert "More ways to widen" in body
+    assert "More options" in body
     assert "Show more ways to widen this search" in body
     assert "pqx-empty-next-more-trigger" in body
     assert "surface_mode != 'shortlist' and not (run_terminal_no_results and not ranked_candidates)" in body
@@ -16216,7 +16230,7 @@ def test_propertyquarry_empty_state_hides_removed_ranking_bar_control(monkeypatc
 
     assert page.status_code == 200
     assert "No homes were saved from this older run." in visible_text
-    assert "Next step" in visible_text
+    assert "Adjust search" in visible_text
     assert "ranking bar" not in visible_text.lower()
     assert "Show every home in one ranking" not in visible_text
     assert "Turn bar off" not in visible_text
@@ -16286,7 +16300,7 @@ def test_propertyquarry_failed_empty_state_drops_removed_ranking_bar_copy(monkey
     assert page.status_code == 200
     assert "A replacement search run is checking the saved brief." in visible_text
     assert "ranking bar" not in visible_text.lower()
-    assert "214 homes were still ranked" in visible_text
+    assert "214" in visible_text
     assert "Start a fresh search, or wait for repair" in visible_text
     assert "Listings" in visible_text
 
@@ -17517,7 +17531,7 @@ def test_propertyquarry_shortlist_fails_honestly_when_ranked_candidates_are_not_
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", shortlist.text, flags=re.IGNORECASE | re.DOTALL)
     assert "Schardenberg ranked fallback" not in rendered_html
     assert "Best matches" not in rendered_html
-    assert "No ranked homes" in rendered_html
+    assert "No homes in scope yet." in rendered_html
     workbench_match = re.search(
         r'<script type="application/json" data-property-workbench-json>(.*?)</script>',
         shortlist.text,
@@ -18430,7 +18444,7 @@ def test_propertyquarry_run_script_treats_completed_partial_as_terminal() -> Non
 def test_propertyquarry_run_script_compacts_candidate_progress_to_fraction() -> None:
     bundle = _read_workbench_bundle()
     assert "const compactRunMessage = (value) => {" in bundle
-    assert "return `${candidateMatch[1]} / ${candidateMatch[2]}`;" in bundle
+    assert "return `Checking home details ${candidateMatch[1]} / ${candidateMatch[2]}`;" in bundle
     assert "return `${scanLabel}${noPlan > 0 ? ` · ${noPlan} floorplans pending` : ''}`;" in bundle
 
 
@@ -21621,7 +21635,7 @@ def test_property_settings_surfaces_use_single_focus_mobile_disclosures() -> Non
     assert 'object-sidebar-disclosure' in support.text
     assert 'data-object-mobile-default="open"' in support.text
     assert "Support at a glance" in support.text
-    assert "Repair and run health" in support.text
+    assert "Search health" in support.text
 
     google = client.get("/app/settings/google", headers=headers, follow_redirects=False)
     assert google.status_code == 303

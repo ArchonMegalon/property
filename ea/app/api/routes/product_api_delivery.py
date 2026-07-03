@@ -497,8 +497,9 @@ def _sanitize_property_search_run_platforms(
     property_preferences: dict[str, object],
     selected_platforms: list[str] | tuple[str, ...],
 ) -> tuple[dict[str, object], tuple[str, ...]]:
+    raw_preferences = dict(property_preferences or {})
     normalized_preferences = property_normalize_search_preferences(dict(property_preferences or {}))
-    raw_country_code = str(dict(property_preferences or {}).get("country_code") or "").strip()
+    raw_country_code = str(raw_preferences.get("country_code") or "").strip()
     resolved_raw_country_code = property_resolve_country_code(raw_country_code) if raw_country_code else ""
     if raw_country_code and not resolved_raw_country_code:
         raise ValueError("unsupported_property_market")
@@ -520,6 +521,27 @@ def _sanitize_property_search_run_platforms(
         listing_mode=listing_mode,
         include_distressed_sale_signals=normalized_preferences.get("include_distressed_sale_signals"),
     )
+    if selected_platforms and any(str(row.get("reason") or "").strip() == "unknown_provider" for row in removed_details):
+        raise ValueError("unsupported_property_provider")
+    for numeric_key in (
+        "min_price_eur",
+        "max_price_eur",
+        "min_rooms",
+        "min_area_m2",
+        "available_within_years",
+        "max_commute_minutes_transit",
+        "max_commute_minutes_drive",
+        "max_commute_minutes_bike",
+        "max_commute_minutes_walk",
+    ):
+        if numeric_key not in raw_preferences:
+            continue
+        try:
+            explicit_value = float(str(raw_preferences.get(numeric_key) or "0").strip())
+        except Exception:
+            continue
+        if explicit_value <= 0:
+            normalized_preferences[numeric_key] = 0
     normalized_preferences["country_code"] = country_code
     normalized_preferences["listing_mode"] = listing_mode
     normalized_preferences["selected_platforms"] = list(kept)

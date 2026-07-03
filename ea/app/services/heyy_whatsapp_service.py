@@ -70,15 +70,23 @@ def verify_heyy_webhook_secret(*, headers: dict[str, str], query_secret: str = "
     raise PermissionError("heyy_webhook_secret_invalid")
 
 
-def _phone_e164_hash(phone_number: object) -> str:
+def _normalize_phone_number_for_hash(phone_number: object) -> str:
     normalized = str(phone_number or "").strip()
+    if not normalized:
+        return ""
+    digits = "".join(ch for ch in normalized if ch.isdigit())
+    return f"+{digits}" if len(digits) >= 7 else normalized
+
+
+def _phone_e164_hash(phone_number: object) -> str:
+    normalized = _normalize_phone_number_for_hash(phone_number)
     if not normalized:
         return ""
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def redact_phone_number(phone_number: object) -> dict[str, str]:
-    normalized = str(phone_number or "").strip()
+    normalized = _normalize_phone_number_for_hash(phone_number)
     digits = "".join(ch for ch in normalized if ch.isdigit())
     return {
         "phone_e164_hash": _phone_e164_hash(normalized),

@@ -6244,16 +6244,6 @@ def app_shell(
             route_run_summary = dict(route_run.get("summary") or {}) if isinstance(route_run.get("summary"), dict) else {}
             route_ranked_candidates = list(route_run_summary.get("ranked_candidates") or route_run.get("ranked_candidates") or [])
             route_sources = list(route_run_summary.get("sources") or route_run.get("sources") or [])
-            has_source_top_candidates = any(
-                isinstance(source, dict) and list(source.get("top_candidates") or [])
-                for source in route_sources
-            )
-            if (
-                not explicit_full_view
-                and route_run_status in {"processed", "completed", "completed_partial"}
-                and (route_ranked_candidates or has_source_top_candidates)
-            ):
-                return RedirectResponse(_propertyquarry_fast_ranked_run_href(normalized_run_id), status_code=307)
             if (
                 resolved_section == "properties"
                 and not explicit_full_view
@@ -6439,7 +6429,7 @@ def app_shell(
                 force_recent_runs=str(full or "").strip().lower() in {"1", "true", "yes"},
                 defer_run_hydration=(
                     not normalized_run_id
-                    and resolved_section in {"properties", "shortlist", "agents", "alerts", "account", "billing", "settings"}
+                    and resolved_section in {"properties", "agents", "alerts", "account", "billing", "settings"}
                     and str(full or "").strip().lower() not in {"1", "true", "yes"}
                 ),
             )

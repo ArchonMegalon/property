@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import hashlib
-
 from app.services.fliplink.service import build_fliplink_packet_service
+from app.services.heyy_whatsapp_service import redact_phone_number
 from tests.product_test_helpers import build_product_client, start_workspace
 
 
@@ -197,7 +196,7 @@ def test_heyy_whatsapp_stop_blocks_templates_until_start(monkeypatch) -> None:
             "channel_id": kwargs.get("channel_id") or "channel-1",
             "message_id": "msg-after-start",
             "delivery_status": "queued",
-            "phone_e164_hash": hashlib.sha256("+43 660 0000000".encode("utf-8")).hexdigest(),
+            "phone_e164_hash": redact_phone_number("+43 660 0000000")["phone_e164_hash"],
             "phone_last4": "0000",
         },
     )
@@ -227,7 +226,7 @@ def test_heyy_property_match_notification_endpoint_records_event(monkeypatch) ->
             "channel_id": kwargs.get("channel_id") or "channel-1",
             "message_id": "msg-property-1",
             "delivery_status": "queued",
-            "phone_e164_hash": hashlib.sha256("+43 660 0000000".encode("utf-8")).hexdigest(),
+            "phone_e164_hash": redact_phone_number("+43 660 0000000")["phone_e164_hash"],
             "phone_last4": "0000",
         },
     )
@@ -252,7 +251,7 @@ def test_heyy_property_match_notification_endpoint_records_event(monkeypatch) ->
     assert any(payload.get("template_kind") == "property_match" for payload in payloads)
     property_payload = next(payload for payload in payloads if payload.get("template_kind") == "property_match")
     assert property_payload["phone_last4"] == "0000"
-    assert property_payload["phone_e164_hash"] == hashlib.sha256("+43 660 0000000".encode("utf-8")).hexdigest()
+    assert property_payload["phone_e164_hash"] == redact_phone_number("+43 660 0000000")["phone_e164_hash"]
     assert "phone_number" not in property_payload
 
 
@@ -269,7 +268,7 @@ def test_heyy_search_agent_digest_notification_endpoint_records_event(monkeypatc
             "channel_id": kwargs.get("channel_id") or "channel-1",
             "message_id": "msg-digest-1",
             "delivery_status": "queued",
-            "phone_e164_hash": hashlib.sha256("+43 660 0000000".encode("utf-8")).hexdigest(),
+            "phone_e164_hash": redact_phone_number("+43 660 0000000")["phone_e164_hash"],
             "phone_last4": "0000",
         },
     )
@@ -295,5 +294,5 @@ def test_heyy_search_agent_digest_notification_endpoint_records_event(monkeypatc
     assert any(payload.get("template_kind") == "search_agent_digest" for payload in payloads)
     digest_payload = next(payload for payload in payloads if payload.get("template_kind") == "search_agent_digest")
     assert digest_payload["phone_last4"] == "0000"
-    assert digest_payload["phone_e164_hash"] == hashlib.sha256("+43 660 0000000".encode("utf-8")).hexdigest()
+    assert digest_payload["phone_e164_hash"] == redact_phone_number("+43 660 0000000")["phone_e164_hash"]
     assert "phone_number" not in digest_payload

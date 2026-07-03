@@ -2893,6 +2893,7 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "recrmls": "re_cr_mls",
     "costaricamls": "re_cr_mls",
     "realtorcr": "realtor_cr",
+    "realtorcomcr": "realtor_cr",
     "realtor_cr": "realtor_cr",
     "coldwellbankercr": "coldwellbanker_cr",
     "coldwellbanker_cr": "coldwellbanker_cr",
