@@ -31,17 +31,19 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `bff8f8b032dfe7b0204f956fc3d7e5e9399748a1` |
+| Runtime commit SHA | `1030bcf8e6ef3f3d356c5f82e3d956c5ea868a15` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current local/live proof candidate on 2026-07-03 after `bff8f8b0`, carrying the premium mobile/research/search polish, provider-safe walkthrough routing, optional hidden Pano2VR posture, refreshed AT/DE/CR provider matrix, 3D browser gates, walkthrough quality gate, map-preview flagship gate, billing verification refresh, token-redacted billing smoke receipts, OneMinute-first Responses lane order, deployment provider-matrix receipt preservation, tour import gold-gate wording hardening, and release-security posture checks |
+| Deployment ID | current local/live proof candidate on 2026-07-03 after `1030bcf8`, carrying the premium mobile/research/search polish, provider-safe walkthrough routing, optional hidden Pano2VR posture, refreshed AT/DE/CR provider matrix, 3D browser gates, walkthrough quality gate, map-preview flagship gate, billing verification refresh, token-redacted billing smoke receipts, explicit signed billing-handoff readiness reporting, OneMinute-first Responses lane order, deployment provider-matrix receipt preservation, tour import gold-gate wording hardening, and release-security posture checks |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
 The local/live proof pass on 2026-07-03 verified:
 
-- Commit `bff8f8b0` is the current runtime candidate for the refreshed flagship-gate pass, including deploy-side provider-matrix receipt preservation, token-redacted billing handoff smoke receipts, optional/hidden Pano2VR release-gate wording, generated-cube-fallback rejection in tour import instructions, and canonical live-container tour-control receipt selection.
+- Commit `1030bcf8` is the current runtime candidate for the refreshed flagship-gate pass, including deploy-side provider-matrix receipt preservation, token-redacted billing handoff smoke receipts, explicit billing readiness-path reporting (`ready_via=member_login_token` when the signed member-token handoff is what passed), optional/hidden Pano2VR release-gate wording, generated-cube-fallback rejection in tour import instructions, and canonical live-container tour-control receipt selection.
+- `python3 -m pytest -q tests/test_propertyquarry_gold_status.py tests/test_property_live_authenticated_smoke.py` returned `87 passed`.
+- The refreshed gold-status receipt now distinguishes the direct account URL from the signed account handoff: direct `/account` can remain `direct_account_handoff_usable=false` while the signed lane must prove `signed_handoff_usable=true`, `ready_via=member_login_token` or `ready_via=sso_bridge`, and live smoke checks for external handoff plus no second login.
 - `python3 -m pytest -q tests/test_property_tour_export_manifest.py tests/test_propertyquarry_gold_status.py` returned `73 passed`.
 - `docker exec propertyquarry-api python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --live-probe --base-url http://127.0.0.1:8090 --host-header propertyquarry.com --require-all-provider-modes --write /data/artifacts/property-tour-controls-live-container-current.json --summary-only --fail-on-blocked` returned `status=pass`, required modes `matterport`, `3dvista`, `krpano`, and `magicfit`, optional mode `pano2vr`, and no missing provider modes.
 - `python3 scripts/propertyquarry_gold_status.py --write _completion/propertyquarry/gold-status-current.json` returned `status=pass`, `blockers=[]`, and selected `_completion/tours/property-tour-controls-live-container-current.json` as the tour-control receipt.
