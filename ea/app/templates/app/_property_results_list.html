@@ -29,7 +29,10 @@
       {% if hero_actions %}
       <div class="pqx-actions" style="margin:0 0 12px;">
         {% for action in hero_actions[:3] %}
+        {% set action_label = action.get('label') or '' %}
+        {% if action_label|lower not in ['full view', 'open full view'] %}
         <a class="pqx-link-button{% if action.get('tone') == 'primary' %} primary{% else %} subtle{% endif %}" href="{{ action.get('href') }}">{{ action.get('label') }}</a>
+        {% endif %}
         {% endfor %}
       </div>
       {% endif %}

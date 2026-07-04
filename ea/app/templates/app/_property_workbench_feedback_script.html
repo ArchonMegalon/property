@@ -916,7 +916,7 @@
       if (householdScoreNode) householdScoreNode.textContent = `Alignment score ${Number(candidate.household_alignment_score || 0)}/100`;
       if (householdLabelNode) householdLabelNode.textContent = String(candidate.household_alignment_label || 'waiting');
       renderReasonCards(riskSignalsNode, candidate.risk_signal_rows, { emptyTitle: 'No shared note yet.', defaultTitle: 'Shared watch-out' });
-      renderReasonCards(recentChangesNode, candidate.recent_change_rows, { emptyTitle: 'No new deltas yet.', defaultTitle: 'Change' });
+      renderReasonCards(recentChangesNode, candidate.recent_change_rows, { emptyTitle: 'No new updates yet.', defaultTitle: 'Change' });
       if (officialPostureNode) {
         renderEventCards(
           officialPostureNode,

@@ -531,7 +531,7 @@
     `).join('') || '<div class="pqx-note">No shared note yet.</div>';
     const renderRecentChanges = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
       <div class="pqx-event-card"><strong>${escapeHtml(row.title || 'Change')}</strong><span class="pqx-note">${escapeHtml(row.detail || '')}</span><span class="pqx-small">${escapeHtml(row.tag || '')}</span></div>
-    `).join('') || '<div class="pqx-note">No new deltas yet.</div>';
+    `).join('') || '<div class="pqx-note">No new updates yet.</div>';
     const renderFollowups = (rows) => (Array.isArray(rows) ? rows : []).map((row) => {
       const feedbackId = escapeHtml(row.feedback_id || '');
       const actionButtons = feedbackId ? `
@@ -1080,7 +1080,7 @@
           }),
         });
         const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error, 'Could not create the shortlist packet.'));
+        if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error, 'Could not create the shared page.'));
         window.location.href = '/app/properties/packets';
       } catch (error) {
         if (button) {

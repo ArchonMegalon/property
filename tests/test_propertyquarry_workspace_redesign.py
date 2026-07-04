@@ -4505,6 +4505,7 @@ def test_property_action_cards_filter_legacy_full_view_buttons() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     template = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     object_template = (repo_root / "ea/app/templates/app/object_detail.html").read_text(encoding="utf-8")
+    results_template = (repo_root / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
     payload_builder = (repo_root / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(
         encoding="utf-8"
     )
@@ -4522,6 +4523,7 @@ def test_property_action_cards_filter_legacy_full_view_buttons() -> None:
         "quaternary_action_visible = quaternary_action_href and quaternary_action_label|lower not in hidden_action_labels"
         in object_template
     )
+    assert "action_label|lower not in ['full view', 'open full view']" in results_template
     assert "_is_redundant_property_action_label(cleaned.get(label_key))" in payload_builder
     surface_state = (repo_root / "ea/app/product/property_surface_state.py").read_text(encoding="utf-8")
     assert "ordered_results = [_strip_hidden_property_action_slots(row)" in surface_state

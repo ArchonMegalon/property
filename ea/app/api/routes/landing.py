@@ -1618,7 +1618,7 @@ def _property_title_price_fallback(title: object) -> str:
 def _property_research_title_display(title: object) -> str:
     text = " ".join(str(title or "").split()).strip()
     if not text:
-        return "Research packet"
+        return "Property page"
     text = re.sub(r"\s+-\s+[^\-\|,]+$", "", text).strip()
     trailing_patterns = (
         r",\s*\d+(?:[.,]\d+)?\s*m².*$",
@@ -1633,7 +1633,7 @@ def _property_research_title_display(title: object) -> str:
             if updated != text:
                 text = updated
                 changed = True
-    return text or "Research packet"
+    return text or "Property page"
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(
     _clickrank_head_snippet(_request_hostname(request), _request_path(request))
@@ -1926,7 +1926,7 @@ def _property_missing_packet_response(
             {
                 "status": "recovery_available",
                 "code": "property_research_packet_recovery",
-                "message": "That property page is not available in this packet. The shortlist is still available.",
+                "message": "That property page is not available right now. The shortlist is still available.",
                 "run_id": normalized_run_id,
                 "candidate_ref": normalized_candidate_ref,
                 "redirect_url": target,
@@ -1960,9 +1960,9 @@ def _property_queue_missing_research_packet_repair(
                 f"{urllib.parse.quote(normalized_run_id or 'unknown', safe='')}/"
                 f"{urllib.parse.quote(normalized_candidate_ref, safe='')}"
             ),
-            title=f"Missing property research packet {normalized_candidate_ref}",
+            title=f"Missing property page {normalized_candidate_ref}",
             source_url=str(recovery_url or "").strip(),
-            source_label="Property research packet",
+            source_label="Property page",
             source_platform="propertyquarry",
             source_family="research_packet",
             filter_key="research_packet_missing",
@@ -3371,7 +3371,7 @@ def _property_console_context(
             candidate_ref=selected_candidate_ref,
         )
     run_status_value = str(run_payload.get("status") or "").strip().lower()
-    # First paint must stay fast; preference fine-tuning loads packet feedback explicitly.
+    # First paint must stay fast; preference fine-tuning loads feedback explicitly.
     enrich_run_candidates_with_feedback = False
     if run_payload and enrich_run_candidates_with_feedback:
         packet_service = build_fliplink_packet_service(container)
@@ -5147,7 +5147,7 @@ def property_research_packet(
     ).strip()
     source_label = str(candidate.get("source_label") or "Property scout").strip() or "Property scout"
     display_source_label = _compact_provider_label(source_label) or source_label
-    title = str(candidate.get("title") or property_url or "Research packet").strip() or "Research packet"
+    title = str(candidate.get("title") or property_url or "Property page").strip() or "Property page"
     display_title = _property_research_title_display(title)
     run_target = (
         f"/app/research/{candidate_ref}"
@@ -5199,7 +5199,7 @@ def property_research_packet(
         _object_detail_row(
             "Best reason to act",
             _clean_property_candidate_copy(str(decision_rows[0].get("detail") or fit_summary).strip())
-            or "The current packet sees enough signal to keep this home open.",
+            or "The current page sees enough signal to keep this home open.",
             "Quick read",
         ),
         _object_detail_row("Main concern", _clean_property_candidate_copy(mismatch_reasons[0]), "Risk")
@@ -5224,8 +5224,8 @@ def property_research_packet(
         feedback_suggestions = dict(product.property_feedback_suggestions(property_facts=facts, assessment=assessment or candidate))
     except Exception:
         feedback_suggestions = {"negative": [], "positive": []}
-    # Keep the initial research packet fast and content-first.
-    # Detailed packet collaboration history belongs behind explicit follow-up actions,
+    # Keep the initial property page fast and content-first.
+    # Detailed collaboration history belongs behind explicit follow-up actions,
     # not on the critical render path for the mobile/desktop property page.
     feedback_summary: dict[str, object] = {}
     property_timeline_rows: list[dict[str, object]] = []
@@ -5243,7 +5243,7 @@ def property_research_packet(
         objection_clusters = [
             _object_detail_row(
                 "No recorded objections yet",
-                "Stakeholder objections and reviewer disagreements will surface here once packet or decision feedback is captured.",
+                "Stakeholder objections and reviewer disagreements will surface here once page or decision feedback is captured.",
                 "Waiting",
             )
         ]

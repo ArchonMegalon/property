@@ -3275,7 +3275,7 @@ def build_property_research_packet_snapshot(
     else:
         preview_image_payload = str(preview_image or "").strip()
     return PropertyResearchPacketSnapshot(
-        research_title=str(title or "").strip() or "Research packet",
+        research_title=str(title or "").strip() or "Property page",
         research_summary=str(summary or "").strip(),
         research_source_label=str(source_label or "").strip(),
         research_price=str(price or "").strip(),

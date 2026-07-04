@@ -2236,9 +2236,9 @@ def property_workspace_payload(
         if str(candidate.get("packet_url") or "").strip():
             rows.append(
                 {
-                    "title": "Packet ready",
+                    "title": "Page ready",
                     "detail": "The property page is ready for household or advisor follow-up.",
-                    "tag": "Packet",
+                    "tag": "Page",
                 }
             )
         feedback_summary = dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {}
@@ -2312,7 +2312,7 @@ def property_workspace_payload(
             if str(row.get("detail") or row.get("title") or "").strip()
         ]
         if not rows:
-            rows.append({"title": "No new deltas yet", "detail": "The visible timeline will summarize what changed after the first decision, packet event, or follow-up update.", "tag": "Waiting"})
+            rows.append({"title": "No new updates yet", "detail": "The visible timeline will summarize what changed after the first decision, shared page, or follow-up update.", "tag": "Waiting"})
         return rows
 
     def _visual_provider_label(value: object) -> str:
@@ -3334,7 +3334,7 @@ def property_workspace_payload(
                     {"title": "Open map" if map_url else "Map pending", "detail": "", "href": map_url},
                     {"title": price_line, "detail": ""},
                     {"title": " | ".join(part for part in layout_parts if part) or "n/a", "detail": ""},
-                    {"title": ooda_detail or "Packet explains the neighbourhood fit.", "detail": "", "href": packet_url},
+                    {"title": ooda_detail or "Property page explains the neighbourhood fit.", "detail": "", "href": packet_url},
                     {"title": packet_label, "detail": packet_url or str(candidate.get("property_url") or "").strip(), "href": packet_url},
                 ],
                 "packet_url": packet_url,
@@ -3983,7 +3983,7 @@ def property_workspace_payload(
     )
     research_rows = []
     for candidate in admitted_shortlist_candidates[:6]:
-        title = str(candidate.get("title") or "Research packet").strip() or "Research packet"
+        title = str(candidate.get("title") or "Property page").strip() or "Property page"
         reasons = list(candidate.get("match_reasons") or [])[:2]
         candidate_facts = _property_candidate_display_facts(candidate)
         mismatches = _property_normalized_mismatch_reasons(
@@ -4005,7 +4005,7 @@ def property_workspace_payload(
             {
                 "title": title,
                 "detail": " | ".join(part for part in detail_parts if part) or "Open the property page to review fit and open questions.",
-                "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Packet").strip() or "Packet",
+                "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Page").strip() or "Page",
                 "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
                 "action_method": "get",
                 "action_label": "Open property page",
@@ -4695,7 +4695,7 @@ def property_workspace_payload(
                     )
                     or str(item.get("detail") or "").strip()
                 ),
-                "tag": str(item.get("tag") or "Packet").strip(),
+                "tag": str(item.get("tag") or "Page").strip(),
                 "url": str(item.get("action_href") or "").strip(),
             }
             for item in list(recent_matches_card.get("items") or [])[:5]
