@@ -139,7 +139,7 @@ PRICING_TIERS = (
         "price": "Paid",
         "body": "For users who want more searches, deeper property research, and more persistent review coverage.",
         "facts": (
-            "More source coverage",
+            "More site coverage",
             "Deeper property research",
             "Email alerts and search history",
             "Longer shortlist history",

@@ -17,6 +17,7 @@ CUSTOMER_TEMPLATES = (
 
 CUSTOMER_COPY_SOURCES = CUSTOMER_TEMPLATES + (
     ROOT / "ea/app/api/routes/landing.py",
+    ROOT / "ea/app/api/routes/landing_content.py",
     ROOT / "ea/app/api/routes/landing_view_models.py",
     ROOT / "ea/app/api/routes/landing_property_workspace_helpers.py",
     ROOT / "ea/app/api/routes/landing_property_research.py",
