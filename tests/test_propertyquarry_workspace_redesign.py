@@ -12293,7 +12293,9 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     body = template_path.read_text(encoding="utf-8")
 
     assert "Share property pages and keep the replies together." in body
+    assert "<title>PropertyQuarry Shared Pages</title>" in body
     assert "Packet sharing" not in body
+    assert "PropertyQuarry Packets" not in body
     assert "Shared pages" in body
     assert "Ready to send" in body
     assert "Ready to share" in body
@@ -12311,6 +12313,11 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "renderer_version" not in body
     assert "Share page" in body
     assert "Share packet" not in body
+    assert "Back to run" not in body
+    assert "Back to search" in body
+    assert "No property packet is ready" not in body
+    assert "No shared page is ready yet." in body
+    assert "{{ item.property_ref }} · Shared page · {{ item.created_at[:19] }}" in body
     assert "Reactions" in body
     assert "Household reactions" not in body
     assert 'aria-label="PropertyQuarry sections"' in body
@@ -15816,8 +15823,9 @@ def test_property_research_packet_prefers_saved_shortlist_before_cross_run_scan(
 
     assert response.status_code == 200
     assert "Saved shortlist home" in response.text
-    assert "Moved to the latest run" in response.text
-    assert "run-shortlist-1" in response.text
+    assert "Opened the latest result" in response.text
+    assert "This saved link was stale" in response.text
+    assert ">run-shortlist-1<" not in response.text
 
 
 def test_propertyquarry_recent_history_keeps_distinct_searches_visible_when_retries_repeat(monkeypatch) -> None:
@@ -20820,11 +20828,13 @@ def test_property_research_packet_uses_cross_run_lookup_for_missing_candidate(mo
     assert packet.status_code == 200
     assert "Praterstrasse 77 · 2 Zimmer · 77 m² · 1.198" in packet.text
     assert "Transit fit" in packet.text
-    assert "Moved to the latest run" in packet.text
-    assert "The original run link expired, so PropertyQuarry opened the latest matching property page." in packet.text
+    assert "Opened the latest result" in packet.text
+    assert "This saved link was stale, so PropertyQuarry opened the matching property from your latest search." in packet.text
+    assert ">run-stale<" not in packet.text
+    assert ">run-current<" not in packet.text
     assert 'data-prd-route-recovery' in packet.text
     assert 'href="/app/shortlist?run_id=run-current"' in packet.text
-    assert 'title="Run run-current"' in packet.text
+    assert 'title="Open search results"' in packet.text
 
 
 def test_property_research_packet_cross_run_lookup_backfills_cached_preview_facts(monkeypatch) -> None:
@@ -20930,7 +20940,7 @@ def test_property_research_packet_cross_run_lookup_backfills_cached_preview_fact
 
     assert packet.status_code == 200
     assert "Recovered cached preview title" in packet.text
-    assert "Moved to the latest run" in packet.text
+    assert "Opened the latest result" in packet.text
     assert floorplan_url in packet.text
     assert media_url in packet.text
     assert 'href="/app/shortlist?run_id=run-current"' in packet.text

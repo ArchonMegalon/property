@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PropertyQuarry Packets</title>
+  <title>PropertyQuarry Shared Pages</title>
   <script>
     (function () {
       try {
@@ -445,7 +445,7 @@
         <a href="/app/account{{ packet_query_suffix or '' }}" data-pqx-nav-account>Account</a>
       </nav>
       <nav class="pq-pack-actions">
-        <a class="pq-pack-button" href="/app/properties{{ packet_query_suffix or '' }}">{% if selected_search_run_id %}Back to run{% else %}Open search{% endif %}</a>
+        <a class="pq-pack-button" href="/app/properties{{ packet_query_suffix or '' }}">{% if selected_search_run_id %}Back to search{% else %}Open search{% endif %}</a>
         {% if account_nav %}
         <details class="pq-pack-account-menu">
           <summary aria-label="Account navigation" title="Account" data-account-label="{{ account_nav.label }}">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
@@ -694,7 +694,7 @@
         {% endfor %}
       </div>
       {% else %}
-        <div class="pq-pack-empty">No property packet is ready to share yet. Finish a search, open a strong home, and create the first packet from the property review page.</div>
+        <div class="pq-pack-empty">No shared page is ready yet. Finish a search, open a strong home, and create the first page from the property review.</div>
       {% endif %}
     </section>
 
@@ -706,7 +706,7 @@
         <article class="pq-pack-feedback">
           <div>
             <strong>{{ item.reviewer.name or item.reviewer.email_masked or 'External reviewer' }}</strong>
-            <small>{{ item.property_ref }} · {{ item.packet_kind|replace("_", " ") }} · {{ item.created_at[:19] }}</small>
+            <small>{{ item.property_ref }} · Shared page · {{ item.created_at[:19] }}</small>
             <small>
               {% if item.custom_fields.reaction %}Reaction: {{ item.custom_fields.reaction }} · {% endif %}
               {% if item.custom_fields.intent %}Intent: {{ item.custom_fields.intent }} · {% endif %}

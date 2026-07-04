@@ -2973,12 +2973,12 @@
   </details>
   <div class="prd-top-context">
     {% if research_run_id %}
-    <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}" title="Run {{ research_run_id }}">Back to run</a>
+    <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}" title="Open search results">Back to results</a>
     {% endif %}
   </div>
   <div class="prd-top-actions">
     {% if research_run_id %}
-    <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}" title="Run {{ research_run_id }}">Back to run</a>
+    <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}" title="Open search results">Back to results</a>
     {% endif %}
     {% if account_nav %}
     <details class="account-menu">
@@ -3029,17 +3029,11 @@
 {% if research_route_recovery %}
 <aside class="prd-route-recovery" data-prd-route-recovery role="status">
   <div class="prd-route-recovery-copy">
-    <strong>{{ research_route_recovery.get('title') or 'Moved to the latest run' }}</strong>
-    <span>{{ research_route_recovery.get('detail') or 'The original run link expired, so PropertyQuarry opened the latest matching property page.' }}</span>
+    <strong>{{ research_route_recovery.get('title') or 'Opened the latest result' }}</strong>
+    <span>{{ research_route_recovery.get('detail') or 'This saved link was stale, so PropertyQuarry opened the matching property from your latest search.' }}</span>
   </div>
   <div class="prd-route-recovery-meta">
-    {% if research_route_recovery.get('requested_run_id') %}
-    <span class="prd-route-recovery-pill">{{ research_route_recovery.get('requested_run_id') }}</span>
-    {% endif %}
-    {% if research_route_recovery.get('run_id') %}
-    <span class="prd-route-recovery-pill">{{ research_route_recovery.get('run_id') }}</span>
-    {% endif %}
-    <a class="prd-run-chip" href="{{ research_route_recovery.get('action_href') or ('/app/shortlist' ~ research_query_suffix) }}">{{ research_route_recovery.get('action_label') or 'Open latest shortlist' }}</a>
+    <a class="prd-run-chip" href="{{ research_route_recovery.get('action_href') or ('/app/shortlist' ~ research_query_suffix) }}">{{ research_route_recovery.get('action_label') or 'Open search results' }}</a>
   </div>
 </aside>
 {% endif %}

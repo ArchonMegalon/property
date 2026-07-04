@@ -185,7 +185,14 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "waiting for first run",
         "run state",
         "search · run",
+        "back to run",
+        "propertyquarry packets",
+        "no property packet is ready",
+        "share packet",
         "packets already sent",
+        "moved to the latest run",
+        "original run link expired",
+        "open latest shortlist",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

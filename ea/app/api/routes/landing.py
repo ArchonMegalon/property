@@ -5100,12 +5100,12 @@ def property_research_packet(
     effective_run_id = str(resolved_run_id or "").strip()
     research_route_recovery = (
         {
-            "title": "Moved to the latest run",
-            "detail": "The original run link expired, so PropertyQuarry opened the latest matching property page.",
+            "title": "Opened the latest result",
+            "detail": "This saved link was stale, so PropertyQuarry opened the matching property from your latest search.",
             "requested_run_id": requested_run_id,
             "run_id": effective_run_id,
             "action_href": f"/app/shortlist?run_id={urllib.parse.quote(effective_run_id, safe='')}",
-            "action_label": "Open latest shortlist",
+            "action_label": "Open search results",
         }
         if requested_run_id and effective_run_id and effective_run_id != requested_run_id
         else {}
