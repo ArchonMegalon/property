@@ -147,6 +147,10 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "saved durably",
         "no risk summary captured yet",
         "current answer",
+        "repair notes",
+        "repair state",
+        "coverage, pages, repair",
+        "health, coverage, repair",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

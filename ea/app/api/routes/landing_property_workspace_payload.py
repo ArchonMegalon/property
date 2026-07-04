@@ -3500,7 +3500,7 @@ def property_workspace_payload(
             {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring briefs available for editing and rerunning.", "href": f"/app/agents{run_suffix}"},
             {"label": "Active", "value": str(sum(1 for agent in property_search_agents if agent.get("enabled"))), "detail": "Agents allowed to send matching updates.", "href": f"/app/agents{run_suffix}"},
             {"label": "Delivery", "value": str(property_search_agent.get("notification_label") or "Set per agent"), "detail": "Each recurring search ranks down to the allowed message budget.", "href": f"/app/agents{run_suffix}"},
-            {"label": "Reports", "value": "Alerts", "detail": "Digests, repair notes, and market watches use the saved delivery channel.", "href": f"/app/agents{run_suffix}"},
+            {"label": "Reports", "value": "Alerts", "detail": "Digests, status notes, and market watches use the saved delivery channel.", "href": f"/app/agents{run_suffix}"},
         ],
         "billing": [
             {"label": "Plan", "value": current_plan_label, "detail": "Active plan.", "href": signed_in_billing_href},
@@ -4081,7 +4081,7 @@ def property_workspace_payload(
                 "Review the final results table."
                 if run_status_value in {"processed", "completed"} and results_table_rows
                 else (
-                    "Keep health, coverage, repair state, and the next useful update visible while the run is active."
+                    "Keep coverage, source health, and the next useful update visible while the run is active."
                     if run_in_progress
                     else "This surface is for run health, partial coverage, and the last completed sweep."
                 )
@@ -4093,10 +4093,10 @@ def property_workspace_payload(
                 else ("Keep the run visible until the shortlist is ready." if run_in_progress else "No run is active right now.")
             ),
             "hero_summary": (
-                "Coverage, pages, repair."
+                "Coverage and pages."
                 if run_status_value in {"processed", "completed"} and results_table_rows
                 else (
-                    "Health, coverage, repair."
+                    "Health and coverage."
                     if run_in_progress
                     else "No active run."
                 )

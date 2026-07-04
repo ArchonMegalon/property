@@ -659,9 +659,9 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         repair_tasks = [dict(row) for row in list(source_row.get("provider_repair_tasks") or []) if isinstance(row, dict)]
         repair_status = str((repair_tasks[0] if repair_tasks else {}).get("status") or source_row.get("repair_status") or "").strip().lower()
         if raw_status == "repaired" or repair_status == "returned":
-            return "Repaired"
+            return "Back online"
         if raw_status == "repairing" or repair_status in {"pending", "assigned"}:
-            return "Repairing"
+            return "Checking again"
         if raw_status in {"completed", "processed", "done", "success"}:
             return "Done"
         if raw_status in {"failed", "error"} or source_row.get("error"):
@@ -737,14 +737,14 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
                 "shard_count": shard_count,
                 "status_label": status_label,
                 "progress_pct": progress,
-                "tone": "done" if progress >= 100 and source_row and status_label in {"Done", "Repaired"} else ("active" if status_label in {"Running", "Starting", "Preparing", "Repairing"} else ("queued" if status_label in {"Up next"} else "idle")),
+                "tone": "done" if progress >= 100 and source_row and status_label in {"Done", "Back online"} else ("active" if status_label in {"Running", "Starting", "Preparing", "Checking again"} else ("queued" if status_label in {"Up next"} else "idle")),
             }
         )
 
     live_worker_total = sum(
         1
         for row in worker_rows
-        if str(row.get("status_label") or "") in {"Running", "Starting", "Preparing", "Repairing"}
+        if str(row.get("status_label") or "") in {"Running", "Starting", "Preparing", "Checking again"}
     )
     queued_worker_total = sum(1 for row in worker_rows if str(row.get("status_label") or "") == "Up next")
     display_active_total = active_provider_total

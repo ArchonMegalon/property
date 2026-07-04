@@ -9977,6 +9977,27 @@ def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
     assert worker_state["tooltip"] == "This shows which lists are running, queued, restored, or unavailable for this search. Other saved searches keep their own progress."
 
 
+def test_property_search_worker_slots_use_calm_recheck_labels() -> None:
+    worker_state = landing_view_models._property_search_worker_slots(
+        {
+            "provider_workers": {"worker_concurrency": 2},
+            "status": "running",
+            "sources": [
+                {"source_label": "Willhaben | Austria | Rent | Vienna", "status": "repairing"},
+                {"source_label": "immmo | Austria | Rent | Vienna", "status": "repaired"},
+            ],
+        },
+        plan_key="plus",
+    )
+
+    labels = [str(row.get("status_label") or "") for row in worker_state.get("workers") or []]
+    assert labels == ["Checking again", "Back online"]
+    assert "Repairing" not in labels
+    assert "Repaired" not in labels
+    assert worker_state["workers"][0]["tone"] == "active"
+    assert worker_state["workers"][1]["tone"] == "done"
+
+
 def test_property_search_worker_slots_show_four_real_provider_lanes_for_agent_runs() -> None:
     worker_state = landing_view_models._property_search_worker_slots(
         {
@@ -16296,7 +16317,7 @@ def test_propertyquarry_live_progress_derives_provider_count_before_source_varia
     assert 'if raw_status == "starting"' in helper
     assert 'if raw_status == "warming"' in helper
     assert 'return "Preparing"' in helper
-    assert 'status_label in {"Running", "Starting", "Preparing", "Repairing"}' in helper
+    assert 'status_label in {"Running", "Starting", "Preparing", "Checking again"}' in helper
     assert "Array.isArray(data?.brief?.providers)" in script
     assert "const rawProviderSourceKey" in script
     assert "sourceProviders.add(identity);" in script
