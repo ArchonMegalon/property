@@ -38605,6 +38605,7 @@ class ProductService:
                 snapshot = self.get_property_search_run_status(
                     principal_id=str(record.get("principal_id") or normalized_principal).strip() or normalized_principal,
                     run_id=run_id,
+                    lightweight=True,
                     account_email=account_email,
                 )
                 if isinstance(snapshot, dict) and snapshot:

@@ -6501,7 +6501,7 @@ def app_shell(
                     except Exception:
                         return []
 
-                if resolved_property_section == "shortlist" and not normalized_run_id:
+                if resolved_property_section == "shortlist":
                     property_context["saved_shortlist_candidates"] = list(
                         _property_first_paint_value(_load_saved_shortlist_candidates, [])
                     )

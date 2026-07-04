@@ -652,16 +652,20 @@ def _property_search_run_status_payload(
     normalized["summary"] = summary
     normalized = normalize_property_search_run_snapshot(normalized)
     summary = dict(normalized.get("summary") or {}) if isinstance(normalized.get("summary"), dict) else {}
+    raw_progress_message = str(normalized.get("message") or "").strip()
     normalized["message"] = property_run_customer_safe_status_detail(
         normalized.get("status") or summary.get("status"),
-        normalized.get("message") or "",
+        raw_progress_message,
         summary=summary,
         prefer_repair_step=True,
     )
     if lightweight:
         summary = _property_search_compact_source_rows(summary)
     normalized["summary"] = summary
-    normalized["events"] = property_run_customer_visible_events(run_payload=normalized)
+    event_payload = dict(normalized)
+    if raw_progress_message:
+        event_payload["message"] = raw_progress_message
+    normalized["events"] = property_run_customer_visible_events(run_payload=event_payload)
     if summary:
         score_demoted_total = int(summary.get("score_demoted_total") or summary.get("filtered_low_fit_total") or 0)
         if score_demoted_total > 0:
