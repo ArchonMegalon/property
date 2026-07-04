@@ -2054,8 +2054,8 @@ def test_propertyquarry_repair_states_use_calm_browser_copy_on_properties_surfac
                     "tour_created_total": 0,
                     "tour_existing_total": 0,
                     "repair_status": "failed",
-                    "repair_status_label": "Repair failed",
-                    "customer_status_message": "The search could not confirm a usable shortlist from the available source pages.",
+                    "repair_status_label": "Needs attention",
+                    "customer_status_message": "The search could not confirm a ready shortlist from the available source pages.",
                     "repair_last_updated_at": "2026-06-27T00:07:07+00:00",
                     "repair_receipts": [
                         {
@@ -2084,10 +2084,11 @@ def test_propertyquarry_repair_states_use_calm_browser_copy_on_properties_surfac
         expect(page.locator(".pqx-shell")).to_have_attribute("data-pqx-state", "empty_results")
         expect(page.locator("[data-pqx-empty-results] h1")).to_contain_text("One source changed, so PropertyQuarry is retrying it.")
         expect(page.locator("[data-pqx-empty-results] .pqx-empty-outcome-line")).to_contain_text(
-            "Repair took over before any listing inspection completed."
+            "PropertyQuarry started a fresh check before any listing inspection completed."
         )
         visible_text = page.locator("body").inner_text()
         assert "PropertyQuarry is checking the saved search again." not in visible_text
+        assert "Repair took over before any listing inspection completed." not in visible_text
         assert "Provider returned 403 while fetching Willhaben." not in visible_text
         assert "Retrying Willhaben provider check" not in visible_text
         assert "Repair is queued for the interrupted provider checks." not in visible_text

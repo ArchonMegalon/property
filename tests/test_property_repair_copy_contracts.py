@@ -15,7 +15,7 @@ def test_property_workbench_script_uses_repair_reason_for_failed_run_copy() -> N
     assert "const repairCustomerReason = (summary, rawMessage = '') => {" in body
     assert "return 'This source changed and the current check could not confirm the listing reliably.';" in body
     assert "const calmRepairCustomerCopy = (summary, rawMessage = '') => {" in body
-    assert "return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';" in body
+    assert "return customerStatus || calmRepairCopy || 'A fresh search is checking your saved brief.';" in body
     assert "if (customerStatus || calmRepairCopy || repairReason) {" in body
 
 

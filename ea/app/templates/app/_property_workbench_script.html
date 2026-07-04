@@ -1741,10 +1741,10 @@
         return `Candidate ${ordinal} matched existing property memory`;
       }
       if (['stale', 'removed', 'expired', 'no longer available'].some((token) => normalized.includes(token))) {
-        return `Listing freshness changed for candidate ${ordinal}; repair opened`;
+        return `Listing freshness changed for candidate ${ordinal}; checking again`;
       }
       if (['repair', 'extractor', 'fetch failed', 'provider patch'].some((token) => normalized.includes(token))) {
-        return `Repair picked up candidate ${ordinal}`;
+        return `Checking candidate ${ordinal} again`;
       }
       if (['price per sqm', 'price per square', '€/m2', 'eur/m2', 'eur per m2'].some((token) => normalized.includes(token))) {
         if (['below', 'under', 'cheaper', 'discount', 'stronger than benchmark'].some((token) => normalized.includes(token))) {
@@ -1765,7 +1765,7 @@
       }
       if (['rooms', 'room count', 'layout shape', 'floor plan shape', 'floorplan shape'].some((token) => normalized.includes(token))) {
         if (['fits', 'fit', 'matches', 'matched', 'usable'].some((token) => normalized.includes(token))) {
-          return `Room layout looks usable for candidate ${ordinal}`;
+          return `Room layout works for candidate ${ordinal}`;
         }
         if (['awkward', 'unclear', 'inefficient', 'needs verification'].some((token) => normalized.includes(token))) {
           return `Room layout needs a closer check for candidate ${ordinal}`;
@@ -1956,7 +1956,7 @@
         || combined.includes('blocked or rejected automated source fetch')
         || combined.includes('403')
         || combined.includes('forbidden')
-      ) return 'This source stopped returning a usable listing page.';
+      ) return 'This source stopped returning a listing page PropertyQuarry can read.';
       if (
         resolution === 'suppressed_generic_listing_page'
         || combined.includes('generic marketing or overview page')
@@ -2026,7 +2026,7 @@
         return 'A source changed, so a fresh search is already running.';
       }
       if (replacementRunId) {
-        return 'A replacement search run is checking the saved brief.';
+        return 'A fresh search is checking your saved brief.';
       }
       if (!repairReasonPointsToProviderSiteChange(repairReason)) return '';
       if (repairStatus === 'failed' || repairStatus === 'repair failed') {
@@ -2176,7 +2176,7 @@
       const customerStatus = isInternalRepairFailureCopy(rawCustomerStatus) && calmRepairCopy ? calmRepairCopy : rawCustomerStatus;
       const repairReason = calmRepairCopy ? '' : repairCustomerReason(summary, String(runPayload?.message || ''));
       if (replacementRunId) {
-        return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
+        return customerStatus || calmRepairCopy || 'A fresh search is checking your saved brief.';
       }
       if (
         status === 'failed'
@@ -2279,9 +2279,9 @@
 	        status,
 	        raw,
 	        providerDisplayTotal,
-	      );
+      );
       if (replacementRunId) {
-        return customerStatus || calmRepairCopy || 'A replacement search run is checking the saved brief.';
+        return customerStatus || calmRepairCopy || 'A fresh search is checking your saved brief.';
       }
       if (detailQueueMessage) {
         return detailQueueMessage;

@@ -10580,11 +10580,11 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Listing freshness check found candidate 25 of 60 is stale and no longer available.",
-            "Listing freshness changed for candidate 25/60; repair opened",
+            "Listing freshness changed for candidate 25/60; checking again",
         ),
         (
             "Provider repair opened for candidate 26 of 60 after fetch failed in extractor.",
-            "Repair picked up candidate 26/60",
+            "Checking candidate 26/60 again",
         ),
         (
             "Price per sqm is below benchmark for candidate 27 of 60.",
@@ -10604,7 +10604,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Room count and layout shape matched for candidate 31 of 60.",
-            "Room layout looks usable for candidate 31/60",
+            "Room layout works for candidate 31/60",
         ),
         (
             "Bike route looked protected and direct for candidate 32 of 60.",
@@ -10655,7 +10655,7 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
         },
         results_total=3,
     )
-    assert reliability["health_label"] == "Repairing"
+    assert reliability["health_label"] == "Checking again"
     assert reliability["repair_step_label"] == "Refreshing 1 source"
     assert reliability["coverage_label"] == "2/4 sources · 2 still running"
     assert "provider check" not in reliability["coverage_label"].lower()
@@ -10710,9 +10710,9 @@ def test_property_surface_state_builds_run_repair_snapshot() -> None:
     )
 
     assert repair["repair_status"] == "repairing"
-    assert repair["repair_status_label"] == "Repairing"
+    assert repair["repair_status_label"] == "Checking again"
     assert repair["repair_step_label"] == "Refreshing 1 source"
-    assert repair["repair_outcome_summary"] == "Some sources are retrying, but the current shortlist is already usable."
+    assert repair["repair_outcome_summary"] == "Some sources are retrying, but the current shortlist is still available."
     assert "selected sources" not in " ".join(str(value) for value in repair.values()).lower()
     assert repair["eta_confidence_label"] == "Medium"
     assert repair["can_auto_repair"] is True
@@ -11526,8 +11526,8 @@ def test_property_search_status_synthesizes_repair_events_for_compact_failed_run
             "message": "provider worker interrupted",
             "summary": {
                 "repair_status": "repairing",
-                "repair_status_label": "Repairing",
-                "repair_step_label": "Repairing interrupted run.",
+                "repair_status_label": "Checking again",
+                "repair_step_label": "Checking again after the run was interrupted.",
                 "repair_receipts": [
                     {
                         "source_label": "Willhaben",
@@ -15209,8 +15209,8 @@ def test_property_artifact_rows_are_readiness_copy_not_receipt_jargon() -> None:
     assert "Real tour links can be shown when available; fake cube viewers stay hidden." in text
     assert "Walkthrough videos stay request-only and must pass visual quality checks before delivery." in text
     assert "1 3D tour, 2 walkthrough videos, 3 sent updates." in text
-    assert "Repair outcome" in text
-    assert "Checked 1 time. Latest result: completed partial." in text
+    assert "Latest check" in text
+    assert "Checked 1 time. Last result: completed partial." in text
     assert "MarkupGo" not in text
     assert "Playwright render receipt" not in text
     assert "export receipts" not in text
@@ -16196,8 +16196,8 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
                 "filtered_total": 24,
                 "ranked_candidates": [],
                 "eta_label": "about 8 hr",
-                "repair_status_label": "Repairing",
-                "repair_step_label": "Repairing interrupted run.",
+                "repair_status_label": "Checking again",
+                "repair_step_label": "Checking again after the run was interrupted.",
                 "sources": [],
             },
             "events": [],
@@ -16216,7 +16216,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
-    assert "Repairing interrupted run." in response.text
+    assert "Checking again after the run was interrupted." in response.text
     assert "More options" in response.text
     assert "Provider-level details" not in response.text
     assert "Filtering diagnostics" not in response.text
@@ -16597,7 +16597,7 @@ def test_propertyquarry_failed_empty_state_drops_removed_ranking_bar_copy(monkey
             "status_url": f"/app/api/signals/property/search/run/{run_id}",
             "status": "failed",
             "progress": 100,
-            "message": "Repairing interrupted run while the worker restarts.",
+            "message": "Run interrupted while the worker restarts.",
             "summary": {
                 "sources_total": 29,
                 "provider_total": 29,
@@ -16607,15 +16607,15 @@ def test_propertyquarry_failed_empty_state_drops_removed_ranking_bar_copy(monkey
                 "held_back_total": 0,
                 "filtered_low_fit_total": 214,
                 "repair_status": "repairing",
-                "repair_status_label": "Repairing",
-                "repair_step_label": "Started a replacement search run from the saved brief.",
+                "repair_status_label": "Checking again",
+                "repair_step_label": "Started a fresh search from the saved brief.",
                 "repair_replacement_run_id": "run-replacement-1",
                 "repair_replacement_status_url": "/app/api/signals/property/search/run/run-replacement-1",
-                "customer_status_message": "A replacement search run is checking the saved brief.",
+                "customer_status_message": "A fresh search is checking your saved brief.",
                 "sources": [],
             },
             "events": [
-                {"step": "run_interrupted", "message": "Repairing interrupted run while the worker restarts.", "status": "failed"},
+                {"step": "run_interrupted", "message": "Run interrupted while the worker restarts.", "status": "failed"},
             ],
         }
 
@@ -16625,10 +16625,11 @@ def test_propertyquarry_failed_empty_state_drops_removed_ranking_bar_copy(monkey
     visible_text = re.sub(r"<script.*?</script>", "", page.text, flags=re.S)
 
     assert page.status_code == 200
-    assert "A replacement search run is checking the saved brief." in visible_text
+    assert "A fresh search is checking your saved brief." in visible_text
+    assert "A replacement search run is checking the saved brief." not in visible_text
     assert "ranking bar" not in visible_text.lower()
     assert "214" in visible_text
-    assert "Start a fresh search, or wait for repair" in visible_text
+    assert "Start a fresh search, or wait for the fresh check" in visible_text
     assert "Listings" in visible_text
 
 
@@ -19211,7 +19212,7 @@ def test_property_run_customer_visible_events_collapses_failed_parent_replacemen
     )
 
     messages = [str(event.get("message") or "") for event in events]
-    assert messages == ["A replacement search run is checking the saved brief."]
+    assert messages == ["A fresh search is checking your saved brief."]
     assert not any("search pages" in message.lower() or "to review" in message.lower() for message in messages)
 
 
@@ -19222,20 +19223,21 @@ def test_propertyquarry_failed_parent_run_with_replacement_hides_stale_source_co
             "sources_completed": 0,
             "listing_total": 0,
             "repair_status": "repairing",
-            "repair_status_label": "Repairing",
-            "repair_step_label": "Started a replacement search run from the saved brief.",
+            "repair_status_label": "Checking again",
+            "repair_step_label": "Started a fresh search from the saved brief.",
             "repair_replacement_run_id": "replacement-run",
         },
         run_sources=[],
         run_status_value="failed",
-        run_message="Repairing interrupted run while the worker restarts.",
+        run_message="Run interrupted while the worker restarts.",
         counterfactual_rows=[],
         suppression_rows=[],
     )
 
     combined = " ".join(str(value) for value in summary.values())
-    assert "A replacement search run is checking the saved brief." in combined
-    assert "The brief was saved; the replacement run is now active." in combined
+    assert "A fresh search is checking your saved brief." in combined
+    assert "A replacement search run is checking the saved brief." not in combined
+    assert "The brief was saved; the fresh search is active." in combined
     assert "repair receipt" not in combined.lower()
     assert "run receipts" not in combined.lower()
     assert "0/156 source variants" not in combined
@@ -19250,13 +19252,13 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
             "sources_completed": 0,
             "listing_total": 0,
             "repair_status": "repairing",
-            "repair_status_label": "Repairing",
-            "repair_step_label": "Repairing interrupted run.",
+            "repair_status_label": "Checking again",
+            "repair_step_label": "Checking again after the run was interrupted.",
             "provider_repair_tasks": [{"status": "opened"}],
         },
         run_sources=[],
         run_status_value="failed",
-        run_message="Repairing interrupted run while the worker restarts.",
+        run_message="Run interrupted while the worker restarts.",
         counterfactual_rows=[],
         suppression_rows=[],
     )
@@ -19264,7 +19266,7 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
     combined = " ".join(str(value) for value in summary.values())
     assert summary["happened"] == "PropertyQuarry is checking the saved search again."
     assert "The brief and selected sources were still saved." in combined
-    assert "Repair took over before any listing inspection completed." in combined
+    assert "PropertyQuarry started a fresh check before any listing inspection completed." in combined
     assert "repair receipt" not in combined.lower()
     assert "run receipts" not in combined.lower()
     assert "0/156" not in combined
@@ -19328,8 +19330,8 @@ def test_propertyquarry_failed_empty_outcome_explains_terminal_repair_failure() 
             "sources_completed": 0,
             "listing_total": 0,
             "repair_status": "failed",
-            "repair_status_label": "Repair failed",
-            "customer_status_message": "The search could not confirm a usable shortlist from the available source pages.",
+            "repair_status_label": "Needs attention",
+            "customer_status_message": "The search could not confirm a ready shortlist from the available source pages.",
             "repair_last_updated_at": "2026-06-27T00:07:07+00:00",
             "repair_receipts": [
                 {
@@ -19374,8 +19376,8 @@ def test_propertyquarry_failed_terminal_repair_run_uses_grounded_copy(monkeypatc
                 "tour_created_total": 0,
                 "tour_existing_total": 0,
                 "repair_status": "failed",
-                "repair_status_label": "Repair failed",
-                "customer_status_message": "The search could not confirm a usable shortlist from the available source pages.",
+                "repair_status_label": "Needs attention",
+                "customer_status_message": "The search could not confirm a ready shortlist from the available source pages.",
                 "repair_last_updated_at": "2026-06-27T00:07:07+00:00",
                 "repair_receipts": [
                     {
@@ -20978,8 +20980,9 @@ def test_property_research_packet_missing_candidate_redirects_to_shortlist(monke
     shortlist = client.get(packet.headers["location"], headers={"host": "propertyquarry.com"})
     assert shortlist.status_code == 200
     assert "Property page is being rebuilt" in shortlist.text
-    assert "Repair queued for the missing property page" in shortlist.text
-    assert "Repair queued" in shortlist.text
+    assert "This property page is queued for refresh" in shortlist.text
+    assert "Queued" in shortlist.text
+    assert "Repair queued" not in shortlist.text
     assert "missing-packet-ref" in shortlist.text
     repair_tasks = [
         task

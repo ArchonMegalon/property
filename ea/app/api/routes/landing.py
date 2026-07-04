@@ -6484,10 +6484,10 @@ def app_shell(
                 property_context["packet_recovery"] = {
                     "title": "Property page is being rebuilt",
                     "detail": (
-                        "Repair queued for the missing property page. The shortlist below remains usable while "
-                        "PropertyQuarry rebuilds the page or keeps the shortlist usable."
+                        "This property page is queued for refresh. The shortlist stays available while "
+                        "PropertyQuarry rebuilds the page."
                         if repair_task_ref
-                        else "That property page is not available from the current packet. The shortlist below remains usable while the run can be refreshed."
+                        else "That property page is not available from the current packet. The shortlist stays available while the run can be refreshed."
                     ),
                     "candidate_ref": missing_ref,
                     "run_id": normalized_run_id,

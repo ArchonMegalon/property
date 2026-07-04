@@ -10821,7 +10821,7 @@
           <span class="pqx-pill warn">{{ packet_recovery.get('candidate_ref') }}</span>
           {% endif %}
           {% if packet_recovery.get('queue_item_ref') %}
-          <span class="pqx-pill good">Repair queued</span>
+          <span class="pqx-pill good">Queued</span>
           {% endif %}
           <a class="pqx-link-button subtle" href="{{ packet_recovery.get('action_href') or '/app/shortlist' }}">{{ packet_recovery.get('action_label') or 'Open shortlist' }}</a>
         </div>

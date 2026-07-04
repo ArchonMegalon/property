@@ -522,7 +522,7 @@ def property_run_customer_safe_status_detail(
     if any(token in lowered for token in _DATABASE_PRESSURE_TOKENS):
         return customer_status or "The search paused because the database was busy. PropertyQuarry is retrying it."
     if replacement_run_id:
-        return customer_status or calm_repair_copy or "A replacement search run is checking the saved brief."
+        return customer_status or calm_repair_copy or "A fresh search is checking your saved brief."
     if any(token in lowered for token in _INTERNAL_RUN_STATUS_NOISE_TOKENS):
         return customer_status or calm_repair_copy or repair_reason
     if status == "failed" and lowered.startswith(_CUSTOMER_SAFE_FAILURE_PREFIXES):
@@ -552,7 +552,7 @@ def property_run_customer_safe_status_detail(
     if status == "failed" and repair_flags.get("active"):
         return customer_status or calm_repair_copy or "PropertyQuarry is checking the saved search again."
     if status == "failed" and repair_flags.get("failed"):
-        return customer_status or calm_repair_copy or "The search stopped before a usable shortlist was ready."
+        return customer_status or calm_repair_copy or "The search stopped before a ready shortlist was available."
     return customer_status or message
 
 
@@ -620,7 +620,7 @@ def _customer_friendly_repair_reason(summary: dict[str, object]) -> str:
         or "403" in combined
         or "forbidden" in combined
     ):
-        return "This source stopped returning a usable listing page."
+        return "This source stopped returning a listing page PropertyQuarry can read."
     if resolution == "suppressed_generic_listing_page" or "generic marketing or overview page" in reason:
         return "This source opened an overview page instead of one concrete home."
     if resolution == "provider_quarantined_retry_budget_exhausted" or "manual_provider_patch_required" in combined:
@@ -632,7 +632,7 @@ def _customer_friendly_repair_reason(summary: dict[str, object]) -> str:
     if resolution == "suppressed_location_scope" or "conflicts with the active search location" in reason:
         return "This source no longer matched the saved search area cleanly."
     if resolution in {"worker_exception_restart_required", "stale_run_restart_required"}:
-        return "The repair restarted the run, but it still did not reach a usable shortlist."
+        return "The retry restarted the run, but it still did not reach a ready shortlist."
     if "provider page" in combined or "webpage" in combined or "extract" in combined:
         return "This source changed and the current check could not confirm the listing reliably."
     return ""
@@ -711,7 +711,7 @@ def _customer_status_is_internal_failure_copy(value: object) -> bool:
     return lowered.startswith(
         (
             "no source completed cleanly enough",
-            "the search could not confirm a usable shortlist from the available source pages",
+            "the search could not confirm a ready shortlist from the available source pages",
             "search failed before ranking",
             "search paused before a stable shortlist was ready",
         )
@@ -745,7 +745,7 @@ def _calm_customer_repair_copy(
     if replacement_run_id and _repair_reason_points_to_provider_site_change(repair_reason):
         return "A source changed, so a fresh search is already running."
     if replacement_run_id:
-        return "A replacement search run is checking the saved brief."
+        return "A fresh search is checking your saved brief."
     if repair_active and _repair_reason_points_to_provider_site_change(repair_reason):
         return "One source changed, so PropertyQuarry is retrying it."
     if repair_failed and _repair_reason_points_to_provider_site_change(repair_reason):
@@ -1303,7 +1303,7 @@ def property_run_customer_visible_events(
                 {
                     "step": "repair_status",
                     "status": str(summary.get("repair_status") or "repairing").strip() or "repairing",
-                    "message": "A replacement search run is checking the saved brief.",
+                    "message": "A fresh search is checking your saved brief.",
                     "created_at": str(
                         summary.get("repair_last_updated_at")
                         or payload.get("updated_at")
@@ -1446,11 +1446,11 @@ def build_property_run_repair_snapshot(
     repair_status_label = str(summary.get("repair_status_label") or "").strip()
     if not repair_status_label:
         if repair_status == "repairing":
-            repair_status_label = "Repairing"
+            repair_status_label = "Checking again"
         elif repair_status == "degraded":
             repair_status_label = "Partial coverage"
         elif repair_status == "failed":
-            repair_status_label = "Repair failed"
+            repair_status_label = "Needs attention"
         else:
             repair_status_label = "Stable"
     repair_outcome_summary = str(summary.get("repair_outcome_summary") or "").strip()
@@ -1461,7 +1461,7 @@ def build_property_run_repair_snapshot(
             repair_outcome_summary = (
                 property_run_customer_safe_status_detail(status, payload.get("message") or "", summary=summary)
                 or calm_repair_copy
-                or "The search stopped before a usable shortlist was ready."
+                or "The search stopped before a ready shortlist was available."
             )
             if latest_repair_timestamp:
                 repair_outcome_summary = f"{repair_outcome_summary} Last real update: {latest_repair_timestamp}."
@@ -1469,7 +1469,7 @@ def build_property_run_repair_snapshot(
             repair_outcome_summary = "The shortlist is ready, but one or more sources finished with partial coverage."
         elif failed_total and results_total > 0:
             repair_outcome_summary = _join_customer_sentences(
-                "Some sources are retrying, but the current shortlist is already usable",
+                "Some sources are retrying, but the current shortlist is still available",
                 latest_repair_reason,
             )
         elif failed_total:
@@ -1478,7 +1478,7 @@ def build_property_run_repair_snapshot(
                 latest_repair_reason,
             )
     if repair_flags["failed"] and not repair_step:
-        repair_step = "Repair finished without a usable shortlist."
+        repair_step = "The fresh check finished without a ready shortlist."
     if repair_flags["failed"] and not next_useful_eta:
         next_useful_eta = "start a fresh run after changing one source or rule"
     repair_outcome_summary = _customer_safe_source_status_text(repair_outcome_summary)
@@ -1544,7 +1544,7 @@ def build_property_run_reliability_snapshot(
         elif status == "failed":
             if str(summary.get("repair_replacement_run_id") or "").strip():
                 customer_status = _join_customer_sentences(
-                    "A replacement search run is now checking the saved brief",
+                    "A fresh search is checking your saved brief",
                     repair_reason,
                 )
             elif calm_repair_copy:
@@ -1555,7 +1555,7 @@ def build_property_run_reliability_snapshot(
                 customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
             customer_status = _join_customer_sentences(
-                "Some sources are retrying, but the current shortlist is already usable",
+                "Some sources are retrying, but the current shortlist is still available",
                 "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif failed_total:
@@ -1581,7 +1581,7 @@ def build_property_run_reliability_snapshot(
         health_label = "Interrupted"
     elif failed_total:
         health_tone = "warn"
-        health_label = "Repairing"
+        health_label = "Checking again"
     elif source_checked > 0 or progress > 0:
         health_tone = "good"
         health_label = "Working"
@@ -1871,9 +1871,9 @@ def _property_run_candidate_reason_label(value: object) -> str:
     if "duplicate" in normalized or "already seen" in normalized or "same listing" in normalized:
         return f"Candidate {ordinal} matched existing property memory"
     if any(token in normalized for token in ("stale", "removed", "expired", "no longer available")):
-        return f"Listing freshness changed for candidate {ordinal}; repair opened"
+        return f"Listing freshness changed for candidate {ordinal}; checking again"
     if any(token in normalized for token in ("repair", "extractor", "fetch failed", "provider patch")):
-        return f"Repair picked up candidate {ordinal}"
+        return f"Checking candidate {ordinal} again"
     if any(token in normalized for token in ("price per sqm", "price per square", "€/m2", "eur/m2", "eur per m2")):
         if any(token in normalized for token in ("below", "under", "cheaper", "discount", "stronger than benchmark")):
             return f"Price per m2 looks good for candidate {ordinal}"
@@ -1887,7 +1887,7 @@ def _property_run_candidate_reason_label(value: object) -> str:
             return f"Total monthly cost is above budget for candidate {ordinal}"
     if any(token in normalized for token in ("rooms", "room count", "layout shape", "floor plan shape", "floorplan shape")):
         if any(token in normalized for token in ("fits", "fit", "matches", "matched", "usable")):
-            return f"Room layout looks usable for candidate {ordinal}"
+            return f"Room layout works for candidate {ordinal}"
         if any(token in normalized for token in ("awkward", "unclear", "inefficient", "needs verification")):
             return f"Room layout needs a closer check for candidate {ordinal}"
     if any(token in normalized for token in ("bike route", "cycling", "bicycle")):
@@ -2071,7 +2071,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     customer_status = calm_repair_copy if _customer_status_is_internal_failure_copy(raw_customer_status) and calm_repair_copy else raw_customer_status
     effective_repair_reason = "" if calm_repair_copy else repair_reason
     if replacement_run_id:
-        return customer_status or calm_repair_copy or "A replacement search run is checking the saved brief."
+        return customer_status or calm_repair_copy or "A fresh search is checking your saved brief."
     if status == "failed" or repair_status in {"repairing", "repair failed", "degraded"}:
         if customer_status and effective_repair_reason and effective_repair_reason.lower() not in customer_status.lower():
             return _join_customer_sentences(customer_status, effective_repair_reason)
@@ -2830,7 +2830,7 @@ def build_property_empty_outcome_summary(
     )
     database_pressure = any(token in str(run_message or "").lower() for token in _DATABASE_PRESSURE_TOKENS)
     if safe_failed_message.lower().startswith("search interrupted") or safe_failed_message.lower().startswith("the search stopped"):
-        safe_failed_message = "The search stopped before a usable shortlist was ready."
+        safe_failed_message = "The search stopped before a ready shortlist was available."
     strongest_relax = next((row for row in (counterfactual_rows or []) if row.get("adjustments")), {})
     active_rule = ""
     if strongest_relax:
@@ -2838,17 +2838,17 @@ def build_property_empty_outcome_summary(
     elif suppression_rows:
         active_rule = str((suppression_rows[0] or {}).get("title") or "").strip()
     if status_value == "failed" and replacement_run_id:
-        happened = calm_repair_copy or "A replacement search run is checking the saved brief."
+        happened = calm_repair_copy or "A fresh search is checking your saved brief."
         if legacy_ranking_gate_empty:
             stopped_context = (
                 f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} still matched "
-                "before the interruption. This page will move to the replacement run when it has a useful update."
+                "before the interruption. This page will move to the fresh search when it has a useful update."
             )
         else:
-            stopped_context = "This page will move to the replacement run when it has a usable update."
+            stopped_context = "This page will move to the fresh search when it has a useful update."
     elif status_value == "failed":
         if repair_failed:
-            happened = safe_failed_message or calm_repair_copy or "The search stopped before a usable shortlist was ready."
+            happened = safe_failed_message or calm_repair_copy or "The search stopped before a ready shortlist was available."
             if legacy_ranking_gate_empty:
                 stopped_context = (
                     f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} still matched "
@@ -2859,10 +2859,10 @@ def build_property_empty_outcome_summary(
                 stopped_context = (
                     f"The selected sources covered {listing_label}."
                     if listing_total > 0
-                    else "The brief and selected sources were saved, but no source produced a usable result."
+                    else "The brief and selected sources were saved, but no source produced results for the brief."
                 )
             else:
-                stopped_context = "The brief and selected sources were saved, but no source produced a usable result."
+                stopped_context = "The brief and selected sources were saved, but no source produced results for the brief."
         elif source_total or listing_total:
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if database_pressure:
@@ -2872,7 +2872,7 @@ def build_property_empty_outcome_summary(
             else:
                 happened = "The search stopped before the shortlist settled."
             if source_completed <= 0 and listing_total <= 0:
-                stopped_context = "Repair took over before any listing inspection completed."
+                stopped_context = "PropertyQuarry started a fresh check before any listing inspection completed."
             elif legacy_ranking_gate_empty:
                 stopped_context = (
                     f"{score_demoted_total} home{'s' if score_demoted_total != 1 else ''} still matched "
@@ -2883,7 +2883,7 @@ def build_property_empty_outcome_summary(
         else:
             if repair_task_open or repair_step_label or repair_status_label:
                 happened = safe_failed_message or calm_repair_copy or "PropertyQuarry is checking the saved search again."
-                stopped_context = "Repair took over before any listing inspection completed."
+                stopped_context = "PropertyQuarry started a fresh check before any listing inspection completed."
             else:
                 happened = safe_failed_message or "The search stopped before the shortlist settled."
                 stopped_context = ""
@@ -2905,9 +2905,9 @@ def build_property_empty_outcome_summary(
     if status_value == "failed" and replacement_run_id:
         still_worked = (
             f"The brief was saved; {score_demoted_total} home{'s' if score_demoted_total != 1 else ''} "
-            "still matched before interruption while the replacement run is now active."
+            "still matched before interruption while the fresh search is active."
             if legacy_ranking_gate_empty
-            else "The brief was saved; the replacement run is now active."
+            else "The brief was saved; the fresh search is active."
         )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
@@ -2925,15 +2925,15 @@ def build_property_empty_outcome_summary(
         )
     if status_value == "failed" and replacement_run_id:
         next_move = (
-            "Start a fresh search, or wait for repair; this page switches to the usable run when one is ready."
+            "Start a fresh search, or wait for the fresh check; this page switches when results are ready."
             if legacy_ranking_gate_empty
-            else "Wait for repair; this page switches to the usable run when one is ready."
+            else "Wait for the fresh check; this page switches when results are ready."
         )
     elif status_value == "failed" and repair_task_open:
         next_move = (
-            "Start a fresh search, or wait for repair; this page switches to the usable run when one is ready."
+            "Start a fresh search, or wait for the fresh check; this page switches when results are ready."
             if legacy_ranking_gate_empty
-            else "Wait for repair; this page switches to the usable run when one is ready."
+            else "Wait for the fresh check; this page switches when results are ready."
         )
     elif status_value == "failed" and database_pressure:
         next_move = "Wait a moment, then reopen this search. PropertyQuarry retries when database capacity is free."
@@ -2967,7 +2967,7 @@ def build_property_empty_outcome_summary(
         else:
             eta_feedback = f"{repair_step_label}. {stopped_context}".strip()
     elif status_value == "failed" and repair_status_label:
-        eta_feedback = stopped_context if repair_task_open else f"Repair: {repair_status_label}. {stopped_context}".strip()
+        eta_feedback = stopped_context if repair_task_open else f"Check: {repair_status_label}. {stopped_context}".strip()
     elif status_value not in {"processed", "completed", "completed_partial", "noop", "cancelled"} and eta_label:
         eta_feedback = f"Estimated remaining time: {eta_label}."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
@@ -2977,7 +2977,7 @@ def build_property_empty_outcome_summary(
     elif source_total:
         eta_feedback = "Change one rule and rerun for a fresh read."
     elif status_value == "failed":
-        eta_feedback = "Repair has the run queued; this page switches when a usable rerun is ready."
+        eta_feedback = "A fresh check is queued; this page switches when results are ready."
     else:
         eta_feedback = "The run is complete; rerun after changing one rule to get a fresh ETA."
     return {

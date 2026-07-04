@@ -30418,16 +30418,16 @@ class ProductService:
             if replacement_run_id:
                 summary["repair_replacement_run_id"] = replacement_run_id
                 summary["repair_replacement_status_url"] = f"/app/api/signals/property/search/run/{replacement_run_id}"
-                summary["repair_step_label"] = "Started a replacement search run from the saved brief."
-                summary["customer_status_message"] = "A replacement search run is now checking the saved brief."
+                summary["repair_step_label"] = "Started a fresh search from the saved brief."
+                summary["customer_status_message"] = "A fresh search is checking your saved brief."
             if str(state.get("status") or "").strip().lower() == "failed" and list(summary.get("ranked_candidates") or []):
                 state["status"] = "completed_partial"
                 state["progress"] = 100
                 state["current_step"] = "repair_resolved"
-                state["message"] = "The current shortlist remains available while repair continues."
+                state["message"] = "The current shortlist remains available while PropertyQuarry checks again."
                 summary["repair_status"] = "degraded"
                 summary["repair_status_label"] = "Partial coverage"
-                summary["customer_status_message"] = "The current shortlist remains available while repair continues."
+                summary["customer_status_message"] = "The current shortlist remains available while PropertyQuarry checks again."
             state["summary"] = summary
             state["updated_at"] = receipt["at"]
             _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = dict(state)
@@ -30476,7 +30476,7 @@ class ProductService:
                     repair_task["replacement_status_url"] = f"/app/api/signals/property/search/run/{replacement_run_id}"
                     normalized_summary["repair_replacement_run_id"] = replacement_run_id
                     normalized_summary["repair_replacement_status_url"] = f"/app/api/signals/property/search/run/{replacement_run_id}"
-                    normalized_summary.setdefault("repair_step_label", "Started a replacement search run from the saved brief.")
+                    normalized_summary.setdefault("repair_step_label", "Started a fresh search from the saved brief.")
                 tasks_changed = True
             if tasks_changed:
                 normalized_summary["provider_repair_tasks"] = top_level_tasks[-10:]
@@ -33941,9 +33941,9 @@ class ProductService:
                     "repair_status_label": (
                         "Partial coverage"
                         if has_partial_results
-                        else ("Repairing" if task_status in {"opened", "existing"} else "Repair needed")
+                        else ("Checking again" if task_status in {"opened", "existing"} else "Needs attention")
                     ),
-                    "repair_step_label": "Repairing interrupted run.",
+                    "repair_step_label": "Checking again after the run was interrupted.",
                     "provider_repair_task_opened_total": 1 if task_status == "opened" else 0,
                     "provider_repair_task_existing_total": 1 if task_status == "existing" else 0,
                     "provider_repair_tasks": [
@@ -33965,15 +33965,15 @@ class ProductService:
                         {
                             "repair_replacement_run_id": replacement_run_id,
                             "repair_replacement_status_url": f"/app/api/signals/property/search/run/{replacement_run_id}",
-                            "repair_step_label": "Started a replacement search run from the saved brief.",
-                            "customer_status_message": "A replacement search run is now checking the saved brief.",
+                            "repair_step_label": "Started a fresh search from the saved brief.",
+                            "customer_status_message": "A fresh search is checking your saved brief.",
                         }
                     )
                 self._record_property_search_run_event(
                     run_id=normalized_run_id,
                     principal_id=normalized_principal,
                     step="run_repair_queued",
-                    message="Repair was queued for the interrupted run so usable results can resume.",
+                    message="A fresh check was queued for the interrupted run.",
                     status=str(stale_failure.get("status") or "failed"),
                     steps_delta=0,
                     summary_updates=repair_summary_updates,
@@ -37317,8 +37317,8 @@ class ProductService:
                     human_task_ref = str(repair_task.get("queue_item_ref") or repair_task.get("human_task_id") or "").strip()
                     repair_summary_updates = {
                         "repair_status": "repairing" if task_status in {"opened", "existing"} else "degraded",
-                        "repair_status_label": "Repairing" if task_status in {"opened", "existing"} else "Repair needed",
-                        "repair_step_label": "Repairing interrupted run.",
+                        "repair_status_label": "Checking again" if task_status in {"opened", "existing"} else "Needs attention",
+                        "repair_step_label": "Checking again after the run was interrupted.",
                         "provider_repair_task_opened_total": 1 if task_status == "opened" else 0,
                         "provider_repair_task_existing_total": 1 if task_status == "existing" else 0,
                         "provider_repair_tasks": [
@@ -37338,7 +37338,7 @@ class ProductService:
                         run_id=run_id,
                         principal_id=normalized_principal,
                         step="run_repair_queued",
-                        message="Repair was queued because the search worker failed before completion.",
+                        message="A fresh check was queued because the search worker stopped before completion.",
                         status="failed",
                         steps_delta=0,
                         summary_updates=repair_summary_updates,
@@ -39163,8 +39163,8 @@ class ProductService:
                         human_task_ref = str(repair_task.get("queue_item_ref") or repair_task.get("human_task_id") or "").strip()
                         repair_summary_updates = {
                             "repair_status": "repairing",
-                            "repair_status_label": "Repairing",
-                            "repair_step_label": "Repairing failed recovery pickup.",
+                            "repair_status_label": "Checking again",
+                            "repair_step_label": "Checking again after recovery pickup failed.",
                             "provider_repair_task_opened_total": 1 if task_status == "opened" else 0,
                             "provider_repair_task_existing_total": 1 if task_status == "existing" else 0,
                             "provider_repair_tasks": [
@@ -39209,7 +39209,7 @@ class ProductService:
                             if repair_summary_updates
                             else {
                                 "repair_status": "degraded",
-                                "repair_status_label": "Repair needed",
+                                "repair_status_label": "Needs attention",
                             }
                         ),
                     },
@@ -43147,10 +43147,10 @@ class ProductService:
             )
         elif payload["status"] == "failed":
             payload["repair_status"] = "failed"
-            payload["repair_status_label"] = "Repair failed"
+            payload["repair_status_label"] = "Needs attention"
             payload["can_auto_repair"] = True
             payload["customer_status_message"] = (
-                "The search could not confirm a usable shortlist from the available source pages."
+                "The search could not confirm a ready shortlist from the available source pages."
             )
         if not self._property_search_results_delivery_pending(result=payload):
             stage_receipts = mark_property_search_stage_receipt(stage_receipts, "results_delivery_ready_at")

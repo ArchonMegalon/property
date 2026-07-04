@@ -540,7 +540,7 @@ def _property_search_usage_state(product: object, *, principal_id: str, access_e
     latest_summary = dict(latest.get("summary") or {}) if isinstance(latest.get("summary"), dict) else {}
     latest_run_id = str(latest.get("run_id") or "").strip()
     latest_status = str(latest.get("status") or latest_summary.get("status") or "no run yet").strip().replace("_", " ")
-    repair_status = "Repairing" if repairing_source_total else ("Needs attention" if failed_source_total or failed_run_total else "Stable")
+    repair_status = "Checking again" if repairing_source_total else ("Needs attention" if failed_source_total or failed_run_total else "Stable")
     return {
         "runs": raw_runs,
         "run_total": len(raw_runs),
@@ -1094,7 +1094,7 @@ def settings_support_detail(
                 {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
             ],
             object_sidebar_title="Support at a glance",
-            object_sidebar_copy="This view answers what failed, what is already usable, and what to do next.",
+            object_sidebar_copy="This view answers what failed, what is still available, and what to do next.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "", href=str(property_usage["latest_href"])),
                 _object_detail_row("Support center", "Open the public support page for contact options.", "", action_href="/support", action_label="Open support", action_method="get"),
@@ -1173,7 +1173,7 @@ def settings_support_detail(
             {"label": "Sources", "value": str(providers.get("provider_count") or 0)},
         ],
         object_sidebar_title="What support can answer",
-        object_sidebar_copy="The short version: what failed, what is still usable, and what to try next.",
+        object_sidebar_copy="The short version: what failed, what is still available, and what to try next.",
         object_sidebar_rows=[
             _object_detail_row("Support tier", str(billing.get("support_tier") or "standard"), "Support"),
             _object_detail_row("Plan status", str(billing.get("billing_state") or "unknown").replace("_", " "), "Billing"),
