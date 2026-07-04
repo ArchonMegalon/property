@@ -11489,7 +11489,7 @@
                   {% elif advanced_panel == 'research_scope' %}
                   Research scope
                   {% elif advanced_panel == 'provider_policies' %}
-                  Providers
+                  Sources
                   {% else %}
                   More
                   {% endif %}
@@ -11710,12 +11710,12 @@
 	                {% elif field.type == 'checkbox_group' %}
 	                <fieldset class="pqx-choice-groupbox">
 	                  <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
-	                  {% if field.name == 'selected_platforms' %}<span hidden>Select providers</span>{% endif %}
+	                  {% if field.name == 'selected_platforms' %}<span hidden>Select sources</span>{% endif %}
 	                  {% if field.name in ['selected_platforms', 'location_query'] %}
                   <div class="pqx-choice-groupbox-head">
                     <div class="pqx-choice-groupbox-actions pqx-field-tools">
                       {% if field.name == 'selected_platforms' %}
-                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all providers">All providers</button>
+                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all sources">All sources</button>
                       {% else %}
                       <div class="pqx-location-mode-toggle" role="group" aria-label="Area selection mode">
                         <button class="pqx-field-action" type="button" data-location-mode-button="map" aria-pressed="true">Map</button>
@@ -12063,7 +12063,7 @@
               {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_display_total') or run_summary.get('provider_total') or run_sources|length or run_summary.get('sources_total') or 0)|int %}
 	              {% set homes_checked_total = (run_summary.get('found_listing_total') if run_summary.get('found_listing_total') is not none else (run_summary.get('raw_listing_total') or run_summary.get('scanned_listing_total') or run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0))|int %}
 	              <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
-	              <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
+	              <div class="pqx-fact"><span>Sources</span><strong>{{ provider_display_total or 0 }}</strong></div>
 	              <div class="pqx-fact"><span>Listings</span><strong>{{ homes_checked_total }}</strong></div>
             </div>
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}

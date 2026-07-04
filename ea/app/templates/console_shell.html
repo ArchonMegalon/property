@@ -1285,7 +1285,7 @@
             {% if commercial.get('active_until') %} | active until {{ commercial.get('active_until') }}{% endif %}
           </small>
           <small class="console-run-note">
-            {% if (commercial.get('max_platforms') or 0)|int <= 0 %}All providers{% else %}{{ commercial.get('max_platforms') }} provider{{ '' if (commercial.get('max_platforms') or 1) == 1 else 's' }}{% endif %}
+            {% if (commercial.get('max_platforms') or 0)|int <= 0 %}All sources{% else %}{{ commercial.get('max_platforms') }} source{{ '' if (commercial.get('max_platforms') or 1) == 1 else 's' }}{% endif %}
             | {% if (commercial.get('search_agent_limit') or 0)|int <= 0 %}unlimited saved searches{% else %}{{ commercial.get('search_agent_limit') or 1 }} saved search{{ '' if (commercial.get('search_agent_limit') or 1) == 1 else 'es' }}{% endif %}
           </small>
           <div class="console-inline-status" data-property-billing-status></div>

@@ -2074,13 +2074,21 @@ def test_propertyquarry_agent_search_scripts_submit_null_when_result_slider_is_a
     assert "max_results_per_source: hasUnlimitedProviderResults() ? null : (Number(nextPreferences?.max_results_per_source || 0) || null)," in workbench_script
 
 
-def test_propertyquarry_console_plan_copy_shows_unlimited_provider_access() -> None:
+def test_propertyquarry_console_plan_copy_shows_unlimited_source_access() -> None:
     console_shell = (Path(__file__).resolve().parents[1] / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
 
-    assert "All providers" in console_shell
+    assert "All sources" in console_shell
+    assert "All providers" not in console_shell
     assert "unlimited saved searches" in console_shell
     assert "all results per provider" not in console_shell
     assert "{{ commercial.get('max_platforms') or 1 }} platform" not in console_shell
+
+
+def test_propertyquarry_object_reference_url_copy_avoids_fallback_jargon() -> None:
+    object_detail = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html").read_text(encoding="utf-8")
+
+    assert "Optional: paste 1 to 3 reference image URLs, one per line." in object_detail
+    assert "Optional fallback" not in object_detail
 
 
 def test_propertyquarry_support_and_trust_pages_cut_developer_voice() -> None:
@@ -11217,7 +11225,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'grid-template-rows: auto minmax(0, 1fr);' in template
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
-    assert "Select providers" in setup.text
+    assert "Select sources" in setup.text
     assert "Court and auction listings" in setup.text
     assert "Justiz Edikte" in setup.text
     assert 'data-property-advanced-panel="commute"' in setup.text
@@ -16293,9 +16301,9 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     response = client.get("/app/properties", params={"run_id": "run-variant-heavy"}, headers=headers)
 
     assert response.status_code == 200
-    assert re.search(r"<span>Providers</span><strong>\s*3\s*</strong>", response.text)
+    assert re.search(r"<span>Sources</span><strong>\s*3\s*</strong>", response.text)
     assert re.search(r"<span>Listings</span><strong>\s*2160\s*</strong>", response.text)
-    assert "<span>Providers</span><strong>156</strong>" not in response.text
+    assert "<span>Sources</span><strong>156</strong>" not in response.text
     assert "<span>Source checks</span>" not in response.text
     assert "The selected sources covered 2160 listings." in response.text
     assert "Source variants" not in response.text

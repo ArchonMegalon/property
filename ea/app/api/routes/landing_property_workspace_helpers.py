@@ -1868,8 +1868,8 @@ def _property_counterfactual_rows(
         rows.append(
             {
                 "title": f"Check {len(widened_platforms)} sources instead of {len(selected_platforms)}",
-                "detail": "Use the rest of the provider allowance on the current plan before widening the brief itself.",
-                "tag": "Providers",
+                "detail": "Use the rest of the source allowance on the current plan before widening the brief itself.",
+                "tag": "Sources",
                 "action_label": "Use all sources",
                 "adjustments": {"selected_platforms": widened_platforms},
                 "affected_total": 0,

@@ -669,7 +669,7 @@
         }
         return;
       }
-      setCheckboxGroupStatus(name === 'selected_platforms' ? `Selected all ${selectedInputs.length} providers.` : `Selected all ${selectedInputs.length} areas.`);
+      setCheckboxGroupStatus(name === 'selected_platforms' ? `Selected all ${selectedInputs.length} sources.` : `Selected all ${selectedInputs.length} areas.`);
     };
     const clearAllCheckboxValues = (form, name) => {
       const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
@@ -685,20 +685,20 @@
         if (name !== 'selected_platforms') return;
         const total = [...form.querySelectorAll(`input[name="${name}"]`)].filter((node) => !node.disabled).length;
         if (!total) {
-          button.textContent = 'Select providers';
+          button.textContent = 'Select sources';
           button.removeAttribute('title');
           button.removeAttribute('aria-label');
           return;
         }
         if (!normalizedMax || total <= normalizedMax) {
-          button.textContent = 'All providers';
-          const title = `Select all ${total} available providers.`;
+          button.textContent = 'All sources';
+          const title = `Select all ${total} available sources.`;
           button.setAttribute('title', title);
           button.setAttribute('aria-label', title);
           return;
         }
         button.textContent = `Select ${normalizedMax} of ${total}`;
-        const title = `Your current plan lets you include up to ${normalizedMax} of ${total} available providers in one search.`;
+        const title = `Your current plan lets you include up to ${normalizedMax} of ${total} available sources in one search.`;
         button.setAttribute('title', title);
         button.setAttribute('aria-label', title);
       });

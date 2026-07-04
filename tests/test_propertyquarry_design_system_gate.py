@@ -160,6 +160,10 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "raw portal",
         "long raw urls",
         "raw scopes",
+        "optional fallback",
+        "select providers",
+        "all providers",
+        "provider allowance",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered
