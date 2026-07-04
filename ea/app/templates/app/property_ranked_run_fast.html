@@ -438,14 +438,14 @@
     );
     const providerDone = terminalStatus && providerTotal > 0 ? providerTotal : rawProviderDone;
     const providerLeft = providerTotal > providerDone ? providerTotal - providerDone : 0;
-    const sourceUnit = sourceActualTotal > 0 && sourceActualTotal >= providerTotal ? 'search pages' : 'provider checks';
+    const sourceUnit = sourceActualTotal > 0 && sourceActualTotal >= providerTotal ? 'search pages' : 'providers';
     const parts = [];
     parts.push(`${candidates.length} ranked ${candidates.length === 1 ? 'home' : 'homes'}`);
     if (providerTotal) {
       const providerLabel = providerDone > 0 && providerDone < providerTotal
         ? `${providerDone}/${providerTotal}`
         : `${providerTotal}`;
-      parts.push(`${providerLabel} provider checks`);
+      parts.push(`${providerLabel} providers`);
     }
     if (found > 0) {
       parts.push(`${found} homes found`);

@@ -69,7 +69,7 @@
   {%- set lowered = raw|lower -%}
   {%- if lowered == 'reopen the brief and adjust one filter before rerunning.' -%}Open the search and change one filter.
   {%- elif lowered == 'widen one requirement first, then rerun.' -%}Change one thing, then run it again.
-  {%- elif lowered == 'start a fresh search or adjust one provider check or requirement before retrying.' -%}Adjust the search, then start it again.
+  {%- elif lowered.startswith('start a fresh search or adjust one ') and lowered.endswith(' or requirement before retrying.') -%}Adjust the search, then start it again.
   {%- elif lowered == 'open the remaining area, distance, and list changes without filling the page.' -%}See the other ways to widen this search.
   {%- elif lowered == 'widen one location rule first so the next pass stays easy to explain.' -%}Start by broadening the area.
   {%- elif lowered == 'no homes fit the current hard brief yet.' -%}Nothing matched the current search yet.

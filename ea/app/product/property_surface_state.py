@@ -1141,11 +1141,11 @@ def _property_run_repair_receipt_message(receipt: dict[str, object]) -> str:
         message_value=receipt.get("resolution") or receipt.get("reason") or "",
     )
     if _repair_reason_points_to_provider_site_change(friendly):
-        return "A provider check changed, so it was skipped for now."
+        return "A source changed, so it was skipped for now."
     resolution = str(receipt.get("resolution") or receipt.get("reason") or "repair updated").strip()
     if not resolution:
         return ""
-    return "A provider check needed a retry."
+    return "A source needed a retry."
 
 
 def _property_run_event_resolution(event: dict[str, object]) -> str:
@@ -1157,6 +1157,45 @@ def _property_run_event_resolution(event: dict[str, object]) -> str:
     if match:
         return str(match.group(0) or "").strip().lower()
     return ""
+
+
+def _customer_safe_repair_step_label(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    text = re.sub(
+        r"\bRetrying\s+(\d+)\s+provider checks?\b",
+        lambda match: f"Refreshing {match.group(1)} source{'' if match.group(1) == '1' else 's'}",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\bRetrying\s+(.+?)\s+provider checks?\.?$",
+        lambda match: f"Refreshing {str(match.group(1) or '').strip()}.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bprovider checks?\b", "sources", text, flags=re.IGNORECASE)
+    return text.rstrip(".")
+
+
+def _customer_safe_source_status_text(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    text = re.sub(r"\bRetrying\s+one\s+provider\b", "Refreshing one source", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\bRetrying\s+(\d+)\s+providers?\b",
+        lambda match: f"Refreshing {match.group(1)} source{'' if match.group(1) == '1' else 's'}",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bSome providers\b", "Some sources", text, flags=re.IGNORECASE)
+    text = re.sub(r"^One provider\b", "One source", text)
+    text = re.sub(r"\bone provider\b", "one source", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bprovider checks?\b", "sources", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bprovider or rule\b", "source or rule", text, flags=re.IGNORECASE)
+    return text
 
 
 def _property_run_customer_event_message(
@@ -1252,7 +1291,7 @@ def property_run_customer_visible_events(
         return _dedup_events(synthetic_events or [_current_progress_event()])[-_PROPERTY_RUN_VISIBLE_EVENT_LIMIT:]
     synthesized_events: list[dict[str, object]] = []
     repair_label = str(summary.get("repair_status_label") or summary.get("repair_status") or "").strip()
-    repair_step = str(summary.get("repair_step_label") or "").strip()
+    repair_step = _customer_safe_repair_step_label(summary.get("repair_step_label"))
     if repair_label or repair_step:
         synthesized_events.append(
             {
@@ -1347,7 +1386,7 @@ def build_property_run_repair_snapshot(
             failed_total += 1
     repair_step = str(summary.get("repair_step_label") or "").strip()
     if not repair_step and failed_total:
-        repair_step = f"Retrying {failed_total} provider check{'s' if failed_total != 1 else ''}"
+        repair_step = f"Refreshing {failed_total} source{'s' if failed_total != 1 else ''}"
     next_useful_eta = str(summary.get("next_useful_update_eta_label") or "").strip()
     if not next_useful_eta and timing.get("first_shortlist_ready_at") and results_total > 0:
         next_useful_eta = "new shortlist already ready"
@@ -1391,6 +1430,8 @@ def build_property_run_repair_snapshot(
         else:
             repair_status_label = "Stable"
     repair_outcome_summary = str(summary.get("repair_outcome_summary") or "").strip()
+    if repair_outcome_summary:
+        repair_outcome_summary = _customer_safe_source_status_text(repair_outcome_summary)
     if not repair_outcome_summary:
         if repair_flags["failed"]:
             repair_outcome_summary = (
@@ -1401,21 +1442,22 @@ def build_property_run_repair_snapshot(
             if latest_repair_timestamp:
                 repair_outcome_summary = f"{repair_outcome_summary} Last real update: {latest_repair_timestamp}."
         elif status == "completed_partial":
-            repair_outcome_summary = "The shortlist is ready, but one or more provider checks finished with partial coverage."
+            repair_outcome_summary = "The shortlist is ready, but one or more sources finished with partial coverage."
         elif failed_total and results_total > 0:
             repair_outcome_summary = _join_customer_sentences(
-                "Some providers are retrying, but the current shortlist is already usable",
+                "Some sources are retrying, but the current shortlist is already usable",
                 latest_repair_reason,
             )
         elif failed_total:
             repair_outcome_summary = _join_customer_sentences(
-                "Some providers are retrying before the shortlist can settle",
+                "Some sources are retrying before the shortlist can settle",
                 latest_repair_reason,
             )
     if repair_flags["failed"] and not repair_step:
         repair_step = "Repair finished without a usable shortlist."
     if repair_flags["failed"] and not next_useful_eta:
-        next_useful_eta = "start a fresh run after changing one provider or rule"
+        next_useful_eta = "start a fresh run after changing one source or rule"
+    repair_outcome_summary = _customer_safe_source_status_text(repair_outcome_summary)
     return PropertyRunRepairSnapshot(
         repair_status=repair_status,
         repair_status_label=repair_status_label,
@@ -1474,7 +1516,7 @@ def build_property_run_reliability_snapshot(
         if status in {"processed", "completed"}:
             customer_status = "Search finished cleanly."
         elif status == "completed_partial":
-            customer_status = message or "Search finished with partial coverage after one or more provider checks needed retrying."
+            customer_status = message or "Search finished with partial coverage after one or more sources needed retrying."
         elif status == "failed":
             if str(summary.get("repair_replacement_run_id") or "").strip():
                 customer_status = _join_customer_sentences(
@@ -1489,12 +1531,12 @@ def build_property_run_reliability_snapshot(
                 customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
             customer_status = _join_customer_sentences(
-                "Some providers are retrying, but the current shortlist is already usable",
+                "Some sources are retrying, but the current shortlist is already usable",
                 "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif failed_total:
             customer_status = _join_customer_sentences(
-                "Some providers are retrying before the shortlist can settle",
+                "Some sources are retrying before the shortlist can settle",
                 "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif results_total > 0:
@@ -1503,6 +1545,7 @@ def build_property_run_reliability_snapshot(
             customer_status = "Providers are still running and the first shortlist is still building."
         else:
             customer_status = message or "Preparing providers."
+    customer_status = _customer_safe_source_status_text(customer_status)
     if status in {"processed", "completed"}:
         health_tone = "good"
         health_label = "Healthy"
@@ -1523,7 +1566,7 @@ def build_property_run_reliability_snapshot(
         health_label = "Starting"
     coverage_label = ""
     if source_total:
-        coverage_label = f"{source_checked}/{source_total} provider checks"
+        coverage_label = f"{source_checked}/{source_total} sources"
         if pending_total:
             coverage_label += f" · {pending_total} still running"
     result_label = ""
@@ -2776,12 +2819,12 @@ def build_property_empty_outcome_summary(
             elif source_total or listing_total:
                 listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
                 stopped_context = (
-                    f"The selected provider checks covered {listing_label}."
+                    f"The selected sources covered {listing_label}."
                     if listing_total > 0
-                    else "The brief and selected provider checks were saved, but no provider check produced a usable result."
+                    else "The brief and selected sources were saved, but no source produced a usable result."
                 )
             else:
-                stopped_context = "The brief and selected provider checks were saved, but no provider check produced a usable result."
+                stopped_context = "The brief and selected sources were saved, but no source produced a usable result."
         elif source_total or listing_total:
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if database_pressure:
@@ -2798,7 +2841,7 @@ def build_property_empty_outcome_summary(
                     "the saved brief before retry took over."
                 )
             else:
-                stopped_context = f"The selected provider checks covered {listing_label}."
+                stopped_context = f"The selected sources covered {listing_label}."
         else:
             if repair_task_open or repair_step_label or repair_status_label:
                 happened = safe_failed_message or calm_repair_copy or "PropertyQuarry is checking the saved search again."
@@ -2830,7 +2873,7 @@ def build_property_empty_outcome_summary(
         )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
-            f"{raw_listing_total or filtered_total} home{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected provider checks."
+            f"{raw_listing_total or filtered_total} home{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected sources."
         )
     elif legacy_ranking_gate_empty:
         still_worked = (
@@ -2838,9 +2881,9 @@ def build_property_empty_outcome_summary(
         )
     else:
         still_worked = (
-            f"The selected provider checks covered {listing_total} listing{'s' if listing_total != 1 else ''}."
+            f"The selected sources covered {listing_total} listing{'s' if listing_total != 1 else ''}."
             if listing_total
-            else "The brief and selected provider checks were still saved."
+            else "The brief and selected sources were still saved."
         )
     if status_value == "failed" and replacement_run_id:
         next_move = (
@@ -2860,7 +2903,7 @@ def build_property_empty_outcome_summary(
         next_move = (
             "Start a fresh search."
             if legacy_ranking_gate_empty
-            else "Start a fresh search or change one provider check or requirement before retrying the same brief."
+            else "Start a fresh search or change one source or requirement before retrying the same brief."
         )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
