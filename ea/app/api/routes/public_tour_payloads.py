@@ -420,20 +420,11 @@ def public_tour_asset_path_is_public(
     normalized_role = str(role or "").strip().lower().replace("-", "_")
     if suffix in {".htm", ".html"}:
         return (
-            (
-                normalized_privacy in _PUBLIC_TOUR_PANO2VR_PUBLIC_PRIVACY_CLASSES
-                and normalized_role in _PUBLIC_TOUR_PANO2VR_ENTRY_ROLES
-            )
-            or (
-                normalized_privacy in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES
-                and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_HTML_ROLES
-            )
+            normalized_privacy in _PUBLIC_TOUR_PANO2VR_PUBLIC_PRIVACY_CLASSES
+            and normalized_role in _PUBLIC_TOUR_PANO2VR_ENTRY_ROLES
         )
     if suffix in {".obj", ".mtl", ".glb"}:
-        return (
-            normalized_privacy in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES
-            and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_MODEL_ROLES
-        )
+        return False
     if suffix in _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS:
         return False
     if suffix not in _PUBLIC_TOUR_ALLOWED_ASSET_EXTENSIONS:
@@ -477,27 +468,6 @@ def public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
         )
     generated_reconstruction = payload.get("generated_reconstruction")
     if isinstance(generated_reconstruction, dict):
-        _add(
-            generated_reconstruction.get("viewer_relpath"),
-            privacy_class="generated_reconstruction_public",
-            role="generated_reconstruction_viewer",
-            mime_type="text/html",
-        )
-        _add(
-            generated_reconstruction.get("model_relpath"),
-            privacy_class="generated_reconstruction_public",
-            role="generated_reconstruction_model",
-        )
-        _add(
-            generated_reconstruction.get("material_relpath"),
-            privacy_class="generated_reconstruction_public",
-            role="generated_reconstruction_material",
-        )
-        _add(
-            generated_reconstruction.get("glb_model_relpath"),
-            privacy_class="generated_reconstruction_public",
-            role="generated_reconstruction_model",
-        )
         _add(
             generated_reconstruction.get("walkthrough_video_relpath"),
             privacy_class="generated_reconstruction_public",
@@ -586,27 +556,6 @@ def public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str
         )
     generated_reconstruction = payload.get("generated_reconstruction")
     if isinstance(generated_reconstruction, dict):
-        _record(
-            generated_reconstruction.get("viewer_relpath"),
-            privacy_class="generated_reconstruction_public",
-            role="generated_reconstruction_viewer",
-            mime_type="text/html",
-        )
-        _record(
-            generated_reconstruction.get("model_relpath"),
-            privacy_class="generated_reconstruction_public",
-            role="generated_reconstruction_model",
-        )
-        _record(
-            generated_reconstruction.get("material_relpath"),
-            privacy_class="generated_reconstruction_public",
-            role="generated_reconstruction_material",
-        )
-        _record(
-            generated_reconstruction.get("glb_model_relpath"),
-            privacy_class="generated_reconstruction_public",
-            role="generated_reconstruction_model",
-        )
         _record(
             generated_reconstruction.get("walkthrough_video_relpath"),
             privacy_class="generated_reconstruction_public",

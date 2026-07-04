@@ -1843,22 +1843,32 @@ def _public_tour_primary_control_path(payload: dict[str, object]) -> str:
         if local_3dvista_entry and _3dvista_entry_ready(slug, payload, local_3dvista_entry):
             return f"/tours/{quoted_slug}/control/3dvista"
 
-    generated_reconstruction = payload.get("generated_reconstruction")
-    if isinstance(generated_reconstruction, dict):
-        provider = str(generated_reconstruction.get("provider") or "").strip().lower()
-        viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
-        viewer_relpath = _public_tour_safe_asset_relpath(
-            str(generated_reconstruction.get("viewer_relpath") or "").strip()
-        )
-        if (
-            provider == "propertyquarry_generated_reconstruction"
-            and not bool(generated_reconstruction.get("verified_provider_capture"))
-            and viewer_version == _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION
-            and viewer_relpath
-        ):
-            return f"/tours/files/{quoted_slug}/{urllib.parse.quote(viewer_relpath, safe='/')}"
-
     return ""
+
+
+def _generated_reconstruction_non_tour_asset(payload: dict[str, object], relpath: str) -> str:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return ""
+    safe_relpath = _public_tour_safe_asset_relpath(relpath)
+    if not safe_relpath:
+        return ""
+    if safe_relpath == _public_tour_safe_asset_relpath(str(generated_reconstruction.get("viewer_relpath") or "").strip()):
+        return "viewer"
+    for key in ("model_relpath", "material_relpath", "glb_model_relpath"):
+        if safe_relpath == _public_tour_safe_asset_relpath(str(generated_reconstruction.get(key) or "").strip()):
+            return "model"
+    return ""
+
+
+def _public_tour_is_generated_reconstruction_only(payload: dict[str, object]) -> bool:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return False
+    if _public_tour_primary_control_path(payload):
+        return False
+    provider = str(generated_reconstruction.get("provider") or "").strip().lower()
+    return provider == "propertyquarry_generated_reconstruction"
 
 
 def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
@@ -5012,6 +5022,20 @@ def public_tour_file(slug: str, asset_path: str):
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     safe_name = PurePosixPath(safe_relpath).name
+    generated_asset_kind = _generated_reconstruction_non_tour_asset(payload, safe_relpath)
+    if generated_asset_kind == "viewer":
+        return RedirectResponse(
+            f"/tours/{urllib.parse.quote(slug, safe='')}",
+            status_code=302,
+            headers=_public_tour_security_headers(cache_control="no-store"),
+        )
+    if generated_asset_kind == "model":
+        return Response(
+            "This generated model is not a public 3D tour.\n",
+            status_code=410,
+            media_type="text/plain; charset=utf-8",
+            headers=_public_tour_security_headers(cache_control="no-store"),
+        )
     removed_cube_assets = {str(item or "").strip() for item in list(payload.get("removed_cube_assets") or [])}
     if bool(payload.get("cube_fallback_removed")) and (
         safe_name in removed_cube_assets or safe_name.lower().startswith("pq-3d-top22")
@@ -6037,6 +6061,26 @@ def public_tour_page(
                 primary_control_path,
                 status_code=302,
                 headers=_public_tour_security_headers(),
+            )
+        if _public_tour_is_generated_reconstruction_only(payload):
+            return _render_tour_unavailable_page(
+                request,
+                status_code=404,
+                title="This tour link is no longer available.",
+                summary="This link pointed to an older generated layout preview, not a real 3D tour.",
+                status_label="Tour unavailable",
+                rows=[
+                    {
+                        "label": "Tour state",
+                        "value": "Generated preview removed",
+                        "detail": "PropertyQuarry now opens only real provider tours or licensed panorama exports on this surface.",
+                    },
+                    {
+                        "label": "Next step",
+                        "value": "Request a fresh 3D tour",
+                        "detail": "The property page can request a new tour when real tour media is available.",
+                    },
+                ],
             )
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
         rendered_facts, research_snapshot = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))

@@ -14849,7 +14849,7 @@ def test_current_property_search_visual_state_returns_ready_urls(monkeypatch) ->
         "source_ref": "willhaben:ready-visuals-1",
         "tour_url": "https://propertyquarry.com/tours/ready-visuals-1",
         "vendor_tour_url": "https://propertyquarry.com/tours/ready-visuals-1/control/3dvista",
-        "tour_status": "created",
+        "tour_status": "ready",
         "tour_eta_minutes": "4",
         "tour_progress_pct": "88",
         "flythrough_url": "https://propertyquarry.com/tours/ready-visuals-1?pane=flythrough-pane&autoplay=1",
@@ -15008,7 +15008,7 @@ def test_property_tour_followup_tasks_return_ready_visual_when_snapshot_already_
     assert updated_task.resolution == "ready"
 
 
-def test_property_tour_followup_tasks_return_ready_generated_reconstruction_when_snapshot_already_has_url(monkeypatch) -> None:
+def test_property_tour_followup_tasks_do_not_return_generated_reconstruction_as_ready(monkeypatch) -> None:
     principal_id = "property-tour-followup-generated-reconstruction-already-ready"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -15040,19 +15040,17 @@ def test_property_tour_followup_tasks_return_ready_generated_reconstruction_when
             "tour_status_updated_at": "2026-07-03T08:02:00+00:00",
         },
     )
-    monkeypatch.setattr(
-        product_service,
-        "_hosted_property_tour_first_party_open_url",
-        lambda tour_url: (
-            "https://propertyquarry.com/tours/files/generated-reconstruction-ready-1/generated-reconstruction/viewer.html"
-            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/generated-reconstruction-ready-1"
-            else ""
-        ),
-    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
     monkeypatch.setattr(
         ProductService,
         "request_property_visual_asset",
-        lambda self, **kwargs: pytest.fail("ready generated reconstruction must not be requested again"),
+        lambda self, **kwargs: {
+            "status": "blocked",
+            "tour_status": "blocked",
+            "blocked_reason": "listing_360_media_missing",
+            "tour_url": "",
+            "status_label": "3D tour not ready",
+        },
     )
 
     result = service.process_property_tour_followup_tasks(
@@ -15063,8 +15061,8 @@ def test_property_tour_followup_tasks_return_ready_generated_reconstruction_when
 
     assert result["attempted_total"] == 1
     assert result["resolved_total"] == 1
-    assert result["resolved"][0]["resolution"] == "ready"
-    assert result["resolved"][0]["tour_url"] == "https://propertyquarry.com/tours/files/generated-reconstruction-ready-1/generated-reconstruction/viewer.html"
+    assert result["resolved"][0]["resolution"] == "blocked"
+    assert result["resolved"][0]["tour_url"] == ""
 
     updated_task = client.app.state.container.orchestrator.fetch_human_task(
         task.human_task_id,
@@ -15072,7 +15070,7 @@ def test_property_tour_followup_tasks_return_ready_generated_reconstruction_when
     )
     assert updated_task is not None
     assert updated_task.status == "returned"
-    assert updated_task.resolution == "ready"
+    assert updated_task.resolution == "blocked"
 
 
 def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source_copy(monkeypatch) -> None:
@@ -15227,6 +15225,7 @@ def test_property_visual_status_prefers_live_walkthrough_progress_snapshot(monke
     )
     monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda tour_url: "")
     monkeypatch.setattr(product_service, "_published_walkthrough_asset_url", lambda tour_url: "")
+    monkeypatch.setattr(ProductService, "_property_visual_request_is_stale", lambda self, **kwargs: False)
     monkeypatch.setattr(
         product_service,
         "_hosted_property_visual_progress_snapshot",
@@ -15340,7 +15339,7 @@ def test_property_visual_status_prefers_latest_followup_resolution_over_stale_sn
     assert response["poll_after_seconds"] == 0
 
 
-def test_property_visual_status_promotes_ready_generated_reconstruction_followup_to_open_link(monkeypatch) -> None:
+def test_property_visual_status_rejects_ready_generated_reconstruction_followup(monkeypatch) -> None:
     principal_id = "property-visual-status-ready-generated-reconstruction"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -15424,14 +15423,13 @@ def test_property_visual_status_promotes_ready_generated_reconstruction_followup
         property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-followup-1",
     )
 
-    assert response["status"] == "ready"
-    assert response["status_label"] == "Open 3D tour"
-    assert response["tour_url"] == "https://propertyquarry.com/tours/files/generated-reconstruction-followup/generated-reconstruction/viewer.html"
-    assert response["status_detail"] == "3D tour is available. Open it here."
+    assert response["status"] == "blocked"
+    assert response["status_label"] == "3D tour not ready"
+    assert response["tour_url"] == ""
     assert response["poll_after_seconds"] == 0
 
 
-def test_property_visual_status_persists_ready_generated_reconstruction_state(monkeypatch) -> None:
+def test_property_visual_status_persists_blocked_generated_reconstruction_state(monkeypatch) -> None:
     principal_id = "property-visual-status-persist-ready-generated-reconstruction"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -15441,7 +15439,7 @@ def test_property_visual_status_persists_ready_generated_reconstruction_state(mo
         "title": "Generated reconstruction candidate",
         "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-persist-1",
         "source_ref": "willhaben:generated-reconstruction-persist-1",
-        "tour_status": "created",
+        "tour_status": "ready",
         "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-persist-1",
         "tour_requested_at": "2026-06-23T17:23:22+00:00",
         "tour_status_updated_at": "2026-06-23T19:33:14+00:00",
@@ -15486,12 +15484,12 @@ def test_property_visual_status_persists_ready_generated_reconstruction_state(mo
         property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-persist-1",
     )
 
-    assert response["status"] == "ready"
-    assert response["tour_url"] == "https://propertyquarry.com/tours/files/generated-reconstruction-persist-1/generated-reconstruction/viewer.html"
+    assert response["status"] == "blocked"
+    assert response["tour_url"] == ""
     assert persisted["run_id"] == "run-42"
     assert persisted["candidate_ref"] == "candidate-42"
-    assert dict(persisted["visual_state"])["tour_status"] == "ready"
-    assert dict(persisted["visual_state"])["tour_url"] == "https://propertyquarry.com/tours/generated-reconstruction-persist-1"
+    assert dict(persisted["visual_state"])["tour_status"] == "blocked"
+    assert dict(persisted["visual_state"])["blocked_reason"]
 
 
 def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monkeypatch) -> None:
@@ -15940,7 +15938,7 @@ def test_property_tour_followup_tasks_auto_process_user_visual_requests(monkeypa
     assert updated_task.resolution == "ready"
 
 
-def test_property_tour_followup_tasks_resolve_created_generated_reconstruction_payload_as_ready(monkeypatch) -> None:
+def test_property_tour_followup_tasks_resolve_generated_reconstruction_payload_as_blocked(monkeypatch) -> None:
     principal_id = "property-tour-followup-created-generated-reconstruction"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -15951,7 +15949,7 @@ def test_property_tour_followup_tasks_resolve_created_generated_reconstruction_p
         observed.update(kwargs)
         return {
             "generated_at": "2026-07-03T08:10:00+00:00",
-            "status": "created",
+            "status": "blocked",
             "property_url": str(kwargs.get("property_url") or ""),
             "title": "Generated reconstruction property",
             "variant_key": str(kwargs.get("variant_key") or "layout_first"),
@@ -15959,9 +15957,10 @@ def test_property_tour_followup_tasks_resolve_created_generated_reconstruction_p
             "run_id": str(kwargs.get("run_id") or ""),
             "candidate_ref": str(kwargs.get("candidate_ref") or ""),
             "source_ref": str(kwargs.get("source_ref") or ""),
-            "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-created-1",
-            "tour_status": "created",
-            "status_label": "3D tour available",
+            "tour_url": "",
+            "tour_status": "blocked",
+            "blocked_reason": "listing_360_media_missing",
+            "status_label": "3D tour not ready",
         }
 
     monkeypatch.setattr(ProductService, "request_property_visual_asset", _fake_request_property_visual_asset)
@@ -16006,8 +16005,9 @@ def test_property_tour_followup_tasks_resolve_created_generated_reconstruction_p
     assert observed["suppress_human_followup"] is True
     assert observed["run_id"] == "run-generated-reconstruction-created-1"
     assert observed["candidate_ref"] == "candidate-generated-reconstruction-created-1"
-    assert result["resolved"][0]["resolution"] == "ready"
-    assert result["resolved"][0]["tour_url"] == "https://propertyquarry.com/tours/files/generated-reconstruction-created-1/generated-reconstruction/viewer.html"
+    assert result["blocked_total"] == 1
+    assert result["resolved"][0]["resolution"] == "blocked"
+    assert result["resolved"][0]["tour_url"] == ""
 
     updated_task = client.app.state.container.orchestrator.fetch_human_task(
         task.human_task_id,
@@ -16015,7 +16015,7 @@ def test_property_tour_followup_tasks_resolve_created_generated_reconstruction_p
     )
     assert updated_task is not None
     assert updated_task.status == "returned"
-    assert updated_task.resolution == "ready"
+    assert updated_task.resolution == "blocked"
 
 
 def test_property_tour_followup_tasks_keep_pending_when_visual_is_still_processing(monkeypatch) -> None:
@@ -16549,7 +16549,7 @@ def test_request_property_visual_asset_blocks_created_payload_without_verified_o
     assert result["poll_after_seconds"] == 0
 
 
-def test_request_property_visual_asset_opens_generated_reconstruction(monkeypatch) -> None:
+def test_request_property_visual_asset_blocks_generated_reconstruction_as_3d_tour(monkeypatch) -> None:
     principal_id = "property-tour-generated-reconstruction"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -16599,16 +16599,17 @@ def test_request_property_visual_asset_opens_generated_reconstruction(monkeypatc
         diorama_style_hint="Urban jungle",
     )
 
-    assert result["status"] == "created"
-    assert result["tour_status"] == "ready"
-    assert result["status_label"] == "3D tour available"
-    assert result["open_tour_url"] == "https://propertyquarry.com/tours/files/generated-reconstruction-property/generated-reconstruction/viewer.html"
-    assert result["generated_reconstruction_url"] == result["open_tour_url"]
+    assert result["status"] == "blocked"
+    assert result["tour_status"] == "blocked"
+    assert result["status_label"] == "3D tour not ready"
+    assert result["tour_url"] == ""
+    assert "open_tour_url" not in result
+    assert "generated_reconstruction_url" not in result
     assert result["poll_after_seconds"] == 0
-    assert result["blocked_reason"] == ""
+    assert result["blocked_reason"] == "listing_360_media_missing"
 
 
-def test_request_property_visual_asset_reuses_existing_generated_reconstruction_before_reblocking(monkeypatch) -> None:
+def test_request_property_visual_asset_does_not_reuse_existing_generated_reconstruction(monkeypatch) -> None:
     principal_id = "property-tour-reuse-existing-generated-reconstruction"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -16633,7 +16634,15 @@ def test_request_property_visual_asset_reuses_existing_generated_reconstruction_
     monkeypatch.setattr(
         ProductService,
         "create_willhaben_property_tour",
-        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("existing hosted tour should short-circuit")),
+        lambda self, **kwargs: {
+            "status": "blocked",
+            "tour_status": "blocked",
+            "blocked_reason": "listing_360_media_missing",
+            "tour_url": "",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "external_id": str(kwargs.get("external_id") or ""),
+        },
     )
     persisted: dict[str, object] = {}
 
@@ -16655,19 +16664,19 @@ def test_request_property_visual_asset_reuses_existing_generated_reconstruction_
         diorama_style_hint="Urban jungle",
     )
 
-    assert result["status"] == "ready"
-    assert result["tour_status"] == "ready"
-    assert result["status_label"] == "Open 3D tour"
-    assert result["tour_url"] == "https://propertyquarry.com/tours/existing-generated-reconstruction"
-    assert result["open_tour_url"] == "https://propertyquarry.com/tours/files/existing-generated-reconstruction/generated-reconstruction/viewer.html"
-    assert result["generated_reconstruction_url"] == result["open_tour_url"]
+    assert result["status"] == "blocked"
+    assert result["tour_status"] == "blocked"
+    assert result["status_label"] == "3D tour not ready"
+    assert result["tour_url"] == ""
+    assert "open_tour_url" not in result
+    assert "generated_reconstruction_url" not in result
     assert result["poll_after_seconds"] == 0
     assert persisted["run_id"] == "run-42"
     assert persisted["candidate_ref"] == "candidate-42"
-    assert dict(persisted["visual_state"])["tour_status"] == "ready"
+    assert dict(persisted["visual_state"])["tour_status"] == "blocked"
 
 
-def test_request_property_visual_asset_reuses_current_visual_state_generated_reconstruction(monkeypatch) -> None:
+def test_request_property_visual_asset_does_not_reuse_current_visual_state_generated_reconstruction(monkeypatch) -> None:
     principal_id = "property-tour-reuse-current-visual-state-generated-reconstruction"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -16696,7 +16705,15 @@ def test_request_property_visual_asset_reuses_current_visual_state_generated_rec
     monkeypatch.setattr(
         ProductService,
         "create_willhaben_property_tour",
-        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("current visual state should short-circuit")),
+        lambda self, **kwargs: {
+            "status": "blocked",
+            "tour_status": "blocked",
+            "blocked_reason": "listing_360_media_missing",
+            "tour_url": "",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "external_id": str(kwargs.get("external_id") or ""),
+        },
     )
 
     result = service.request_property_visual_asset(
@@ -16711,10 +16728,10 @@ def test_request_property_visual_asset_reuses_current_visual_state_generated_rec
         queue_async_request=False,
     )
 
-    assert result["status"] == "ready"
-    assert result["tour_status"] == "ready"
-    assert result["tour_url"] == "https://propertyquarry.com/tours/current-visual-state-generated-reconstruction"
-    assert result["open_tour_url"] == "https://propertyquarry.com/tours/files/current-visual-state-generated-reconstruction/generated-reconstruction/viewer.html"
+    assert result["status"] == "blocked"
+    assert result["tour_status"] == "blocked"
+    assert result["tour_url"] == ""
+    assert "open_tour_url" not in result
 
 
 def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available(monkeypatch, tmp_path: Path) -> None:

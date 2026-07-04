@@ -7496,7 +7496,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert client.get(f"/tours/files/{slug}/magicfit-still-private.jpg").status_code == 404
 
 
-def test_generated_reconstruction_bundle_serves_viewer_and_embedded_images(
+def test_generated_reconstruction_bundle_does_not_publish_fake_tour_viewer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7552,19 +7552,17 @@ def test_generated_reconstruction_bundle_serves_viewer_and_embedded_images(
     assert payload.status_code == 200
     public_assets = payload.json()["public_assets"]
     assert {row["path"] for row in public_assets} == {
-        "generated-reconstruction/viewer.html",
-        "generated-reconstruction/model.obj",
-        "generated-reconstruction/model.mtl",
         "generated-reconstruction/source-floorplan.jpg",
         "generated-reconstruction/photo-01.jpg",
         "generated-reconstruction/photo-02.jpg",
     }
 
-    viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html")
-    assert viewer.status_code == 200
-    assert 'src="source-floorplan.jpg"' in viewer.text
-    assert 'src="photo-01.jpg"' in viewer.text
-    assert 'src="photo-02.jpg"' in viewer.text
+    viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html", follow_redirects=False)
+    assert viewer.status_code in {302, 307}
+    assert viewer.headers["location"] == f"/tours/{slug}"
+
+    assert client.get(f"/tours/files/{slug}/generated-reconstruction/model.obj").status_code == 410
+    assert client.get(f"/tours/files/{slug}/generated-reconstruction/model.mtl").status_code == 410
 
     floorplan = client.get(f"/tours/files/{slug}/generated-reconstruction/source-floorplan.jpg")
     assert floorplan.status_code == 200
@@ -7582,7 +7580,7 @@ def test_generated_reconstruction_bundle_serves_viewer_and_embedded_images(
     assert photo_two.headers["x-propertyquarry-asset-privacy"] == "generated_reconstruction_public"
 
 
-def test_public_tour_page_redirects_generated_reconstruction_bundle_to_viewer(
+def test_public_tour_page_rejects_generated_reconstruction_only_bundle(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7614,8 +7612,9 @@ def test_public_tour_page_redirects_generated_reconstruction_bundle_to_viewer(
 
     response = client.get(f"/tours/{slug}", follow_redirects=False)
 
-    assert response.status_code in {302, 307}
-    assert response.headers["location"] == f"/tours/files/{slug}/generated-reconstruction/viewer.html"
+    assert response.status_code == 404
+    assert "older generated layout preview" in response.text
+    assert "generated-reconstruction/viewer.html" not in response.text
 
 
 def test_public_tour_json_never_exposes_listing_or_source_urls(
