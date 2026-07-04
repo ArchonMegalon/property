@@ -18997,6 +18997,33 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert "margin-inline: auto;" in body
 
 
+def test_property_run_customer_visible_events_collapses_failed_parent_replacement() -> None:
+    events = property_surface_state.property_run_customer_visible_events(
+        run_payload={
+            "run_id": "failed-parent",
+            "status": "failed",
+            "current_step": "failed",
+            "message": "This run used an earlier brief.",
+            "summary": {
+                "status": "failed",
+                "provider_total": 27,
+                "source_variant_total": 231,
+                "sources_total": 231,
+                "sources_completed": 223,
+                "found_listing_total": 30,
+                "reviewed_listing_total": 0,
+                "to_review_listing_total": 30,
+                "repair_status": "repairing",
+                "repair_replacement_run_id": "replacement-run",
+            },
+        }
+    )
+
+    messages = [str(event.get("message") or "") for event in events]
+    assert messages == ["A replacement search run is checking the saved brief."]
+    assert not any("search pages" in message.lower() or "to review" in message.lower() for message in messages)
+
+
 def test_propertyquarry_failed_parent_run_with_replacement_hides_stale_source_count() -> None:
     summary = property_surface_state.build_property_empty_outcome_summary(
         run_summary={

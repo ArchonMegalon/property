@@ -1296,6 +1296,23 @@ def property_run_customer_visible_events(
             return _dedup_events(visible_events)[-_PROPERTY_RUN_VISIBLE_EVENT_LIMIT:]
     if status not in {"failed", "completed_partial"}:
         return _dedup_events(synthetic_events or [_current_progress_event()])[-_PROPERTY_RUN_VISIBLE_EVENT_LIMIT:]
+    replacement_run_id = str(summary.get("repair_replacement_run_id") or "").strip()
+    if replacement_run_id:
+        return _dedup_events(
+            [
+                {
+                    "step": "repair_status",
+                    "status": str(summary.get("repair_status") or "repairing").strip() or "repairing",
+                    "message": "A replacement search run is checking the saved brief.",
+                    "created_at": str(
+                        summary.get("repair_last_updated_at")
+                        or payload.get("updated_at")
+                        or payload.get("generated_at")
+                        or ""
+                    ),
+                }
+            ]
+        )[-_PROPERTY_RUN_VISIBLE_EVENT_LIMIT:]
     synthesized_events: list[dict[str, object]] = []
     repair_label = str(summary.get("repair_status_label") or summary.get("repair_status") or "").strip()
     repair_step = _customer_safe_repair_step_label(summary.get("repair_step_label"))
