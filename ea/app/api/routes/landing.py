@@ -1171,8 +1171,6 @@ def _propertyquarry_fast_ranked_run_href(run_id: str, *, full: bool = False) -> 
     if not normalized_run_id:
         return "/app/shortlist"
     encoded_run_id = urllib.parse.quote(normalized_run_id, safe="")
-    if full:
-        return f"/app/shortlist?run_id={encoded_run_id}&full=1#results-list"
     return f"/app/shortlist/run/{encoded_run_id}"
 
 

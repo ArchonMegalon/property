@@ -6272,11 +6272,11 @@ def test_property_surface_state_previous_run_with_ranked_candidates_uses_fast_re
     )
 
     assert summary["href"] == "/app/shortlist/run/run-fast-42"
-    assert summary["full_href"] == "/app/shortlist?run_id=run-fast-42#results-list"
+    assert summary["full_href"] == "/app/shortlist/run/run-fast-42"
     assert summary["ranked_total"] == 1
 
 
-def test_property_surface_state_previous_run_without_ranked_candidates_uses_full_shortlist_href() -> None:
+def test_property_surface_state_previous_run_without_ranked_candidates_uses_single_results_href() -> None:
     summary = property_surface_state.build_property_previous_run_summary(
         {
             "run_id": "run-empty-42",
@@ -6290,8 +6290,8 @@ def test_property_surface_state_previous_run_without_ranked_candidates_uses_full
         candidate_maps_url_builder=lambda candidate: "",
     )
 
-    assert summary["href"] == "/app/shortlist?run_id=run-empty-42#results-list"
-    assert summary["full_href"] == "/app/shortlist?run_id=run-empty-42#results-list"
+    assert summary["href"] == "/app/shortlist/run/run-empty-42"
+    assert summary["full_href"] == "/app/shortlist/run/run-empty-42"
     assert summary["ranked_total"] == 0
 
 

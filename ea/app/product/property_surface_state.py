@@ -2702,8 +2702,7 @@ def build_property_previous_run_summary(
         else {}
     )
     quoted_run_id = urllib.parse.quote(run_id_value, safe="") if run_id_value else ""
-    full_href = f"/app/shortlist?run_id={quoted_run_id}#results-list" if quoted_run_id else "/app/shortlist"
-    href = f"/app/shortlist/run/{quoted_run_id}" if quoted_run_id and ranked_candidates else full_href
+    href = f"/app/shortlist/run/{quoted_run_id}" if quoted_run_id else "/app/shortlist"
     return {
         "run_id": run_id_value,
         "agent_id": str(raw_run.get("active_search_agent_id") or preferences_json.get("active_search_agent_id") or "").strip(),
@@ -2716,7 +2715,7 @@ def build_property_previous_run_summary(
         "scope_summary": str(scope_preview.get("summary") or location or region or country or "Search area").strip(),
         "mode_label": mode or "Search",
         "href": href,
-        "full_href": full_href,
+        "full_href": href,
         "updated_at": str(raw_run.get("updated_at") or raw_run.get("generated_at") or "").strip(),
         "source_total": _previous_run_int(summary.get("sources_total")),
         "listing_total": _previous_run_int(summary.get("listing_total") or summary.get("raw_listing_total")),
