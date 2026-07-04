@@ -13924,7 +13924,7 @@ def test_existing_hosted_property_tour_url_requires_real_bundle_assets(monkeypat
     )
 
 
-def test_existing_hosted_property_tour_url_accepts_generated_reconstruction_viewer(
+def test_existing_hosted_property_tour_url_rejects_generated_reconstruction_as_tour(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -13956,10 +13956,11 @@ def test_existing_hosted_property_tour_url_accepts_generated_reconstruction_view
     )
 
     tour_url = f"https://myexternalbrain.com/tours/{slug}"
-    assert product_service._existing_hosted_property_tour_url({"slug": slug}) == tour_url
+    assert product_service._existing_hosted_property_tour_url({"slug": slug}) == ""
     assert property_tour_hosting._hosted_property_tour_preview_image_url(tour_url) == (
         f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/photo-01.jpg"
     )
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(tour_url) == ""
     assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_urls(tour_url) == (
         f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/photo-01.jpg",
     )
@@ -28181,9 +28182,7 @@ def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_fro
 
     tour_url = f"https://propertyquarry.com/tours/{slug}"
     assert property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) == ""
-    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(tour_url) == (
-        f"https://propertyquarry.com/tours/files/{slug}/generated-reconstruction/viewer.html"
-    )
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(tour_url) == ""
     assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
         tour_url,
         asset_key="model_relpath",

@@ -5032,10 +5032,9 @@ def public_tour_file(slug: str, asset_path: str):
                 status_code=302,
                 headers=_public_tour_security_headers(cache_control="no-store"),
             )
-        return Response(
-            "This 3D tour is no longer available.\n",
-            status_code=404,
-            media_type="text/plain; charset=utf-8",
+        return RedirectResponse(
+            f"/tours/{urllib.parse.quote(str(payload.get('slug') or slug).strip(), safe='')}",
+            status_code=302,
             headers=_public_tour_security_headers(cache_control="no-store"),
         )
     if generated_asset_kind == "model":

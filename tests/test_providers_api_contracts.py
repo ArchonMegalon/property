@@ -7558,8 +7558,12 @@ def test_generated_reconstruction_bundle_does_not_publish_fake_tour_viewer(
     }
 
     viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html", follow_redirects=False)
-    assert viewer.status_code == 404
-    assert "This 3D tour is no longer available." in viewer.text
+    assert viewer.status_code == 302
+    assert viewer.headers["location"] == f"/tours/{slug}"
+    viewer_shell = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html")
+    assert viewer_shell.status_code == 404
+    assert "This old link no longer opens as a 3D tour." in viewer_shell.text
+    assert "generated-reconstruction/viewer.html" not in viewer_shell.text
 
     assert client.get(f"/tours/files/{slug}/generated-reconstruction/model.obj").status_code == 410
     assert client.get(f"/tours/files/{slug}/generated-reconstruction/model.mtl").status_code == 410

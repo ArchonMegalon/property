@@ -244,7 +244,7 @@ def test_runtime_reconstruction_smoke_requires_public_route_rejection_when_publi
     def _fake_public_contract(*, public_base_url: str, slug: str) -> dict[str, object]:
         observed["public_base_url"] = public_base_url
         observed["slug"] = slug
-        return {"status": "failed", "failures": ["viewer_not_unavailable"]}
+        return {"status": "failed", "failures": ["viewer_not_routed_to_clean_shell"]}
 
     monkeypatch.setattr(smoke, "_run", _fake_run)
     monkeypatch.setattr(smoke, "_check_generated_reconstruction_public_contract", _fake_public_contract)
@@ -258,16 +258,16 @@ def test_runtime_reconstruction_smoke_requires_public_route_rejection_when_publi
     assert observed == {"public_base_url": "https://propertyquarry.com", "slug": "runtime-smoke"}
     assert receipt["status"] == "failed"
     assert receipt["public_route_contract_ok"] is False
-    assert receipt["public_route_contract"]["failures"] == ["viewer_not_unavailable"]
+    assert receipt["public_route_contract"]["failures"] == ["viewer_not_routed_to_clean_shell"]
 
 
-def test_generated_reconstruction_public_contract_requires_direct_unavailable_and_gone(monkeypatch) -> None:
+def test_generated_reconstruction_public_contract_requires_clean_shell_redirect_and_gone(monkeypatch) -> None:
     calls: list[str] = []
 
     def _fake_probe(url: str) -> dict[str, object]:
         calls.append(url)
         if url.endswith("/generated-reconstruction/viewer.html"):
-            return {"status_code": 404, "location": "", "body_excerpt": "This 3D tour is no longer available."}
+            return {"status_code": 302, "location": "/tours/runtime-smoke", "body_excerpt": ""}
         if url.endswith("/generated-reconstruction/model.obj"):
             return {"status_code": 410, "location": "", "body_excerpt": "This generated model is not a public 3D tour."}
         return {
@@ -309,10 +309,10 @@ def test_generated_reconstruction_public_contract_allows_direct_provider_control
     assert receipt["status"] == "pass"
 
 
-def test_generated_reconstruction_public_contract_rejects_canonical_viewer_redirect(monkeypatch) -> None:
+def test_generated_reconstruction_public_contract_rejects_raw_viewer_404(monkeypatch) -> None:
     def _fake_probe(url: str) -> dict[str, object]:
         if url.endswith("/generated-reconstruction/viewer.html"):
-            return {"status_code": 302, "location": "/tours/runtime-smoke", "body_excerpt": ""}
+            return {"status_code": 404, "location": "", "body_excerpt": "This 3D tour is no longer available."}
         if url.endswith("/generated-reconstruction/model.obj"):
             return {"status_code": 410, "location": "", "body_excerpt": "This generated model is not a public 3D tour."}
         return {
@@ -329,4 +329,4 @@ def test_generated_reconstruction_public_contract_rejects_canonical_viewer_redir
     )
 
     assert receipt["status"] == "failed"
-    assert "viewer_redirect_target_wrong" in receipt["failures"]
+    assert "viewer_not_routed_to_clean_shell" in receipt["failures"]

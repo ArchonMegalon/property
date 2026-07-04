@@ -123,9 +123,7 @@ def test_property_walkthrough_scene_video_context_uses_generated_reconstruction_
     assert context["verified_open_url"] == ""
     assert context["first_party_open_url"] == ""
     assert context["control_url"] == ""
-    assert context["generated_reconstruction"]["viewer_url"].endswith(
-        "/tours/files/sample-generated-flat/generated-reconstruction/viewer.html"
-    )
+    assert "viewer_url" not in context["generated_reconstruction"]
     assert context["generated_reconstruction"]["glb_model_url"].endswith(
         "/tours/files/sample-generated-flat/generated-reconstruction/model.glb"
     )

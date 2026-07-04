@@ -94,18 +94,13 @@ def _check_generated_reconstruction_public_contract(*, public_base_url: str, slu
     failures: list[str] = []
     viewer_status = int(viewer.get("status_code") or 0)
     viewer_location = str(viewer.get("location") or "")
-    viewer_body = str(viewer.get("body_excerpt") or "")
     viewer_redirect_path = urllib.parse.urlparse(viewer_location).path if viewer_location else ""
-    if viewer_status == 404:
-        if "This 3D tour is no longer available." not in viewer_body:
-            failures.append("viewer_missing_unavailable_message")
-    elif viewer_status in {302, 307}:
-        if not viewer_redirect_path.startswith(expected_control_prefix):
+    canonical_path = urllib.parse.urlparse(canonical_url).path
+    if viewer_status in {302, 307}:
+        if not (viewer_redirect_path.startswith(expected_control_prefix) or viewer_redirect_path == canonical_path):
             failures.append("viewer_redirect_target_wrong")
     else:
-        failures.append("viewer_not_unavailable")
-    if viewer_redirect_path == urllib.parse.urlparse(canonical_url).path:
-        failures.append("viewer_redirect_target_wrong")
+        failures.append("viewer_not_routed_to_clean_shell")
     if int(canonical.get("status_code") or 0) != 404:
         failures.append("canonical_not_unavailable")
     if "This old link no longer opens as a 3D tour." not in str(canonical.get("body_excerpt") or ""):

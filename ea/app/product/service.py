@@ -16476,7 +16476,10 @@ def _write_generated_reconstruction_property_tour_bundle(
     )
     if (
         existing_payload
-        and _hosted_property_tour_generated_reconstruction_asset_url(tour_url)
+        and (
+            _hosted_property_tour_generated_reconstruction_asset_url(tour_url, asset_key="model_relpath")
+            or _hosted_property_tour_generated_reconstruction_asset_url(tour_url, asset_key="floorplan_relpath")
+        )
         and str(existing_reconstruction.get("viewer_version") or "").strip() == _PROPERTY_RECONSTRUCTION_VIEWER_VERSION
     ):
         return existing_payload
@@ -19962,8 +19965,12 @@ def _property_walkthrough_context_reference_text(tour_context_json: dict[str, ob
             "Keep room geometry, doorway order, window orientation, and balcony placement consistent with that tour reference."
         )
     generated_reconstruction = dict(context_payload.get("generated_reconstruction") or {})
-    generated_reconstruction_viewer = str(generated_reconstruction.get("viewer_url") or "").strip()
-    if generated_reconstruction_viewer:
+    generated_reconstruction_hint = _first_non_empty_text(
+        generated_reconstruction.get("glb_model_url"),
+        generated_reconstruction.get("model_url"),
+        generated_reconstruction.get("walkthrough_video_url"),
+    )
+    if generated_reconstruction_hint:
         prompt_parts.append("A generated layout preview is available only as a secondary, non-authoritative layout hint.")
     return compact_text(" ".join(prompt_parts), fallback="", limit=420)
 

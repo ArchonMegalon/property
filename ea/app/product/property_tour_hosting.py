@@ -698,6 +698,8 @@ def _hosted_property_tour_generated_reconstruction_asset_url(tour_url: object, *
         "walkthrough_video_relpath",
     }:
         return ""
+    if normalized_key == "viewer_relpath":
+        return ""
     slug = _hosted_property_tour_slug_from_url(normalized_url)
     if not slug:
         return ""
@@ -815,8 +817,6 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     scenes = [dict(entry) for entry in (payload.get("scenes") or []) if isinstance(entry, dict)]
     source_virtual_tour_url = str(payload.get("source_virtual_tour_url") or "").strip()
     hosted_url = f"{base_url}/{slug}"
-    if _hosted_property_tour_generated_reconstruction_asset_url(hosted_url):
-        return hosted_url
     if source_virtual_tour_url and not scenes:
         return f"{hosted_url}#live-360"
     if not scenes:

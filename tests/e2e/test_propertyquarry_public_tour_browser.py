@@ -756,7 +756,7 @@ def test_public_tour_flythrough_video_decodes_on_mobile_viewport(
     context.close()
 
 
-def test_generated_reconstruction_viewer_renders_real_geometry_in_browser(
+def test_generated_reconstruction_viewer_routes_to_clean_unavailable_shell(
     public_tour_browser_server: dict[str, str],
     browser: Browser,
 ) -> None:
@@ -769,41 +769,16 @@ def test_generated_reconstruction_viewer_renders_real_geometry_in_browser(
     slug = str(public_tour_browser_server["generated_reconstruction_slug"])
     url = f"{public_tour_browser_server['base_url']}/tours/files/{slug}/generated-reconstruction/viewer.html"
 
-    page.goto(url, wait_until="networkidle")
-    assert page.locator("h1").inner_text().strip() == "3D tour"
-    _wait_for_reconstruction_viewer_ready(page)
-    page.wait_for_timeout(250)
-    startup_metrics = _canvas_visual_metrics(page, "#viewport canvas")
-    assert startup_metrics["ready"], startup_metrics
-    assert startup_metrics["frame_count"] >= 2, startup_metrics
-    assert startup_metrics["wall_rect_count"] >= 20, startup_metrics
-    assert startup_metrics["wall_mesh_count"] >= 20, startup_metrics
-    assert startup_metrics["visible_wall_count"] >= 8, startup_metrics
-    assert startup_metrics["scene_child_count"] >= 4, startup_metrics
-    assert startup_metrics["width"] >= 140
-    assert startup_metrics["height"] >= 140
-    assert startup_metrics["projected_coverage_pct"] >= 5, startup_metrics
-    assert startup_metrics["max_projected_wall_pct"] >= 0.3, startup_metrics
-    assert startup_metrics["max_projected_wall_pct"] <= 50, startup_metrics
-    assert startup_metrics["render_calls"] >= 10, startup_metrics
-    assert startup_metrics["render_triangles"] >= 150, startup_metrics
-    _click_viewer_control(page, "#view-inside")
-    page.wait_for_timeout(700)
-    metrics = _canvas_visual_metrics(page, "#viewport canvas")
-    assert metrics["ready"], metrics
-    assert metrics["frame_count"] >= 2, metrics
-    assert metrics["wall_rect_count"] >= 20, metrics
-    assert metrics["wall_mesh_count"] >= 20, metrics
-    assert metrics["visible_wall_count"] >= 4, metrics
-    assert metrics["scene_child_count"] >= 4, metrics
-    assert metrics["width"] >= 140
-    assert metrics["height"] >= 140
-    assert metrics["projected_coverage_pct"] >= 5, metrics
-    assert metrics["max_projected_wall_pct"] >= 0.3, metrics
-    assert metrics["render_calls"] >= 10, metrics
-    assert metrics["render_triangles"] >= 150, metrics
-    assert page.locator(".floorplan").is_visible()
-    assert page.locator(".photos img").count() == 2
+    response = page.goto(url, wait_until="networkidle")
+    assert response is not None
+    assert response.status == 404
+    assert page.url.endswith(f"/tours/{slug}")
+    body_text = page.locator("body").inner_text()
+    assert "This tour link is no longer available." in body_text
+    assert "This old link no longer opens as a 3D tour." in body_text
+    assert page.locator("canvas").count() == 0
+    assert "Layout preview" not in body_text
+    assert "generated-reconstruction/viewer.html" not in body_text
     assert not page_errors
     assert not [
         message
@@ -815,7 +790,7 @@ def test_generated_reconstruction_viewer_renders_real_geometry_in_browser(
     context.close()
 
 
-def test_generated_reconstruction_viewer_is_mobile_safe(
+def test_generated_reconstruction_viewer_mobile_routes_to_clean_unavailable_shell(
     public_tour_browser_server: dict[str, str],
     browser: Browser,
 ) -> None:
@@ -828,37 +803,18 @@ def test_generated_reconstruction_viewer_is_mobile_safe(
     slug = str(public_tour_browser_server["generated_reconstruction_slug"])
     url = f"{public_tour_browser_server['base_url']}/tours/files/{slug}/generated-reconstruction/viewer.html"
 
-    page.goto(url, wait_until="networkidle")
-    _wait_for_reconstruction_viewer_ready(page)
-    page.wait_for_timeout(250)
+    response = page.goto(url, wait_until="networkidle")
+    assert response is not None
+    assert response.status == 404
+    assert page.url.endswith(f"/tours/{slug}")
     _assert_no_horizontal_overflow(page)
     _assert_visible_controls_meet_mobile_target_floor(page)
-    startup_metrics = _canvas_visual_metrics(page, "#viewport canvas")
-    assert startup_metrics["ready"], startup_metrics
-    assert startup_metrics["frame_count"] >= 2, startup_metrics
-    assert startup_metrics["wall_rect_count"] >= 20, startup_metrics
-    assert startup_metrics["wall_mesh_count"] >= 20, startup_metrics
-    assert startup_metrics["visible_wall_count"] >= 8, startup_metrics
-    assert startup_metrics["scene_child_count"] >= 4, startup_metrics
-    assert startup_metrics["projected_coverage_pct"] >= 4, startup_metrics
-    assert startup_metrics["max_projected_wall_pct"] >= 0.25, startup_metrics
-    assert startup_metrics["max_projected_wall_pct"] <= 55, startup_metrics
-    assert startup_metrics["render_calls"] >= 10, startup_metrics
-    assert startup_metrics["render_triangles"] >= 150, startup_metrics
-    _click_viewer_control(page, "#view-inside")
-    page.wait_for_timeout(500)
-    metrics = _canvas_visual_metrics(page, "#viewport canvas")
-    assert metrics["ready"], metrics
-    assert metrics["frame_count"] >= 2, metrics
-    assert metrics["wall_rect_count"] >= 20, metrics
-    assert metrics["wall_mesh_count"] >= 20, metrics
-    assert metrics["visible_wall_count"] >= 4, metrics
-    assert metrics["scene_child_count"] >= 4, metrics
-    assert metrics["projected_coverage_pct"] >= 4, metrics
-    assert metrics["max_projected_wall_pct"] >= 0.25, metrics
-    assert metrics["render_calls"] >= 10, metrics
-    assert metrics["render_triangles"] >= 150, metrics
-    assert page.locator(".floorplan").is_visible()
+    body_text = page.locator("body").inner_text()
+    assert "This tour link is no longer available." in body_text
+    assert "This old link no longer opens as a 3D tour." in body_text
+    assert page.locator("canvas").count() == 0
+    assert "Layout preview" not in body_text
+    assert "generated-reconstruction/viewer.html" not in body_text
     assert not page_errors
     assert not [
         message
