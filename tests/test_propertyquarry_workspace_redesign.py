@@ -14496,6 +14496,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "details updating" in script_body
     assert "source_review_packet_failed" in script_body
     assert script_body.count("const reviewed = listingWork.scanned;") == 1
+    assert body.index('<header class="pqx-topbar"') < body.index("data-property-workbench-json")
     assert "runListingQueueMessage(found, toReview)" in script_body
     assert "lowered.includes('0 to review')" in script_body
     assert "const detailQueueIsSourceBacklog = !(toReview > 0) && Number(sourceWork.total || 0) > 0 && sourceLeft > 0;" in script_body
