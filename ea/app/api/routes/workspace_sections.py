@@ -1269,12 +1269,12 @@ def workspace_section_payload(
                         "placeholder": "Uses the connected Google email when left blank",
                     },
                     {
-                        "label": "WhatsApp number for AI support only",
+                        "label": "WhatsApp support number",
                         "name": "whatsapp_ai_support_phone",
                         "type": "tel",
                         "value": str(assistant_notifications.get("whatsapp_ai_support_phone") or ""),
                         "placeholder": "+436641234567",
-                        "help": "Used only so Executive Assistant AI support can reach out and ask what questions you have. It is not used for sign-in, recovery, marketing, or public profile display.",
+                        "help": "Used only so PropertyQuarry support can ask what you need. It is not used for sign-in, recovery, marketing, or public profile display.",
                     },
                     {
                         "label": "Allow WhatsApp notifications",
@@ -1333,19 +1333,19 @@ def workspace_section_payload(
                     ],
                 },
                 {
-                    "eyebrow": "WhatsApp AI support",
+                    "eyebrow": "WhatsApp support",
                     "title": "Support contact and notification boundary",
-                    "body": "The WhatsApp number is for AI support outreach only. When support reaches out, it should ask what questions you have before giving workspace guidance.",
+                    "body": "The WhatsApp number is only for support outreach. When support reaches out, it should ask what you need before giving workspace guidance.",
                     "items": [
                         _row(
-                            "AI support phone",
+                            "Support phone",
                             "Saved" if assistant_notifications.get("whatsapp_ai_support_phone") else "Not set",
                             "WhatsApp",
                             href="/app/settings",
                         ),
                         _row(
                             "Support purpose",
-                            str(assistant_notifications.get("whatsapp_ai_support_purpose") or "ai_support_only").replace("_", " "),
+                            "support only",
                             "Boundary",
                             href="/app/settings",
                         ),

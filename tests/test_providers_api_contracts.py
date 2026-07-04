@@ -7649,7 +7649,7 @@ def test_public_tour_page_rejects_generated_reconstruction_only_bundle(
     response = client.get(f"/tours/{slug}", follow_redirects=False)
 
     assert response.status_code == 404
-    assert "older generated layout preview" in response.text
+    assert "This old link no longer opens as a 3D tour." in response.text
     assert "generated-reconstruction/viewer.html" not in response.text
 
 
@@ -8416,7 +8416,7 @@ def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
 
     assert page.status_code == 404
     assert "This tour link is no longer available." in page.text
-    assert "Generated preview removed" in page.text
+    assert "Unavailable" in page.text
     assert "@photo-sphere-viewer" not in page.text
     assert "CubemapAdapter" not in page.text
     assert "scene-01-f.jpg" not in page.text
@@ -8556,7 +8556,7 @@ def test_public_tour_routes_keep_pure_360_white_labeled_when_origin_present(
 
     assert page.status_code == 404
     assert 'src="https://360.kalandra.at/view/portal/id/VZ8P1"' not in page.text
-    assert "Generated preview removed" in page.text
+    assert "Unavailable" in page.text
     assert 'id="prev-link"' not in page.text
     assert 'id="next-link"' not in page.text
     assert 'id="cube"' not in page.text
@@ -9338,7 +9338,7 @@ def test_public_tour_routes_use_listing_research_to_fill_decision_brief(
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
 
     assert page.status_code == 404
-    assert "Generated preview removed" in page.text
+    assert "Unavailable" in page.text
     assert "Lift and floor plan materially reduce remote-viewing uncertainty." not in page.text
     assert "43 m² of terrace area adds meaningful private outdoor space." not in page.text
     assert "Immersive 360 tour is available." not in page.text
@@ -9426,7 +9426,7 @@ def test_public_tour_routes_refuse_generated_fallback_tours(
     payload = client.get(f"/tours/{slug}.json")
 
     assert page.status_code == 404
-    assert "older generated preview" in page.text
+    assert "This old link no longer opens as a 3D tour." in page.text
     assert "Request a fresh 3D tour" in page.text
     assert payload.status_code == 404
     assert payload.json()["error"]["code"] == "tour_disabled_fallback"

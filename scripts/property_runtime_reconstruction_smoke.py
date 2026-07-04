@@ -90,16 +90,25 @@ def _check_generated_reconstruction_public_contract(*, public_base_url: str, slu
     viewer = _http_probe(viewer_url)
     canonical = _http_probe(canonical_url)
     model = _http_probe(model_url)
-    expected_canonical_path = urllib.parse.urlparse(canonical_url).path
+    expected_control_prefix = f"{urllib.parse.urlparse(canonical_url).path}/control/"
     failures: list[str] = []
+    viewer_status = int(viewer.get("status_code") or 0)
     viewer_location = str(viewer.get("location") or "")
-    if int(viewer.get("status_code") or 0) not in {302, 307}:
-        failures.append("viewer_not_redirected")
-    if viewer_location and urllib.parse.urlparse(viewer_location).path != expected_canonical_path:
+    viewer_body = str(viewer.get("body_excerpt") or "")
+    viewer_redirect_path = urllib.parse.urlparse(viewer_location).path if viewer_location else ""
+    if viewer_status == 404:
+        if "This 3D tour is no longer available." not in viewer_body:
+            failures.append("viewer_missing_unavailable_message")
+    elif viewer_status in {302, 307}:
+        if not viewer_redirect_path.startswith(expected_control_prefix):
+            failures.append("viewer_redirect_target_wrong")
+    else:
+        failures.append("viewer_not_unavailable")
+    if viewer_redirect_path == urllib.parse.urlparse(canonical_url).path:
         failures.append("viewer_redirect_target_wrong")
     if int(canonical.get("status_code") or 0) != 404:
         failures.append("canonical_not_unavailable")
-    if "older generated layout preview" not in str(canonical.get("body_excerpt") or ""):
+    if "This old link no longer opens as a 3D tour." not in str(canonical.get("body_excerpt") or ""):
         failures.append("canonical_missing_honest_message")
     if "generated-reconstruction/viewer.html" in str(canonical.get("body_excerpt") or ""):
         failures.append("canonical_leaks_fake_viewer_url")

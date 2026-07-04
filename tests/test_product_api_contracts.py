@@ -24394,7 +24394,7 @@ def test_principal_workspace_session_cannot_mint_operator_access_or_open_operato
     assert operator_center.status_code == 403
 
 
-def test_executive_assistant_settings_store_whatsapp_ai_support_contact() -> None:
+def test_executive_assistant_settings_store_whatsapp_support_contact() -> None:
     principal_id = "exec-settings-whatsapp-ai-support"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -24411,7 +24411,8 @@ def test_executive_assistant_settings_store_whatsapp_ai_support_contact() -> Non
     assert "whatsapp_ai_support_phone" in field_names
     assert "whatsapp_notifications_enabled" in field_names
     rendered_help = " ".join(str(field.get("help") or "") for field in settings_payload["console_form"]["fields"])
-    assert "AI support can reach out and ask what questions you have" in rendered_help
+    assert "PropertyQuarry support can ask what you need" in rendered_help
+    assert "AI support" not in rendered_help
     assert "morning memo, queue follow-up, support follow-up, or operator handoff notices" in rendered_help
 
     updated = client.post(
@@ -27354,7 +27355,7 @@ def test_public_tour_page_blocks_photo_gallery_fallback_bundle(monkeypatch: pyte
 
     assert response.status_code == 404
     assert "This tour link is no longer available." in response.text
-    assert "older generated preview" in response.text
+    assert "This old link no longer opens as a 3D tour." in response.text
 
 
 def test_public_tour_control_krpano_route_requires_license(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
