@@ -457,6 +457,34 @@ provider_search_change_pathspecs=(
   "tests/test_property_search_runs.py"
 )
 
+presentation_media_change_pathspecs=(
+  "ea/app/product/property_tour_hosting.py"
+  "ea/app/services/property_media_factory.py"
+  "ea/app/api/routes/public_tours.py"
+  "ea/app/api/routes/public_tour_payloads.py"
+  "ea/app/api/routes/landing_property_research.py"
+  "ea/app/templates/app/property_research_detail.html"
+  "ea/app/templates/app/property_decision_workbench.html"
+  "ea/app/templates/app/property_ranked_run_fast.html"
+  "ea/app/templates/app/_property_workbench_script.html"
+  "scripts/propertyquarry_live_presentation_e2e.py"
+  "scripts/propertyquarry_3d_browser_gate.py"
+  "scripts/propertyquarry_walkthrough_quality_gate.py"
+  "scripts/import_3dvista_export.py"
+  "scripts/attach_provider_tour_layer.py"
+  "scripts/import_property_tour_exports.py"
+  "scripts/generate_property_reconstruction.py"
+  "scripts/import_magicfit_walkthrough.py"
+  "scripts/discover_property_tour_exports.py"
+  "scripts/materialize_property_tour_export_manifest.py"
+  "scripts/verify_property_tour_controls.py"
+  "tests/test_property_tour_control_verifier.py"
+  "tests/test_property_tour_export_importers.py"
+  "tests/test_property_generated_reconstruction.py"
+  "tests/test_property_media_factory.py"
+  "tests/e2e/test_propertyquarry_public_tour_browser.py"
+)
+
 live_release_commit_for_provider_guard() {
   local probe_url="$1"
   local body=""
@@ -480,6 +508,21 @@ provider_search_changed_files_between() {
     return 0
   fi
   git diff --name-only "${from_commit}..${to_commit}" -- "${provider_search_change_pathspecs[@]}" 2>/dev/null || true
+}
+
+presentation_media_changed_files_between() {
+  local from_commit="$1"
+  local to_commit="$2"
+  if [[ -z "${from_commit}" || -z "${to_commit}" || "${from_commit}" == "${to_commit}" ]]; then
+    return 0
+  fi
+  if ! git rev-parse --verify "${from_commit}^{commit}" >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! git rev-parse --verify "${to_commit}^{commit}" >/dev/null 2>&1; then
+    return 0
+  fi
+  git diff --name-only "${from_commit}..${to_commit}" -- "${presentation_media_change_pathspecs[@]}" 2>/dev/null || true
 }
 
 provider_country_scope_covers_current_markets() {
@@ -522,9 +565,45 @@ assert_provider_search_changes_have_targeted_e2e() {
   exit 2
 }
 
+presentation_e2e_will_run_for_deploy() {
+  local mode provider_e2e
+  mode="$(effective_env_value PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E)"
+  mode="${mode:-auto}"
+  mode="$(printf '%s' "${mode}" | tr '[:upper:]' '[:lower:]')"
+  provider_e2e="$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"
+  if env_truthy "${mode}"; then
+    return 0
+  fi
+  if [[ "${mode}" == "auto" ]] && env_truthy "${provider_e2e}"; then
+    return 0
+  fi
+  return 1
+}
+
+assert_presentation_media_changes_have_e2e() {
+  local probe_url="$1"
+  local live_commit changed_files
+  live_commit="$(live_release_commit_for_provider_guard "${probe_url}")"
+  changed_files="$(presentation_media_changed_files_between "${live_commit}" "${release_commit_sha}")"
+  if [[ -z "${changed_files}" ]]; then
+    return 0
+  fi
+  if presentation_e2e_will_run_for_deploy; then
+    return 0
+  fi
+  echo "Tour, media, or presentation code changed since the live release; deploy requires presentation E2E." >&2
+  echo "Set PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E=1 before deploying, or run provider E2E which includes the presentation, 3D browser, and walkthrough quality gates." >&2
+  echo "Live commit: ${live_commit:-unknown}" >&2
+  echo "Target commit: ${release_commit_sha:-unknown}" >&2
+  echo "Changed tour/media/presentation files:" >&2
+  printf '%s\n' "${changed_files}" >&2
+  exit 2
+}
+
 predeploy_base_url="$(effective_env_value PROPERTYQUARRY_DEPLOY_BASE_URL)"
 predeploy_base_url="${predeploy_base_url:-http://localhost:${host_port}}"
 assert_provider_search_changes_have_targeted_e2e "${predeploy_base_url%/}"
+assert_presentation_media_changes_have_e2e "${predeploy_base_url%/}"
 
 compose_project_name="$(effective_env_value PROPERTYQUARRY_COMPOSE_PROJECT_NAME)"
 compose_project_name="${compose_project_name:-$(effective_env_value COMPOSE_PROJECT_NAME)}"

@@ -170,6 +170,23 @@ def test_propertyquarry_deploy_wrapper_supports_focused_provider_country_matrix(
     assert "provider verification: ${provider_smoke_scope_label}" in script
 
 
+def test_propertyquarry_deploy_wrapper_requires_presentation_e2e_for_tour_media_changes() -> None:
+    script = _read("scripts/deploy_propertyquarry.sh")
+
+    assert "assert_presentation_media_changes_have_e2e" in script
+    assert "presentation_media_changed_files_between" in script
+    assert "presentation_e2e_will_run_for_deploy" in script
+    assert "Tour, media, or presentation code changed since the live release" in script
+    assert "PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E=1" in script
+    assert "presentation, 3D browser, and walkthrough quality gates" in script
+    assert "ea/app/product/property_tour_hosting.py" in script
+    assert "ea/app/api/routes/public_tours.py" in script
+    assert "ea/app/templates/app/property_research_detail.html" in script
+    assert "scripts/propertyquarry_live_presentation_e2e.py" in script
+    assert "scripts/propertyquarry_3d_browser_gate.py" in script
+    assert "scripts/propertyquarry_walkthrough_quality_gate.py" in script
+
+
 def test_propertyquarry_deploy_wrapper_resolves_live_smoke_identity_from_env_file() -> None:
     script = _read("scripts/deploy_propertyquarry.sh")
 
