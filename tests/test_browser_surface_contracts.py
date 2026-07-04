@@ -140,13 +140,13 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         and "from account, with connections inside it" in landing.text.lower()
     )
 
-    directory = client.get("/directory")
-    assert directory.status_code == 404
-    assert directory.json()["error"]["code"] == "directory_unavailable"
+    directory = client.get("/directory", follow_redirects=False)
+    assert directory.status_code == 307
+    assert directory.headers["location"] == "/"
 
-    directory_profile = client.get("/directory/profile/sample")
-    assert directory_profile.status_code == 404
-    assert directory_profile.json()["error"]["code"] == "directory_unavailable"
+    directory_profile = client.get("/directory/profile/sample", follow_redirects=False)
+    assert directory_profile.status_code == 307
+    assert directory_profile.headers["location"] == "/"
 
     pricing = client.get("/pricing")
     assert "<h1>Pricing</h1>" not in pricing.text

@@ -2637,14 +2637,14 @@ def test_brilliant_directories_public_directory_page_is_not_available(
     _clear_env(monkeypatch)
     client = build_property_client(principal_id="pq-brilliant-directories-public-disabled")
 
-    response = client.get("/directory", headers={"host": "propertyquarry.com"})
+    response = client.get("/directory", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "directory_unavailable"
+    assert response.status_code == 307
+    assert response.headers["location"] == "/"
 
-    profile_response = client.get("/directory/profile/sample", headers={"host": "propertyquarry.com"})
-    assert profile_response.status_code == 404
-    assert profile_response.json()["error"]["code"] == "directory_unavailable"
+    profile_response = client.get("/directory/profile/sample", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert profile_response.status_code == 307
+    assert profile_response.headers["location"] == "/"
 
 
 def test_brilliant_directories_sitemap_hides_unconfigured_directory(
@@ -2696,14 +2696,15 @@ def test_brilliant_directories_public_directory_page_remains_cut_when_configured
     response = client.get(
         "/directory?keyword=relocation&city=Vienna&country_code=AT",
         headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
     )
 
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "directory_unavailable"
+    assert response.status_code == 307
+    assert response.headers["location"] == "/"
 
-    profile_response = client.get("/directory/profile/24", headers={"host": "propertyquarry.com"})
-    assert profile_response.status_code == 404
-    assert profile_response.json()["error"]["code"] == "directory_unavailable"
+    profile_response = client.get("/directory/profile/24", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert profile_response.status_code == 307
+    assert profile_response.headers["location"] == "/"
 
 
 def test_brilliant_directories_public_directory_page_stays_unavailable_for_empty_results(
@@ -2718,10 +2719,10 @@ def test_brilliant_directories_public_directory_page_stays_unavailable_for_empty
 
     client = build_property_client(principal_id="pq-brilliant-directories-public-empty")
 
-    response = client.get("/directory?keyword=missing", headers={"host": "propertyquarry.com"})
+    response = client.get("/directory?keyword=missing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "directory_unavailable"
+    assert response.status_code == 307
+    assert response.headers["location"] == "/"
 
 
 def test_brilliant_directories_pricing_stays_propertyquarry_white_label(

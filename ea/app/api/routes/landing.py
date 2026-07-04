@@ -307,45 +307,6 @@ templates.env.globals["property_search_loader_script_asset_url"] = _property_sea
 templates.env.globals["property_workbench_css_asset_url"] = _property_workbench_css_asset_url
 
 
-def _brilliant_directories_public_profile_rows(profiles: list[object]) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for raw_profile in profiles:
-        if not isinstance(raw_profile, dict):
-            continue
-        profile = dict(raw_profile)
-        profile_id = str(profile.get("profile_id") or "").strip()
-        href = f"/directory/profile/{urllib.parse.quote(profile_id, safe='')}" if profile_id else ""
-        rows.append(
-            {
-                "profile_id": profile_id,
-                "display_name": str(profile.get("display_name") or "").strip(),
-                "category": str(profile.get("category") or "").strip(),
-                "city": str(profile.get("city") or "").strip(),
-                "region": str(profile.get("region") or "").strip(),
-                "country_code": str(profile.get("country_code") or "").strip(),
-                "summary": str(profile.get("summary") or "").strip(),
-                "tags": [str(item).strip() for item in list(profile.get("tags") or []) if str(item).strip()][:6],
-                "href": href,
-            }
-        )
-    return [row for row in rows if row.get("profile_id") and row.get("display_name")]
-
-
-def _brilliant_directories_public_profile_row(profiles: list[object], *, profile_id: str) -> dict[str, object]:
-    normalized_profile_id = str(profile_id or "").strip()
-    for row in _brilliant_directories_public_profile_rows(profiles):
-        if str(row.get("profile_id") or "").strip() == normalized_profile_id:
-            return row
-    return {}
-
-
-def _normalize_public_directory_profile_id(profile_id: str) -> str:
-    normalized = str(profile_id or "").strip()
-    if not normalized or len(normalized) > 96 or not re.fullmatch(r"[A-Za-z0-9._:-]+", normalized):
-        raise HTTPException(status_code=404, detail="directory_profile_not_found")
-    return normalized
-
-
 def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_handoff: bool = False) -> dict[str, object]:
     bridge_receipt = brilliant_directories_service.build_brilliant_directories_billing_sso_bridge_receipt()
     bridge_ready = bool(bridge_receipt.get("ready"))
@@ -3721,30 +3682,14 @@ def landing(
 
 
 @router.get("/directory", response_class=HTMLResponse)
-def property_directory_page(
-    request: Request,
-    keyword: str = Query(default="", max_length=140),
-    category: str = Query(default="", max_length=96),
-    city: str = Query(default="", max_length=96),
-    country_code: str = Query(default="", max_length=12),
-    page: int = Query(default=1, ge=1, le=100),
-    limit: int = Query(default=12, ge=1, le=50),
-    container: AppContainer = Depends(get_container),
-    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
-) -> HTMLResponse:
-    del request, keyword, category, city, country_code, page, limit, container, access_identity
-    raise HTTPException(status_code=404, detail="directory_unavailable")
+def property_directory_page() -> RedirectResponse:
+    return RedirectResponse("/", status_code=307)
 
 
 @router.get("/directory/profile/{profile_id}", response_class=HTMLResponse)
-def property_directory_profile_page(
-    profile_id: str,
-    request: Request,
-    container: AppContainer = Depends(get_container),
-    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
-) -> HTMLResponse:
-    del profile_id, request, container, access_identity
-    raise HTTPException(status_code=404, detail="directory_unavailable")
+def property_directory_profile_page(profile_id: str) -> RedirectResponse:
+    del profile_id
+    return RedirectResponse("/", status_code=307)
 
 
 @router.get("/product", response_class=HTMLResponse)
