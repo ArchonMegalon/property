@@ -1966,33 +1966,33 @@
         || combined.includes('blocked or rejected automated source fetch')
         || combined.includes('403')
         || combined.includes('forbidden')
-      ) return 'This source stopped returning a listing page PropertyQuarry can read.';
+      ) return 'This site stopped returning a listing page PropertyQuarry can read.';
       if (
         resolution === 'suppressed_generic_listing_page'
         || combined.includes('generic marketing or overview page')
         || combined.includes('generic listing page')
         || combined.includes('overview page')
-      ) return 'This source opened an overview page instead of one concrete home.';
+      ) return 'This site opened an overview page instead of one concrete home.';
       if (
         resolution === 'provider_quarantined_retry_budget_exhausted'
         || combined.includes('manual_provider_patch_required')
-      ) return 'This source changed enough that the search could not recover it automatically yet.';
+      ) return 'This site changed enough that the search could not recover it automatically yet.';
       if (
         resolution === 'suppressed_missing_location'
         || combined.includes('missing location')
         || combined.includes('lacks a concrete location')
-      ) return 'This source no longer returned a clear location for the home.';
+      ) return 'This site no longer returned a clear location for the home.';
       if (
         resolution === 'suppressed_missing_price'
         || combined.includes('missing price')
         || combined.includes('lacks a concrete price')
-      ) return 'This source no longer returned a confirmed price for the home.';
+      ) return 'This site no longer returned a confirmed price for the home.';
       if (
         resolution === 'suppressed_location_scope'
         || combined.includes('location scope')
         || combined.includes('wrong area')
         || combined.includes('conflicts with the active search location')
-      ) return 'This source no longer matched the saved search area cleanly.';
+      ) return 'This site no longer matched the saved search area cleanly.';
       if (
         combined.includes('provider returned')
         || combined.includes('while fetching')
@@ -2004,7 +2004,7 @@
         || combined.includes('webpage')
         || combined.includes('provider page')
         || combined.includes('extract')
-      ) return 'This source changed and the current check could not confirm the listing reliably.';
+      ) return 'This site changed and the current check could not confirm the listing reliably.';
       return '';
     };
     const isInternalRepairFailureCopy = (value = '') => {
@@ -2040,9 +2040,9 @@
       }
       if (!repairReasonPointsToProviderSiteChange(repairReason)) return '';
       if (repairStatus === 'failed' || repairStatus === 'repair failed') {
-        return 'One source changed, so this search could not finish automatically.';
+        return 'One site changed, so this search could not finish automatically.';
       }
-      return 'One source changed, so PropertyQuarry is retrying it.';
+      return 'One site changed, so PropertyQuarry is retrying it.';
     };
     const runSourceWorkCounts = (summary = {}, statusValue = '') => {
       const sourceRows = Array.isArray(summary?.sources) ? summary.sources : [];
@@ -2087,7 +2087,7 @@
       const providerTotal = Math.max(0, Number(providerDisplayTotal || summary.provider_display_total || summary.provider_total || 0));
       if (sourceVariantTotal > 0 && providerTotal > 0 && sourceVariantTotal > providerTotal) return 'search pages';
       if (Number(total || 0) > 0 && providerTotal > 0 && Number(total || 0) > providerTotal) return 'search pages';
-      return 'sources';
+      return 'sites';
     };
     const runSourceWorkLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
       const countTotal = Math.max(0, Number(counts?.total || 0));
@@ -2096,7 +2096,7 @@
         const done = Math.min(total, Math.max(0, Number(counts?.done || 0)));
         return `${done} / ${total} ${runSourceUnitLabel(summary, total, providerDisplayTotal)}`;
       }
-      if (total > 0) return `${total} sources selected`;
+      if (total > 0) return `${total} sites selected`;
       return 'Preparing search';
     };
     const runSourceWorkLeftLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
@@ -2206,7 +2206,7 @@
 	      const checkedLabel = runListingQueueMessage(found, toReview);
       const scanLabel = found > 0
         ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary) : checkedLabel)
-        : (providerDisplayTotal ? `${providerDisplayTotal} sources selected` : checkedLabel);
+        : (providerDisplayTotal ? `${providerDisplayTotal} sites selected` : checkedLabel);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -2227,7 +2227,7 @@
           return 'Preparing search';
         }
         if (['source_search', 'provider_search', 'search'].includes(step)) {
-          return 'Checking sources';
+          return 'Checking sites';
         }
         if (['source_detail_check', 'listing_detail_check', 'source_fetch', 'source_fetch_page'].includes(step)) {
           return 'Checking details';
@@ -2732,7 +2732,7 @@
         sourceWork,
         found,
         toReview,
-        providerDisplayTotal > 0 ? `${providerDisplayTotal} sources selected` : 'Looking for listings',
+        providerDisplayTotal > 0 ? `${providerDisplayTotal} sites selected` : 'Looking for listings',
         providerDisplayTotal,
         summary,
       );
@@ -2773,7 +2773,7 @@
 		              <em><u style="--progress: ${escapeHtml(detailQueuePct)}"></u></em>
 		            </span>
 		            <span>
-			              <b>Sources</b>
+				              <b>Sites</b>
 			              <i>${escapeHtml(providerCheckValue)}</i>
 			              <em><u style="--progress: ${escapeHtml(providerCheckPct)}"></u></em>
 		            </span>
@@ -3530,7 +3530,7 @@
         research: isInvestment
           ? { label: 'Numbers', detail: 'Return, risk, and external data depth.' }
           : { label: 'Research depth', detail: 'Risk, supply, and how much detail each strong match should carry.' },
-        providers: { label: 'Sources', detail: 'Choose trusted sources.' },
+        providers: { label: 'Sites', detail: 'Choose listing sites.' },
       };
       return map[key] || { label: fallbackLabel, detail: fallbackDetail };
     };

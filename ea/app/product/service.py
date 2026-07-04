@@ -1982,7 +1982,7 @@ def _property_search_revalidate_area_expansion_snapshot(
     previous_filtered_total = _safe_int(summary.get("filtered_total"), summary.get("held_back_total"))
     message = (
         "Saved candidates were rechecked with the current area. "
-        "Start a fresh search when you want new source coverage too."
+        "Start a fresh search when you want new site coverage too."
     )
     summary.update(
         {
@@ -2102,7 +2102,7 @@ def _property_search_revalidate_relaxed_hard_rules_snapshot(
     previous_filtered_total = _safe_int(summary.get("filtered_total"), summary.get("held_back_total"))
     message = (
         "Saved candidates were rechecked with the current rules. "
-        "Start a fresh search when you want new source coverage too."
+        "Start a fresh search when you want new site coverage too."
     )
     summary.update(
         {
@@ -2219,7 +2219,7 @@ def _property_search_revalidate_budget_expansion_snapshot(
     )
     message = (
         "Saved candidates were rechecked with the current budget. "
-        "Start a fresh search when you want new source coverage too."
+        "Start a fresh search when you want new site coverage too."
     )
     summary.update(
         {
@@ -27284,7 +27284,7 @@ class ProductService:
                     failover_ready_lanes += 1
         if failed_keys or (provider_rows and not ready_keys and not degraded_keys):
             risk_state = "critical"
-            risk_detail = "At least one source failed or no ready provider remains bound for this workspace."
+            risk_detail = "At least one site failed or no ready provider remains bound for this workspace."
         elif degraded_keys or degraded_primary_lanes:
             risk_state = "watch"
             risk_detail = "At least one provider or primary routing lane is degraded and needs operator attention."

@@ -669,7 +669,7 @@
         }
         return;
       }
-      setCheckboxGroupStatus(name === 'selected_platforms' ? `Selected all ${selectedInputs.length} sources.` : `Selected all ${selectedInputs.length} areas.`);
+      setCheckboxGroupStatus(name === 'selected_platforms' ? `Selected all ${selectedInputs.length} sites.` : `Selected all ${selectedInputs.length} areas.`);
     };
     const clearAllCheckboxValues = (form, name) => {
       const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
@@ -685,20 +685,20 @@
         if (name !== 'selected_platforms') return;
         const total = [...form.querySelectorAll(`input[name="${name}"]`)].filter((node) => !node.disabled).length;
         if (!total) {
-          button.textContent = 'Select sources';
+          button.textContent = 'Select sites';
           button.removeAttribute('title');
           button.removeAttribute('aria-label');
           return;
         }
         if (!normalizedMax || total <= normalizedMax) {
-          button.textContent = 'All sources';
-          const title = `Select all ${total} available sources.`;
+          button.textContent = 'All sites';
+          const title = `Select all ${total} available sites.`;
           button.setAttribute('title', title);
           button.setAttribute('aria-label', title);
           return;
         }
         button.textContent = `Select ${normalizedMax} of ${total}`;
-        const title = `Your current plan lets you include up to ${normalizedMax} of ${total} available sources in one search.`;
+        const title = `Your current plan lets you include up to ${normalizedMax} of ${total} available sites in one search.`;
         button.setAttribute('title', title);
         button.setAttribute('aria-label', title);
       });
@@ -718,7 +718,7 @@
         const plan = raw.split(':').pop() || 'paid';
         return `Upgrade required for this search. Reduce the selected lists or max results, or switch to the ${plan} plan.`;
       }
-      if (raw === 'invalid_property_search_platform') return 'One selected provider is not available for this country. Reopen Sources and choose again.';
+      if (raw === 'invalid_property_search_platform') return 'One selected site is not available for this country. Reopen Sites and choose again.';
       if (raw === 'principal_id_required') return 'You are not signed in cleanly. Sign in again before starting a search.';
       return raw.replaceAll('_', ' ');
     };

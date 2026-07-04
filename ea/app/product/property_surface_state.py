@@ -66,7 +66,7 @@ _INTERNAL_RUN_STATUS_NOISE_TOKENS = (
 
 _STALE_ZERO_REVIEW_SEARCH_PAGES_RE = re.compile(
     r"\b(?P<found>\d+)\s+homes?\s+found\s*·\s*0\s+to\s+review\s*·\s*"
-    r"(?P<done>\d+)\s*/\s*(?P<total>\d+)\s*(?P<unit>search pages|providers|sources)\b",
+    r"(?P<done>\d+)\s*/\s*(?P<total>\d+)\s*(?P<unit>search pages|providers|sources|sites)\b",
     re.IGNORECASE,
 )
 
@@ -514,7 +514,7 @@ def property_run_status_copy(status_value: object, message_value: object = "") -
     if status in {"processed", "completed"}:
         return ("Finished", "")
     if status == "completed_partial":
-        return ("Finished with partial coverage", safe_message or "The shortlist is ready, but one or more sources finished degraded.")
+        return ("Finished with partial coverage", safe_message or "The shortlist is ready, but one or more sites finished degraded.")
     if status == "failed":
         return ("Search interrupted", safe_message or "The search stopped before ranking finished.")
     if status == "cancelled":
@@ -576,16 +576,16 @@ def property_run_customer_safe_status_detail(
     ) or any(token in lowered for token in _RAW_PROVIDER_FAILURE_TOKENS)
 
     if repair_step and raw_failure_like and prefer_repair_step:
-        return customer_status or calm_repair_copy or "Refreshing affected sources."
+        return customer_status or calm_repair_copy or "Refreshing affected sites."
     if customer_status and (status in {"failed", "completed_partial"} or raw_failure_like):
         return customer_status
     if repair_step and raw_failure_like:
         return calm_repair_copy or _join_customer_sentences(
-            "PropertyQuarry is refreshing affected sources",
+            "PropertyQuarry is refreshing affected sites",
             "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
         )
     if raw_failure_like and repair_status:
-        return calm_repair_copy or "PropertyQuarry is refreshing affected sources."
+        return calm_repair_copy or "PropertyQuarry is refreshing affected sites."
     if status == "failed" and raw_failure_like:
         return calm_repair_copy or "The search stopped before the shortlist settled."
     if status == "failed" and repair_flags.get("active"):
@@ -659,21 +659,21 @@ def _customer_friendly_repair_reason(summary: dict[str, object]) -> str:
         or "403" in combined
         or "forbidden" in combined
     ):
-        return "This source stopped returning a listing page PropertyQuarry can read."
+        return "This site stopped returning a listing page PropertyQuarry can read."
     if resolution == "suppressed_generic_listing_page" or "generic marketing or overview page" in reason:
-        return "This source opened an overview page instead of one concrete home."
+        return "This site opened an overview page instead of one concrete home."
     if resolution == "provider_quarantined_retry_budget_exhausted" or "manual_provider_patch_required" in combined:
-        return "This source changed enough that the search could not recover it automatically yet."
+        return "This site changed enough that the search could not recover it automatically yet."
     if resolution == "suppressed_missing_location" or "lacks a concrete location" in reason:
-        return "This source no longer returned a clear location for the home."
+        return "This site no longer returned a clear location for the home."
     if resolution == "suppressed_missing_price" or "lacks a concrete price" in reason:
-        return "This source no longer returned a confirmed price for the home."
+        return "This site no longer returned a confirmed price for the home."
     if resolution == "suppressed_location_scope" or "conflicts with the active search location" in reason:
-        return "This source no longer matched the saved search area cleanly."
+        return "This site no longer matched the saved search area cleanly."
     if resolution in {"worker_exception_restart_required", "stale_run_restart_required"}:
         return "The retry restarted the search, but it still did not reach a ready shortlist."
     if "provider page" in combined or "webpage" in combined or "extract" in combined:
-        return "This source changed and the current check could not confirm the listing reliably."
+        return "This site changed and the current check could not confirm the listing reliably."
     return ""
 
 
@@ -695,26 +695,26 @@ def _resolved_customer_repair_reason(
         or "generic listing page" in combined
         or "overview page" in combined
     ):
-        return "This source opened an overview page instead of one concrete home."
+        return "This site opened an overview page instead of one concrete home."
     if (
         "suppressed_missing_location" in combined
         or "missing location" in combined
         or "lacks a concrete location" in combined
     ):
-        return "This source no longer returned a clear location for the home."
+        return "This site no longer returned a clear location for the home."
     if (
         "suppressed_missing_price" in combined
         or "missing price" in combined
         or "lacks a concrete price" in combined
     ):
-        return "This source no longer returned a confirmed price for the home."
+        return "This site no longer returned a confirmed price for the home."
     if (
         "suppressed_location_scope" in combined
         or "location scope" in combined
         or "wrong area" in combined
         or "conflicts with the active search location" in combined
     ):
-        return "This source no longer matched the saved search area cleanly."
+        return "This site no longer matched the saved search area cleanly."
     if (
         "403" in combined
         or "forbidden" in combined
@@ -729,7 +729,7 @@ def _resolved_customer_repair_reason(
         or "provider page" in combined
         or "extract" in combined
     ):
-        return "This source changed and the current check could not confirm the listing reliably."
+        return "This site changed and the current check could not confirm the listing reliably."
     return ""
 
 
@@ -765,6 +765,7 @@ def _repair_reason_points_to_provider_site_change(reason: object) -> bool:
         token in lowered
         for token in (
             "source stopped returning",
+            "site stopped returning",
             "overview page",
             "clear location",
             "confirmed price",
@@ -782,13 +783,13 @@ def _calm_customer_repair_copy(
     repair_failed: bool = False,
 ) -> str:
     if replacement_run_id and _repair_reason_points_to_provider_site_change(repair_reason):
-        return "A source changed, so a fresh search is already running."
+        return "A site changed, so a fresh search is already running."
     if replacement_run_id:
         return "A fresh search is checking your saved brief."
     if repair_active and _repair_reason_points_to_provider_site_change(repair_reason):
-        return "One source changed, so PropertyQuarry is retrying it."
+        return "One site changed, so PropertyQuarry is retrying it."
     if repair_failed and _repair_reason_points_to_provider_site_change(repair_reason):
-        return "One source changed, so this search could not finish automatically."
+        return "One site changed, so this search could not finish automatically."
     return ""
 
 
@@ -963,7 +964,7 @@ def _property_run_provider_check_label(summary: dict[str, object], *, status: st
         unit = _property_run_source_unit_label(summary, total=total)
         return f"{done} / {total} {unit}"
     if total > 0:
-        return f"{total} sources selected"
+        return f"{total} sites selected"
     return ""
 
 
@@ -990,12 +991,12 @@ def _property_run_source_unit_label(summary: dict[str, object], *, total: int = 
     source_variant_total = _positive_int(summary.get("source_variant_total") or summary.get("sources_total"))
     provider_total = _positive_int(summary.get("provider_display_total") or summary.get("provider_total"))
     if total > 0 and provider_total > 0 and total <= provider_total:
-        return "sources"
+        return "sites"
     if source_variant_total > 0 and provider_total > 0 and source_variant_total > provider_total:
         return "search pages"
     if total > 0 and provider_total > 0 and total > provider_total:
         return "search pages"
-    return "sources"
+    return "sites"
 
 
 def _property_run_count_label(count: int, singular: str, plural: str | None = None) -> str:
@@ -1072,7 +1073,7 @@ def _property_run_synthetic_progress_events(
             )
 
     if provider_total > 0:
-        add("sources_resolved", f"{_property_run_count_label(provider_total, 'source')} selected for this search.")
+        add("sources_resolved", f"{_property_run_count_label(provider_total, 'site')} selected for this search.")
 
     source_work = _property_run_source_work_counts(summary, status=status)
     if counts["rows"] or counts["done"] or counts["active"]:
@@ -1187,11 +1188,11 @@ def _property_run_repair_receipt_message(receipt: dict[str, object]) -> str:
         message_value=receipt.get("resolution") or receipt.get("reason") or "",
     )
     if _repair_reason_points_to_provider_site_change(friendly):
-        return "A source changed, so it was skipped for now."
+        return "A site changed, so it was skipped for now."
     resolution = str(receipt.get("resolution") or receipt.get("reason") or "repair updated").strip()
     if not resolution:
         return ""
-    return "A source needed a retry."
+    return "A site needed a retry."
 
 
 def _property_run_event_resolution(event: dict[str, object]) -> str:
@@ -1211,7 +1212,7 @@ def _customer_safe_repair_step_label(value: object) -> str:
         return ""
     text = re.sub(
         r"\bRetrying\s+(\d+)\s+provider checks?\b",
-        lambda match: f"Refreshing {match.group(1)} source{'' if match.group(1) == '1' else 's'}",
+        lambda match: f"Refreshing {match.group(1)} site{'' if match.group(1) == '1' else 's'}",
         text,
         flags=re.IGNORECASE,
     )
@@ -1221,7 +1222,9 @@ def _customer_safe_repair_step_label(value: object) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(r"\bprovider checks?\b", "sources", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bprovider checks?\b", "sites", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsources\b", "sites", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsource\b", "site", text, flags=re.IGNORECASE)
     return text.rstrip(".")
 
 
@@ -1229,18 +1232,20 @@ def _customer_safe_source_status_text(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
         return ""
-    text = re.sub(r"\bRetrying\s+one\s+provider\b", "Refreshing one source", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bRetrying\s+one\s+provider\b", "Refreshing one site", text, flags=re.IGNORECASE)
     text = re.sub(
         r"\bRetrying\s+(\d+)\s+providers?\b",
-        lambda match: f"Refreshing {match.group(1)} source{'' if match.group(1) == '1' else 's'}",
+        lambda match: f"Refreshing {match.group(1)} site{'' if match.group(1) == '1' else 's'}",
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(r"\bSome providers\b", "Some sources", text, flags=re.IGNORECASE)
-    text = re.sub(r"^One provider\b", "One source", text)
-    text = re.sub(r"\bone provider\b", "one source", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bprovider checks?\b", "sources", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bprovider or rule\b", "source or rule", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bSome providers\b", "Some sites", text, flags=re.IGNORECASE)
+    text = re.sub(r"^One provider\b", "One site", text)
+    text = re.sub(r"\bone provider\b", "one site", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bprovider checks?\b", "sites", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bprovider or rule\b", "site or rule", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsources\b", "sites", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsource\b", "site", text, flags=re.IGNORECASE)
     return text
 
 
@@ -1360,7 +1365,7 @@ def property_run_customer_visible_events(
             {
                 "step": "repair_status",
                 "status": str(summary.get("repair_status") or "repairing").strip() or "repairing",
-                "message": "Refreshing affected sources.",
+                "message": "Refreshing affected sites.",
                 "created_at": str(summary.get("repair_last_updated_at") or payload.get("updated_at") or payload.get("generated_at") or ""),
             }
         )
@@ -1449,7 +1454,7 @@ def build_property_run_repair_snapshot(
             failed_total += 1
     repair_step = str(summary.get("repair_step_label") or "").strip()
     if not repair_step and failed_total:
-        repair_step = f"Refreshing {failed_total} source{'s' if failed_total != 1 else ''}"
+        repair_step = f"Refreshing {failed_total} site{'s' if failed_total != 1 else ''}"
     next_useful_eta = str(summary.get("next_useful_update_eta_label") or "").strip()
     if not next_useful_eta and timing.get("first_shortlist_ready_at") and results_total > 0:
         next_useful_eta = "new shortlist already ready"
@@ -1505,21 +1510,21 @@ def build_property_run_repair_snapshot(
             if latest_repair_timestamp:
                 repair_outcome_summary = f"{repair_outcome_summary} Last real update: {latest_repair_timestamp}."
         elif status == "completed_partial":
-            repair_outcome_summary = "The shortlist is ready, but one or more sources finished with partial coverage."
+            repair_outcome_summary = "The shortlist is ready, but one or more sites finished with partial coverage."
         elif failed_total and results_total > 0:
             repair_outcome_summary = _join_customer_sentences(
-                "Some sources are retrying, but the current shortlist is still available",
+                "Some sites are retrying, but the current shortlist is still available",
                 latest_repair_reason,
             )
         elif failed_total:
             repair_outcome_summary = _join_customer_sentences(
-                "Some sources are retrying before the shortlist can settle",
+                "Some sites are retrying before the shortlist can settle",
                 latest_repair_reason,
             )
     if repair_flags["failed"] and not repair_step:
         repair_step = "The fresh check finished without a ready shortlist."
     if repair_flags["failed"] and not next_useful_eta:
-        next_useful_eta = "start a fresh run after changing one source or rule"
+        next_useful_eta = "start a fresh run after changing one site or rule"
     repair_outcome_summary = _customer_safe_source_status_text(repair_outcome_summary)
     return PropertyRunRepairSnapshot(
         repair_status=repair_status,
@@ -1579,7 +1584,7 @@ def build_property_run_reliability_snapshot(
         if status in {"processed", "completed"}:
             customer_status = "Search finished cleanly."
         elif status == "completed_partial":
-            customer_status = message or "Search finished with partial coverage after one or more sources needed retrying."
+            customer_status = message or "Search finished with partial coverage after one or more sites needed retrying."
         elif status == "failed":
             if str(summary.get("repair_replacement_run_id") or "").strip():
                 customer_status = _join_customer_sentences(
@@ -1594,18 +1599,18 @@ def build_property_run_reliability_snapshot(
                 customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
             customer_status = _join_customer_sentences(
-                "Some sources are retrying, but the current shortlist is still available",
+                "Some sites are retrying, but the current shortlist is still available",
                 "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif failed_total:
             customer_status = _join_customer_sentences(
-                "Some sources are retrying before the shortlist can settle",
+                "Some sites are retrying before the shortlist can settle",
                 "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif results_total > 0:
             customer_status = "The strongest matches are already ready while the rest of the search finishes."
         elif source_checked > 0:
-            customer_status = "Sources are still running and the first shortlist is still building."
+            customer_status = "Search sites are still running and the first shortlist is still building."
         else:
             customer_status = message or "Preparing search."
     customer_status = _customer_safe_source_status_text(customer_status)
@@ -1629,7 +1634,7 @@ def build_property_run_reliability_snapshot(
         health_label = "Starting"
     coverage_label = ""
     if source_total:
-        coverage_label = f"{source_checked}/{source_total} sources"
+        coverage_label = f"{source_checked}/{source_total} sites"
         if pending_total:
             coverage_label += f" · {pending_total} still running"
     result_label = ""
@@ -2129,7 +2134,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     to_review_total = listing_work["to_review"]
     checked_label = _property_run_listing_queue_label(found_total, to_review_total)
     scan_label = checked_label if found_total > 0 else (
-        f"{provider_display_total} sources selected" if provider_display_total > 0 else checked_label
+        f"{provider_display_total} sites selected" if provider_display_total > 0 else checked_label
     )
     if found_total > 0 and source_work["open"] > 0:
         source_label = _property_run_provider_check_label(summary, status=status)
@@ -2373,7 +2378,7 @@ def build_property_run_live_board_snapshot(
         ):
             provider_total = inferred_provider_total
     scan_total_label = (
-        f"{provider_total} sources"
+        f"{provider_total} sites"
         if provider_total
         else (f"{source_total} search pages" if source_total else "")
     )
@@ -2388,7 +2393,7 @@ def build_property_run_live_board_snapshot(
         source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} {unit}"
     else:
         unit = _property_run_source_unit_label(summary, total=source_total)
-        source_count_label = live_info.get("fraction_label") or ("waiting for sources" if source_total == 0 else f"0/{source_total} {unit}")
+        source_count_label = live_info.get("fraction_label") or ("waiting for sites" if source_total == 0 else f"0/{source_total} {unit}")
     summary_label = (
         f"{aggregate_label} · {provider_label} · {live_info.get('fraction_label')}"
         if aggregate_label != "checking" and provider_full_label and live_info.get("fraction_label")
@@ -2898,12 +2903,12 @@ def build_property_empty_outcome_summary(
             elif source_total or listing_total:
                 listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
                 stopped_context = (
-                    f"The selected sources covered {listing_label}."
+                    f"Selected sites searched {listing_label}."
                     if listing_total > 0
-                    else "The brief and selected sources were saved, but no source produced results for the brief."
+                    else "The brief and selected sites were saved, but no site produced results for the brief."
                 )
             else:
-                stopped_context = "The brief and selected sources were saved, but no source produced results for the brief."
+                stopped_context = "The brief and selected sites were saved, but no site produced results for the brief."
         elif source_total or listing_total:
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if database_pressure:
@@ -2920,7 +2925,7 @@ def build_property_empty_outcome_summary(
                     "the saved brief before retry took over."
                 )
             else:
-                stopped_context = f"The selected sources covered {listing_label}."
+                stopped_context = f"Selected sites searched {listing_label}."
         else:
             if repair_task_open or repair_step_label or repair_status_label:
                 happened = safe_failed_message or calm_repair_copy or "PropertyQuarry is checking the saved search again."
@@ -2952,7 +2957,7 @@ def build_property_empty_outcome_summary(
         )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
-            f"{raw_listing_total or filtered_total} home{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected sources."
+            f"{raw_listing_total or filtered_total} home{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected sites."
         )
     elif legacy_ranking_gate_empty:
         still_worked = (
@@ -2960,9 +2965,9 @@ def build_property_empty_outcome_summary(
         )
     else:
         still_worked = (
-            f"The selected sources covered {listing_total} listing{'s' if listing_total != 1 else ''}."
+            f"Selected sites searched {listing_total} listing{'s' if listing_total != 1 else ''}."
             if listing_total
-            else "The brief and selected sources were still saved."
+            else "The brief and selected sites were still saved."
         )
     if status_value == "failed" and replacement_run_id:
         next_move = (
@@ -2982,7 +2987,7 @@ def build_property_empty_outcome_summary(
         next_move = (
             "Start a fresh search."
             if legacy_ranking_gate_empty
-            else "Start a fresh search or change one source or requirement before retrying the same brief."
+            else "Start a fresh search or change one site or requirement before retrying the same brief."
         )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."

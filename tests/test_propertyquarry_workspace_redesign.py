@@ -3216,7 +3216,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "Could not load property search status." not in visible_source
     assert "Found" in visible_source
     assert "179" in visible_source
-    assert "29 sources selected" in visible_source
+    assert "29 sites selected" in visible_source
     assert "Found" in visible_source
     assert "all found homes reviewed" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
@@ -4543,9 +4543,9 @@ def test_propertyquarry_customer_copy_uses_sources_not_provider_coverage() -> No
     assert "widen providers" not in combined
     assert "provider coverage" not in combined
     assert "new provider coverage" not in combined
-    assert "widen sources" in combined
-    assert "source coverage" in combined
-    assert "new source coverage" in combined
+    assert "widen sites" in combined
+    assert "site coverage" in combined
+    assert "new site coverage" in combined
 
 
 def test_propertyquarry_fast_ranked_run_uses_provider_progress_fraction() -> None:
@@ -10539,8 +10539,8 @@ def test_property_run_live_board_uses_selected_total_when_only_active_rows_mater
         plan_key="agent",
     )
 
-    assert snapshot["source_count_label"] == "2/29 sources"
-    assert snapshot["summary_label"] == "29 sources"
+    assert snapshot["source_count_label"] == "2/29 sites"
+    assert snapshot["summary_label"] == "29 sites"
 
 
 def test_property_run_live_board_sanitizes_stale_source_counts_without_source_rows() -> None:
@@ -10561,7 +10561,7 @@ def test_property_run_live_board_sanitizes_stale_source_counts_without_source_ro
     )
 
     assert "156" not in snapshot["source_count_label"]
-    assert snapshot["source_count_label"] in {"0/3 sources", "waiting for sources"}
+    assert snapshot["source_count_label"] in {"0/3 sites", "waiting for sites"}
     assert "selected sources" not in snapshot["source_count_label"]
 
 
@@ -10772,12 +10772,12 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
         results_total=3,
     )
     assert reliability["health_label"] == "Checking again"
-    assert reliability["repair_step_label"] == "Refreshing 1 source"
-    assert reliability["coverage_label"] == "2/4 sources · 2 still running"
+    assert reliability["repair_step_label"] == "Refreshing 1 site"
+    assert reliability["coverage_label"] == "2/4 sites · 2 still running"
     assert "provider check" not in reliability["coverage_label"].lower()
     assert "selected source" not in reliability["repair_step_label"].lower()
     assert "selected sources" not in reliability["customer_status_message"].lower()
-    assert reliability["customer_status_message"] == "Refreshing one source while the shortlist stays visible."
+    assert reliability["customer_status_message"] == "Refreshing one site while the shortlist stays visible."
     assert reliability["result_label"] == "3 matching results ready"
     assert reliability["filtered_label"] == "7 outside the current brief"
     assert reliability["repair"]["repair_status"] == "repairing"
@@ -10804,7 +10804,7 @@ def test_property_run_reliability_summary_surfaces_completed_partial_state() -> 
 
     assert reliability["health_label"] == "Partial coverage"
     assert reliability["health_tone"] == "warn"
-    assert reliability["customer_status_message"] == "One source stayed degraded."
+    assert reliability["customer_status_message"] == "One site stayed degraded."
     assert reliability["repair"]["repair_status"] == "degraded"
     assert reliability["repair"]["repair_status_label"] == "Partial coverage"
 
@@ -10827,8 +10827,8 @@ def test_property_surface_state_builds_run_repair_snapshot() -> None:
 
     assert repair["repair_status"] == "repairing"
     assert repair["repair_status_label"] == "Checking again"
-    assert repair["repair_step_label"] == "Refreshing 1 source"
-    assert repair["repair_outcome_summary"] == "Some sources are retrying, but the current shortlist is still available."
+    assert repair["repair_step_label"] == "Refreshing 1 site"
+    assert repair["repair_outcome_summary"] == "Some sites are retrying, but the current shortlist is still available."
     assert "selected sources" not in " ".join(str(value) for value in repair.values()).lower()
     assert repair["eta_confidence_label"] == "Medium"
     assert repair["can_auto_repair"] is True
@@ -10853,9 +10853,9 @@ def test_property_surface_state_builds_run_reliability_snapshot() -> None:
     )
 
     assert reliability["health_label"] == "Partial coverage"
-    assert reliability["repair_step_label"] == "Refreshing 1 source"
+    assert reliability["repair_step_label"] == "Refreshing 1 site"
     assert reliability["repair"]["repair_status"] == "degraded"
-    assert reliability["customer_status_message"] == "One source stayed degraded."
+    assert reliability["customer_status_message"] == "One site stayed degraded."
 
 
 def test_property_surface_state_builds_search_form_state_snapshot() -> None:
@@ -11253,14 +11253,14 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'grid-template-rows: auto minmax(0, 1fr);' in template
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
-    assert "Select sources" in setup.text
+    assert "Select sites" in setup.text
     assert "Court and auction listings" in setup.text
     assert "Justiz Edikte" in setup.text
     assert 'data-property-advanced-panel="commute"' in setup.text
     assert 'class="pqx-disclosure-summary"' in setup.text
     assert 'class="pqx-disclosure-icon" aria-hidden="true">+</span>' in setup.text
     assert ">What matters<" in setup.text
-    assert ">Sources<" in setup.text
+    assert ">Sites<" in setup.text
     assert 'data-pqx-save-what-matters' in setup.text
     assert 'data-pqx-load-what-matters' in setup.text
     assert ">Strategy<" not in setup.text
@@ -11283,7 +11283,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Library nearby means" not in setup.text
     assert "Supermarket radius" in setup.text
     assert "providers: { label: 'Providers'" not in template
-    assert "providers: { label: 'Sources', detail: 'Choose trusted sources.' }" in template
+    assert "providers: { label: 'Sites', detail: 'Choose listing sites.' }" in template
     assert "If good matches are scarce" in setup.text
     assert 'name="max_distance_to_zoo_m"' in setup.text
     assert 'name="max_distance_to_market_m"' in setup.text
@@ -11357,7 +11357,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert '<article class="pqx-result pqx-card"' in search.text
     assert "matching homes" in search.text
     assert "Match" in search.text
-    assert "Source" in search.text
+    assert "Sites" in search.text
     assert "Map" in search.text
     assert 'data-pqx-route-preview-strip' in search.text
     assert "Your route" in search.text
@@ -11670,7 +11670,7 @@ def test_property_search_status_synthesizes_repair_events_for_compact_failed_run
     assert response.status_code == 200
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
-    assert "One source changed, so PropertyQuarry is retrying it." in messages
+    assert "One site changed, so PropertyQuarry is retrying it." in messages
     assert "Willhaben: suppressed_generic_listing_page." not in messages
 
 
@@ -11800,7 +11800,7 @@ def test_property_search_status_hides_active_source_fetch_suppression_receipt_no
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert not any("suppressed_source_fetch_forbidden" in message for message in messages)
-    assert "12 sources · 42 homes found · all found homes reviewed" in messages
+    assert "12 sites · 42 homes found · all found homes reviewed" in messages
 
 
 def test_property_search_status_replaces_raw_provider_failure_with_repair_copy(monkeypatch) -> None:
@@ -11844,7 +11844,7 @@ def test_property_search_status_replaces_raw_provider_failure_with_repair_copy(m
     assert response.status_code == 200
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Provider returned 403 while fetching Willhaben." not in messages
-    assert any("One source changed, so PropertyQuarry is retrying it." in message for message in messages)
+    assert any("One site changed, so PropertyQuarry is retrying it." in message for message in messages)
 
 
 def test_property_search_status_avoids_zero_provider_copy_when_count_unknown(monkeypatch) -> None:
@@ -11911,7 +11911,7 @@ def test_property_run_customer_visible_events_adds_useful_synthetic_progress() -
     )
 
     messages = [str(event.get("message") or "") for event in events]
-    assert "9 sources selected for this search." in messages
+    assert "9 sites selected for this search." in messages
     assert "Looking for the first listings." in messages
     assert "Preparing search." in messages
 
@@ -11939,9 +11939,9 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     )
 
     messages = [str(event.get("message") or "") for event in events]
-    assert "9 sources selected for this search." in messages
-    assert "Sources: 1 checked, 1 running, 7 waiting of 9." in messages
-    assert "42 homes found · 30 to review · 8 sources left." in messages
+    assert "9 sites selected for this search." in messages
+    assert "Sites: 1 checked, 1 running, 7 waiting of 9." in messages
+    assert "42 homes found · 30 to review · 8 sites left." in messages
     assert "3 homes outside the current brief." in messages
 
 
@@ -12114,7 +12114,7 @@ def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources
     assert len(summary["sources"]) == 24
     assert {row["status"] for row in summary["sources"]} == {"completed_partial"}
     messages = [str(event.get("message") or "") for event in payload["events"]]
-    assert "3 sources selected for this search." in messages
+    assert "3 sites selected for this search." in messages
     assert "Search pages: 30 checked of 30." in messages
     assert not any("queued" in message.lower() or "running" in message.lower() for message in messages)
 
@@ -14930,7 +14930,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "lanes in progress" not in body
     combined_state_copy = body + "\n" + state_source
     assert "Repair is retrying it" not in combined_state_copy
-    assert "One source changed, so PropertyQuarry is retrying it." in combined_state_copy
+    assert "One site changed, so PropertyQuarry is retrying it." in combined_state_copy
 
 
 def test_property_search_loader_keeps_mobile_map_usable_before_full_hydration() -> None:
@@ -15503,7 +15503,7 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'data-pqx-progress-board' in live.text
     assert 'data-pqx-progress-eta' in live.text
     assert "20 / 117 search pages" in live.text
-    assert "Sources" in live.text
+    assert "Sites" in live.text
     assert "20 / 117 checked" not in live.text
     assert "179 homes found" in live.text
     assert 'class="pqx-live-review-bars"' in live.text
@@ -16338,11 +16338,11 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     response = client.get("/app/properties", params={"run_id": "run-variant-heavy"}, headers=headers)
 
     assert response.status_code == 200
-    assert re.search(r"<span>Sources</span><strong>\s*3\s*</strong>", response.text)
+    assert re.search(r"<span>Sites</span><strong>\s*3\s*</strong>", response.text)
     assert re.search(r"<span>Listings</span><strong>\s*2160\s*</strong>", response.text)
-    assert "<span>Sources</span><strong>156</strong>" not in response.text
+    assert "<span>Sites</span><strong>156</strong>" not in response.text
     assert "<span>Source checks</span>" not in response.text
-    assert "The selected sources covered 2160 listings." in response.text
+    assert "Selected sites searched 2160 listings." in response.text
     assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
@@ -19301,9 +19301,9 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert page.status_code == 200
     assert 'data-pqx-state="empty_results"' in visible_text
     assert "The search could not finish." not in visible_text
-    assert "One source changed, so PropertyQuarry is retrying it." in visible_text
+    assert "One site changed, so PropertyQuarry is retrying it." in visible_text
     assert "Retrying Willhaben provider check" not in visible_text
-    assert "This source changed and the current check could not confirm the listing reliably." not in visible_text
+    assert "This site changed and the current check could not confirm the listing reliably." not in visible_text
     empty_section = re.search(r'<section class="pqx-stage pqx-empty-results.*?</section>', visible_text, re.S)
     assert empty_section is not None
     assert "Retrying Willhaben provider check" not in empty_section.group(0)
@@ -19407,7 +19407,7 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
 
     combined = " ".join(str(value) for value in summary.values())
     assert summary["happened"] == "PropertyQuarry is checking the saved search again."
-    assert "The brief and selected sources were still saved." in combined
+    assert "The brief and selected sites were still saved." in combined
     assert "PropertyQuarry started a fresh check before any listing inspection completed." in combined
     assert "repair receipt" not in combined.lower()
     assert "run receipts" not in combined.lower()
@@ -19434,9 +19434,9 @@ def test_propertyquarry_failed_empty_outcome_hides_raw_provider_error_when_no_li
     )
 
     combined = " ".join(str(value) for value in summary.values())
-    assert summary["happened"] == "One source changed, so PropertyQuarry is retrying it."
+    assert summary["happened"] == "One site changed, so PropertyQuarry is retrying it."
     assert "Provider returned 403 while fetching Willhaben." not in combined
-    assert "This source changed and the current check could not confirm the listing reliably." not in combined
+    assert "This site changed and the current check could not confirm the listing reliably." not in combined
 
 
 def test_propertyquarry_failed_empty_outcome_hides_database_pressure_error() -> None:
@@ -19491,7 +19491,7 @@ def test_propertyquarry_failed_empty_outcome_explains_terminal_repair_failure() 
     )
 
     combined = " ".join(str(value) for value in summary.values())
-    assert summary["happened"] == "One source changed, so this search could not finish automatically."
+    assert summary["happened"] == "One site changed, so this search could not finish automatically."
     assert "this source stopped returning a usable listing page" not in combined.lower()
     assert "Last real update: Jun 27, 2026 00:07 UTC." in combined
     assert "Repair is retrying the saved search." not in combined
@@ -19541,8 +19541,8 @@ def test_propertyquarry_failed_terminal_repair_run_uses_grounded_copy(monkeypatc
     visible_text = re.sub(r"<script.*?</script>", "", page.text, flags=re.S)
 
     assert page.status_code == 200
-    assert "One source changed, so this search could not finish automatically." in visible_text
-    assert "This source stopped returning a usable listing page." not in visible_text
+    assert "One site changed, so this search could not finish automatically." in visible_text
+    assert "This site stopped returning a usable listing page." not in visible_text
     assert "Last real update: Jun 27, 2026 00:07 UTC." in visible_text
     assert "Repair is retrying the saved search." not in visible_text
     assert "Wait for repair; this page switches to the usable run when one is ready." not in visible_text
@@ -19714,7 +19714,7 @@ def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     )
 
     assert summary["happened"] == "Nothing landed in the selected area yet."
-    assert "361 homes returned by the selected sources" in summary["still_worked"]
+    assert "361 homes returned by the selected sites" in summary["still_worked"]
     assert "Widen the selected districts" in summary["next_move"]
     assert "overview pages" in summary["eta_feedback"]
     assert "receipts" not in " ".join(summary.values()).lower()

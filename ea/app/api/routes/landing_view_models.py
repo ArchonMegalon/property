@@ -5337,7 +5337,7 @@ def app_section_payload(
                 "label": "Check listing quality",
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_trust_risk_scoring")),
-                "tooltip": "Check duplicate, stale, and scam risk rather than treating all sources equally.",
+                "tooltip": "Check duplicate, stale, and scam risk rather than treating every listing site equally.",
                 "step": "children",
             },
             {
@@ -5536,8 +5536,8 @@ def app_section_payload(
                 },
                 {
                     "key": "providers",
-                    "label": "Sources",
-                    "detail": "Choose trusted sources.",
+                    "label": "Sites",
+                    "detail": "Choose listing sites.",
                 },
             ],
         },

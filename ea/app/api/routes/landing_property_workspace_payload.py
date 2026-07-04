@@ -1732,9 +1732,9 @@ def property_workspace_payload(
                         "href": f"/app/search{run_suffix}",
                     },
                     {
-                        "label": "Sources",
+                        "label": "Sites",
                         "value": str(len(selected_platforms) or 0),
-                        "detail": "The selected portals for the next sweep.",
+                        "detail": "Listing sites selected for the next search.",
                         "href": f"/app/search{run_suffix}",
                     },
                 ],
@@ -3470,7 +3470,7 @@ def property_workspace_payload(
             },
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": f"/app/properties{run_suffix}"},
             {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "Record what should matter most.", "href": f"/app/properties{run_suffix}"},
-            {"label": "Sources", "value": str(len(selected_platforms) or 0), "detail": "The selected portals for the next sweep.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Sites", "value": str(len(selected_platforms) or 0), "detail": "Listing sites selected for the next search.", "href": f"/app/properties{run_suffix}"},
         ],
         "shortlist": [
             {"label": "Homes", "value": str(len(admitted_shortlist_candidates)), "detail": "Ranked properties worth direct review now.", "href": f"/app/shortlist{run_suffix}"},
@@ -3493,7 +3493,7 @@ def property_workspace_payload(
         "alerts": [
             {"label": "Delivered", "value": str(len(recent_matches_card.get("items") or [])), "detail": "Hosted pages already sent.", "href": f"/app/alerts{run_suffix}"},
             {"label": "Recent updates", "value": str(len(run_events[-4:])), "detail": "Latest search updates.", "href": f"/app/alerts{run_suffix}"},
-            {"label": "Sources", "value": str(len(selected_platforms) or 0), "detail": "Selected sources for saved-search alerts.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Sites", "value": str(len(selected_platforms) or 0), "detail": "Selected sites for saved-search alerts.", "href": f"/app/properties{run_suffix}"},
             {"label": "Search status", "value": run_status_label, "detail": run_message or "Latest saved-search sweep.", "href": f"/app/properties{run_suffix}"},
         ],
         "agents": [
@@ -3505,7 +3505,7 @@ def property_workspace_payload(
         "billing": [
             {"label": "Plan", "value": current_plan_label, "detail": "Active plan.", "href": signed_in_billing_href},
             {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "Research depth for each property.", "href": signed_in_billing_href},
-            {"label": "Sources", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Search-source allowance for the active plan.", "href": signed_in_billing_href},
+            {"label": "Sites", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Search-site allowance for the active plan.", "href": signed_in_billing_href},
             {"label": "Saved searches", "value": ("Unlimited" if int(commercial.get("search_agent_limit") or 0) <= 0 else str(commercial.get("search_agent_limit") or 1)), "detail": "Briefs that can keep running in the background.", "href": signed_in_billing_href},
         ],
         "settings": [
@@ -4029,7 +4029,7 @@ def property_workspace_payload(
                 part for part in (
                     str(property_state.get("country_label") or "").strip(),
                     f"{len(selected_locations)} target area(s)" if selected_locations else "",
-                    f"{len(selected_platforms)} list(s)" if selected_platforms else "",
+                    f"{len(selected_platforms)} site(s)" if selected_platforms else "",
                 ) if part
             ) or "No saved search brief yet.",
             "tag": "Saved",

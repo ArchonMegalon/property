@@ -1867,10 +1867,10 @@ def _property_counterfactual_rows(
     if len(widened_platforms) > len(selected_platforms):
         rows.append(
             {
-                "title": f"Check {len(widened_platforms)} sources instead of {len(selected_platforms)}",
-                "detail": "Use the rest of the source allowance on the current plan before widening the brief itself.",
-                "tag": "Sources",
-                "action_label": "Use all sources",
+                "title": f"Check {len(widened_platforms)} sites instead of {len(selected_platforms)}",
+                "detail": "Use the rest of the site allowance on the current plan before widening the brief itself.",
+                "tag": "Sites",
+                "action_label": "Use all sites",
                 "adjustments": {"selected_platforms": widened_platforms},
                 "affected_total": 0,
             }
@@ -1941,7 +1941,7 @@ def _property_counterfactual_rows(
         deduped.append(
             {
                 "title": "Reopen the brief with broader constraints",
-                "detail": "Keep the same market, but reopen the brief so you can widen sources or relax one hard filter before the next sweep.",
+                "detail": "Keep the same market, but reopen the brief so you can widen sites or relax one hard filter before the next search.",
                 "tag": "Reset",
                 "action_label": "Reopen brief",
                 "adjustments": {},
