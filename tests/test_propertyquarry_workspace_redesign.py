@@ -4460,7 +4460,9 @@ def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint()
     assert 'data-pq-fast-ranked-run' in response.text
     assert 'data-status-url="/app/api/signals/property/search/run/run-fast-42?lightweight=1"' in response.text
     assert "data-pq-fast-initial-payload" in response.text
-    assert 'href="/app/shortlist?run_id=run-fast-42&amp;full=1#results-list"' in response.text
+    assert 'href="/app/shortlist?run_id=run-fast-42&amp;full=1#results-list"' not in response.text
+    assert "Full view" not in response.text
+    assert "Open full view" not in response.text
     assert "Loading homes" in response.text
     assert "Usually a few seconds." in response.text
     assert "Checking more homes" in response.text

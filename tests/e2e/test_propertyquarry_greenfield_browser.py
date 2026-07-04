@@ -1523,7 +1523,7 @@ def test_propertyquarry_completed_run_opens_fast_ranked_shell_in_real_browser(
     try:
         _, duration_ms = _goto_with_browser_budget(
             page,
-            f"{base_url}/app/shortlist?run_id=run-42",
+            f"{base_url}/app/shortlist/run/run-42",
             wait_until="networkidle",
             budget_ms=3600,
         )
@@ -1534,7 +1534,7 @@ def test_propertyquarry_completed_run_opens_fast_ranked_shell_in_real_browser(
         fast_rows.first.wait_for(timeout=5000)
         assert fast_rows.count() >= 2
         expect(page.get_by_role("link", name="Open property").first).to_be_visible()
-        expect(page.get_by_role("link", name="Full view").first).to_be_visible()
+        expect(page.get_by_role("link", name="Full view")).to_have_count(0)
         resource_urls = page.evaluate(
             "() => performance.getEntriesByType('resource').map((entry) => entry.name)"
         )

@@ -214,7 +214,7 @@
   class="pq-fast-run"
   data-pq-fast-ranked-run
   data-status-url="{{ run_status_url }}"
-  data-full-href="{{ full_shortlist_href }}"
+  data-search-href="{{ search_href }}"
   data-run-id="{{ run_id }}"
   aria-labelledby="pq-fast-title"
 >
@@ -228,7 +228,6 @@
       <a href="{{ search_href }}">Search</a>
       <a href="{{ history_href }}">History</a>
       <a href="{{ account_href }}">Account</a>
-      <a href="{{ full_shortlist_href }}">Full view</a>
     </nav>
   </header>
 
@@ -256,10 +255,10 @@
 
   <noscript>
     <section class="pq-fast-card pq-fast-empty">
-      <h2>Open the full shortlist</h2>
-	      <p>This page loads matching homes with JavaScript. The full view is still available.</p>
+      <h2>Enable JavaScript to load homes</h2>
+      <p>This page loads matching homes with JavaScript.</p>
       <div class="pq-fast-actions">
-        <a class="btn primary" href="{{ full_shortlist_href }}">Open full view</a>
+        <a class="btn primary" href="{{ search_href }}">Open search</a>
       </div>
     </section>
   </noscript>
@@ -270,7 +269,7 @@
   const root = document.querySelector('[data-pq-fast-ranked-run]');
   if (!root) return;
   const statusUrl = String(root.dataset.statusUrl || '').trim();
-  const fullHref = String(root.dataset.fullHref || '/app/shortlist').trim();
+  const searchHref = String(root.dataset.searchHref || '/app/search').trim();
   const list = root.querySelector('[data-pq-fast-list]');
   const statusCard = root.querySelector('[data-pq-fast-status-card]');
   const statusTitle = root.querySelector('[data-pq-fast-status-title]');
@@ -524,11 +523,6 @@
         }
         actions.appendChild(listingLink);
       }
-      const fullLink = document.createElement('a');
-      fullLink.className = 'btn ghost';
-      fullLink.href = fullHref;
-      fullLink.textContent = 'Full view';
-      actions.appendChild(fullLink);
       copy.appendChild(actions);
 
       article.appendChild(copy);
@@ -545,9 +539,9 @@
 	    const terminal = isTerminalPayload(payload);
 	    if (!terminal) appendLoadingMore(payload, candidates);
     if (statusTitle) statusTitle.textContent = `${candidates.length} matching ${candidates.length === 1 ? 'home' : 'homes'}`;
-	    if (statusDetail) statusDetail.textContent = copy.detail || (terminal ? copy.status : 'More homes can still appear.');
-	    if (subtitle) subtitle.textContent = terminal
-	      ? 'Results are ready. Open a property or switch to the full view when you need the complete workspace.'
+    if (statusDetail) statusDetail.textContent = copy.detail || (terminal ? copy.status : 'More homes can still appear.');
+    if (subtitle) subtitle.textContent = terminal
+      ? 'Results are ready. Open a property for details.'
       : 'The first homes are ready. More can still appear below.';
 	    if (statusCard) statusCard.setAttribute('aria-busy', terminal ? 'false' : 'true');
 	  };
@@ -559,8 +553,8 @@
     title.textContent = retry ? 'Still loading results' : 'No matching homes in this run';
     const paragraph = document.createElement('p');
     paragraph.textContent = retry
-      ? 'The run is taking longer than usual. You can keep this page open or open the full view.'
-      : 'Open the full view to inspect the run, or start a broader search.';
+      ? 'The run is taking longer than usual. You can keep this page open or refresh.'
+      : 'Start a broader search.';
     const actions = document.createElement('div');
     actions.className = 'pq-fast-actions';
     const retryButton = document.createElement('button');
@@ -568,19 +562,19 @@
     retryButton.type = 'button';
     retryButton.textContent = retry ? 'Try again' : 'Refresh';
     retryButton.addEventListener('click', () => loadOnce());
-    const fullLink = document.createElement('a');
-    fullLink.className = 'btn';
-    fullLink.href = fullHref;
-    fullLink.textContent = 'Open full view';
+    const searchLink = document.createElement('a');
+    searchLink.className = 'btn';
+    searchLink.href = searchHref;
+    searchLink.textContent = 'Open search';
     actions.appendChild(retryButton);
-    actions.appendChild(fullLink);
+    actions.appendChild(searchLink);
     section.appendChild(title);
     section.appendChild(paragraph);
     section.appendChild(actions);
     list.appendChild(section);
     const status = text(payload && (payload.status || (payload.summary && payload.summary.status)), '');
     if (statusTitle) statusTitle.textContent = retry ? 'Loading is slow' : 'No matching homes';
-    if (statusDetail) statusDetail.textContent = status ? status.replace(/_/g, ' ') : 'Open the full view for details.';
+    if (statusDetail) statusDetail.textContent = status ? status.replace(/_/g, ' ') : 'Adjust the search and try again.';
     if (statusCard) statusCard.setAttribute('aria-busy', 'false');
   };
 	  const loadOnce = async () => {
