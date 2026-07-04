@@ -1482,6 +1482,15 @@
     const compactRunMessage = (value) => {
       let text = String(value || '').trim();
       if (!text) return 'Waiting for the first provider.';
+      const staleZeroReviewMatch = text.match(/\b(\d+)\s+homes?\s+found\s*·\s*0\s+to\s+review\s*·\s*(\d+)\s*\/\s*(\d+)\s*(search pages|providers|sources)\b/i);
+      if (staleZeroReviewMatch) {
+        const found = Number(staleZeroReviewMatch[1] || 0);
+        const done = Number(staleZeroReviewMatch[2] || 0);
+        const total = Number(staleZeroReviewMatch[3] || 0);
+        const unit = String(staleZeroReviewMatch[4] || 'search pages').toLowerCase();
+        const left = Math.max(0, total - done);
+        return left > 0 ? `${found} homes found · ${left} ${unit} left` : `${found} homes found · details caught up`;
+      }
       text = text
         .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes checked')
         .replace(/\b(\d+)\s+homes?\s+reviewed\b/ig, '$1 homes found')

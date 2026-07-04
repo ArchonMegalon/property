@@ -64,6 +64,12 @@ _INTERNAL_RUN_STATUS_NOISE_TOKENS = (
     "ranking homes",
 )
 
+_STALE_ZERO_REVIEW_SEARCH_PAGES_RE = re.compile(
+    r"\b(?P<found>\d+)\s+homes?\s+found\s*·\s*0\s+to\s+review\s*·\s*"
+    r"(?P<done>\d+)\s*/\s*(?P<total>\d+)\s*(?P<unit>search pages|providers|sources)\b",
+    re.IGNORECASE,
+)
+
 _DATABASE_PRESSURE_TOKENS = (
     "too many clients",
     "sorry, too many clients already",
@@ -493,7 +499,8 @@ def property_run_customer_safe_status_detail(
 ) -> str:
     status = str(status_value or "").strip().lower()
     summary_dict = dict(summary or {})
-    message = str(message_value or "").strip()
+    raw_message = str(message_value or "").strip()
+    message = _compact_run_message(raw_message) if raw_message else ""
     lowered = message.lower()
     customer_status = str(summary_dict.get("customer_status_message") or "").strip()
     replacement_run_id = str(summary_dict.get("repair_replacement_run_id") or "").strip()
@@ -1597,6 +1604,16 @@ def _compact_run_message(value: object) -> str:
     text = str(value or "").strip()
     if not text:
         return "Waiting for the first provider."
+    stale_zero_match = _STALE_ZERO_REVIEW_SEARCH_PAGES_RE.search(text)
+    if stale_zero_match:
+        found = _positive_int(stale_zero_match.group("found"))
+        done = _positive_int(stale_zero_match.group("done"))
+        total = _positive_int(stale_zero_match.group("total"))
+        unit = " ".join(str(stale_zero_match.group("unit") or "search pages").lower().split())
+        left = max(0, total - done)
+        if left > 0:
+            return f"{found} homes found · {left} {unit} left"
+        return f"{found} homes found · details caught up"
     text = re.sub(
         r"^Reviewing homes\.\s+(\d+)\s+checked so far\.?$",
         r"\1 homes checked",
@@ -2160,7 +2177,11 @@ def build_property_run_live_board_snapshot(
         found_total > 0
         and to_review_total <= 0
         and live_source_left_label
-        and "0 to review" in phase_label.lower()
+        and (
+            "0 to review" in phase_label.lower()
+            or phase_label == aggregate_label
+            or "details caught up" in phase_label.lower()
+        )
     ):
         phase_label = "Checking remaining search pages"
 

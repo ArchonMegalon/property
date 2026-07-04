@@ -67,6 +67,7 @@ from app.api.routes.landing_property_research import _property_candidate_ref
 from app.container import AppContainer
 from app.product.property_surface_state import (
     normalize_property_search_run_snapshot,
+    property_run_customer_safe_status_detail,
     property_run_customer_visible_events,
     property_run_public_eta_label,
 )
@@ -651,6 +652,12 @@ def _property_search_run_status_payload(
     normalized["summary"] = summary
     normalized = normalize_property_search_run_snapshot(normalized)
     summary = dict(normalized.get("summary") or {}) if isinstance(normalized.get("summary"), dict) else {}
+    normalized["message"] = property_run_customer_safe_status_detail(
+        normalized.get("status") or summary.get("status"),
+        normalized.get("message") or "",
+        summary=summary,
+        prefer_repair_step=True,
+    )
     if lightweight:
         summary = _property_search_compact_source_rows(summary)
     normalized["summary"] = summary

@@ -10037,6 +10037,25 @@ def test_property_run_live_board_replaces_stale_zero_review_copy_while_pages_rem
     assert "0 to review" not in snapshot["summary_label"].lower()
 
 
+def test_property_run_safe_status_replaces_stale_zero_review_copy() -> None:
+    message = property_surface_state.property_run_customer_safe_status_detail(
+        "in_progress",
+        "4097 homes found · 0 to review · 279 / 285 search pages",
+        summary={
+            "provider_total": 29,
+            "source_variant_total": 285,
+            "sources_total": 285,
+            "sources_completed": 279,
+            "found_listing_total": 4097,
+            "reviewed_listing_total": 4097,
+            "to_review_listing_total": 0,
+        },
+    )
+
+    assert message == "4097 homes found · 6 search pages left"
+    assert "0 to review" not in message.lower()
+
+
 def test_property_run_live_board_distinguishes_found_from_reviewed_candidates() -> None:
     snapshot = property_surface_state.build_property_run_live_board_snapshot(
         {
@@ -11680,6 +11699,39 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     assert "Providers: 1 checked, 1 running, 7 waiting of 9." in messages
     assert "42 homes found · 30 to review · 8 providers left." in messages
     assert "3 homes outside the current brief." in messages
+
+
+def test_property_run_customer_visible_events_rewrite_stale_zero_review_history() -> None:
+    events = property_surface_state.property_run_customer_visible_events(
+        run_payload={
+            "run_id": "run-useful-stale-zero-review",
+            "status": "in_progress",
+            "current_step": "source_fetch",
+            "message": "4097 homes found · 0 to review · 279 / 285 search pages",
+            "updated_at": "2026-06-30T12:05:00+00:00",
+            "summary": {
+                "provider_total": 29,
+                "source_variant_total": 285,
+                "sources_total": 285,
+                "sources_completed": 279,
+                "found_listing_total": 4097,
+                "reviewed_listing_total": 4097,
+                "to_review_listing_total": 0,
+            },
+            "events": [
+                {
+                    "step": "source_fetch",
+                    "status": "in_progress",
+                    "message": "4097 homes found · 0 to review · 279 / 285 search pages",
+                    "created_at": "2026-06-30T12:05:00+00:00",
+                }
+            ],
+        }
+    )
+
+    messages = [str(event.get("message") or "") for event in events]
+    assert "4097 homes found · 6 search pages left" in messages
+    assert all("0 to review" not in message.lower() for message in messages)
 
 
 def test_property_run_customer_visible_events_keeps_latest_ten_useful_updates() -> None:
@@ -14498,6 +14550,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "details updating" in script_body
     assert "source_review_packet_failed" in script_body
     assert script_body.count("const reviewed = listingWork.scanned;") == 1
+    assert "staleZeroReviewMatch" in script_body
     assert body.index('<header class="pqx-topbar"') < body.index("data-property-workbench-json")
     assert "runListingQueueMessage(found, toReview)" in script_body
     assert "lowered.includes('0 to review')" in script_body
