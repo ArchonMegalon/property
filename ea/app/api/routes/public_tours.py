@@ -5024,9 +5024,17 @@ def public_tour_file(slug: str, asset_path: str):
     safe_name = PurePosixPath(safe_relpath).name
     generated_asset_kind = _generated_reconstruction_non_tour_asset(payload, safe_relpath)
     if generated_asset_kind == "viewer":
-        return RedirectResponse(
-            f"/tours/{urllib.parse.quote(slug, safe='')}",
-            status_code=302,
+        primary_control_path = _public_tour_primary_control_path(payload)
+        if primary_control_path:
+            return RedirectResponse(
+                primary_control_path,
+                status_code=302,
+                headers=_public_tour_security_headers(cache_control="no-store"),
+            )
+        return Response(
+            "This 3D tour is no longer available.\n",
+            status_code=404,
+            media_type="text/plain; charset=utf-8",
             headers=_public_tour_security_headers(cache_control="no-store"),
         )
     if generated_asset_kind == "model":

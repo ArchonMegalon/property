@@ -7558,8 +7558,8 @@ def test_generated_reconstruction_bundle_does_not_publish_fake_tour_viewer(
     }
 
     viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html", follow_redirects=False)
-    assert viewer.status_code in {302, 307}
-    assert viewer.headers["location"] == f"/tours/{slug}"
+    assert viewer.status_code == 404
+    assert "This 3D tour is no longer available." in viewer.text
 
     assert client.get(f"/tours/files/{slug}/generated-reconstruction/model.obj").status_code == 410
     assert client.get(f"/tours/files/{slug}/generated-reconstruction/model.mtl").status_code == 410
@@ -7578,6 +7578,42 @@ def test_generated_reconstruction_bundle_does_not_publish_fake_tour_viewer(
     assert photo_two.status_code == 200
     assert photo_two.content == b"photo-two-jpeg"
     assert photo_two.headers["x-propertyquarry-asset-privacy"] == "generated_reconstruction_public"
+
+
+def test_generated_reconstruction_viewer_redirects_directly_to_real_tour_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    slug = "generated-reconstruction-with-real-tour"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    (reconstruction_dir / "viewer.html").write_text("<!doctype html><html><body>stale viewer</body></html>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Real Matterport tour",
+                "source_virtual_tour_url": "https://my.matterport.com/show/?m=BmVWxvZQZLq",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "verified_provider_capture": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    client = _client(principal_id="exec-generated-reconstruction-real-tour")
+
+    viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html", follow_redirects=False)
+
+    assert viewer.status_code == 302
+    assert viewer.headers["location"] == f"/tours/{slug}/control/matterport"
 
 
 def test_public_tour_page_rejects_generated_reconstruction_only_bundle(
