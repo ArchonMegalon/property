@@ -727,7 +727,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = signed_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
         assert response is not None and response.ok
         expect(signed_page.get_by_role("link", name="Open search").first).to_be_visible()
-        expect(signed_page.get_by_role("link", name="Open latest run")).to_be_visible()
+        expect(signed_page.get_by_role("link", name="Open latest results")).to_be_visible()
         expect(signed_page.locator(".topbar form[action='/app/actions/sign-out'] button", has_text="Log out")).to_be_visible()
         assert signed_page.get_by_text("Log out", exact=True).count() == 1
         assert signed_page.locator(".pq-hero-copy form[action='/app/actions/sign-out']").count() == 0
@@ -842,9 +842,9 @@ def test_propertyquarry_sign_in_desktop_uses_balanced_two_column_entry_surface(
         expect(page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
         expect(page.get_by_role("link", name="Open current session")).to_be_visible()
         if page.get_by_role("link", name="Continue with Google").count() or page.get_by_role("link", name="Continue with Facebook").count() or page.get_by_role("link", name="Continue with ID Austria").count():
-            expect(page.get_by_text("Any provider below reopens the same account or creates it automatically on first use.")).to_be_visible()
+            expect(page.get_by_text("Any connected identity reopens the same account or creates it automatically on first use.")).to_be_visible()
         else:
-            assert page.get_by_text("Any provider below reopens the same account or creates it automatically on first use.").count() == 0
+            assert page.get_by_text("Any connected identity reopens the same account or creates it automatically on first use.").count() == 0
             assert page.get_by_text("Trusted device").count() == 0
             assert page.get_by_text("Private hardware access stays limited to approved devices.").count() == 0
         _assert_no_horizontal_overflow(page)

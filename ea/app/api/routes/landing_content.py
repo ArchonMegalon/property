@@ -25,7 +25,7 @@ PROPERTY_APP_NAV_GROUPS = (
     {
         "label": "PropertyQuarry",
         "items": (
-            {"href": "/app/properties", "label": "Run", "key": "properties"},
+            {"href": "/app/properties", "label": "Results", "key": "properties"},
             {"href": "/app/search", "label": "Search", "key": "search"},
             {"href": "/app/agents", "label": "Saved searches", "key": "agents"},
             {"href": "/app/account", "label": "Account", "key": "account"},
@@ -75,7 +75,7 @@ FEATURE_CARDS = (
 HOW_STEPS = (
     {"title": "Create the account", "body": "Use email first, then optional Google identity so return access stays simple and narrow."},
     {"title": "Set your search brief", "body": "Define market, budget, household needs, and requirements before the first sweep runs."},
-    {"title": "Review the shortlist", "body": "Keep the first run focused on matching homes, property pages, and visible feedback."},
+    {"title": "Review the shortlist", "body": "Keep the first search focused on matching homes, property pages, and visible feedback."},
 )
 
 PERSONAS = (
@@ -97,7 +97,7 @@ LANDING_FAQS = (
     },
     {
         "question": "Does it auto-research every listing?",
-        "answer": "No. The product stays explicit about what was scanned, what was enriched, and which deeper research steps still need to run.",
+        "answer": "No. The product stays explicit about what was checked, what was enriched, and which deeper research steps are still needed.",
     },
     {
         "question": "Can I start alone and add others later?",
@@ -107,7 +107,7 @@ LANDING_FAQS = (
 
 PRODUCT_MODULES = (
     {"title": "Property brief", "body": "Capture country, search mode, budget, household needs, and requirements once so every later search starts from the same frame."},
-    {"title": "Provider sweep", "body": "Scan the selected portals as one run instead of forcing the user to maintain separate browser rituals for every source."},
+    {"title": "Listing-site search", "body": "Check the selected listing sites in one search instead of forcing the user to maintain separate browser rituals for every portal."},
     {"title": "Property page", "body": "Attach fit reasons, missing information, distances, and follow-up cues to each strong home."},
     {"title": "Shortlist review", "body": "Keep the best homes in one place with review links, tours, and clear next actions."},
     {"title": "Learning loop", "body": "Turn likes, dislikes, and requirements into better future matches instead of leaving them as forgotten opinions."},
@@ -116,7 +116,7 @@ PRODUCT_MODULES = (
 
 SIGN_IN_NOTES = (
     "Return through a current session, a secure email link, an account invite, or SSO.",
-    "Use the email setup path at /register if you prefer not to start with provider sign-in.",
+    "Use the email setup path at /register if you prefer not to start with connected sign-in.",
     "Google connection is optional identity and return access, not the required center of the product.",
     "Shared review, billing, and broader account controls come later from Account, with Connections inside it, after the first shortlist proves useful.",
 )
@@ -187,7 +187,7 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Account data",
                 "title": "What the product stores",
-                "body": "The app can store account identity, saved search preferences, run history, shortlist decisions, feedback, generated review files, tour history, and delivery settings.",
+                "body": "The app can store account identity, saved search preferences, search history, shortlist decisions, feedback, generated review files, tour history, and delivery settings.",
                 "items": (
                     "Exact addresses, documents, and internal source URLs stay private unless a user explicitly shares a redacted page or file.",
                     "Preference learning is used to improve ranking for the account and must stay separable from cross-customer analytics.",
@@ -208,7 +208,7 @@ PUBLIC_TRUST_PAGES = {
         "faqs": (
             {
                 "question": "Are listings treated as private user data?",
-                "answer": "Provider listings are external source data, but the user's brief, ranking, feedback, documents, and decisions are account data.",
+                "answer": "Listings from external sites are external content, but the user's brief, ranking, feedback, documents, and decisions are account data.",
             },
             {
                 "question": "Can a shared tour reveal the original listing URL?",
@@ -221,24 +221,24 @@ PUBLIC_TRUST_PAGES = {
         "nav": "terms",
         "title": "Terms",
         "kicker": "Product terms",
-        "summary": "Use PropertyQuarry as a property research tool. Verify property facts with official documents, the provider, and an in-person review.",
+        "summary": "Use PropertyQuarry as a property research tool. Verify property facts with official documents, the listing contact, and an in-person review.",
         "band": (
             {
                 "title": "Research aids",
                 "body": "Scores, summaries, tours, and investment views are research aids. They are not legal, financial, valuation, or survey advice.",
             },
             {
-                "title": "Source boundaries",
-                "body": "Provider content may be incomplete, stale, duplicated, or restricted by provider rights. The product must surface uncertainty clearly.",
+                "title": "Listing-site boundaries",
+                "body": "Listing-site content may be incomplete, stale, duplicated, or restricted by platform rights. The product must surface uncertainty clearly.",
             },
         ),
         "sections": (
             {
                 "eyebrow": "Use",
                 "title": "Expected use",
-                "body": "Users should provide truthful search settings, respect provider rights, and verify important facts before contacting, renting, buying, or investing.",
+                "body": "Users should provide truthful search settings, respect listing-site rights, and verify important facts before contacting, renting, buying, or investing.",
                 "items": (
-                    "Do not use the product to bypass provider access restrictions or scrape at abusive volume.",
+                    "Do not use the product to bypass listing-site access restrictions or scrape at abusive volume.",
                     "Do not publish private pages, documents, or generated media without the rights to do so.",
                     "Do not rely on generated visuals as measured floorplans or construction documentation.",
                 ),
@@ -246,11 +246,11 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Availability",
                 "title": "Service limits",
-                "body": "Search, enrichment, media generation, notifications, and provider repair can be degraded by provider outages, rate limits, source drift, and external services.",
+                "body": "Search, enrichment, media generation, notifications, and listing-site repair can be degraded by site outages, rate limits, page changes, and external services.",
                 "items": (
-                    "A completed-partial run can still be useful, but it must say which providers need another pass.",
+                    "A partial search can still be useful, but it must say which sites need another pass.",
                     "Repair attempts should be bounded and visible instead of silently consuming resources.",
-                    "Unsupported providers and markets should stay marked as coming soon until they are available here.",
+                    "Unsupported sites and markets should stay marked as coming soon until they are available here.",
                 ),
             },
         ),
@@ -285,21 +285,21 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Responsible party",
                 "title": "How to reach PropertyQuarry",
-                "body": "PropertyQuarry keeps the public contact path intentionally narrow so support requests include a traceable run, account, or shared-link reference.",
+                "body": "PropertyQuarry keeps the public contact path intentionally narrow so support requests include a traceable search, account, or shared-link reference.",
                 "items": (
                     "Product, billing, and account requests: /support",
                     "Security, privacy, deletion, and shared-link revocation: /support",
-                    "Search repair reports: include the run ID, listing URL, provider, and the expected district or listing mode",
+                    "Search repair reports: include the search ID, listing URL, site, and the expected district or listing mode",
                 ),
             },
             {
                 "eyebrow": "Market boundaries",
-                "title": "Jurisdiction and provider boundaries",
-                "body": "PropertyQuarry is a property research product. Provider content, public data, generated media, and investment views stay bound to their source, observation date, and disclosure limits.",
+                "title": "Jurisdiction and listing-site boundaries",
+                "body": "PropertyQuarry is a property research product. Listing-site content, public data, generated media, and investment views stay bound to their origin, observation date, and disclosure limits.",
                 "items": (
                     "Generated tours and summaries are screening aids, not measured surveys.",
                     "Scores rank fit against the current brief; they are not legal, financial, valuation, or safety advice.",
-                    "Provider rights, availability, and market readiness can limit which sources appear in a search.",
+                    "Listing-site rights, availability, and market readiness can limit which sites appear in a search.",
                 ),
             },
         ),
@@ -310,7 +310,7 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "question": "Where should urgent data or wrong-area issues go?",
-                "answer": "Use Support and include the affected URL or run ID. That gives the repair workflow enough detail to reproduce the issue.",
+                "answer": "Use Support and include the affected URL or search ID. That gives the repair workflow enough detail to reproduce the issue.",
             },
         ),
     },
@@ -322,8 +322,8 @@ PUBLIC_TRUST_PAGES = {
         "summary": "Use Support for failed runs, wrong-area matches, missing facts, billing questions, deletion requests, and search repair.",
         "band": (
             {
-                "title": "Run problems",
-                "body": "Include the run ID, source label, candidate title, and what looked wrong: area, listing mode, price, media, review file, or repair status.",
+                "title": "Search problems",
+                "body": "Include the search ID, listing site, property title, and what looked wrong: area, listing mode, price, media, review file, or repair status.",
             },
             {
                 "title": "Data requests",
@@ -334,11 +334,11 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Fast triage",
                 "title": "What to send",
-                "body": "The fastest repair report includes the affected URL, run ID, and what looked wrong.",
+                "body": "The fastest repair report includes the affected URL, search ID, and what looked wrong.",
                 "items": (
-                    "Run ID or shared property URL",
+                    "Search ID or shared property URL",
                     "Expected location, transaction mode, and hard filters",
-                    "Provider URL when the source page itself contradicts the normalized result",
+                    "Original listing URL when the listing page itself contradicts the normalized result",
                 ),
             },
             {
@@ -436,7 +436,7 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "title": "Usage-aware",
-                "body": "Research, media generation, and provider processing have real costs, so refund policy should distinguish unused access from consumed work.",
+                "body": "Research, media generation, and listing-site processing have real costs, so refund policy should distinguish unused access from consumed work.",
             },
         ),
         "sections": (
@@ -447,7 +447,7 @@ PUBLIC_TRUST_PAGES = {
                 "items": (
                     "Cancellation should preserve export and deletion controls.",
                     "Downgrades should keep historical results readable unless retention settings remove them.",
-                    "Refund requests should be attached to plan, run, and invoice context.",
+                    "Refund requests should be attached to plan, search, and invoice context.",
                 ),
             },
         ),
@@ -475,7 +475,7 @@ PUBLIC_TRUST_PAGES = {
                 "title": "Check before deciding",
                 "body": "PropertyQuarry should show uncertainty, missing facts, and repair status so users can decide what still needs manual review.",
                 "items": (
-                    "Verify price, operating costs, availability, and eligibility with the provider.",
+                    "Verify price, operating costs, availability, and eligibility with the listing contact.",
                     "Verify legal, financial, tax, zoning, and construction questions with qualified professionals.",
                     "Treat low-confidence or partial-coverage runs as screening output, not final due diligence.",
                 ),

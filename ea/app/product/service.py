@@ -916,7 +916,7 @@ def _property_search_broaden_suggestions(
             )
         suggestions.append(
             {
-                "title": "Run one Puntarenas discovery sweep",
+                "title": "Try Puntarenas once",
                 "detail": "Keep Costa Rica selected, but use the broader Puntarenas province once to discover nearby towns the providers actually index.",
                 "tag": "Area",
                 "action_label": "Use Puntarenas discovery",
@@ -930,7 +930,7 @@ def _property_search_broaden_suggestions(
         suggestions.append(
             {
                 "title": f"Relax minimum area to {relaxed_area} m2",
-                "detail": f"{area_total} candidate(s) were held back by the area filter. Run this only as a discovery pass, then restore the stricter size rule.",
+                "detail": f"{area_total} home(s) were held back by the area filter. Use this only as a discovery pass, then restore the stricter size rule.",
                 "tag": "Size",
                 "action_label": f"Use {relaxed_area} m2",
                 "adjustments": {"min_area_m2": relaxed_area},
@@ -941,7 +941,7 @@ def _property_search_broaden_suggestions(
         suggestions.append(
             {
                 "title": "Remove keyword post-filtering once",
-                "detail": "Providers had raw inventory, but keyword filtering can be brittle in Costa Rica listings. Clear keywords for one discovery run.",
+                "detail": "Listing sites had inventory, but keyword filtering can be brittle in Costa Rica. Clear keywords for one discovery search.",
                 "tag": "Keywords",
                 "action_label": "Clear keywords",
                 "adjustments": {"keywords": ""},
@@ -951,10 +951,10 @@ def _property_search_broaden_suggestions(
     if bool(request_preferences.get("require_floorplan")) and floorplan_total > 0:
         suggestions.append(
             {
-                "title": "Run one discovery pass without a required floorplan",
-                "detail": "Keep these homes visible while floorplan evidence is recovered in the background.",
+                "title": "Try one discovery pass without a required floorplan",
+                "detail": "Keep these homes visible while floorplan details are recovered in the background.",
                 "tag": "Floorplan",
-                "action_label": "Run discovery pass",
+                "action_label": "Try discovery pass",
                 "adjustments": {"require_floorplan": False},
             }
         )
@@ -963,10 +963,10 @@ def _property_search_broaden_suggestions(
     if failed_sources:
         suggestions.append(
             {
-                "title": "Repair blocked provider lanes",
-                "detail": f"{len(failed_sources)} source{' needs' if len(failed_sources) == 1 else 's need'} a retry before this market read is complete.",
-                "tag": "Providers",
-                "action_label": "Retry sources",
+                "title": "Refresh unavailable sites",
+                "detail": f"{len(failed_sources)} site{' needs' if len(failed_sources) == 1 else 's need'} another check before this market read is complete.",
+                "tag": "Sites",
+                "action_label": "Refresh sites",
                 "adjustments": {},
             }
         )
@@ -12407,7 +12407,9 @@ def _property_candidate_choice_reason(
     comparison_peer = next((item for item in peers if isinstance(item, dict)), None)
     if comparison_peer is None:
         if top_choice and score is not None:
-            return f"Chosen because it stayed closest to the current brief with a {int(round(score))}/100 personal fit."
+            return normalize_property_fit_note(
+                f"Chosen because it stayed closest to the current brief with a {int(round(score))}/100 personal fit."
+            )
         return ""
 
     peer_facts = (
@@ -12461,10 +12463,10 @@ def _property_candidate_choice_reason(
 
     if not reasons:
         if top_choice:
-            return "Chosen because it stayed closest to the current brief on the available facts."
+            return normalize_property_fit_note("Chosen because it stayed closest to the current brief on the available facts.")
         return ""
     lead = "Chosen ahead of the next option because" if top_choice else "Ranked ahead of the next option because"
-    return f"{lead} {compact_text('; '.join(reasons[:3]), fallback='', limit=220)}."
+    return normalize_property_fit_note(f"{lead} {compact_text('; '.join(reasons[:3]), fallback='', limit=220)}.")
 
 
 def _property_alert_facts_for_url(property_url: str) -> tuple[dict[str, object], str]:
@@ -28098,7 +28100,11 @@ class ProductService:
             external_id=external_id,
             property_url=property_url,
         )
-        normalized_tour_url = str(tour_url or "").strip()
+        normalized_tour_url = str(tour_url or "").strip() or _existing_hosted_property_tour_url_for_identity(
+            property_url=candidate_property_url or property_url,
+            source_ref=source_ref or first_candidate.get("source_ref") or "",
+            external_id=external_id or first_candidate.get("external_id") or candidate_property_url or property_url,
+        )
         if existing is not None:
             existing_input = dict(getattr(existing, "input_json", {}) or {})
             payload = {
@@ -43128,14 +43134,14 @@ class ProductService:
             payload["repair_status_label"] = "Partial coverage"
             payload["can_auto_repair"] = True
             payload["customer_status_message"] = (
-                "The shortlist is ready, but one or more sources degraded before the full market scan finished."
+                "The shortlist is ready, but one or more sites need another pass."
             )
         elif payload["status"] == "failed":
             payload["repair_status"] = "failed"
             payload["repair_status_label"] = "Needs attention"
             payload["can_auto_repair"] = True
             payload["customer_status_message"] = (
-                "The search could not confirm a ready shortlist from the available source pages."
+                "One site changed, so this search could not finish automatically."
             )
         if not self._property_search_results_delivery_pending(result=payload):
             stage_receipts = mark_property_search_stage_receipt(stage_receipts, "results_delivery_ready_at")

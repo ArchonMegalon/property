@@ -1382,7 +1382,7 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Identity only" not in sign_in.text
     assert "Identity-only." not in sign_in.text
     assert "Use a saved session, email link, or connected identity." in sign_in.text
-    assert "First-time provider sign-in also creates the account automatically." in sign_in.text
+    assert "First-time connected sign-in also creates the account automatically." in sign_in.text
     assert "Any provider below reopens the same account or creates it automatically on first use." not in sign_in.text
     assert "Trusted device" not in sign_in.text
     assert "Private hardware access stays limited to approved devices." not in sign_in.text
@@ -1550,7 +1550,7 @@ def test_propertyquarry_email_link_unavailable_uses_live_service_language() -> N
 
     assert response.status_code == 200
     assert "Email link delivery needs setup." in response.text
-    assert "First-time provider sign-in still creates the account automatically." in response.text
+    assert "First-time connected sign-in still creates the account automatically." in response.text
     assert "Email sign-in links are temporarily unavailable." not in response.text
     assert "email delivery is unavailable" not in response.text
     assert "Email return links are not enabled on this deployment yet." not in response.text
@@ -4506,6 +4506,8 @@ def test_property_action_cards_filter_legacy_full_view_buttons() -> None:
     template = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     object_template = (repo_root / "ea/app/templates/app/object_detail.html").read_text(encoding="utf-8")
     results_template = (repo_root / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
+    fast_results_template = (repo_root / "ea/app/templates/app/property_ranked_run_fast.html").read_text(encoding="utf-8")
+    workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
     payload_builder = (repo_root / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(
         encoding="utf-8"
     )
@@ -4525,6 +4527,10 @@ def test_property_action_cards_filter_legacy_full_view_buttons() -> None:
     )
     assert "action_label|lower not in ['full view', 'open full view']" in results_template
     assert "_is_redundant_property_action_label(cleaned.get(label_key))" in payload_builder
+    assert "cleanCandidateCopy(candidate.compare_reason)" in fast_results_template
+    assert "text(candidate.compare_reason)" not in fast_results_template
+    assert "cleanCandidateCopy(candidate?.fit_summary" in workbench_script
+    assert "Open the source" not in workbench_script
     surface_state = (repo_root / "ea/app/product/property_surface_state.py").read_text(encoding="utf-8")
     assert "ordered_results = [_strip_hidden_property_action_slots(row)" in surface_state
     assert "research_actions=_clean_property_action_rows(actions)" in surface_state
@@ -19228,7 +19234,7 @@ def test_property_customer_copy_uses_home_language_instead_of_candidate() -> Non
         "it stays meaningfully cheaper than the next option."
     )
     cleaned_rank_note = landing_view_models._clean_property_candidate_copy(rank_note)
-    assert cleaned_rank_note == "It stayed closest to the current brief. It is meaningfully cheaper."
+    assert cleaned_rank_note == "It best matches your search. It is meaningfully cheaper."
     assert cleaned_rank_note == normalize_property_fit_note(rank_note)
     assert "Chosen ahead" not in cleaned_rank_note
     assert "scored" not in cleaned_rank_note

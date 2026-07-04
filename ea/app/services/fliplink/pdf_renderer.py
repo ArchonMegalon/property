@@ -86,7 +86,7 @@ def _localize_compare_reason(value: object) -> str:
     if not text:
         return ""
     replacements = {
-        "It stayed closest to the current brief": "Es bleibt am nächsten am aktuellen Suchprofil",
+        "It best matches your search": "Passt am besten zu Ihrer Suche",
         "A floorplan is already available": "Ein brauchbarer Grundriss liegt bereits vor",
         "It offers more usable room count": "Die Zimmerstruktur wirkt besser nutzbar",
     }

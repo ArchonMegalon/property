@@ -12106,7 +12106,7 @@
                 {% set variant_display_total = (run.get('source_variant_display_total') or run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
                 {% set homes_checked = (run_summary.get('listing_total') or run_summary.get('raw_listing_total') or 0)|int %}
               {% if provider_display_total > 0 and variant_display_total > provider_display_total %}
-                {{ provider_display_total }} sources · {{ homes_checked }} homes checked
+                {{ provider_display_total }} sites · {{ homes_checked }} homes checked
               {% else %}
                 {{ homes_checked }} homes checked
                 {% endif %}

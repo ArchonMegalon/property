@@ -286,6 +286,29 @@
     const resolved = String(value == null ? '' : value).trim();
     return resolved || fallback;
   };
+  const cleanCandidateCopy = (value) => {
+    let resolved = text(value);
+    if (!resolved) return '';
+    resolved = resolved
+      .replace(/^\s*(Chosen|Ranked) ahead of the next option because\s+/i, '')
+      .replace(/\bit scored \d+(?:\.\d+)? points higher on the current brief\b/gi, 'it best matches your search')
+      .replace(/\bit scored \d+(?:\.\d+)? points higher\b/gi, 'it best matches your search')
+      .replace(/[;,:]\s*it includes a floorplan while the next option does not\.?/gi, '. A floorplan is available.')
+      .replace(/\bit includes a floorplan while the next option does not\b/gi, 'a floorplan is available')
+      .replace(/\bit stays meaningfully cheaper than the next option\b/gi, 'it is meaningfully cheaper')
+      .replace(/\bstays meaningfully cheaper than the next option\b/gi, 'is meaningfully cheaper')
+      .replace(/\bwhile the next option does not\b/gi, '')
+      .replace(/;\s*(it|a)\b/gi, (_match, word) => `. ${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+      .replace(/\s+\./g, '.')
+      .replace(/\.\s*\./g, '.')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+      .replace(/[;,]+$/g, '');
+    if (!resolved) return '';
+    if (/^it\s/i.test(resolved)) resolved = `It ${resolved.slice(3)}`;
+    else if (/^[a-z]/.test(resolved)) resolved = `${resolved.charAt(0).toUpperCase()}${resolved.slice(1)}`;
+    return /[.!?]$/.test(resolved) ? resolved : `${resolved}.`;
+  };
   const number = (value) => {
     const resolved = Number(value);
     return Number.isFinite(resolved) ? resolved : 0;
@@ -352,10 +375,10 @@
   };
   const candidateDetail = (candidate) => {
     const reasons = Array.isArray(candidate.match_reasons) ? candidate.match_reasons.filter(Boolean) : [];
-    return text(candidate.fit_summary)
-      || text(candidate.compare_reason)
-      || text(candidate.summary)
-      || text(reasons[0])
+    return cleanCandidateCopy(candidate.fit_summary)
+      || cleanCandidateCopy(candidate.summary)
+      || cleanCandidateCopy(candidate.compare_reason)
+      || cleanCandidateCopy(reasons[0])
       || 'Open the property to review the details.';
   };
   const candidatePropertyHref = (candidate) => {

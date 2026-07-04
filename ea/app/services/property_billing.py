@@ -166,7 +166,7 @@ _PAID_PLANS = {
         magic_fit_video_period="none",
         auto_tour_policy="all_opt_in",
         features=(
-            "all Austria provider lanes in one run",
+            "all Austria listing-site coverage in one search",
             "deep research and follow-up readiness",
             "unlimited saved searches",
             "opt-in 3D reconstruction floor plans and interior flythroughs for every found property",

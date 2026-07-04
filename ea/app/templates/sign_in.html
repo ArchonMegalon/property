@@ -318,7 +318,7 @@
     <div class="access-shell">
       <div class="access-intro">
         <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
-        <p class="lead">Use a saved session, email link, or connected identity. First-time provider sign-in also creates the account automatically.</p>
+        <p class="lead">Use a saved session, email link, or connected identity. First-time connected sign-in also creates the account automatically.</p>
       </div>
         <div class="access-entry">
         <div class="access-entry-block access-entry-block-cta">
@@ -348,7 +348,7 @@
         {% set has_enabled_sign_in_provider = show_google_provider or show_facebook_provider or show_id_austria_provider %}
         {% if has_enabled_sign_in_provider %}
         <div class="access-entry-block">
-          <p class="access-entry-copy">Any provider below reopens the same account or creates it automatically on first use.</p>
+          <p class="access-entry-copy">Any connected identity reopens the same account or creates it automatically on first use.</p>
           <div class="auth-provider-stack" aria-label="Sign-in providers">
             {% if show_google_provider %}
             <div class="auth-provider-card" data-auth-provider-card data-auth-provider="google" data-auth-provider-state="enabled">
@@ -398,7 +398,7 @@
         {% else %}
           <div class="access-feedback">
             <strong>Email link delivery needs setup.</strong>
-            <p class="copy">Use Google, Facebook, ID Austria, an existing invite, or a saved access link. First-time provider sign-in still creates the account automatically.</p>
+            <p class="copy">Use Google, Facebook, ID Austria, an existing invite, or a saved access link. First-time connected sign-in still creates the account automatically.</p>
           </div>
           {% endif %}
         </div>
@@ -490,7 +490,7 @@
       <strong>We could not send a sign-in link.</strong>
       <p class="copy">
         {% if sign_in_link_error == 'workspace_sign_in_email_delivery_not_configured' %}
-        Email link delivery needs setup. Continue with Google, Facebook, ID Austria, an existing invite, or a saved access link. First-time provider sign-in still creates the account automatically.
+        Email link delivery needs setup. Continue with Google, Facebook, ID Austria, an existing invite, or a saved access link. First-time connected sign-in still creates the account automatically.
         {% else %}
         {{ sign_in_link_error or 'Use an existing invite or ask the account owner to issue a new link.' }}
         {% endif %}

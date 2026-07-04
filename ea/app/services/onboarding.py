@@ -1924,7 +1924,7 @@ class OnboardingService(AssistantOnboardingService):
             dict(morning_memo_schedule or {}).get("resolved_recipient_email")
         ):
             return "Connect Google or set a delivery email so notifications can actually send when you enable them."
-        return "Review the first shortlist, save feedback, and only then add more sources or alert channels."
+        return "Review the first shortlist, save feedback, and only then add more sites or alert channels."
 
     @staticmethod
     def _normalize_auto_brief_cadence(value: str) -> str:

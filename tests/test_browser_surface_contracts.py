@@ -225,7 +225,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         in signed_in_landing.text
     )
     assert (
-        '<a class="btn" href="/app/properties" data-analytics-event="home_open_run"'
+        '<a class="btn" href="/app/properties" data-analytics-event="home_open_results"'
         in signed_in_landing.text
     )
 
@@ -422,7 +422,7 @@ def test_propertyquarry_management_settings_use_property_language() -> None:
     assert "Ranked homes" not in usage.text
     assert "Sources used" not in usage.text
     assert "Source checks" not in usage.text
-    assert "Recovery" in usage.text
+    assert "Search health" in usage.text
 
     trust = client.get("/app/settings/trust", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert 'href="/downloads"' not in trust.text

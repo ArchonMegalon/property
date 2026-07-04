@@ -17,13 +17,13 @@ SECURITY_HEADERS = {
 
 SIGN_IN_BODY = (
     "PropertyQuarry Open search Continue with Google "
-    "First-time provider sign-in still creates the account automatically. "
+    "First-time connected sign-in still creates the account automatically. "
     "<button>Log out</button> Open current session"
 )
 
 SIGN_IN_ACTIVE_BODY = (
     "PropertyQuarry Open search Continue with Google "
-    "First-time provider sign-in still creates the account automatically. "
+    "First-time connected sign-in still creates the account automatically. "
     "<button>Log out</button>"
 )
 
@@ -918,7 +918,7 @@ def test_live_authenticated_smoke_fails_when_sign_in_loses_account_creation_copy
 
     sign_in_row = next(row for row in receipt["checks"] if row["path"] == "/sign-in")
     assert receipt["status"] == "fail"
-    assert any(check["name"] == "sign_in_provider_creates_account" and check["ok"] is False for check in sign_in_row["checks"])
+    assert any(check["name"] == "sign_in_connected_identity_creates_account" and check["ok"] is False for check in sign_in_row["checks"])
     assert any(check["name"] == "sign_in_no_unavailable_auth_copy" and check["ok"] is False for check in sign_in_row["checks"])
 
 

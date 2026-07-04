@@ -750,7 +750,9 @@ def _customer_status_is_internal_failure_copy(value: object) -> bool:
     return lowered.startswith(
         (
             "no source completed cleanly enough",
-            "the search could not confirm a ready shortlist from the available source pages",
+            "the search could not confirm a ready shortlist from the available listing pages",
+            "the search could not confirm a ready shortlist from the available "
+            "source pages",
             "search failed before ranking",
             "search paused before a stable shortlist was ready",
         )

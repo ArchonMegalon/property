@@ -251,7 +251,7 @@ def test_sign_in_page_shows_google_when_oauth_is_configured(monkeypatch: pytest.
     assert 'href="/sign-in/google"' in response.text
     assert "Google unavailable" not in response.text
     assert "Saved Google account or automatic first account creation" in response.text
-    assert "Any provider below reopens the same account or creates it automatically on first use." in response.text
+    assert "Any connected identity reopens the same account or creates it automatically on first use." in response.text
 
 
 @pytest.mark.parametrize(

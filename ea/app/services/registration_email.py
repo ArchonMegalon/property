@@ -1135,7 +1135,7 @@ def send_property_search_results_ready_email(
                 "Research summary:",
                 f"- Best current match: {best_title}",
                 f"- Assessment: {best_fit_summary or 'A ranked shortlist is ready for review.'}",
-                f"- Fit note: {best_fit_note or 'It stayed closest to the current brief.'}",
+                f"- Fit note: {best_fit_note or 'It best matches your search.'}",
                 f"- Key facts: {best_facts or 'Open the packet for the structured facts.'}",
             ]
         )

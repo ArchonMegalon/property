@@ -13,19 +13,19 @@ def normalize_property_fit_note(value: object) -> str:
     text = re.sub(r"^\s*Chosen because\s+", "", text, flags=re.IGNORECASE)
     text = re.sub(
         r"\bit scored \d+(?:\.\d+)? points higher on the current brief\b",
-        "it stayed closest to the current brief",
+        "it best matches your search",
         text,
         flags=re.IGNORECASE,
     )
     text = re.sub(
         r"\bit scored \d+(?:\.\d+)? points higher\b",
-        "it stayed closest to the current brief",
+        "it best matches your search",
         text,
         flags=re.IGNORECASE,
     )
     text = re.sub(
         r"\bit stayed closest to the current brief on the available facts\b",
-        "it stayed closest to the current brief",
+        "it best matches your search",
         text,
         flags=re.IGNORECASE,
     )

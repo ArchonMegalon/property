@@ -4183,11 +4183,11 @@ def pricing_page(
                             },
                             {
                                 "question": "What does Plus change?",
-                                "answer": "Plus gives a denser shortlist and richer property pages on a tighter set of sources.",
+                                "answer": "Plus gives a denser shortlist and richer property pages on a tighter set of listing sites.",
                             },
                             {
                                 "question": "When does Agent make sense?",
-                                "answer": "Agent is for ongoing property search work that needs full source breadth, denser shortlists, and deeper research at the same time.",
+                                "answer": "Agent is for ongoing property search work that needs full site breadth, denser shortlists, and deeper research at the same time.",
                             },
                         )
                     ),

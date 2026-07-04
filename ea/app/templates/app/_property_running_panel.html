@@ -18,7 +18,7 @@
 		          {% set run_source_check_done_head = run_source_check_total_head %}
 		        {% endif %}
 		        {% set run_source_check_done_head = run_source_check_done_head if run_source_check_total_head <= 0 or run_source_check_done_head < run_source_check_total_head else run_source_check_total_head %}
-		        {% set run_source_unit_head = 'search pages' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'sources' %}
+			        {% set run_source_unit_head = 'search pages' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'sites' %}
 		        {% set run_source_check_label_head = run_source_check_done_head|string ~ ' / ' ~ run_source_check_total_head|string ~ ' ' ~ run_source_unit_head if run_source_check_total_head > 0 and run_source_total_head > 0 else '' %}
 		        {% set run_source_left_head = run_source_check_total_head - run_source_check_done_head if run_source_check_total_head > run_source_check_done_head else 0 %}
 		        {% set run_queue_label_head = run_to_review_head|string ~ ' to review' if run_to_review_head > 0 else (run_source_left_head|string ~ ' ' ~ run_source_unit_head ~ ' left' if run_source_total_head > 0 and run_source_left_head > 0 else 'all found homes reviewed') %}

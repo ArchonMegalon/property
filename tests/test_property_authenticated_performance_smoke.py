@@ -94,8 +94,8 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert any(check["name"] == "what_matters_distance_controls_compact" and check["ok"] for check in routes["/app/search"]["checks"])
     assert any(check["name"] == "what_matters_school_distance_controls" and check["ok"] for check in routes["/app/search"]["checks"])
     assert any(check["name"] == "delivery_controls" and check["ok"] for check in routes["/app/alerts"]["checks"])
-    assert any(check["name"] == "provider_login_implicit_account_creation" and check["ok"] for check in routes["/sign-in"]["checks"])
-    assert any(check["name"] == "provider_login_copy_is_customer_safe" and check["ok"] for check in routes["/sign-in"]["checks"])
+    assert any(check["name"] == "connected_identity_implicit_account_creation" and check["ok"] for check in routes["/sign-in"]["checks"])
+    assert any(check["name"] == "connected_identity_copy_is_customer_safe" and check["ok"] for check in routes["/sign-in"]["checks"])
     assert any(
         check["name"] in {"billing_external_handoff_redirect", "billing_fail_closed_recovery"} and check["ok"]
         for check in routes["/app/billing"]["checks"]
@@ -148,7 +148,7 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"billing_external_handoff_redirect"' in result.stdout or '"billing_fail_closed_recovery"' in result.stdout
     assert '"research_mobile_open_property_compact_layout"' in result.stdout
     assert '"research_mobile_visual_frame_compact"' in result.stdout
-    assert '"provider_login_implicit_account_creation"' in result.stdout
+    assert '"connected_identity_implicit_account_creation"' in result.stdout
     assert '"research_visual_requests_honest"' in result.stdout
     assert '"research_no_fake_visual_ready"' in result.stdout
     assert '"research_ranking_only_no_compare_cards"' in result.stdout

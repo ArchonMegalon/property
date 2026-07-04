@@ -952,7 +952,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
     if path == "/app/settings/trust":
         checks.extend(
             (
-                {"name": "trust_settings_heading", "ok": "Reliability" in body or "Trust" in body},
+                {"name": "trust_settings_heading", "ok": "Search health" in body or "Reliability" in body or "Trust" in body},
                 {"name": "trust_evidence_visible", "ok": "source health" in lowered_body or "list health" in lowered_body},
             )
         )
@@ -966,13 +966,16 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
     if path == "/sign-in":
         checks.extend(
             (
-                {"name": "provider_login_implicit_account_creation", "ok": "First-time provider sign-in also creates the account automatically." in body},
                 {
-                    "name": "provider_login_copy_is_customer_safe",
+                    "name": "connected_identity_implicit_account_creation",
+                    "ok": "First-time connected sign-in also creates the account automatically." in body,
+                },
+                {
+                    "name": "connected_identity_copy_is_customer_safe",
                     "ok": (
                         "oauth_config_missing" not in lowered_body
                         and "callback setup" not in lowered_body
-                        and "provider sign-in also creates the account automatically" in lowered_body
+                        and "connected sign-in also creates the account automatically" in lowered_body
                     ),
                 },
             )

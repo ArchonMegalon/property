@@ -788,7 +788,7 @@ def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass
 def _public_smoke_payload(*, status: str = "pass", failed_count: int = 0, include_account_creation: bool = True) -> dict[str, object]:
     sign_in_checks = [
         {"name": "sign_in_minimal_copy", "ok": True},
-        {"name": "sign_in_provider_creates_account", "ok": include_account_creation},
+        {"name": "sign_in_connected_identity_creates_account", "ok": include_account_creation},
         {"name": "sign_in_no_unavailable_auth_copy", "ok": True},
         {"name": "sign_in_google_state", "ok": True},
         {"name": "sign_in_google_feedback", "ok": True},
@@ -1903,7 +1903,7 @@ def test_gold_status_blocks_when_public_sign_in_account_creation_smoke_is_missin
     blocker = next(row for row in receipt["blockers"] if row["area"] == "public_auth_surfaces")
     assert receipt["status"] == "blocked"
     assert receipt["public_auth_surfaces"]["sign_in_checks_ok"] is False
-    assert "sign_in_provider_creates_account" in blocker["missing_sign_in_checks"]
+    assert "sign_in_connected_identity_creates_account" in blocker["missing_sign_in_checks"]
 
 
 def test_gold_status_blocks_when_brilliant_directories_billing_handoff_does_not_resolve(tmp_path: Path) -> None:

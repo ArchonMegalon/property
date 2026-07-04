@@ -4347,7 +4347,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
     assert "Use a saved session, email link, or connected identity." in sign_in.text
-    assert "Any provider below reopens the same account or creates it automatically on first use." in sign_in.text
+    assert "Any connected identity reopens the same account or creates it automatically on first use." in sign_in.text
     assert "Identity only" not in sign_in.text
     assert 'href="/app/search"' in sign_in.text
     assert 'action="/app/actions/sign-out"' in sign_in.text

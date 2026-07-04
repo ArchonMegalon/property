@@ -770,10 +770,10 @@ def _property_source_scope_mismatch_notice(
         previous_total = 0
     checked_label = ", ".join(mismatched_locations[:3])
     return {
-        "title": "Run used an older area",
+        "title": "Search used an older area",
         "rule_key": "Brief scope changed",
         "detail": (
-            f"This run checked {checked_label}. Your current brief is {target_label}. "
+            f"This search checked {checked_label}. Your current brief is {target_label}. "
             "Start an updated search so the results are fetched with the current area."
         ),
         "tag": "Updated brief",
@@ -966,7 +966,7 @@ def property_workspace_payload(
             agent_row.setdefault("status_label", "Active" if enabled else "Paused")
             agent_row.setdefault("delivery_label", "Set a daily or weekly cap.")
             agent_row.setdefault("notification_label", "Budget")
-            agent_row.setdefault("run_label", "Waiting for the first run.")
+            agent_row.setdefault("run_label", "Waiting for the first search.")
             agent_row["is_active"] = is_active
             normalized_saved_agents.append(agent_row)
         if normalized_saved_agents:
@@ -1001,7 +1001,7 @@ def property_workspace_payload(
     search_posture_card = cards_by_eyebrow.get("search brief") or cards_by_eyebrow.get("search posture", {})
     market_coverage_card = cards_by_eyebrow.get("market coverage", {})
     shortlist_card = cards_by_eyebrow.get("shortlist", {})
-    run_card = cards_by_eyebrow.get("run status", {})
+    run_card = cards_by_eyebrow.get("search status", {})
     learning_card = cards_by_eyebrow.get("learning loop", {})
     recent_matches_card = cards_by_eyebrow.get("recent matches", {})
     shortlist_candidates = [
@@ -1706,7 +1706,7 @@ def property_workspace_payload(
         )
         return PropertySurfacePayloadContract(
             title="Search",
-            summary="Set the market, filters, source mix, and what matters before launching the next run.",
+            summary="Set the market, filters, site mix, and what matters before launching the next search.",
             stats=list(base.get("stats") or []),
             current_plan_label=current_plan_label,
             run_payload={},
@@ -1715,8 +1715,8 @@ def property_workspace_payload(
             decision_workbench=decision_workbench,
             extras={
                 "hero_kicker": "Search",
-                "hero_title": "Shape the next property run.",
-                "hero_summary": "Brief, sources, priorities.",
+                "hero_title": "Shape the next property search.",
+                "hero_summary": "Brief, sites, priorities.",
                 "hero_actions": [],
                 "hero_highlights": [
                     {
@@ -1877,7 +1877,7 @@ def property_workspace_payload(
         if verified_tour_url:
             return "Ready | On this page"
         if provider_tour_url:
-            return "Ready | Provider 360"
+            return "Ready | Original 360"
         status = str(candidate.get("tour_status") or "").strip().lower()
         eta_minutes = int(candidate.get("tour_eta_minutes") or 0) if str(candidate.get("tour_eta_minutes") or "").strip() else 0
         if status in {"queued", "pending"}:
@@ -2423,7 +2423,7 @@ def property_workspace_payload(
                 provider_key = property_tour_hosting._property_tour_provider_host_kind(provider_tour_url)  # type: ignore[attr-defined]
             except Exception:
                 provider_key = ""
-            provider_label = _visual_provider_label(provider_key) if provider_key else "Provider tour"
+            provider_label = _visual_provider_label(provider_key) if provider_key else "Original tour"
             visual_runtime = _visual_runtime_payload(
                 candidate,
                 request_kind="tour",
@@ -2435,7 +2435,7 @@ def property_workspace_payload(
                 "label": "Original tour",
                 "url": provider_tour_url,
                 "embed_url": provider_tour_url,
-                "eta_label": "Provider tour",
+                "eta_label": "Original tour",
                 "progress_pct": visual_runtime["progress_pct"],
                 "provider_label": provider_label,
                 "provider_key": provider_key,
@@ -3481,7 +3481,7 @@ def property_workspace_payload(
         "research": [
             {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready for inspection.", "href": f"/app/research{run_suffix}"},
             {"label": "Tours", "value": str(tour_ready_total), "detail": "Homes already backed by a live tour or original 360.", "href": f"/app/research{run_suffix}"},
-            {"label": "Homes checked", "value": str(_run_homes_checked_total(run_summary)), "detail": "Homes checked in the latest run.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Homes checked", "value": str(_run_homes_checked_total(run_summary)), "detail": "Homes checked in the latest search.", "href": f"/app/properties{run_suffix}"},
             {"label": "Search status", "value": run_status_label, "detail": run_message or "Latest research pass.", "href": f"/app/properties{run_suffix}"},
         ],
         "profile": [
@@ -4038,7 +4038,7 @@ def property_workspace_payload(
             "action_label": "Open results",
         },
         {
-            "title": "Latest run",
+            "title": "Latest search",
             "detail": run_message or "Open results to launch or monitor the next sweep.",
             "tag": run_status_label,
             "action_href": f"/app/properties{run_suffix}",
@@ -4081,7 +4081,7 @@ def property_workspace_payload(
                 "Review the final results table."
                 if run_status_value in {"processed", "completed"} and results_table_rows
                 else (
-                    "Keep coverage, source health, and the next useful update visible while the search is active."
+                    "Keep coverage, site health, and the next useful update visible while the search is active."
                     if run_in_progress
                     else "This surface is for search health, partial coverage, and the last completed sweep."
                 )
@@ -4178,7 +4178,7 @@ def property_workspace_payload(
             "summary": "Show what the product learned, what should be quieter next time, and which requirements remain explicit.",
             "hero_kicker": "Profile learning",
             "hero_title": "Make the learning loop visible and editable.",
-            "hero_summary": "Likes, dislikes, and requirements must survive beyond one run. This is where future searches become personal instead of repeating the same weak matches.",
+            "hero_summary": "Likes, dislikes, and requirements must survive beyond one search. This is where future searches become personal instead of repeating the same weak matches.",
             "hero_actions": hero_actions["profile"],
             "hero_highlights": hero_highlights["profile"],
             "primary_cards": [learning_card],

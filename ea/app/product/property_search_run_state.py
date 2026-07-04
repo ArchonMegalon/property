@@ -217,7 +217,7 @@ def property_search_run_stale_failure_event(
                 "repair_status_label": "Partial coverage",
                 "can_auto_repair": True,
                 "customer_status_message": (
-                    "The shortlist is ready, but one or more sources stopped before the full market scan finished."
+                    "The shortlist is ready, but one or more sites need another pass."
                 ),
             }
         )

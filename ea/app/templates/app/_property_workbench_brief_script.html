@@ -579,19 +579,19 @@
       if (!grid) return;
       const selected = new Set(selectedValues.map((item) => String(item || '').trim()).filter(Boolean));
       const familyHeadings = {
-        marketplace: ['Marketplaces', 'Primary broad-market search sources for this country.'],
+        marketplace: ['Marketplaces', 'Primary broad-market listing sites for this country.'],
         core_portal: ['Core portals', 'National or national-scale search portals for this country.'],
-        classified: ['Classifieds', 'Private-owner and classifieds-heavy sources with broader noise and duplicate risk.'],
-        shared_housing: ['Shared housing', 'Rooms, WGs, student, and short-term living sources.'],
+        classified: ['Classifieds', 'Private-owner and classifieds-heavy sites with broader noise and duplicate risk.'],
+        shared_housing: ['Shared housing', 'Rooms, WGs, student, and short-term living sites.'],
         corporate_landlord: ['Direct landlords', 'Corporate or institutional landlords publishing inventory directly.'],
         municipal_housing: ['Municipal housing', 'City-owned, public, or municipally-backed housing providers.'],
-        broker_direct: ['Broker direct', 'Broker-owned inventory and direct sources.'],
-        cooperative: ['Cooperatives', 'Genossenschaften and cooperative housing sources.'],
-        public_housing: ['Public housing', 'Municipal and public-housing-adjacent sources.'],
-        developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
+        broker_direct: ['Broker direct', 'Broker-owned inventory and direct listing sites.'],
+        cooperative: ['Cooperatives', 'Genossenschaften and cooperative housing sites.'],
+        public_housing: ['Public housing', 'Municipal and public-housing-adjacent sites.'],
+        developer_projects: ['Developer projects', 'New-build and launch pipeline sites.'],
         distressed_sales: ['Court and auction', 'Court-published and auction-style listings that need extra legal review.'],
         community_signals: ['Community signals', 'Facebook, Telegram, and other lightly sourced off-market hints.'],
-        community_meta: ['Long-tail sources', 'Smaller or harder-to-verify sources that can still surface useful homes.'],
+        community_meta: ['Long-tail sites', 'Smaller or harder-to-verify sites that can still surface useful homes.'],
       };
       const renderOption = (option) => {
         const optionValue = String(option.value || '').trim();

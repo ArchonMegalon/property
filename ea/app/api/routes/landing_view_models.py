@@ -4075,9 +4075,9 @@ def app_section_payload(
     location_catalog_by_country_region = _property_location_catalog_by_country_region(country_codes)
     property_form = {
         "variant": "property_search",
-        "title": "Run a premium market sweep",
+        "title": "Start a premium market search",
         "eyebrow": "Property search",
-        "copy": "Set the market, shape the shortlist, choose the sources, then launch one visible research run with ranking, review pages, and client-ready alerts.",
+        "copy": "Set the market, shape the shortlist, choose the listing sites, then launch one visible search with ranking, review pages, and client-ready alerts.",
         "submit_label": "Launch search",
         "fields": [
             {
@@ -5389,7 +5389,7 @@ def app_section_payload(
                 "empty_label": "Any size",
                 "scale_min_label": "Any",
                 "scale_max_label": "250+ m2",
-                "tooltip": "Minimum usable area. Larger minimums reduce weak matches but can make the crawl skip sparse auction or cooperative listings.",
+                "tooltip": "Minimum usable area. Larger minimums reduce weak matches but can make sparse auction or cooperative listings disappear.",
                 "step": "what",
             },
             {
@@ -5476,7 +5476,7 @@ def app_section_payload(
             {
                 "type": "checkbox",
                 "name": "force_refresh",
-                "label": "Force fresh crawl",
+                "label": "Refresh listings",
                 "value": "true",
                 "checked": bool(property_preferences.get("force_refresh")),
                 "step": "providers",
@@ -5676,7 +5676,7 @@ def app_section_payload(
             "cards": [
                 {"eyebrow": "Search details", "title": "Why items surfaced", "items": string_rows(first_brief, ("No details surfaced yet.",), tag="Detail", detail="This is one of the signals behind the current view.")},
                 {"eyebrow": "Settings", "title": "What keeps results explainable", "items": string_rows(trust_notes, ("No settings notes yet.",), tag="Rule", detail="These settings explain the product behavior.")},
-                {"eyebrow": "Sources", "title": "Where the details came from", "items": channel_items},
+                {"eyebrow": "Details", "title": "Where the details came from", "items": channel_items},
             ],
         },
         "channels": {
@@ -5719,7 +5719,7 @@ def app_section_payload(
             "title": "Properties",
             "summary": (
                 str(property_run.get("message") or "").strip()
-                or "Run a dedicated cross-platform property crawl, keep the progress visible, and surface live 3D-tour matches instead of raw listing noise."
+                or "Run a dedicated cross-platform property search, keep the progress visible, and surface live 3D-tour matches instead of raw listing noise."
             ),
             "cards": [
                 {
@@ -5729,20 +5729,20 @@ def app_section_payload(
                     "items": property_market_summary_items
                     + [
                         row_item(
-                            "Active providers",
-                            ", ".join(property_selected_platform_labels) if property_selected_platform_labels else "No providers saved yet.",
+                            "Active sites",
+                            ", ".join(property_selected_platform_labels) if property_selected_platform_labels else "No sites saved yet.",
                             "Profile",
                         ),
                     ],
                 },
                 {
                     "eyebrow": "Market coverage",
-                    "title": "Which providers this country unlocks",
-                    "body": "Each market switches the provider catalog. The saved selection should be a deliberate subset, not a hard-coded Austria-only list.",
+                    "title": "Which listing sites this country unlocks",
+                    "body": "Each market switches the site catalog. The saved selection should be a deliberate subset, not a hard-coded Austria-only list.",
                     "items": [
                         row_item(
                             "Country coverage",
-                            f"{property_country_label} | {property_provider_total_for_country or len(platform_options)} supported providers",
+                            f"{property_country_label} | {property_provider_total_for_country or len(platform_options)} supported sites",
                             "Coverage",
                         ),
                         row_item(
@@ -5755,27 +5755,27 @@ def app_section_payload(
                 {
                     "eyebrow": "Shortlist",
                     "title": "Ranked review desk",
-                    "body": "The strongest matches stay review-ready: fit, risk, 360 status, property page, and the next useful action are visible before operational crawl details.",
+                    "body": "The strongest matches stay review-ready: fit, risk, 360 status, property page, and the next useful action are visible before technical collection details.",
                     "items": property_shortlist_rows
                     or property_recent_matches
                     or [
                         row_item(
                             "First shortlist still pending",
-                            "Launch the first sweep to generate ranked candidates with property pages, live tours, and visible fit reasons.",
-                            "First run",
+                            "Launch the first search to see matching homes with property pages, tours, and plain fit reasons.",
+                            "First search",
                         )
                     ],
                 },
                 {
-                    "eyebrow": "Run status",
-                    "title": "Current crawl",
-                    "body": str(property_run.get("message") or "Start a crawl to see source-by-source progress, shortlisted 3D tours, and what actually got sent."),
+                    "eyebrow": "Search status",
+                    "title": "Current search",
+                    "body": str(property_run.get("message") or "Start a search to see site-by-site progress, shortlisted 3D tours, and what is ready."),
                     "items": property_source_rows
                     or property_event_rows
                     or [
                         row_item(
                             "No live search in flight",
-                            "Save the brief, then launch the first dedicated run to expose source-by-source progress and shortlist formation here.",
+                            "Save the brief, then launch the first dedicated search to show site-by-site progress and shortlist formation here.",
                             "Ready",
                         )
                     ],
@@ -5811,7 +5811,7 @@ def app_section_payload(
             ],
             "stats": [
                 {"label": "Country", "value": property_country_label},
-                {"label": "Providers", "value": str(len(property_selected_platform_labels) or 0)},
+                {"label": "Sites", "value": str(len(property_selected_platform_labels) or 0)},
                 {
                     "label": "Lists used",
                     "value": str(int(property_summary.get("source_variant_total") or property_summary.get("sources_total") or 0)),

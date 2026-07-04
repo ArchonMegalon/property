@@ -826,7 +826,7 @@ def settings_usage_detail(
         )
         latest_run_rows = [
             _object_detail_row(
-                f"Run {row['run_id'][:8] or 'latest'}",
+                f"Search {row['run_id'][:8] or 'latest'}",
                 f"{row['status']} · {row['ranked']} matches · {row['filtered']} outside brief",
                 "Search",
                 href=row["href"],
@@ -867,7 +867,7 @@ def settings_usage_detail(
             usage_sidebar_rows.append(
                 _object_detail_row(
                     "Start first search",
-                    "Usage appears after the first completed search run.",
+                    "Usage appears after the first completed search.",
                     "Search",
                     action_href="/app/search",
                     action_label="Start search",
@@ -876,7 +876,7 @@ def settings_usage_detail(
             )
         else:
             usage_sidebar_rows.append(
-                _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"]))
+                _object_detail_row("Latest search", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"]))
             )
         if int(property_usage["active_total"] or 0) > 0:
             usage_sidebar_rows.append(_object_detail_row("Active searches", str(property_usage["active_total"]), "Search"))
@@ -935,7 +935,7 @@ def settings_usage_detail(
             console_title="Usage and activation",
             console_summary="Search activation, matches, outside-brief homes, property pages, and tours stay visible in one account view.",
             object_kind="Property usage",
-            object_title=f"{property_usage['run_total']} recent search runs",
+            object_title=f"{property_usage['run_total']} recent searches",
             object_summary=(
                 f"{property_usage['ranked_total']} matches · "
                 f"{property_usage['filtered_total']} outside brief · "
@@ -1090,13 +1090,13 @@ def settings_support_detail(
             object_meta=[
                 {"label": "List failures", "value": str(property_usage["failed_source_total"])},
                 {"label": "Lists refreshing", "value": str(property_usage["repairing_source_total"])},
-                {"label": "Partial runs", "value": str(property_usage["partial_total"])},
+                {"label": "Partial searches", "value": str(property_usage["partial_total"])},
                 {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
             ],
             object_sidebar_title="Support at a glance",
             object_sidebar_copy="This view answers what failed, what is still available, and what to do next.",
             object_sidebar_rows=[
-                _object_detail_row("Latest run", str(property_usage["latest_status"]), "", href=str(property_usage["latest_href"])),
+                _object_detail_row("Latest search", str(property_usage["latest_status"]), "", href=str(property_usage["latest_href"])),
                 _object_detail_row("Support center", "Open the public support page for contact options.", "", action_href="/support", action_label="Open support", action_method="get"),
             ],
             object_sections=[
@@ -1107,8 +1107,8 @@ def settings_support_detail(
                         _object_detail_row("Search status", str(property_usage["repair_status"]), ""),
                         _object_detail_row("Unavailable lists", str(property_usage["failed_source_total"]), ""),
                         _object_detail_row("Lists refreshing", str(property_usage["repairing_source_total"]), ""),
-                        _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), ""),
-                        _object_detail_row("Partial runs", str(property_usage["partial_total"]), ""),
+                        _object_detail_row("Failed searches", str(property_usage["failed_run_total"]), ""),
+                        _object_detail_row("Partial searches", str(property_usage["partial_total"]), ""),
                     ],
                 },
                 {
@@ -1252,7 +1252,7 @@ def settings_support_detail(
                     [
                         _object_detail_row(
                             "Summary",
-                            str(support_grounding.get("summary") or "Support stays connected to the latest account and source health."),
+                            str(support_grounding.get("summary") or "Support stays connected to the latest account and site health."),
                             "Support",
                         )
                     ]
@@ -1454,7 +1454,7 @@ def settings_outcomes_detail(
             object_sidebar_title="What a healthy search shows",
             object_sidebar_copy="A healthy PropertyQuarry loop returns matching homes quickly, keeps requirements understandable, preserves useful partial results, and keeps open details visible.",
             object_sidebar_rows=[
-                _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
+                _object_detail_row("Latest search", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Matches", str(property_usage["ranked_total"]), "Shortlist"),
                 _object_detail_row("Outside brief", str(property_usage["filtered_total"]), "Rules"),
                 _object_detail_row("Unavailable lists", str(property_usage["failed_source_total"]), "Lists"),
@@ -1466,7 +1466,7 @@ def settings_outcomes_detail(
                     "eyebrow": "Search outcomes",
                     "title": "What the recent searches produced",
                     "items": [
-                        _object_detail_row("Search runs", str(property_usage["run_total"]), "Search"),
+                        _object_detail_row("Searches", str(property_usage["run_total"]), "Search"),
                         _object_detail_row("Completed searches", str(property_usage["completed_total"]), "Search"),
                         _object_detail_row("Active searches", str(property_usage["active_total"]), "Search"),
                         _object_detail_row("Failed searches", str(property_usage["failed_run_total"]), "Search"),
@@ -2060,7 +2060,7 @@ def settings_trust_detail(
         billing, commercial = _property_settings_commercial(status)
         readiness_status_label = "Ready"
         readiness_detail_label = "Core account, search, support, and access surfaces are available."
-        workspace_summary = "Review the latest run, saved homes, and source health before the next decision."
+        workspace_summary = "Review the latest search, saved homes, and site health before the next decision."
         return _render_console_object_detail(
             request=request,
             context=context,
@@ -2101,7 +2101,7 @@ def settings_trust_detail(
                         _object_detail_row("Account", readiness_status_label, "Account"),
                         _object_detail_row("Details", readiness_detail_label, "Account"),
                         _object_detail_row("List health", str(property_usage.get("repair_status") or "unknown"), "Lists"),
-                        _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
+                        _object_detail_row("Latest search", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                         _object_detail_row("Search health", str(property_usage["repair_status"]), "Status"),
                         _object_detail_row("List failures", str(property_usage["failed_source_total"]), "Lists"),
                     ],
@@ -2128,7 +2128,7 @@ def settings_trust_detail(
                             href=row["href"],
                         )
                         for row in list(property_usage["latest_rows"])
-                    ] or [_object_detail_row("No searches yet", "Launch a search to create the first run.", "Search", href="/app/search")],
+                    ] or [_object_detail_row("No searches yet", "Launch a search to create the first search.", "Search", href="/app/search")],
                 },
             ],
         )
@@ -2140,7 +2140,7 @@ def settings_trust_detail(
     recent_events = [dict(item) for item in (trust.get("recent_events") or [])]
     workspace_summary = str(trust.get("workspace_summary") or "Trust")
     if is_property_brand and any(token in workspace_summary.lower() for token in ("office loop", "memo", "memory")):
-        workspace_summary = "Review the latest run, saved homes, and source health before the next decision."
+        workspace_summary = "Review the latest search, saved homes, and site health before the next decision."
     readiness_status_label = str(readiness.get("status") or "unknown").replace("_", " ")
     readiness_detail_label = str(readiness.get("detail") or "No readiness detail recorded.")
     if is_property_brand:

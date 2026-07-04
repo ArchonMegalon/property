@@ -815,8 +815,18 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     if not payload:
         return ""
     scenes = [dict(entry) for entry in (payload.get("scenes") or []) if isinstance(entry, dict)]
+    generated_reconstruction = (
+        payload.get("generated_reconstruction")
+        if isinstance(payload.get("generated_reconstruction"), dict)
+        else {}
+    )
+    generated_viewer_relpath = str(generated_reconstruction.get("viewer_relpath") or "").strip().replace("\\", "/").lstrip("/")
     source_virtual_tour_url = str(payload.get("source_virtual_tour_url") or "").strip()
     hosted_url = f"{base_url}/{slug}"
+    if generated_viewer_relpath:
+        generated_viewer_path = (bundle_dir / generated_viewer_relpath).resolve()
+        if bundle_dir.resolve() in generated_viewer_path.parents and generated_viewer_path.exists() and generated_viewer_path.is_file():
+            return hosted_url
     if source_virtual_tour_url and not scenes:
         return f"{hosted_url}#live-360"
     if not scenes:

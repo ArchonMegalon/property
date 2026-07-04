@@ -258,8 +258,8 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                     and "Facebook?" not in text,
                 ),
                 (
-                    "sign_in_provider_creates_account",
-                    "First-time provider sign-in" in text
+                    "sign_in_connected_identity_creates_account",
+                    "First-time connected sign-in" in text
                     and "creates the account automatically" in text,
                 ),
                 (

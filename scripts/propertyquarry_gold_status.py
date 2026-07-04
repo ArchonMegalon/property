@@ -62,7 +62,7 @@ REQUIRED_LIVE_MOBILE_COVERAGE_CHECKS = (
 )
 REQUIRED_PUBLIC_AUTH_CHECKS = (
     "sign_in_minimal_copy",
-    "sign_in_provider_creates_account",
+    "sign_in_connected_identity_creates_account",
     "sign_in_no_unavailable_auth_copy",
     "sign_in_google_state",
     "sign_in_google_feedback",

@@ -746,11 +746,11 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
         ],
         "source_sections_label": "Where the information comes from",
         "source_sections": [
-            ("Listing pages", "Provider pages, structured data, titles, snippets, photos, floorplans, costs, availability, and source 360 links are extracted and normalized. Unsupported claims stay open questions."),
+            ("Listing pages", "Listing pages, structured data, titles, snippets, photos, floorplans, costs, availability, and 360 links are extracted and normalized. Unsupported claims stay open questions."),
             ("Official geo data", "Official sources such as data.gv.at, climate maps, air-quality, noise, flood, broadband, school, childcare, and other public datasets are attached as context layers when they cover the location."),
             ("Maps and routes", "OpenStreetMap/Overpass, route checks, and distance calculations turn errands, transit, schools, parks, shade, and services into comparable proximity facts."),
             ("User preferences", "What Matters settings and saved feedback decide whether a fact is neutral, a wish, a strong wish, a must-have, or an avoid signal."),
-            ("How facts are checked", "Prices, costs, energy data, tours, floorplans, and location facts are promoted only when source data supports them. Missing data lowers confidence instead of being invented."),
+            ("How facts are checked", "Prices, costs, energy data, tours, floorplans, and location facts are promoted only when listing data supports them. Missing data lowers confidence instead of being invented."),
         ],
         "calculation_detail_rows": [
             ("Start", "+50", "Neutral baseline after the basic brief matches.", "Every reviewable home starts from 50 so positive and negative signals can both move it.", "Preference strength does not change the baseline."),
