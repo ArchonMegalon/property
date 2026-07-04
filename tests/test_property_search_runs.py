@@ -21,7 +21,11 @@ import app.product.service as product_service
 import app.product.property_search_storage as property_search_storage
 import app.product.property_investment_external_data as property_investment_external_data
 from app.api.routes.product_api_contracts import PropertySearchRunStatusOut
-from app.api.routes.product_api_delivery import _property_search_apply_response_display_totals, _property_search_payload_with_status_url
+from app.api.routes.product_api_delivery import (
+    _property_search_apply_response_display_totals,
+    _property_search_lightweight_candidate_payload,
+    _property_search_payload_with_status_url,
+)
 from app.api.routes.landing_property_workspace_payload import _property_distance_evidence_rows
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_exact_location_probe, _property_candidate_url_has_location_probe, _property_search_location_hints
@@ -31,6 +35,66 @@ from app.services.property_billing import property_billing_event_updates, proper
 from app.services import property_market_catalog
 from app.services.heyy_whatsapp_service import redact_phone_number
 from tests.product_test_helpers import build_product_client, build_property_client, seed_product_state, start_workspace
+
+
+def test_property_search_compact_record_hydrates_preview_from_provider_media_diagnostics() -> None:
+    compact = property_search_storage._compact_property_search_run_record(
+        {
+            "run_id": "run-preview-media",
+            "principal_id": "user-1",
+            "status": "processed",
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-preview-media",
+                        "title": "Provider home",
+                        "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
+                        "fit_score": 72,
+                        "property_facts": {
+                            "floorplan_urls_json": ["https://cache.example.test/mmo/1/floorplan.jpg"],
+                            "floorplan_recovery_diagnostics": {
+                                "candidate_document_or_media_urls": [
+                                    "https://www.willhaben.at/iad/myprofile/login",
+                                    "https://cache.example.test/mmo/logo/provider.png",
+                                    "https://cache.example.test/mmo/1/photo_thumb.jpg",
+                                    "https://cache.example.test/mmo/1/photo.jpg",
+                                ],
+                            },
+                        },
+                    }
+                ],
+            },
+        }
+    )
+
+    candidate = compact["summary"]["ranked_candidates"][0]
+    assert candidate["preview_image_url"] == "https://cache.example.test/mmo/1/photo.jpg"
+
+
+def test_property_search_lightweight_status_hydrates_preview_from_provider_media_diagnostics() -> None:
+    candidate = _property_search_lightweight_candidate_payload(
+        {
+            "candidate_ref": "cand-preview-media",
+            "title": "Provider home",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
+            "fit_score": 72,
+            "property_facts": {
+                "floorplan_recovery_diagnostics": {
+                    "candidate_document_or_media_urls": [
+                        "https://cache.example.test/mmo/logo/provider.png",
+                        "https://cache.example.test/mmo/1/photo_thumb.jpg",
+                        "https://cache.example.test/mmo/1/photo.jpg",
+                    ],
+                },
+            },
+        },
+        run_id="run-preview-media",
+        index=1,
+    )
+
+    assert candidate["preview_image_url"] == "https://cache.example.test/mmo/1/photo.jpg"
+    assert "floorplan_recovery_diagnostics" not in candidate.get("property_facts", {})
 
 
 def test_property_distance_evidence_rows_include_named_nearest_amenity_and_source() -> None:

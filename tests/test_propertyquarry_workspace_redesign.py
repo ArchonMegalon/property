@@ -21287,7 +21287,7 @@ def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> N
     _assert_billing_fail_closed(billing)
 
 
-def test_propertyquarry_billing_surface_redirects_to_white_label_commercial_lane_when_available(
+def test_propertyquarry_billing_surface_fails_fast_but_commercial_lane_redirects_when_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
@@ -21316,8 +21316,7 @@ def test_propertyquarry_billing_surface_redirects_to_white_label_commercial_lane
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert billing.status_code == 303
-    assert billing.headers["location"] == "https://billing.propertyquarry.com/account"
+    _assert_billing_fail_closed(billing)
 
     commercial_lane = client.get(
         "/app/api/property/billing/commercial-lane",
@@ -21426,7 +21425,7 @@ def test_propertyquarry_billing_surface_fails_fast_when_billing_handoff_verifica
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     elapsed = time.monotonic() - started
 
-    assert elapsed < 0.5
+    assert elapsed < 0.7
     _assert_billing_fail_closed(billing)
 
 

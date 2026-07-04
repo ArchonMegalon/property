@@ -71,6 +71,7 @@ from app.product.property_surface_state import (
     property_run_customer_visible_events,
     property_run_public_eta_label,
 )
+from app.product.property_search_storage import _property_search_compact_candidate_preview_url
 from app.product.service import build_product_service
 from app.services.property_billing import (
     brilliant_directories_billing_webhook_receipt,
@@ -586,6 +587,8 @@ def _property_search_lightweight_candidate_payload(
         if value not in (None, "", [], {}):
             compact[key] = value
     preview_image_url = _property_search_lightweight_image_url(raw.get("preview_image_url"))
+    if not preview_image_url:
+        preview_image_url = _property_search_lightweight_image_url(_property_search_compact_candidate_preview_url(raw))
     if preview_image_url:
         compact["preview_image_url"] = preview_image_url
     orientation_preview = _property_search_lightweight_image_payload(raw.get("orientation_preview"))

@@ -6530,8 +6530,6 @@ def app_shell(
         billing_handoff = dict((property_context or {}).get("billing_handoff") or {}) if property_context else {}
         billing_open_href = _property_billing_usable_open_href(billing_handoff)
         if current_nav == "billing":
-            billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
-            billing_open_href = _property_billing_usable_open_href(billing_handoff)
             if billing_open_href:
                 return RedirectResponse(billing_open_href, status_code=303)
             return _render_property_billing_unavailable_page(

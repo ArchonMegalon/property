@@ -308,6 +308,99 @@ def _quote_pg_identifier(value: str) -> str:
     return '"' + str(value or "").replace('"', '""') + '"'
 
 
+def _property_search_compact_candidate_preview_url(candidate: object) -> str:
+    if not isinstance(candidate, dict):
+        return ""
+    row = dict(candidate)
+    facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
+
+    def _sequence(value: object) -> list[str]:
+        if isinstance(value, (list, tuple, set)):
+            return [str(item or "").strip() for item in value if str(item or "").strip()]
+        if isinstance(value, str):
+            return [value.strip()] if value.strip() else []
+        return []
+
+    explicit_candidates: list[str] = []
+    for key in (
+        "preview_image_url",
+        "thumbnail_url",
+        "image_url",
+        "hero_image_url",
+        "photo_url",
+        "diorama_preview_url",
+    ):
+        explicit_candidates.extend(_sequence(row.get(key)))
+        explicit_candidates.extend(_sequence(facts.get(key)))
+
+    media_candidates: list[str] = []
+    for key in ("media_urls_json", "photo_refs", "photo_urls", "image_urls", "images_json"):
+        media_candidates.extend(_sequence(row.get(key)))
+        media_candidates.extend(_sequence(facts.get(key)))
+    for diag_key in ("gallery_floorplan_diagnostics", "floorplan_recovery_diagnostics"):
+        diag = dict(facts.get(diag_key) or {}) if isinstance(facts.get(diag_key), dict) else {}
+        for key in ("media_urls_json", "candidate_document_or_media_urls", "candidate_media_urls", "image_urls"):
+            media_candidates.extend(_sequence(diag.get(key)))
+
+    floorplan_candidates: list[str] = []
+    for key in ("floorplan_urls_json", "floorplan_urls", "layout_urls_json", "layout_urls"):
+        floorplan_candidates.extend(_sequence(row.get(key)))
+        floorplan_candidates.extend(_sequence(facts.get(key)))
+    floorplan_set = set(floorplan_candidates)
+
+    def _usable_image_url(url: str) -> str:
+        normalized = str(url or "").strip()
+        if not normalized or normalized.lower().startswith("data:"):
+            return ""
+        try:
+            parsed = urllib.parse.urlparse(normalized)
+        except Exception:
+            return ""
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return ""
+        lowered = normalized.lower()
+        if any(
+            marker in lowered
+            for marker in (
+                "/myprofile/",
+                "/login",
+                "/register",
+                "/logo/",
+                "placeholder",
+                "no-image",
+                "coming-soon",
+                "image-not-available",
+                "plus-insider-locked",
+                "avatar",
+            )
+        ):
+            return ""
+        image_path = urllib.parse.urlparse(lowered).path
+        if image_path.endswith(".svg"):
+            return ""
+        if not image_path.endswith((".jpg", ".jpeg", ".png", ".webp")):
+            return ""
+        return normalized
+
+    for url in explicit_candidates:
+        cleaned = _usable_image_url(url)
+        if cleaned:
+            return cleaned
+    for url in media_candidates:
+        cleaned = _usable_image_url(url)
+        if cleaned and cleaned not in floorplan_set and "_thumb" not in cleaned.lower():
+            return cleaned
+    for url in media_candidates:
+        cleaned = _usable_image_url(url)
+        if cleaned and cleaned not in floorplan_set:
+            return cleaned
+    for url in floorplan_candidates:
+        cleaned = _usable_image_url(url)
+        if cleaned:
+            return cleaned
+    return ""
+
+
 def _property_search_run_canonicalize_record(record: dict[str, object]) -> dict[str, object]:
     payload = dict(record or {})
     summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
@@ -515,6 +608,16 @@ def _property_search_run_canonicalize_record(record: dict[str, object]) -> dict[
 
     ranked_candidate_total = len(ranked_candidates)
     if ranked_candidate_total > 0:
+        hydrated_ranked_candidates: list[dict[str, object]] = []
+        for candidate in ranked_candidates:
+            row = dict(candidate)
+            if not str(row.get("preview_image_url") or "").strip():
+                preview_url = _property_search_compact_candidate_preview_url(row)
+                if preview_url:
+                    row["preview_image_url"] = preview_url
+            hydrated_ranked_candidates.append(row)
+        ranked_candidates = hydrated_ranked_candidates
+        summary["ranked_candidates"] = ranked_candidates
         for key in (
             "ranked_total",
             "ranked_candidate_total",
