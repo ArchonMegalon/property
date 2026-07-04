@@ -111,17 +111,55 @@
   }
   .pq-fast-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: 118px minmax(0, 1fr) auto;
     gap: 14px;
     align-items: center;
     box-shadow: none;
     padding: 14px;
+  }
+  .pq-fast-thumb {
+    width: 118px;
+    aspect-ratio: 4 / 3;
+    min-height: 88px;
+    display: block;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(95, 103, 97, 0.12), rgba(95, 103, 97, 0.04));
+    color: var(--text-dim);
+    text-decoration: none;
+  }
+  .pq-fast-thumb img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    transition: transform 160ms ease;
+  }
+  a.pq-fast-thumb:hover img,
+  a.pq-fast-thumb:focus-visible img {
+    transform: scale(1.025);
+  }
+  .pq-fast-thumb.no-thumb {
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 760;
+    letter-spacing: 0.02em;
   }
   .pq-fast-row h2 {
     margin: 0;
     font-size: clamp(1.05rem, 2vw, 1.25rem);
     line-height: 1.24;
     letter-spacing: -0.02em;
+  }
+  .pq-fast-title-link {
+    color: inherit;
+    text-decoration: none;
+  }
+  .pq-fast-title-link:hover,
+  .pq-fast-title-link:focus-visible {
+    color: var(--accent);
   }
   .pq-fast-row p {
     margin-top: 6px;
@@ -169,6 +207,12 @@
     border-radius: 999px;
     background: rgba(95, 103, 97, 0.16);
   }
+  .pq-fast-skeleton-thumb {
+    width: 118px;
+    aspect-ratio: 4 / 3;
+    border-radius: 12px;
+    background: rgba(95, 103, 97, 0.14);
+  }
   .pq-fast-skeleton-line.short { width: 42%; }
   .pq-fast-skeleton-line.medium { width: 68%; }
   .pq-fast-skeleton-line.long { width: 86%; }
@@ -200,10 +244,17 @@
       justify-content: center;
     }
     .pq-fast-row {
-      grid-template-columns: 1fr;
+      grid-template-columns: 96px minmax(0, 1fr);
       padding: 12px;
+      align-items: start;
+    }
+    .pq-fast-thumb,
+    .pq-fast-skeleton-thumb {
+      width: 96px;
+      min-height: 78px;
     }
     .pq-fast-score {
+      grid-column: 2;
       text-align: left;
       font-size: 1.1rem;
     }
@@ -242,6 +293,7 @@
 	  <section class="pq-fast-list" data-pq-fast-list aria-label="Matching homes">
 	    {% for _ in range(3) %}
     <article class="pq-fast-row pq-fast-skeleton" aria-hidden="true">
+      <div class="pq-fast-skeleton-thumb"></div>
       <div style="display:grid; gap:10px;">
         <div class="pq-fast-skeleton-line long"></div>
         <div class="pq-fast-skeleton-line medium"></div>
@@ -393,6 +445,49 @@
       || safeUrl(candidate.listing_url)
       || '';
   };
+  const firstSafeUrl = (...values) => {
+    for (const value of values) {
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const nested = safeUrl(item && typeof item === 'object' ? (item.url || item.image_url || item.href) : item);
+          if (nested) return nested;
+        }
+        continue;
+      }
+      if (value && typeof value === 'object') {
+        const nested = safeUrl(value.url || value.image_url || value.href);
+        if (nested) return nested;
+        continue;
+      }
+      const direct = safeUrl(value);
+      if (direct) return direct;
+    }
+    return '';
+  };
+  const candidatePreviewHref = (candidate) => {
+    const facts = candidate && typeof candidate.property_facts === 'object' && candidate.property_facts ? candidate.property_facts : {};
+    const orientation = candidate && typeof candidate.orientation_preview === 'object' && candidate.orientation_preview ? candidate.orientation_preview : {};
+    const diorama = candidate && typeof candidate.diorama_scene === 'object' && candidate.diorama_scene ? candidate.diorama_scene : {};
+    return firstSafeUrl(
+      candidate.preview_image_url,
+      candidate.thumbnail_url,
+      candidate.image_url,
+      candidate.hero_image_url,
+      candidate.photo_url,
+      candidate.diorama_preview_url,
+      diorama.image_url,
+      orientation.thumb_image_url,
+      orientation.image_url,
+      facts.preview_image_url,
+      facts.thumbnail_url,
+      candidate.media_urls_json,
+      facts.media_urls_json,
+      candidate.floorplan_urls_json,
+      facts.floorplan_urls_json,
+      candidate.map_image_url,
+      facts.map_image_url,
+    );
+  };
   const listingCounts = (payload, candidates = []) => {
     const summary = payload && typeof payload.summary === 'object' && payload.summary ? payload.summary : {};
     const reviewed = Math.max(
@@ -505,9 +600,44 @@
       const article = document.createElement('article');
       article.className = 'pq-fast-row';
 
+      const propertyHref = candidatePropertyHref(candidate);
+      const listingHref = candidateListingHref(candidate);
+      const titleText = text(candidate.title, `Home ${index + 1}`);
+      const previewHref = candidatePreviewHref(candidate);
+      const media = document.createElement(propertyHref ? 'a' : 'div');
+      media.className = `pq-fast-thumb${previewHref ? '' : ' no-thumb'}`;
+      if (propertyHref) {
+        media.href = propertyHref;
+        media.setAttribute('aria-label', `Open property: ${titleText}`);
+      }
+      if (previewHref) {
+        const image = document.createElement('img');
+        image.src = previewHref;
+        image.alt = titleText;
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        image.addEventListener('error', () => {
+          image.remove();
+          media.classList.add('no-thumb');
+          media.textContent = 'Property';
+        }, { once: true });
+        media.appendChild(image);
+      } else {
+        media.textContent = 'Property';
+      }
+      article.appendChild(media);
+
       const copy = document.createElement('div');
       const title = document.createElement('h2');
-      title.textContent = text(candidate.title, `Home ${index + 1}`);
+      if (propertyHref) {
+        const titleLink = document.createElement('a');
+        titleLink.className = 'pq-fast-title-link';
+        titleLink.href = propertyHref;
+        titleLink.textContent = titleText;
+        title.appendChild(titleLink);
+      } else {
+        title.textContent = titleText;
+      }
       copy.appendChild(title);
 
       const detail = document.createElement('p');
@@ -526,8 +656,6 @@
 
       const actions = document.createElement('div');
       actions.className = 'pq-fast-actions';
-      const propertyHref = candidatePropertyHref(candidate);
-      const listingHref = candidateListingHref(candidate);
       if (propertyHref) {
         const propertyLink = document.createElement('a');
         propertyLink.className = 'btn primary';

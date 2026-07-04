@@ -4598,6 +4598,21 @@ def test_propertyquarry_fast_ranked_run_shows_personal_fit_not_internal_rank_sco
     assert ".sort((a, b) => candidateSortScore(b) - candidateSortScore(a));" in template
 
 
+def test_propertyquarry_fast_ranked_run_rows_show_thumbnail_and_title_property_link() -> None:
+    template = (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_ranked_run_fast.html"
+    ).read_text(encoding="utf-8")
+
+    assert "const candidatePreviewHref = (candidate) => {" in template
+    assert "candidate.preview_image_url" in template
+    assert "orientation.thumb_image_url" in template
+    assert "facts.media_urls_json" in template
+    assert "const media = document.createElement(propertyHref ? 'a' : 'div');" in template
+    assert "media.className = `pq-fast-thumb${previewHref ? '' : ' no-thumb'}`;" in template
+    assert "titleLink.className = 'pq-fast-title-link';" in template
+    assert "titleLink.href = propertyHref;" in template
+
+
 def test_propertyquarry_root_redirects_signed_in_users_to_search(monkeypatch) -> None:
     principal_id = "pq-root-search-redirect"
     client = build_property_client(principal_id=principal_id)
