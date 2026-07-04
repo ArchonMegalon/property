@@ -123,7 +123,7 @@ def _handoff_property_visual_actions(
     actions: list[dict[str, object]] = []
 
     tour_url = str(candidate.get("tour_url") or "").strip()
-    hosted_tour_ready = bool(media_payload.get("hosted_ready") or media_payload.get("generated_reconstruction_ready"))
+    hosted_tour_ready = bool(media_payload.get("hosted_ready"))
     tour_status = str(candidate.get("tour_status") or "").strip().lower()
     tour_reason = str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip()
     tour_eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
@@ -155,11 +155,11 @@ def _handoff_property_visual_actions(
                 {
                     **base,
                     "kind": "tour",
-                    "label": "Rebuild 3D tour",
+                    "label": "Request 3D tour",
                     "state": "idle",
                     "progress_pct": 0,
                     "eta_label": "",
-                    "status_detail": "Hosted viewer unavailable. Rebuild it here.",
+                    "status_detail": "A real 3D tour is not available yet.",
                     "poll_after_seconds": 0,
                 }
             )
@@ -1273,7 +1273,7 @@ def handoff_detail(
             tertiary_action_label = "Mark sent"
         elif property_tour_followup_open:
             primary_action_href = f"/app/actions/handoffs/{handoff_ref}/recreate"
-            primary_action_label = "Rebuild 3D tour"
+            primary_action_label = "Request 3D tour"
         elif tour_url:
             primary_action_href = tour_url
             primary_action_label = "Open 3D tour"

@@ -11881,7 +11881,7 @@ def test_property_search_results_delivery_refresh_batches_tour_observation_looku
     assert candidates[1].get("tour_url") in {"", None}
 
 
-def test_property_search_results_delivery_refresh_promotes_generated_reconstruction_to_ready(monkeypatch) -> None:
+def test_property_search_results_delivery_refresh_does_not_promote_generated_reconstruction_to_ready(monkeypatch) -> None:
     service = ProductService.__new__(ProductService)
 
     class _Runtime:
@@ -11903,9 +11903,7 @@ def test_property_search_results_delivery_refresh_promotes_generated_reconstruct
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_first_party_open_url",
-        lambda url: "https://propertyquarry.com/tours/files/generated-flat-1/generated-reconstruction/viewer.html"
-        if str(url) == "https://propertyquarry.com/tours/generated-flat-1"
-        else "",
+        lambda _url: "",
     )
 
     refreshed = service._refresh_property_search_results_delivery_state(
@@ -11928,9 +11926,9 @@ def test_property_search_results_delivery_refresh_promotes_generated_reconstruct
     )
 
     candidate = refreshed["sources"][0]["top_candidates"][0]
-    assert candidate["tour_url"] == "https://propertyquarry.com/tours/generated-flat-1"
-    assert candidate["tour_status"] == "ready"
-    assert refreshed["ready_tour_total"] == 1
+    assert candidate.get("tour_url") == "https://propertyquarry.com/tours/generated-flat-1"
+    assert candidate["tour_status"] == "created"
+    assert refreshed["ready_tour_total"] == 0
     assert refreshed["pending_tour_total"] == 0
 
 

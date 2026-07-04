@@ -648,10 +648,7 @@ def _hosted_property_tour_first_party_open_url(tour_url: object) -> str:
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
         return ""
-    return (
-        _hosted_property_tour_verified_open_url(normalized_url)
-        or _hosted_property_tour_generated_reconstruction_asset_url(normalized_url)
-    )
+    return _hosted_property_tour_verified_open_url(normalized_url)
 
 
 def _hosted_property_tour_walkthrough_asset_url(tour_url: object) -> str:

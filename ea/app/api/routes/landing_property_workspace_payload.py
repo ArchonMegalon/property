@@ -131,7 +131,7 @@ def _candidate_external_listing_url(
 
 
 def _hosted_tour_unavailable_detail() -> str:
-    return "The saved tour link exists, but no usable 3D tour is available yet."
+    return "A real 3D tour is not available yet."
 
 
 def _property_workbench_lightweight_image_url(value: object, *, max_data_url_chars: int = 4096) -> str:
@@ -2375,17 +2375,13 @@ def property_workspace_payload(
                 from app.product import property_tour_hosting
 
                 verified_tour_url = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url)  # type: ignore[attr-defined]
-                generated_reconstruction_url = property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(tour_url)  # type: ignore[attr-defined]
                 provider_key = property_tour_hosting._hosted_property_tour_verified_provider(tour_url)  # type: ignore[attr-defined]
             except Exception:
                 verified_tour_url = ""
-                generated_reconstruction_url = ""
                 provider_key = ""
             provider_label = _visual_provider_label(provider_key) if provider_key else "3D tour"
-            ready_tour_url = verified_tour_url or generated_reconstruction_url
+            ready_tour_url = verified_tour_url
             if ready_tour_url:
-                if generated_reconstruction_url and not provider_key:
-                    provider_key = "generated_reconstruction"
                 verified_provider_keys = {"matterport", "3dvista", "pano2vr", "krpano"}
                 status_detail = "3D tour is available on this page."
                 visual_runtime = _visual_runtime_payload(
@@ -2417,7 +2413,7 @@ def property_workspace_payload(
                 "provider_label": provider_label,
                 "provider_key": provider_key,
                 "status_detail": _hosted_tour_unavailable_detail(),
-                "recovery_label": "Repair or rebuild needed",
+                "recovery_label": "Request a 3D tour",
                 "control_label": "",
             }
         if provider_tour_url:

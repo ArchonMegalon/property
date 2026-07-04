@@ -8118,11 +8118,12 @@ def test_property_alert_review_handoff_reuses_generated_reconstruction_bundle(
     assert "data-object-media-carousel" in page.text
     assert "Diorama" in page.text
     assert f"https://myexternalbrain.com/tours/{slug}" in page.text
-    assert (
-        f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/viewer.html"
-        in page.text
-    )
-    assert 'data-obj-visual-request="tour"' not in page.text
+    assert f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/photo-01.jpg" in page.text
+    assert f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/source-floorplan.jpg" in page.text
+    assert f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/viewer.html" not in page.text
+    assert 'data-obj-visual-request="tour"' in page.text
+    assert "Request 3D tour" in page.text
+    assert "Rebuild 3D tour" not in page.text
     assert "Nearby options from this alert" not in page.text
 
 
@@ -16102,7 +16103,7 @@ def test_property_tour_followup_tasks_do_not_resolve_unverified_tour_url_as_read
             "source_ref": str(kwargs.get("source_ref") or ""),
             "tour_url": "https://propertyquarry.com/tours/disabled-floorplan-fallback",
             "tour_status": "repairing",
-            "status_label": "3D tour needs attention",
+            "status_label": "3D tour unavailable",
         },
     )
 

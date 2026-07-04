@@ -3053,7 +3053,7 @@
         {% set visual_actions.items = visual_actions.items + [action] %}
       {% endif %}
     {% endfor %}
-    {% set visual_ready_tour = research_media.get('hosted_ready') or research_media.get('generated_reconstruction_ready') %}
+    {% set visual_ready_tour = research_media.get('hosted_ready') %}
     {% set visual_ready_walkthrough = research_media.get('walkthrough_href') %}
     {% set primary_visual_actions = namespace(items=[]) %}
     {% for action in visual_actions.items %}
@@ -4246,7 +4246,6 @@
     const openTourUrl = String(
       payload?.verified_tour_url
       || payload?.open_tour_url
-      || payload?.generated_reconstruction_url
       || (rawTourState === 'ready' ? payload?.tour_url : '')
       || ''
     ).trim();

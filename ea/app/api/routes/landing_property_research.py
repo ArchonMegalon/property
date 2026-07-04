@@ -617,7 +617,7 @@ def _property_hosted_tour_disabled_fallback(tour_url: object) -> bool:
 
 
 def _hosted_tour_rebuild_detail() -> str:
-    return "The hosted tour link is not backed by usable 3D viewer assets yet. Request a rebuild from this page."
+    return "A real 3D tour is not available for this listing yet."
 
 
 def _property_visual_provider_label(value: object) -> str:
@@ -675,13 +675,9 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     hosted_tour_ready = _property_hosted_tour_ready(tour_url)
     verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) if hosted_tour_ready else ""
     verified_tour_provider = property_tour_hosting._hosted_property_tour_verified_provider(tour_url) if hosted_tour_ready else ""
-    generated_reconstruction_href = (
-        property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(tour_url)
-        if tour_url and not hosted_tour_ready
-        else ""
-    )
-    generated_reconstruction_ready = bool(generated_reconstruction_href)
-    open_tour_href = verified_tour_href or generated_reconstruction_href
+    generated_reconstruction_href = ""
+    generated_reconstruction_ready = False
+    open_tour_href = verified_tour_href
     embed_href = verified_tour_href if hosted_tour_ready else ""
     verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(tour_url) or property_tour_hosting._published_walkthrough_asset_url(
         candidate.get("flythrough_url")
@@ -712,11 +708,11 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         walkthrough_status = str(live_walkthrough_progress.get("status") or "").strip().lower()
     vendor_tour_provider = property_tour_hosting._property_tour_provider_host_kind(vendor_tour_url) if vendor_tour_url else ""
     walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
-    if hosted_tour_ready or generated_reconstruction_ready:
+    if hosted_tour_ready:
         status_label = "3D tour available"
         status_detail = "3D tour is available on this page."
     elif tour_url:
-        status_label = "3D tour needs rebuild"
+        status_label = "3D tour unavailable"
         status_detail = _hosted_tour_rebuild_detail()
     elif vendor_tour_url:
         status_label = "Original tour available"
@@ -762,7 +758,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "tertiary_label": "Open original tour" if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
         "walkthrough_href": verified_walkthrough_href,
         "provider_label": "3D tour" if open_tour_href or vendor_tour_url else "",
-        "provider_key": verified_tour_provider or ("generated_reconstruction" if generated_reconstruction_ready else vendor_tour_provider),
+        "provider_key": verified_tour_provider or vendor_tour_provider,
         "walkthrough_provider_label": "Walkthrough" if walkthrough_provider or walkthrough_ready else "",
         "walkthrough_provider_key": walkthrough_provider,
         "walkthrough_status_detail": (

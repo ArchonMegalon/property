@@ -36136,8 +36136,8 @@ class ProductService:
                 status_detail = "Available on this page."
             elif str(payload.get("tour_url") or "").strip():
                 payload["tour_status"] = "repairing"
-                status_label = "3D tour needs attention"
-                status_detail = "The hosted tour link is not backed by usable 3D viewer assets yet. Request a rebuild from this page."
+                status_label = "3D tour unavailable"
+                status_detail = "A real 3D tour is not available yet."
             elif payload["tour_status"] in {"queued", "pending"}:
                 status_label = "3D tour queued"
                 status_detail = "Queued. Opens here when ready."

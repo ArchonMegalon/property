@@ -8145,7 +8145,6 @@ def test_public_tour_routes_allow_matterport_thumb_preview_for_live_360(
     assert page.status_code == 200
     assert "Matterport Live 360" in page.text
     assert 'src="https://my.matterport.com/show/?m=BmVWxvZQZLq"' in page.text
-    assert "Matterport control" in page.text
     assert "Explore the space." in page.text
     assert "Property Tour" not in page.text
     assert "Load 3D tour" not in page.text
@@ -9033,7 +9032,7 @@ def test_shortlist_float_parsing_is_locale_aware() -> None:
     assert public_tours._shortlist_as_float(None) is None
 
 
-def test_public_tour_renders_shortlist_compare_cards(
+def test_public_tour_renders_active_shortlist_panel(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -9177,8 +9176,8 @@ def test_public_tour_renders_shortlist_compare_cards(
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
 
     assert page.status_code == 200
-    assert "Shortlist Ranking" in page.text
-    assert "Current property within the active shortlist ranking" in page.text
+    assert "Shortlist Ranking" not in page.text
+    assert "Current property in the active shortlist" in page.text
     assert "Strong Waehring listing" in page.text
     assert "Strong Doebling listing" in page.text
     assert "High-fit property alert with 360 media and preferred district match." in page.text

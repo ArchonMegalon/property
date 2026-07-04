@@ -11,6 +11,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
 from app.api.dependencies import RequestContext, get_request_context
@@ -132,15 +133,11 @@ def test_propertyquarry_app_templates_do_not_reintroduce_legacy_dark_theme_token
             assert token not in body, f"{token!r} leaked into {template_path.relative_to(repo_root)}"
 
 
-def test_property_tour_detail_line_treats_generated_reconstruction_as_propertyquarry_ready(monkeypatch) -> None:
+def test_property_tour_detail_line_does_not_treat_generated_reconstruction_as_ready(monkeypatch) -> None:
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_first_party_open_url",
-        lambda tour_url: (
-            "https://propertyquarry.com/tours/files/generated-detail/generated-reconstruction/viewer.html"
-            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/generated-detail"
-            else ""
-        ),
+        lambda _tour_url: "",
     )
 
     assert (
@@ -151,7 +148,7 @@ def test_property_tour_detail_line_treats_generated_reconstruction_as_propertyqu
                 "property_facts": {"has_floorplan": True, "has_360": True, "image_count": 8},
             }
         )
-        == "Open the 3D tour on PropertyQuarry."
+        == "3D tour not ready yet. More source media is still needed."
     )
 
 
@@ -5009,7 +5006,7 @@ def test_propertyquarry_example_media_targets_ignore_unverified_public_control_s
     assert targets == {}
 
 
-def test_propertyquarry_example_media_targets_accept_generated_reconstruction_viewer(
+def test_propertyquarry_example_media_targets_reject_generated_reconstruction_viewer(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -5049,11 +5046,7 @@ def test_propertyquarry_example_media_targets_accept_generated_reconstruction_vi
 
     targets = landing_routes._propertyquarry_example_media_targets()
 
-    assert targets == {
-        "demo_href": "/tours/generated-reconstruction-home-demo",
-        "tour_href": "/tours/files/generated-reconstruction-home-demo/generated-reconstruction/viewer.html",
-        "tour_label": "3D tour available",
-    }
+    assert targets == {}
 
 
 def test_propertyquarry_root_hints_signing_in_from_query_flags() -> None:
@@ -8713,12 +8706,11 @@ def test_property_workspace_payload_ready_tour_snapshot_includes_nested_tour_wit
     assert result["tour"]["control_label"] == "Open 3D tour"
 
 
-def test_property_workspace_payload_generated_reconstruction_snapshot_includes_ready_tour(
+def test_property_workspace_payload_generated_reconstruction_snapshot_does_not_include_ready_tour(
     monkeypatch,
 ) -> None:
     from app.product import property_tour_hosting
 
-    generated_url = "https://propertyquarry.com/tours/files/workspace-generated/generated-reconstruction/viewer.html"
     monkeypatch.setattr(
         property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
@@ -8727,7 +8719,7 @@ def test_property_workspace_payload_generated_reconstruction_snapshot_includes_r
     monkeypatch.setattr(
         property_tour_hosting,
         "_hosted_property_tour_generated_reconstruction_asset_url",
-        lambda _url, *, asset_key="viewer_relpath": generated_url if asset_key == "viewer_relpath" else "",
+        lambda _url, *, asset_key="viewer_relpath": pytest.fail("generated reconstruction must not make workspace tours ready"),
     )
 
     payload = landing_property_workspace_payload.property_workspace_payload(
@@ -8774,10 +8766,11 @@ def test_property_workspace_payload_generated_reconstruction_snapshot_includes_r
 
     result = payload["decision_workbench"]["results"][0]
 
-    assert result["tour"]["status"] == "ready"
-    assert result["tour"]["url"] == generated_url
+    assert result["tour"]["status"] == "blocked"
+    assert result["tour"]["url"] == ""
     assert result["tour"]["embed_url"] == ""
-    assert result["tour"]["control_label"] == "Open 3D tour"
+    assert result["tour"]["control_label"] == ""
+    assert result["tour"]["status_detail"] == "A real 3D tour is not available yet."
 
 
 def test_property_workspace_payload_recovers_ready_tour_from_hosted_identity(
@@ -9515,8 +9508,8 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert payload["has_live_viewer"] is False
     assert payload["embed_href"] == ""
     assert payload["hosted_ready"] is False
-    assert payload["status_label"] == "3D tour needs rebuild"
-    assert "usable 3D viewer assets" in payload["status_detail"]
+    assert payload["status_label"] == "3D tour unavailable"
+    assert payload["status_detail"] == "A real 3D tour is not available for this listing yet."
     assert payload["primary_href"] == ""
 
     monkeypatch.setattr(
@@ -9623,19 +9616,16 @@ def test_property_research_media_treats_krpano_only_bundle_as_needing_rebuild(mo
     assert payload["hosted_ready"] is False
     assert payload["provider_label"] == ""
     assert payload["primary_label"] == ""
-    assert payload["status_label"] == "3D tour needs rebuild"
-    assert payload["status_detail"] == "The hosted tour link is not backed by usable 3D viewer assets yet. Request a rebuild from this page."
+    assert payload["status_label"] == "3D tour unavailable"
+    assert payload["status_detail"] == "A real 3D tour is not available for this listing yet."
 
 
-def test_property_research_media_uses_generated_reconstruction_as_first_party_tour(monkeypatch) -> None:
+def test_property_research_media_never_uses_generated_reconstruction_as_tour(monkeypatch) -> None:
     monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_generated_reconstruction_asset_url",
-        lambda _url, *, asset_key="viewer_relpath": {
-            "viewer_relpath": "https://propertyquarry.com/tours/files/generated-tour/generated-reconstruction/viewer.html",
-            "walkthrough_video_relpath": "https://propertyquarry.com/tours/files/generated-tour/generated-reconstruction/generated-walkthrough.mp4",
-        }.get(asset_key, ""),
+        lambda _url, *, asset_key="viewer_relpath": pytest.fail("generated reconstruction must not be resolved as a 3D tour"),
     )
 
     payload = landing_property_research._property_tour_media_payload(
@@ -9646,14 +9636,15 @@ def test_property_research_media_uses_generated_reconstruction_as_first_party_to
     )
 
     assert payload["hosted_ready"] is False
-    assert payload["generated_reconstruction_ready"] is True
+    assert payload["generated_reconstruction_ready"] is False
+    assert payload["generated_reconstruction_href"] == ""
     assert payload["has_live_viewer"] is False
     assert payload["embed_href"] == ""
-    assert payload["primary_href"] == "https://propertyquarry.com/tours/files/generated-tour/generated-reconstruction/viewer.html"
-    assert payload["primary_label"] == "Open 3D tour"
-    assert payload["provider_label"] == "3D tour"
-    assert payload["provider_key"] == "generated_reconstruction"
-    assert payload["status_label"] == "3D tour available"
+    assert payload["primary_href"] == ""
+    assert payload["primary_label"] == ""
+    assert payload["provider_label"] == ""
+    assert payload["provider_key"] == ""
+    assert payload["status_label"] == "3D tour unavailable"
 
 
 def test_property_research_media_uses_generic_vendor_tour_copy(monkeypatch) -> None:
@@ -11350,8 +11341,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-object-media-stage' in packet.text
     assert ("data-prd-inline-viewer-" + "launch") not in packet.text
     assert packet.text.index("data-object-media-stage") < packet.text.index("Overview")
-    assert "3D tour needs rebuild" in packet.text
-    assert "Rebuild 3D tour" in packet.text
+    assert "3D tour unavailable" in packet.text
+    assert "Request 3D tour" in packet.text
     assert 'data-property-research-detail' in packet.text
     assert "Overview" in packet.text
     assert "Current recommendation" not in packet.text
@@ -20379,7 +20370,7 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     assert 'data-pw-visual-request="tour"' not in rendered_html
 
 
-def test_property_research_packet_opens_generated_reconstruction_as_3d_tour(monkeypatch) -> None:
+def test_property_research_packet_does_not_open_generated_reconstruction_as_3d_tour(monkeypatch) -> None:
     principal_id = "pq-research-packet-generated-reconstruction"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -20427,10 +20418,7 @@ def test_property_research_packet_opens_generated_reconstruction_as_3d_tour(monk
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_generated_reconstruction_asset_url",
-        lambda _url, *, asset_key="viewer_relpath": {
-            "viewer_relpath": "https://propertyquarry.com/tours/files/generated-reconstruction-loft/generated-reconstruction/viewer.html",
-            "walkthrough_video_relpath": "https://propertyquarry.com/tours/files/generated-reconstruction-loft/generated-reconstruction/generated-walkthrough.mp4",
-        }.get(asset_key, ""),
+        lambda _url, *, asset_key="viewer_relpath": pytest.fail("generated reconstruction must not be linked as a 3D tour"),
     )
 
     packet_ref = landing_property_research._property_candidate_ref(
@@ -20448,11 +20436,12 @@ def test_property_research_packet_opens_generated_reconstruction_as_3d_tour(monk
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert 'data-prd-visual-card="generated_reconstruction"' not in packet.text
-    assert 'href="https://propertyquarry.com/tours/files/generated-reconstruction-loft/generated-reconstruction/viewer.html"' in rendered_html
-    assert ">Open 3D tour</a>" in rendered_html
-    assert 'data-pw-visual-request="tour"' not in rendered_html
+    assert "generated-reconstruction/viewer.html" not in rendered_html
+    assert ">Open 3D tour</a>" not in rendered_html
+    assert 'data-pw-visual-request="tour"' in rendered_html
+    assert "Request 3D tour" in rendered_html
     assert 'data-prd-visual-card="tour"' in packet.text
-    assert "3D tour is available on this page." in rendered_html
+    assert "3D tour unavailable" in rendered_html
     assert "Hosted viewer unavailable. Rebuild it here." not in rendered_html
 
 
