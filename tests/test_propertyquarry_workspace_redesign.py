@@ -21159,6 +21159,8 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Google sign-in" in account.text
     assert "Access links" in account.text
     assert "Privacy" in account.text
+    assert "Sign-in, sharing, and privacy." in account.text
+    assert "Links, providers, and privacy." not in account.text
     assert "Scoring, privacy, and sharing rules." not in account.text
     assert "how scoring works stay easy to find." not in account.text
     assert "Sync runs" not in account.text
