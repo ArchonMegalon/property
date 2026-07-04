@@ -12,8 +12,11 @@ from scripts.propertyquarry_live_mobile_surface_smoke import (
     SEED_FIXTURE_TIMEOUT_SECONDS,
     SEED_FIXTURE_USER_AGENT,
     _resolve_mobile_billing_external_handoff,
+    browser_probe_attempt_is_transient,
+    browser_probe_attempt_quality,
     browser_probe_checks_are_transient,
     browser_probe_failure_is_transient,
+    collect_browser_route_metrics_with_retries,
     _seed_research_detail_headers,
     build_seed_fixture_blocked_receipt,
     build_live_mobile_surface_receipt,
@@ -119,6 +122,47 @@ def test_live_mobile_smoke_retries_search_scroll_restore_metric_once() -> None:
             {"name": "district_map_modal_opens", "ok": False},
         ],
     ) is False
+    assert browser_probe_attempt_is_transient("/app/search", {"status_code": 200}, checks) is True
+    assert browser_probe_attempt_quality({"status_code": 200}, checks) > browser_probe_attempt_quality(
+        {"status_code": 0, "error": "route_timeout:/app/search"},
+        evaluate_mobile_metrics("/app/search", {"status_code": 0, "error": "route_timeout:/app/search"}),
+    )
+
+
+def test_live_mobile_smoke_browser_probe_keeps_best_attempt_after_transient_timeout() -> None:
+    attempts: list[dict[str, object]] = []
+    first_metrics = _base_metrics()
+    first_metrics["district_map_close_restored_scroll"] = False
+    timeout_metrics = {
+        "status_code": 0,
+        "viewport_width": 390,
+        "body_width": 0,
+        "topbar_height": 0,
+        "min_action_height": 0,
+        "error": "route_timeout:/app/search",
+    }
+    passing_metrics = _base_metrics()
+
+    def _fake_collect(route: str, url: str) -> tuple[int, dict[str, object]]:
+        del url
+        attempts.append({"route": route})
+        if len(attempts) == 1:
+            return 200, dict(first_metrics)
+        if len(attempts) == 2:
+            return 0, dict(timeout_metrics)
+        return 200, dict(passing_metrics)
+
+    status_code, metrics, checks = collect_browser_route_metrics_with_retries(
+        route="/app/search",
+        url="http://propertyquarry.test/app/search",
+        collect_once=_fake_collect,
+        attempts=3,
+    )
+
+    assert len(attempts) == 3
+    assert status_code == 200
+    assert metrics["status_code"] == 200
+    assert [check["name"] for check in checks if not check["ok"]] == []
 
 
 def test_live_mobile_smoke_accepts_static_html_probe_for_simple_routes() -> None:

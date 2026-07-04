@@ -344,6 +344,66 @@ def browser_probe_checks_are_transient(route: str, checks: list[dict[str, Any]])
     return normalized_route == "/app/search" and failed_names == {"district_map_close_restores_scroll"}
 
 
+def browser_probe_attempt_is_transient(route: str, metrics: dict[str, Any], checks: list[dict[str, Any]]) -> bool:
+    return browser_probe_failure_is_transient(metrics) or browser_probe_checks_are_transient(route, checks)
+
+
+def browser_probe_attempt_quality(metrics: dict[str, Any], checks: list[dict[str, Any]]) -> int:
+    if checks and all(bool(check.get("ok")) for check in checks):
+        return 100
+    error = str(metrics.get("error") or "").strip()
+    status_code = int(metrics.get("status_code") or 0)
+    failed_count = len([check for check in list(checks or []) if not bool(check.get("ok"))])
+    if status_code >= 200 and not error:
+        return max(30, 70 - failed_count)
+    if status_code >= 200:
+        return max(20, 50 - failed_count)
+    if error.startswith("route_timeout:"):
+        return 1
+    if error.startswith("route_worker_no_receipt:"):
+        return 0
+    return 10
+
+
+def collect_browser_route_metrics_with_retries(
+    *,
+    route: str,
+    url: str,
+    collect_once: Any,
+    attempts: int | None = None,
+) -> tuple[int, dict[str, Any], list[dict[str, Any]]]:
+    browser_probe_attempts = max(
+        2,
+        min(5, int(attempts if attempts is not None else (_env("PROPERTYQUARRY_LIVE_MOBILE_BROWSER_ATTEMPTS", "3") or "3"))),
+    )
+    best_status_code = 0
+    best_metrics: dict[str, Any] = {}
+    best_checks: list[dict[str, Any]] = []
+    best_quality = -1
+    for attempt in range(browser_probe_attempts):
+        current_status_code, current_metrics = collect_once(route, url)
+        current_checks = evaluate_mobile_metrics(route, current_metrics)
+        current_quality = browser_probe_attempt_quality(current_metrics, current_checks)
+        if current_quality > best_quality:
+            best_status_code = current_status_code
+            best_metrics = dict(current_metrics)
+            best_checks = list(current_checks)
+            best_quality = current_quality
+        current_ok = bool(current_checks) and all(bool(check.get("ok")) for check in current_checks)
+        current_transient = browser_probe_attempt_is_transient(route, current_metrics, current_checks)
+        if current_ok or not current_transient:
+            return current_status_code, current_metrics, current_checks
+        if attempt < browser_probe_attempts - 1:
+            if browser_probe_failure_is_transient(current_metrics):
+                _log_smoke_progress(f"retrying {route} after browser probe timeout")
+            else:
+                _log_smoke_progress(f"retrying {route} after transient metric miss")
+            time.sleep(1)
+    if not best_checks:
+        best_checks = evaluate_mobile_metrics(route, best_metrics)
+    return best_status_code, best_metrics, best_checks
+
+
 def routes_require_api_auth(routes: tuple[str, ...]) -> bool:
     return any(str(route or "").split("?", 1)[0].strip().startswith("/app/") for route in routes)
 
@@ -1259,20 +1319,11 @@ def build_live_mobile_surface_receipt(
                 _log_smoke_progress(f"failed {route}: {type(exc).__name__}: {exc}")
             continue
         try:
-            status_code = 0
-            metrics: dict[str, Any] = {}
-            checks: list[dict[str, Any]] = []
-            for attempt in range(2):
-                status_code, metrics = _collect_route_metrics_in_worker(route, url)
-                checks = evaluate_mobile_metrics(route, metrics)
-                if not browser_probe_failure_is_transient(metrics) and not browser_probe_checks_are_transient(route, checks):
-                    break
-                if attempt == 0:
-                    if browser_probe_failure_is_transient(metrics):
-                        _log_smoke_progress(f"retrying {route} after browser probe timeout")
-                    else:
-                        _log_smoke_progress(f"retrying {route} after transient metric miss")
-                    time.sleep(1)
+            status_code, metrics, checks = collect_browser_route_metrics_with_retries(
+                route=route,
+                url=url,
+                collect_once=_collect_route_metrics_in_worker,
+            )
             if not checks:
                 checks = evaluate_mobile_metrics(route, metrics)
             rows.append(
