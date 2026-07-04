@@ -3202,7 +3202,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "Could not load property search status." not in visible_message
-    assert "179 homes found · details caught up" in visible_message
+    assert "179 homes found · all found homes reviewed" in visible_message
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
         response.text,
@@ -3215,7 +3215,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "179" in visible_source
     assert "29 sources selected" in visible_source
     assert "Found" in visible_source
-    assert "details caught up" in visible_source
+    assert "all found homes reviewed" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
 
 
@@ -3455,7 +3455,7 @@ def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "102 homes found · details caught up" in visible_message
+    assert "102 homes found · all found homes reviewed" in visible_message
     assert "Now: RE/MAX Austria" not in visible_message
 
 
@@ -3541,7 +3541,7 @@ def test_propertyquarry_running_panel_avoids_zero_provider_copy_when_count_unkno
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "0 lists" not in visible_message
-    assert "Preparing sources." in visible_message
+    assert "Preparing search." in visible_message
 
 
 def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> None:
@@ -4565,7 +4565,7 @@ def test_propertyquarry_fast_ranked_run_status_copy_uses_found_and_to_review_cou
     assert "const listingCounts = (payload, candidates = []) => {" in template
     assert "const { found, toReview } = listingCounts(payload, candidates);" in template
     assert "parts.push(`${found} homes found`);" in template
-    assert "providerLeft > 0 ? `${providerLeft} ${sourceUnit} left` : 'details caught up'" in template
+    assert "providerLeft > 0 ? `${providerLeft} ${sourceUnit} left` : 'all found homes reviewed'" in template
     assert "parts.push(`${listings} checked`);" not in template
     assert "statusDetail.textContent = copy.detail || (terminal ? copy.status : 'More homes can still appear.');" in template
     assert "if (isTerminalPayload(initialPayload)) return;" in template
@@ -5931,8 +5931,8 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     )
 
     assert snapshot["status_label"] == "Running"
-    assert snapshot["status_note"] == "102 homes found · details caught up"
-    assert snapshot["message"] == "102 homes found · details caught up"
+    assert snapshot["status_note"] == "102 homes found · all found homes reviewed"
+    assert snapshot["message"] == "102 homes found · all found homes reviewed"
 
 
 def test_property_surface_state_builds_filtered_total_from_summary_components() -> None:
@@ -11690,7 +11690,7 @@ def test_property_search_status_replaces_internal_suppression_only_compact_event
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert "Willhaben: suppressed_generic_listing_page." not in messages
-    assert any("179 homes found" in message and "details caught up" in message for message in messages)
+    assert any("179 homes found" in message and "all found homes reviewed" in message for message in messages)
 
 
 def test_property_search_status_replaces_stale_status_refresh_noise(monkeypatch) -> None:
@@ -11777,7 +11777,7 @@ def test_property_search_status_hides_active_source_fetch_suppression_receipt_no
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert not any("suppressed_source_fetch_forbidden" in message for message in messages)
-    assert "12 sources · 42 homes found · details caught up" in messages
+    assert "12 sources · 42 homes found · all found homes reviewed" in messages
 
 
 def test_property_search_status_replaces_raw_provider_failure_with_repair_copy(monkeypatch) -> None:
@@ -11862,7 +11862,7 @@ def test_property_search_status_avoids_zero_provider_copy_when_count_unknown(mon
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Could not load property search status." not in messages
     assert not any("0 lists" in message for message in messages)
-    assert "Waiting for the first source." in messages
+    assert "Looking for the first listings." in messages
 
 
 def test_property_run_public_eta_label_suppresses_too_precise_one_minute() -> None:
@@ -11889,8 +11889,8 @@ def test_property_run_customer_visible_events_adds_useful_synthetic_progress() -
 
     messages = [str(event.get("message") or "") for event in events]
     assert "9 sources selected for this search." in messages
-    assert "Waiting for the first source." in messages
-    assert "Preparing sources." in messages
+    assert "Looking for the first listings." in messages
+    assert "Preparing search." in messages
 
 
 def test_property_run_customer_visible_events_summarizes_real_listing_progress() -> None:

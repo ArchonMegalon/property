@@ -448,7 +448,7 @@
     }
     if (found > 0) {
       parts.push(`${found} homes found`);
-      parts.push(toReview > 0 ? `${toReview} to review` : (providerLeft > 0 ? `${providerLeft} ${sourceUnit} left` : 'details caught up'));
+      parts.push(toReview > 0 ? `${toReview} to review` : (providerLeft > 0 ? `${providerLeft} ${sourceUnit} left` : 'all found homes reviewed'));
     }
     return { status, detail: parts.join(' · ') };
   };

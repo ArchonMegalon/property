@@ -353,7 +353,7 @@
 {% elif source_completed > 0 or source_total > 0 %}
 {% set scan_count_label = 'Checking sources' %}
 {% else %}
-{% set scan_count_label = 'Search warming up' %}
+{% set scan_count_label = 'Preparing search' %}
 {% endif %}
 {% set layout_unverified = (summary.get('filtered_floorplan_total') or 0)|int %}
 {% set run_progress = (run.get('progress') or summary.get('progress') or 0)|int %}
@@ -381,7 +381,7 @@
   {% set progress_message_display_lower = progress_message_display|lower %}
 {% endif %}
 {% set progress_compact_found_message = found_total|string ~ ' homes found' %}
-{% set progress_queue_label = to_review_total|string ~ ' to review' if to_review_total > 0 else (progress_source_left_label if source_open_total > 0 and progress_source_left_label else 'details caught up') %}
+{% set progress_queue_label = to_review_total|string ~ ' to review' if to_review_total > 0 else (progress_source_left_label if source_open_total > 0 and progress_source_left_label else 'all found homes reviewed') %}
 {% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ progress_queue_label %}
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or 'scoring enriched candidate' in progress_message_display_lower or 'ranking homes' in progress_message_display_lower or (found_total and to_review_total <= 0 and progress_source_left_total > 0 and '0 to review' in progress_message_display_lower) or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
@@ -391,9 +391,9 @@
       {% set progress_message_display = progress_compact_queue_message %}
     {% endif %}
   {% elif provider_display_total > 0 %}
-  {% set progress_message_display = 'Preparing sources.' %}
+  {% set progress_message_display = 'Preparing search.' %}
   {% else %}
-  {% set progress_message_display = 'Preparing sources.' %}
+  {% set progress_message_display = 'Preparing search.' %}
   {% endif %}
 {% endif %}
 {% set reliability_message_raw = progress_customer_message if reliability else '' %}
@@ -436,10 +436,10 @@
 		  <div class="pqx-source-progress" data-pqx-source-progress>
 		    <div class="pqx-source-progress-head">
 				      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-						      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total and source_open_total > 0 %}{{ source_open_total }} {{ source_unit }} left{% elif found_total %}details caught up{% elif provider_display_total %}{{ provider_display_total }} sources selected{% else %}Waiting for first listings{% endif %}</span>
+						      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total and source_open_total > 0 %}{{ source_open_total }} {{ source_unit }} left{% elif found_total %}all found homes reviewed{% elif provider_display_total %}{{ provider_display_total }} sources selected{% else %}Looking for listings{% endif %}</span>
 						      {% if found_total and to_review_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
 					    </div>
-				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first source.' }}</span>
+				    <span class="pqx-note">{{ progress_message_display or 'Looking for the first listings.' }}</span>
 				    <div class="pqx-live-review-bars" aria-label="Search totals">
 		      <span>
 		        <b>Found</b>
@@ -10925,7 +10925,7 @@
 		          {% set live_run_message_display_lower = live_run_message_display|lower %}
 {% endif %}
           {% set live_compact_found_message = live_found_total|string ~ ' homes found' %}
-	          {% set live_queue_label = live_to_review_total|string ~ ' to review' if live_to_review_total > 0 else (live_source_left_label if live_source_open_total > 0 and live_source_left_label else 'details caught up') %}
+	          {% set live_queue_label = live_to_review_total|string ~ ' to review' if live_to_review_total > 0 else (live_source_left_label if live_source_open_total > 0 and live_source_left_label else 'all found homes reviewed') %}
 	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_queue_label %}
           {% set live_detail_queue_label = 'To review' %}
           {% set live_detail_queue_value = live_to_review_total|string ~ ' homes' if live_to_review_total > 0 else '0 homes' %}
@@ -10941,9 +10941,9 @@
 					            {% set live_run_message_display = live_compact_queue_message %}
 			            {% endif %}
 		          {% elif live_provider_total > 0 %}
-				          {% set live_run_message_display = 'Preparing sources.' %}
+				          {% set live_run_message_display = 'Preparing search.' %}
 				        {% else %}
-			          {% set live_run_message_display = 'Preparing sources.' %}
+			          {% set live_run_message_display = 'Preparing search.' %}
 				        {% endif %}
           {% endif %}
           <section class="pqx-card" style="margin-bottom:14px;">

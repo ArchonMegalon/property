@@ -21,7 +21,9 @@ CUSTOMER_COPY_SOURCES = CUSTOMER_TEMPLATES + (
     ROOT / "ea/app/api/routes/landing_property_workspace_helpers.py",
     ROOT / "ea/app/api/routes/landing_property_research.py",
     ROOT / "ea/app/api/routes/landing_property_workspace_payload.py",
+    ROOT / "ea/app/templates/app/_property_running_panel.html",
     ROOT / "ea/app/templates/app/_property_workbench_script.html",
+    ROOT / "ea/app/templates/app/property_ranked_run_fast.html",
 )
 
 PREMIUM_PUBLIC_COPY_SOURCES = CUSTOMER_COPY_SOURCES + (
@@ -166,6 +168,11 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "provider allowance",
         "providers selected",
         "checking providers",
+        "details caught up",
+        "search warming up",
+        "preparing sources",
+        "waiting for the first source",
+        "the search is queued",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

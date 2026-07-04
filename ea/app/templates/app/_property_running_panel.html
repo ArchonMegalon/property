@@ -21,8 +21,8 @@
 		        {% set run_source_unit_head = 'search pages' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'sources' %}
 		        {% set run_source_check_label_head = run_source_check_done_head|string ~ ' / ' ~ run_source_check_total_head|string ~ ' ' ~ run_source_unit_head if run_source_check_total_head > 0 and run_source_total_head > 0 else '' %}
 		        {% set run_source_left_head = run_source_check_total_head - run_source_check_done_head if run_source_check_total_head > run_source_check_done_head else 0 %}
-		        {% set run_queue_label_head = run_to_review_head|string ~ ' to review' if run_to_review_head > 0 else (run_source_left_head|string ~ ' ' ~ run_source_unit_head ~ ' left' if run_source_total_head > 0 and run_source_left_head > 0 else 'details caught up') %}
-		        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head and run_found_head %}{{ run_found_head }} found · {{ run_queue_label_head }} · {{ run_source_check_label_head }}{% elif run_source_total_head %}{{ run_source_check_label_head }}{% elif run_found_head %}{{ run_found_head }} found · {{ run_queue_label_head }}{% else %}Waiting for first listings{% endif %}</div>
+		        {% set run_queue_label_head = run_to_review_head|string ~ ' to review' if run_to_review_head > 0 else (run_source_left_head|string ~ ' ' ~ run_source_unit_head ~ ' left' if run_source_total_head > 0 and run_source_left_head > 0 else 'all found homes reviewed') %}
+		        <div class="pqx-note" data-pqx-run-summary>{% if run_source_total_head and run_found_head %}{{ run_found_head }} found · {{ run_queue_label_head }} · {{ run_source_check_label_head }}{% elif run_source_total_head %}{{ run_source_check_label_head }}{% elif run_found_head %}{{ run_found_head }} found · {{ run_queue_label_head }}{% else %}Looking for listings{% endif %}</div>
       </div>
       <div class="pqx-inline-actions">
         {% if run_active %}
@@ -86,7 +86,7 @@
       {% set run_message_display_lower = run_message_display|lower %}
     {% endif %}
     {% set run_compact_found_message = run_found_total|string ~ ' homes found' %}
-    {% set run_queue_label = run_to_review_total|string ~ ' to review' if run_to_review_total > 0 else (run_source_left_label if run_source_open_total > 0 and run_source_left_label else 'details caught up') %}
+    {% set run_queue_label = run_to_review_total|string ~ ' to review' if run_to_review_total > 0 else (run_source_left_label if run_source_open_total > 0 and run_source_left_label else 'all found homes reviewed') %}
     {% set run_compact_queue_message = run_found_total|string ~ ' homes found · ' ~ run_queue_label %}
 		    {% if not run_message_display or 'could not load property search status' in run_message_display_lower or 'checking run status' in run_message_display_lower or 'suppressed_generic_listing_page' in run_message_display_lower or 'starting property search run' in run_message_display_lower or 'scoring enriched candidate' in run_message_display_lower or 'ranking homes' in run_message_display_lower or (run_found_total and run_to_review_total <= 0 and run_source_left_total > 0 and '0 to review' in run_message_display_lower) or run_message_display_lower in ['starting', 'checking'] or (run_found_total and run_message_display == run_compact_found_message) or (run_found_total and run_message_display == run_compact_queue_message) %}
 		      {% if run_found_total %}
@@ -96,12 +96,12 @@
 		          {% set run_message_display = run_compact_queue_message %}
 		        {% endif %}
       {% elif run_provider_total %}
-      {% set run_message_display = 'Preparing sources.' %}
+      {% set run_message_display = 'Preparing search.' %}
       {% else %}
-      {% set run_message_display = 'Preparing sources.' %}
+      {% set run_message_display = 'Preparing search.' %}
       {% endif %}
     {% endif %}
-    <div class="pqx-note" data-pqx-run-message>{{ run_message_display or 'The search is queued.' }}</div>
+    <div class="pqx-note" data-pqx-run-message>{{ run_message_display or 'Preparing search.' }}</div>
     {{ progress_board(run, run_sources, research_task_counts) }}
 	    {% include "app/_property_recent_run_strip.html" %}
 	    <details class="pqx-card" data-pqx-running-details>

@@ -1490,7 +1490,7 @@
     ]);
     const compactRunMessage = (value) => {
       let text = String(value || '').trim();
-      if (!text) return 'Waiting for the first source.';
+      if (!text) return 'Looking for the first listings.';
       const staleZeroReviewMatch = text.match(/\b(\d+)\s+homes?\s+found\s*·\s*0\s+to\s+review\s*·\s*(\d+)\s*\/\s*(\d+)\s*(search pages|providers|sources)\b/i);
       if (staleZeroReviewMatch) {
         const found = Number(staleZeroReviewMatch[1] || 0);
@@ -1498,7 +1498,7 @@
         const total = Number(staleZeroReviewMatch[3] || 0);
         const unit = String(staleZeroReviewMatch[4] || 'search pages').toLowerCase();
         const left = Math.max(0, total - done);
-        return left > 0 ? `${found} homes found · ${left} ${unit} left` : `${found} homes found · details caught up`;
+        return left > 0 ? `${found} homes found · ${left} ${unit} left` : `${found} homes found · all found homes reviewed`;
       }
       text = text
         .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes checked')
@@ -1525,7 +1525,7 @@
       .trim();
     const parseRunMessageInfo = (value) => {
       const text = String(value || '').trim();
-      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first source.' };
+      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Looking for the first listings.' };
       const providerLoadMatch = text.match(/^Loading provider page for\s+(.+?)\.?$/i);
       if (providerLoadMatch) {
         const sourceLabel = canonicalSourceLabel(providerLoadMatch[1] || '');
@@ -2097,7 +2097,7 @@
         return `${done} / ${total} ${runSourceUnitLabel(summary, total, providerDisplayTotal)}`;
       }
       if (total > 0) return `${total} sources selected`;
-      return 'Search warming up';
+      return 'Preparing search';
     };
     const runSourceWorkLeftLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
       const countTotal = Math.max(0, Number(counts?.total || 0));
@@ -2138,7 +2138,7 @@
     const runListingQueueMessage = (found, toReview) => {
       if (!(found > 0)) return 'checking';
       if (toReview > 0) return `${found} homes found · ${toReview} to review`;
-      return `${found} homes found · details caught up`;
+      return `${found} homes found · all found homes reviewed`;
     };
 	    const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '', providerDisplayTotal = 0, summary = {}) => {
 	      if (found > 0 && toReview > 0) return `${toReview} to review`;
@@ -2146,13 +2146,13 @@
         const unit = runSourceUnitLabel(summary, Number(counts?.total || 0), providerDisplayTotal);
         return `${Number(counts.open)} ${unit} left`;
       }
-	      if (found > 0) return 'details caught up';
-	      return fallback || 'Waiting for first listings';
+	      if (found > 0) return 'all found homes reviewed';
+	      return fallback || 'Looking for listings';
     };
     const runFoundQueueMessage = (found, toReview, sourceWork, providerDisplayTotal = 0, summary = {}) => {
 	      if (!(found > 0)) return '';
       const sourceLeftLabel = sourceWork?.open > 0 ? runSourceWorkLeftLabel(sourceWork, providerDisplayTotal, summary) : '';
-      const queueLabel = toReview > 0 ? `${toReview} to review` : (sourceLeftLabel || 'details caught up');
+      const queueLabel = toReview > 0 ? `${toReview} to review` : (sourceLeftLabel || 'all found homes reviewed');
       const queueMessage = `${found} homes found · ${queueLabel}`;
       if (toReview > 0 && sourceLeftLabel) {
         return `${queueMessage} · ${sourceLeftLabel}`;
@@ -2322,9 +2322,9 @@
           return runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary);
         }
         if (providers > 0) {
-          return 'Preparing sources.';
+          return 'Preparing search.';
         }
-        return 'Preparing sources.';
+        return 'Preparing search.';
       }
       return raw;
     };
@@ -2732,7 +2732,7 @@
         sourceWork,
         found,
         toReview,
-        providerDisplayTotal > 0 ? `${providerDisplayTotal} sources selected` : 'Waiting for first listings',
+        providerDisplayTotal > 0 ? `${providerDisplayTotal} sources selected` : 'Looking for listings',
         providerDisplayTotal,
         summary,
       );
