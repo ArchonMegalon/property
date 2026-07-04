@@ -4160,7 +4160,7 @@ def pricing_page(
                 "pricing_signed_in_billing_href": pricing_signed_in_billing_href,
                 "pricing_signed_in_billing_label": pricing_signed_in_billing_label,
                 "pricing_signed_in_billing_detail": pricing_signed_in_billing_detail,
-                "meta_description": "Choose a PropertyQuarry plan by provider coverage, research depth, 3D options, and the quality of the property review page.",
+                "meta_description": "Choose a PropertyQuarry plan by source coverage, research depth, 3D options, and the quality of the property review page.",
                 "structured_data_json": [
                     {
                         "@context": "https://schema.org",

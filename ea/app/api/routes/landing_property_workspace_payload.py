@@ -3546,6 +3546,9 @@ def property_workspace_payload(
             cleaned.pop("href", None)
         return cleaned
 
+    def _is_redundant_property_action_label(label: object) -> bool:
+        return str(label or "").strip().lower() in {"full view", "open full view"}
+
     def _strip_current_surface_actions_from_item(item: dict[str, object]) -> dict[str, object]:
         cleaned = dict(item)
         for href_key, label_key, method_key in (
@@ -3554,7 +3557,7 @@ def property_workspace_payload(
             ("tertiary_action_href", "tertiary_action_label", "tertiary_action_method"),
             ("quaternary_action_href", "quaternary_action_label", "quaternary_action_method"),
         ):
-            if _href_targets_current_surface(cleaned.get(href_key)):
+            if _href_targets_current_surface(cleaned.get(href_key)) or _is_redundant_property_action_label(cleaned.get(label_key)):
                 cleaned.pop(href_key, None)
                 cleaned.pop(label_key, None)
                 cleaned.pop(method_key, None)

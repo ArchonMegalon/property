@@ -1982,7 +1982,7 @@ def _property_search_revalidate_area_expansion_snapshot(
     previous_filtered_total = _safe_int(summary.get("filtered_total"), summary.get("held_back_total"))
     message = (
         "Saved candidates were rechecked with the current area. "
-        "Start a fresh search when you want new provider coverage too."
+        "Start a fresh search when you want new source coverage too."
     )
     summary.update(
         {
@@ -2102,7 +2102,7 @@ def _property_search_revalidate_relaxed_hard_rules_snapshot(
     previous_filtered_total = _safe_int(summary.get("filtered_total"), summary.get("held_back_total"))
     message = (
         "Saved candidates were rechecked with the current rules. "
-        "Start a fresh search when you want new provider coverage too."
+        "Start a fresh search when you want new source coverage too."
     )
     summary.update(
         {
@@ -2219,7 +2219,7 @@ def _property_search_revalidate_budget_expansion_snapshot(
     )
     message = (
         "Saved candidates were rechecked with the current budget. "
-        "Start a fresh search when you want new provider coverage too."
+        "Start a fresh search when you want new source coverage too."
     )
     summary.update(
         {

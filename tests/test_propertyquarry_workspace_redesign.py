@@ -4475,12 +4475,40 @@ def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint()
 
 
 def test_property_action_cards_filter_legacy_full_view_buttons() -> None:
-    template = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(
+    repo_root = Path(__file__).resolve().parents[1]
+    template = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    object_template = (repo_root / "ea/app/templates/app/object_detail.html").read_text(encoding="utf-8")
+    payload_builder = (repo_root / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(
         encoding="utf-8"
     )
 
     assert "action_label|lower not in ['full view', 'open full view']" in template
     assert "secondary_action_label|lower not in ['full view', 'open full view']" in template
+    assert "{% set hidden_action_labels = ['full view', 'open full view'] %}" in object_template
+    assert "tertiary_action_visible = tertiary_action_href and tertiary_action_label|lower not in hidden_action_labels" in object_template
+    assert (
+        "quaternary_action_visible = quaternary_action_href and quaternary_action_label|lower not in hidden_action_labels"
+        in object_template
+    )
+    assert "_is_redundant_property_action_label(cleaned.get(label_key))" in payload_builder
+
+
+def test_propertyquarry_customer_copy_uses_sources_not_provider_coverage() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    files = [
+        repo_root / "ea/app/api/routes/landing_property_workspace_helpers.py",
+        repo_root / "ea/app/templates/onboarding/_hero.html",
+        repo_root / "ea/app/product/service.py",
+        repo_root / "ea/app/api/routes/landing.py",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
+
+    assert "widen providers" not in combined
+    assert "provider coverage" not in combined
+    assert "new provider coverage" not in combined
+    assert "widen sources" in combined
+    assert "source coverage" in combined
+    assert "new source coverage" in combined
 
 
 def test_propertyquarry_fast_ranked_run_uses_provider_progress_fraction() -> None:

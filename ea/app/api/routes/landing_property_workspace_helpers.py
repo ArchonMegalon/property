@@ -1941,7 +1941,7 @@ def _property_counterfactual_rows(
         deduped.append(
             {
                 "title": "Reopen the brief with broader constraints",
-                "detail": "Keep the same market, but reopen the brief so you can widen providers or relax one hard filter before the next sweep.",
+                "detail": "Keep the same market, but reopen the brief so you can widen sources or relax one hard filter before the next sweep.",
                 "tag": "Reset",
                 "action_label": "Reopen brief",
                 "adjustments": {},
