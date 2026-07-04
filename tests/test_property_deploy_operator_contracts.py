@@ -152,6 +152,15 @@ def test_propertyquarry_deploy_wrapper_supports_focused_provider_country_matrix(
     script = _read("scripts/deploy_propertyquarry.sh")
 
     assert "PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES" in script
+    assert "assert_provider_search_changes_have_targeted_e2e" in script
+    assert "provider_search_changed_files_between" in script
+    assert "Provider/search implementation changed since the live release" in script
+    assert "Set PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1 and PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES=AT,DE,CR" in script
+    assert "provider_country_scope_covers_current_markets" in script
+    assert "ea/app/product/property_listing_extractors.py" in script
+    assert "ea/app/product/property_search_*.py" in script
+    assert "scripts/property_live_provider_smoke.py" in script
+    assert "scripts/willhaben_property_packet.py" in script
     assert "provider_smoke_scope_args=(--all-search-ready-countries)" in script
     assert 'provider_country_args+=(--country "${country_code}")' in script
     assert '"${provider_smoke_scope_args[@]}"' in script

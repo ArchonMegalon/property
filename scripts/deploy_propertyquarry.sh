@@ -40,6 +40,8 @@ Environment:
                                   soft-filter dispatch/readback checks after deploy. Default 0 keeps the
                                   lighter provider-catalog smoke without replacing the latest full
                                   targeted-matrix receipt when one exists.
+                                  Deploy fails closed when provider/search implementation files changed
+                                  since the live release and this is not enabled.
   PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E
                                   1 requires the composed live presentation E2E, 0 skips it, auto runs it
                                   only when PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1. Default auto. When this
@@ -435,6 +437,94 @@ if ! [[ "${host_port}" =~ ^[0-9]+$ ]] || (( host_port < 1 || host_port > 65535 )
   echo "EA_HOST_PORT must be a TCP port between 1 and 65535; got ${host_port}." >&2
   exit 2
 fi
+
+provider_search_change_pathspecs=(
+  "ea/app/product/extractors.py"
+  "ea/app/product/property_listing_extractors.py"
+  "ea/app/product/property_search_*.py"
+  "ea/app/product/property_location_research.py"
+  "ea/app/product/property_worker_queues.py"
+  "ea/app/services/provider_registry.py"
+  "ea/app/api/routes/providers.py"
+  "ea/app/api/routes/product_api.py"
+  "scripts/property_live_provider_smoke.py"
+  "scripts/property_provider_matrix_stage_runner.py"
+  "scripts/willhaben_property_packet.py"
+  "scripts/check_property_provider_governance.py"
+  "tests/test_property_live_provider_smoke.py"
+  "tests/test_property_listing_extractors.py"
+  "tests/test_product_extractors.py"
+  "tests/test_property_search_runs.py"
+)
+
+live_release_commit_for_provider_guard() {
+  local probe_url="$1"
+  local body=""
+  body="$(curl -fsS --connect-timeout 2 --max-time 8 "${probe_url%/}/version" 2>/dev/null || true)"
+  if [[ -z "${body}" ]]; then
+    return 0
+  fi
+  printf '%s' "${body}" | "${deploy_python_bin}" -c 'import json,sys; print(str((json.load(sys.stdin).get("release_commit_sha") or "")).strip())' 2>/dev/null || true
+}
+
+provider_search_changed_files_between() {
+  local from_commit="$1"
+  local to_commit="$2"
+  if [[ -z "${from_commit}" || -z "${to_commit}" || "${from_commit}" == "${to_commit}" ]]; then
+    return 0
+  fi
+  if ! git rev-parse --verify "${from_commit}^{commit}" >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! git rev-parse --verify "${to_commit}^{commit}" >/dev/null 2>&1; then
+    return 0
+  fi
+  git diff --name-only "${from_commit}..${to_commit}" -- "${provider_search_change_pathspecs[@]}" 2>/dev/null || true
+}
+
+provider_country_scope_covers_current_markets() {
+  local raw="$1"
+  local normalized
+  normalized=","
+  raw="$(printf '%s' "${raw}" | tr '[:lower:]' '[:upper:]')"
+  if [[ -z "$(printf '%s' "${raw}" | tr -d '[:space:],')" ]]; then
+    return 0
+  fi
+  IFS=',' read -r -a provider_guard_country_items <<<"${raw}"
+  for item in "${provider_guard_country_items[@]}"; do
+    item="$(printf '%s' "${item}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    if [[ -n "${item}" ]]; then
+      normalized="${normalized}${item},"
+    fi
+  done
+  [[ "${normalized}" == *",AT,"* && "${normalized}" == *",DE,"* && "${normalized}" == *",CR,"* ]]
+}
+
+assert_provider_search_changes_have_targeted_e2e() {
+  local probe_url="$1"
+  local live_commit changed_files provider_e2e country_scope
+  live_commit="$(live_release_commit_for_provider_guard "${probe_url}")"
+  changed_files="$(provider_search_changed_files_between "${live_commit}" "${release_commit_sha}")"
+  if [[ -z "${changed_files}" ]]; then
+    return 0
+  fi
+  provider_e2e="$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"
+  country_scope="$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES)"
+  if env_truthy "${provider_e2e}" && provider_country_scope_covers_current_markets "${country_scope}"; then
+    return 0
+  fi
+  echo "Provider/search implementation changed since the live release; deploy requires targeted provider E2E for AT,DE,CR." >&2
+  echo "Set PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1 and PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES=AT,DE,CR before deploying." >&2
+  echo "Live commit: ${live_commit:-unknown}" >&2
+  echo "Target commit: ${release_commit_sha:-unknown}" >&2
+  echo "Changed provider/search files:" >&2
+  printf '%s\n' "${changed_files}" >&2
+  exit 2
+}
+
+predeploy_base_url="$(effective_env_value PROPERTYQUARRY_DEPLOY_BASE_URL)"
+predeploy_base_url="${predeploy_base_url:-http://localhost:${host_port}}"
+assert_provider_search_changes_have_targeted_e2e "${predeploy_base_url%/}"
 
 compose_project_name="$(effective_env_value PROPERTYQUARRY_COMPOSE_PROJECT_NAME)"
 compose_project_name="${compose_project_name:-$(effective_env_value COMPOSE_PROJECT_NAME)}"
