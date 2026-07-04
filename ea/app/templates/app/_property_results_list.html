@@ -3,7 +3,8 @@
 {% set is_shortlist_surface = surface_mode == 'shortlist' %}
 {% set is_research_surface = surface_mode == 'research' %}
 {% set run_sources = run_summary.get('sources') or [] %}
-{% set full_results_total = results|length %}
+{% set summary_results_total = (run_summary.get('ranked_total') or run_summary.get('ranked_candidate_total') or run_summary.get('results_total') or 0)|int %}
+{% set full_results_total = ([results|length, summary_results_total]|max) %}
 {% set first_paint_result_limit = 24 if (surface_mode in ['properties', 'shortlist']) else full_results_total %}
 {% set visible_results = results[:first_paint_result_limit] %}
 {% set location_mismatch = namespace(total=(run_summary.get('location_mismatch_candidate_total') or 0)|int) %}

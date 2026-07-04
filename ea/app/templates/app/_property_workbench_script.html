@@ -6882,6 +6882,21 @@
         openRowTarget();
       });
     });
+    const hydrateTerminalRunOnce = async (statusUrl) => {
+      const pollStatusUrl = compactRunStatusUrl(statusUrl);
+      if (!pollStatusUrl) return;
+      const currentTotal = Array.isArray(data.results) ? data.results.length : 0;
+      const expectedTotal = rankedTotalFromSummary(data.run?.summary || {});
+      if (!expectedTotal || expectedTotal <= currentTotal) return;
+      try {
+        const response = await fetch(pollStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body || typeof body !== 'object') return;
+        renderRun(body);
+      } catch (_error) {
+        return;
+      }
+    };
     if (data.run && typeof data.run === 'object') {
       renderRun(data.run);
       const status = String(data.run.status || '').trim().toLowerCase();
@@ -6890,6 +6905,8 @@
         if (terminalStates.has(status)) {
           if (status === 'failed') {
             startQuietFailedRepairPolling(statusUrl);
+          } else {
+            hydrateTerminalRunOnce(statusUrl);
           }
         } else {
           pollRun(statusUrl);

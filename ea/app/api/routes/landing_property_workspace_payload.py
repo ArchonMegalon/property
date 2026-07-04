@@ -3123,7 +3123,7 @@ def property_workspace_payload(
         return ("", "")
 
     first_paint_candidates = [] if management_surface else list(shortlist_candidates)
-    if normalized_section == "properties":
+    if normalized_section in {"properties", "shortlist"}:
         first_paint_candidates = first_paint_candidates[:_PROPERTY_PROPERTIES_FIRST_PAINT_RESULT_LIMIT]
     for candidate in first_paint_candidates:
         facts = _property_candidate_display_facts(candidate)

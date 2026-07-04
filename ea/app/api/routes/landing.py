@@ -6501,6 +6501,8 @@ def app_shell(
             if resolved_property_section == "shortlist" or (
                 resolved_property_section == "properties" and bool(normalized_run_id)
             ):
+                context_run = dict((property_context or {}).get("run") or {}) if isinstance(property_context, dict) else {}
+                context_run_has_results = _property_run_payload_has_shortlist_results(context_run)
                 def _load_saved_shortlist_candidates() -> list[dict[str, object]]:
                     try:
                         return [
@@ -6513,7 +6515,9 @@ def app_shell(
                     except Exception:
                         return []
 
-                if resolved_property_section == "shortlist":
+                if resolved_property_section == "shortlist" and context_run_has_results:
+                    property_context["saved_shortlist_candidates"] = []
+                elif resolved_property_section == "shortlist":
                     property_context["saved_shortlist_candidates"] = list(
                         _property_first_paint_value(_load_saved_shortlist_candidates, [])
                     )
