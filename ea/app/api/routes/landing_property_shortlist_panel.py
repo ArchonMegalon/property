@@ -208,7 +208,7 @@ def build_property_shortlist_panel(
     for candidate in ranked_candidates:
         candidate_facts = _property_candidate_display_facts(candidate)
         source_label = str(candidate.get("source_label") or candidate.get("source_url") or "Source").strip()
-        title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"
+        title = str(candidate.get("title") or candidate.get("property_url") or "Property").strip() or "Property"
         detail_parts = [clean_candidate_copy(candidate.get("fit_summary") or "")]
         match_reasons = [
             clean_candidate_copy(item)

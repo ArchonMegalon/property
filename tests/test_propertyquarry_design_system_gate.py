@@ -20,6 +20,7 @@ CUSTOMER_COPY_SOURCES = CUSTOMER_TEMPLATES + (
     ROOT / "ea/app/api/routes/landing_view_models.py",
     ROOT / "ea/app/api/routes/landing_property_workspace_helpers.py",
     ROOT / "ea/app/api/routes/landing_property_research.py",
+    ROOT / "ea/app/api/routes/landing_property_shortlist_panel.py",
     ROOT / "ea/app/api/routes/landing_property_workspace_payload.py",
     ROOT / "ea/app/templates/app/_property_running_panel.html",
     ROOT / "ea/app/templates/app/_property_workbench_feedback_script.html",
