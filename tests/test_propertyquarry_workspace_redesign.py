@@ -11516,7 +11516,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Decision support" not in packet.text
     assert "The next-best properties from this run" not in packet.text
     assert "Other ranked homes from this run" not in packet.text
-    assert "More from this search" in packet.text
+    assert "More from this search" not in packet.text
+    assert "Other homes" in packet.text
     assert 'data-research-ranking-list' in packet.text
     assert " · Score " not in packet.text
     assert "Family flat near Tiergarten" in packet.text

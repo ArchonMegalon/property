@@ -3622,8 +3622,8 @@
 
     <aside class="prd-side-stack">
       {% if research_ranked_run_rows %}
-      <section class="prd-panel" data-research-ranking-list>
-        <h2>More from this search</h2>
+      <section class="prd-panel prd-related-homes" data-research-ranking-list aria-label="Other homes from this search">
+        <h2>Other homes</h2>
         <div class="object-list">
           {% for row in research_ranked_run_rows %}
           <div class="object-row">
@@ -3633,11 +3633,12 @@
               {% else %}
               <strong>{{ row.get('title') }}</strong>
               {% endif %}
-              {% if row.get('source_label') or row.get('fit_summary') %}
-              <small>{% if row.get('source_label') %}{{ row.get('source_label') }}{% endif %}{% if row.get('source_label') and row.get('fit_summary') %} · {% endif %}{% if row.get('fit_summary') %}{{ row.get('fit_summary') }}{% endif %}</small>
+              {% set related_meta = [row.get('price'), row.get('location')]|select|join(' · ') %}
+              {% if related_meta %}
+              <small>{{ related_meta }}</small>
               {% endif %}
             </div>
-            <div class="object-tag">#{{ loop.index }}</div>
+            {% if row.get('href') %}<a class="prd-tag" href="{{ row.get('href') }}">Open</a>{% endif %}
           </div>
           {% endfor %}
         </div>

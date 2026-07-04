@@ -5555,15 +5555,29 @@ def property_research_packet(
         row_ref = _property_candidate_ref(row)
         if row_ref == normalized_candidate_ref:
             continue
+        row_facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
+        row_price = str(
+            row.get("price_display")
+            or row.get("rent_display")
+            or row_facts.get("price_display")
+            or row_facts.get("rent_display")
+            or row_facts.get("price")
+            or ""
+        ).strip()
+        row_location = str(
+            row.get("location_label")
+            or row.get("postal_name")
+            or row_facts.get("postal_name")
+            or row_facts.get("district")
+            or row_facts.get("address")
+            or ""
+        ).strip()
         ranked_run_rows.append(
             {
                 "title": str(row.get("title") or "Ranked property").strip() or "Ranked property",
-                "source_label": _compact_provider_label(str(row.get("source_label") or "Source").strip() or "Source"),
-                "score": int(float(row.get("ranking_score") or row.get("investment_score") or row.get("fit_score") or 0.0)),
                 "href": str(row.get("packet_url") or row.get("review_url") or row.get("property_url") or "").strip(),
-                "fit_summary": _clean_property_candidate_copy(
-                    str(row.get("fit_summary") or row.get("compare_reason") or row.get("summary") or "").strip()
-                ),
+                "price": row_price,
+                "location": row_location,
             }
         )
     if detail_sections.get("feature_values"):
