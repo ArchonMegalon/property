@@ -85,7 +85,7 @@
   {%- set raw = (value or fallback or '')|string|trim -%}
   {%- set lowered = raw|lower -%}
   {%- if lowered == 'reopen the brief and adjust one filter before rerunning.' -%}Open the search and change one filter.
-  {%- elif lowered == 'widen one requirement first, then rerun.' -%}Change one thing, then run it again.
+  {%- elif lowered == 'widen one requirement first, then rerun.' -%}Change one thing, then search again.
   {%- elif lowered.startswith('start a fresh search or adjust one ') and lowered.endswith(' or requirement before retrying.') -%}Adjust the search, then start it again.
   {%- elif lowered == 'open the remaining area, distance, and list changes without filling the page.' -%}See the other ways to widen this search.
   {%- elif lowered == 'widen one location rule first so the next pass stays easy to explain.' -%}Start by broadening the area.
@@ -109,7 +109,7 @@
     <span class="pqx-suppression-trigger-copy">
       <strong>{% if ns.total %}{{ ns.total }} outside brief{% else %}Adjust search{% endif %}</strong>
       <span class="pqx-note">
-        Choose one small change, then rerun.
+        Choose one small change, then search again.
       </span>
     </span>
   </button>
@@ -122,7 +122,7 @@
               <div class="pqx-filtered-dialog-head">
                 <div>
                   <strong>Widen one requirement</strong>
-                  <div class="pqx-note">Change one thing, then rerun.</div>
+                  <div class="pqx-note">Change one thing, then search again.</div>
                 </div>
                 <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close outside-brief homes">×</button>
               </div>
@@ -151,7 +151,7 @@
                       data-pqx-filter-max-value="{{ slider.get('max') or slider.get('value') or 0 }}"
                       data-pqx-filter-max="{{ row.get('affected_total') or 0 }}"
                     >
-		                    <span class="pqx-small" data-pqx-filter-estimate>Estimated homes that may appear after rerun.</span>
+		                    <span class="pqx-small" data-pqx-filter-estimate>Estimated homes that may appear after searching again.</span>
                   </label>
                   {% endif %}
                   <div class="pqx-actions">
@@ -192,7 +192,7 @@
                 {% else %}
                 <div class="pqx-filtered-dialog-rule">
                   <strong>Broaden the area</strong>
-                  <span class="pqx-note">Keep hard requirements, but add nearby districts or a small radius before rerunning.</span>
+                  <span class="pqx-note">Keep hard requirements, but add nearby districts or a small radius before searching again.</span>
                   <div class="pqx-actions">
                     <a class="pqx-button primary" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Adjust search</a>
                   </div>
@@ -11274,7 +11274,7 @@
               </h2>
               <div class="pqx-note" data-property-step-summary>
                 {% if surface_mode == 'agents' %}
-                Review saved searches, rerun them, and open recent results.
+                Review saved searches, start them again, and open recent results.
                 {% elif surface_mode == 'alerts' %}
                 Sent pages, notifications, follow-up, and search updates.
                 {% elif surface_mode == 'billing' %}
@@ -11414,7 +11414,7 @@
           {% set preference_manager = preference_manager or {} %}
           <div class="pqx-loaded-agent" data-search-agent-loaded-state>
             <strong data-search-agent-loaded-label>Saved search loaded</strong>
-            <span class="pqx-note" data-search-agent-dirty-label>Edit, run, save, or duplicate.</span>
+            <span class="pqx-note" data-search-agent-dirty-label>Edit, search, save, or duplicate.</span>
             <div class="pqx-actions">
               <button class="pqx-button" type="button" data-search-agent-save-current>Save changes</button>
               <button class="pqx-button subtle" type="button" data-search-agent-save-new>Save as new</button>
@@ -12074,7 +12074,7 @@
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
             <div class="pqx-empty-outcome-next">
               {% if empty_active_rule or run_status == 'failed' %}<span class="pqx-pill">{{ empty_active_rule_display or 'Try this' }}</span>{% endif %}
-              <span class="pqx-small">{{ 'Open the area choices if you want to include those homes; otherwise keep the current area.' if held_back_ranked_total > 0 else pqx_calm_ui_note(empty_next_move, 'Adjust the search, then run it again.' if run_status == 'failed' else 'Change one thing, then run it again.') }}</span>
+              <span class="pqx-small">{{ 'Open the area choices if you want to include those homes; otherwise keep the current area.' if held_back_ranked_total > 0 else pqx_calm_ui_note(empty_next_move, 'Adjust the search, then search again.' if run_status == 'failed' else 'Change one thing, then search again.') }}</span>
             </div>
             {% endif %}
 	            <div class="pqx-actions">
@@ -12097,7 +12097,7 @@
             <div class="pqx-empty-next-copy">
                 <span class="pqx-small">Try this</span>
                 <h2>Adjust search</h2>
-                <div class="pqx-note" data-pqx-run-summary>{{ pqx_calm_ui_note(empty_next_move, 'Change one thing, then run it again.') }}</div>
+                <div class="pqx-note" data-pqx-run-summary>{{ pqx_calm_ui_note(empty_next_move, 'Change one thing, then search again.') }}</div>
               </div>
             <div class="pqx-empty-next-status">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
@@ -12314,7 +12314,7 @@
           <section class="pqx-card pqx-empty-results-note" data-pqx-ranked-candidates>
             <div class="pqx-section-head">
               <div>
-                <h2>{% if run_status == 'failed' %}Retry running{% else %}No homes yet{% endif %}</h2>
+                <h2>{% if run_status == 'failed' %}Try again{% else %}No homes yet{% endif %}</h2>
                 <div class="pqx-note" data-pqx-run-summary>{% if run_status == 'failed' %}This page will switch when a useful search is ready.{% else %}Change one requirement if you want another pass.{% endif %}</div>
               </div>
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>

@@ -2829,7 +2829,7 @@
       const filteredBreakdown = (!shortlistSurface && filteredTotal > 0) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
             <summary><strong>${locationMismatchTotal ? 'Area mismatch' : 'What to widen'}</strong><span class="pqx-note">${locationMismatchTotal ? 'Wrong area returned' : 'Requirements'}</span></summary>
-            <div class="pqx-note">Change one requirement, then rerun.</div>
+            <div class="pqx-note">Change one requirement, then search again.</div>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
       ` : '';
@@ -6118,7 +6118,7 @@
         await startSearch();
         return;
       }
-      if (status) status.textContent = 'Saved search ready to edit. Tweak the filters or run it again.';
+      if (status) status.textContent = 'Saved search ready to edit. Tweak the filters or start it again.';
     };
     root.querySelectorAll('[data-search-agent-action]').forEach((button) => {
       button.addEventListener('click', async () => {
@@ -6830,9 +6830,9 @@
           const ratio = Math.min(1, Math.max(0.08, (selectedValue - minValue) / span));
           const estimate = Math.max(1, Math.round(maxImpact * ratio));
           if (impactLabel) impactLabel.textContent = `+${estimate}`;
-          if (estimateLabel) estimateLabel.textContent = `${estimate} homes may appear after rerun.`;
+          if (estimateLabel) estimateLabel.textContent = `${estimate} homes may appear after searching again.`;
         } else if (estimateLabel) {
-          estimateLabel.textContent = 'Rerun to see how many homes recover.';
+          estimateLabel.textContent = 'Search again to see how many homes recover.';
         }
       };
       slider.addEventListener('input', updateSliderPreview);

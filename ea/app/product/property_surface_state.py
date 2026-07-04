@@ -2992,7 +2992,7 @@ def build_property_empty_outcome_summary(
         next_move = (
             str(strongest_relax.get("detail") or "").strip()
             or (f"Relax {active_rule} first so the next search changes one rule at a time." if active_rule else "")
-            or "Widen one rule first, then rerun."
+            or "Widen one rule first, then search again."
         )
     if status_value == "failed" and replacement_run_id:
         eta_feedback = stopped_context
@@ -3016,7 +3016,7 @@ def build_property_empty_outcome_summary(
     elif legacy_ranking_gate_empty:
         eta_feedback = "Start a fresh search to refresh this page."
     elif source_total:
-        eta_feedback = "Change one rule and rerun for a fresh read."
+        eta_feedback = "Change one rule and search again for a fresh read."
     elif status_value == "failed":
         eta_feedback = "A fresh check is queued; this page switches when results are ready."
     else:

@@ -219,6 +219,18 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "the run is complete",
         "this run finished",
         "next run changes",
+        "choose one small change, then rerun",
+        "estimated homes that may appear after rerun",
+        "homes may appear after rerun",
+        "rerun to see how many homes recover",
+        "review saved searches, rerun them",
+        "recurring searches ready to rerun",
+        "saved runs",
+        "preferences, runs",
+        "remove saved runs",
+        "edit, run, save",
+        "retry running",
+        "run it again",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered
@@ -451,7 +463,7 @@ def test_propertyquarry_search_results_keep_hidden_homes_copy_minimal() -> None:
     assert "Review outside-brief homes" in body
     assert "Review hidden homes" not in body
     assert "Widen one requirement" in body
-    assert "Choose one small change, then rerun." in body
+    assert "Choose one small change, then search again." in body
     assert "provider active" not in body
     assert "providers active" not in body
     assert "Preparing providers" not in body

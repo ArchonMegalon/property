@@ -3497,7 +3497,7 @@ def property_workspace_payload(
             {"label": "Search status", "value": run_status_label, "detail": run_message or "Latest saved-search sweep.", "href": f"/app/properties{run_suffix}"},
         ],
         "agents": [
-            {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring briefs available for editing and rerunning.", "href": f"/app/agents{run_suffix}"},
+            {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring briefs available for editing and starting again.", "href": f"/app/agents{run_suffix}"},
             {"label": "Active", "value": str(sum(1 for agent in property_search_agents if agent.get("enabled"))), "detail": "Agents allowed to send matching updates.", "href": f"/app/agents{run_suffix}"},
             {"label": "Delivery", "value": str(property_search_agent.get("notification_label") or "Set per agent"), "detail": "Each recurring search ranks down to the allowed message budget.", "href": f"/app/agents{run_suffix}"},
             {"label": "Reports", "value": "Alerts", "detail": "Digests, status notes, and market watches use the saved delivery channel.", "href": f"/app/agents{run_suffix}"},
@@ -4237,7 +4237,7 @@ def property_workspace_payload(
         },
         "agents": {
             "title": "Saved searches",
-            "summary": "Review saved searches, rerun them, and open recent results.",
+            "summary": "Review saved searches, start them again, and open recent results.",
             "hero_kicker": "Saved searches",
             "hero_title": "Saved searches.",
             "hero_summary": f"{sum(1 for agent in property_search_agents if agent.get('enabled'))} active | {len(property_search_agents)} saved.",
@@ -4413,7 +4413,7 @@ def property_workspace_payload(
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account?settings_view=google#connected-services"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": signed_in_billing_href},
-                {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
+                {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to edit or start again.", "href": f"/app/agents{run_suffix}"},
                 {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},
             ],
             "primary_cards": [
@@ -4444,7 +4444,7 @@ def property_workspace_payload(
                     "title": "Notifications",
                     "body": "",
                     "items": [
-                        row_item("Recurring searches", f"{len(property_search_agents)} saved searches ready to rerun or edit.", "Saved searches"),
+                        row_item("Recurring searches", f"{len(property_search_agents)} saved searches ready to edit or start again.", "Saved searches"),
                         row_item("Delivery", "Digests and recurring market watches use your saved-search settings and chosen channel.", "Reports"),
                         row_item("Return access", str(google.get("connected_account_email") or "Sign-in without widening scope."), "Identity"),
                     ],
@@ -4493,7 +4493,7 @@ def property_workspace_payload(
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account?settings_view=google#connected-services"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": signed_in_billing_href},
-                {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
+                {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to edit or start again.", "href": f"/app/agents{run_suffix}"},
                 {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},
             ],
             "primary_cards": [

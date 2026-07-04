@@ -4622,10 +4622,10 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
                     reply_text=(
                         "That request failed after processing. "
                         f"Last status: {failure_reason}. "
-                        "Tap Retry to run it again."
+                        "Tap Retry to try again."
                     )
                 )
-            return TelegramTurnDecision(reply_text="That request failed after processing. Tap Retry to run it again.")
+            return TelegramTurnDecision(reply_text="That request failed after processing. Tap Retry to try again.")
         return TelegramTurnDecision(
             reply_text=(
                 "PropertyQuarry is still processing that request.\n"

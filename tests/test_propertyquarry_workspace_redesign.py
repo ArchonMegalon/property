@@ -12604,7 +12604,7 @@ def test_property_search_agents_can_load_saved_filters_into_form() -> None:
     assert "applySearchAgentPayloadToForm" in script_body
     assert "resetSearchBriefForm" in script_body
     assert "resetSearchBriefForm();" in script_body
-    assert "Saved search ready to edit. Tweak the filters or run it again." in script_body
+    assert "Saved search ready to edit. Tweak the filters or start it again." in script_body
     assert "Delete ${label}?" in script_body
     assert "data-search-agent-loaded-state" in body
     assert "Loaded: ${label}" in script_body
@@ -14770,7 +14770,7 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "const openFilteredDialog = () => {" in body
     assert "Requirements" in body
     assert "Hard rules and score-only context" not in body
-    assert "Estimated homes that may appear after rerun." in body
+    assert "Estimated homes that may appear after searching again." in body
     assert "refreshCurrentSurface(localStatusNode);" in body
     assert "data-pqx-filter-slider" in body
     assert "data-pqx-filter-field" in body
@@ -16068,7 +16068,7 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
     assert '<div class="pqx-fact"><span>Status</span><strong>' in response.text
     assert "New search" in response.text
     assert "Try this" in response.text
-    assert "Adjust the search, then run it again." in response.text
+    assert "Adjust the search, then search again." in response.text
     assert "What happened" not in response.text
     assert "What still worked" not in response.text
     assert "Main blocker" not in response.text

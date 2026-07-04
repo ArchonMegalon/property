@@ -141,7 +141,7 @@ PRICING_TIERS = (
         "facts": (
             "More source coverage",
             "Deeper property research",
-            "Email alerts and saved runs",
+            "Email alerts and search history",
             "Longer shortlist history",
             "Self-serve billing",
         ),
