@@ -11361,8 +11361,12 @@
                   {% if item.get('tag') %}<span class="pqx-pill">{{ pqx_display_tag(item.get('tag')) }}</span>{% endif %}
                   {% set action_label = item.get('action_label') or '' %}
                   {% set secondary_action_label = item.get('secondary_action_label') or '' %}
+                  {% set tertiary_action_label = item.get('tertiary_action_label') or '' %}
+                  {% set quaternary_action_label = item.get('quaternary_action_label') or '' %}
                   {% if item.get('action_href') and action_label and action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ action_label }}</a>{% endif %}
                   {% if item.get('secondary_action_href') and secondary_action_label and secondary_action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ secondary_action_label }}</a>{% endif %}
+                  {% if item.get('tertiary_action_href') and tertiary_action_label and tertiary_action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('tertiary_action_href') }}">{{ tertiary_action_label }}</a>{% endif %}
+                  {% if item.get('quaternary_action_href') and quaternary_action_label and quaternary_action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('quaternary_action_href') }}">{{ quaternary_action_label }}</a>{% endif %}
                 </div>
               </div>
               {% endfor %}
@@ -11391,8 +11395,12 @@
                   {% if item.get('tag') %}<span class="pqx-pill">{{ pqx_display_tag(item.get('tag')) }}</span>{% endif %}
                   {% set action_label = item.get('action_label') or '' %}
                   {% set secondary_action_label = item.get('secondary_action_label') or '' %}
+                  {% set tertiary_action_label = item.get('tertiary_action_label') or '' %}
+                  {% set quaternary_action_label = item.get('quaternary_action_label') or '' %}
                   {% if item.get('action_href') and action_label and action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ action_label }}</a>{% endif %}
                   {% if item.get('secondary_action_href') and secondary_action_label and secondary_action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ secondary_action_label }}</a>{% endif %}
+                  {% if item.get('tertiary_action_href') and tertiary_action_label and tertiary_action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('tertiary_action_href') }}">{{ tertiary_action_label }}</a>{% endif %}
+                  {% if item.get('quaternary_action_href') and quaternary_action_label and quaternary_action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('quaternary_action_href') }}">{{ quaternary_action_label }}</a>{% endif %}
                 </div>
               </div>
               {% endfor %}

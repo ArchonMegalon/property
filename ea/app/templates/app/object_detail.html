@@ -1037,9 +1037,12 @@
       <div class="object-media-toolbar" aria-label="3D tour status and actions">
         <div class="object-media-status">{{ object_media.get('status_label') or '3D tour available' }}</div>
         <div class="object-actions">
-          {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 3D tour' }}</a>{% endif %}
-          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open property page' }}</a>{% endif %}
-          {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open listing' }}</a>{% endif %}
+          {% set primary_media_label = object_media.get('primary_label') or 'Open 3D tour' %}
+          {% set secondary_media_label = object_media.get('secondary_label') or 'Open property page' %}
+          {% set tertiary_media_label = object_media.get('tertiary_label') or 'Open listing' %}
+          {% if object_media.get('primary_href') and primary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ primary_media_label }}</a>{% endif %}
+          {% if object_media.get('secondary_href') and secondary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ secondary_media_label }}</a>{% endif %}
+          {% if object_media.get('tertiary_href') and tertiary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ tertiary_media_label }}</a>{% endif %}
         </div>
       </div>
       {% elif object_media_carousel_items %}
@@ -1060,9 +1063,12 @@
         <div class="object-media-carousel-actions">
           <div class="object-media-status">{{ object_media.get('status_label') or '3D tour available' }}</div>
           <div class="object-actions">
-            {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 3D tour' }}</a>{% endif %}
-            {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open property page' }}</a>{% endif %}
-            {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open listing' }}</a>{% endif %}
+            {% set primary_media_label = object_media.get('primary_label') or 'Open 3D tour' %}
+            {% set secondary_media_label = object_media.get('secondary_label') or 'Open property page' %}
+            {% set tertiary_media_label = object_media.get('tertiary_label') or 'Open listing' %}
+            {% if object_media.get('primary_href') and primary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ primary_media_label }}</a>{% endif %}
+            {% if object_media.get('secondary_href') and secondary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ secondary_media_label }}</a>{% endif %}
+            {% if object_media.get('tertiary_href') and tertiary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ tertiary_media_label }}</a>{% endif %}
           </div>
         </div>
       </div>
@@ -1074,9 +1080,12 @@
           <p class="object-copy">{{ object_media.get('status_detail') or 'The tour preview is still catching up.' }}</p>
         </div>
         <div class="object-actions">
-          {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open property page' }}</a>{% endif %}
-          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open property page' }}</a>{% endif %}
-          {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open listing' }}</a>{% endif %}
+          {% set primary_media_label = object_media.get('primary_label') or 'Open property page' %}
+          {% set secondary_media_label = object_media.get('secondary_label') or 'Open property page' %}
+          {% set tertiary_media_label = object_media.get('tertiary_label') or 'Open listing' %}
+          {% if object_media.get('primary_href') and primary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ primary_media_label }}</a>{% endif %}
+          {% if object_media.get('secondary_href') and secondary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ secondary_media_label }}</a>{% endif %}
+          {% if object_media.get('tertiary_href') and tertiary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ tertiary_media_label }}</a>{% endif %}
         </div>
       </div>
       {% endif %}

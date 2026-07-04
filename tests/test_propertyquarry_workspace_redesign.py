@@ -4508,7 +4508,12 @@ def test_property_action_cards_filter_legacy_full_view_buttons() -> None:
 
     assert "action_label|lower not in ['full view', 'open full view']" in template
     assert "secondary_action_label|lower not in ['full view', 'open full view']" in template
+    assert "tertiary_action_label|lower not in ['full view', 'open full view']" in template
+    assert "quaternary_action_label|lower not in ['full view', 'open full view']" in template
     assert "{% set hidden_action_labels = ['full view', 'open full view'] %}" in object_template
+    assert "primary_media_label|lower not in hidden_action_labels" in object_template
+    assert "secondary_media_label|lower not in hidden_action_labels" in object_template
+    assert "tertiary_media_label|lower not in hidden_action_labels" in object_template
     assert "tertiary_action_visible = tertiary_action_href and tertiary_action_label|lower not in hidden_action_labels" in object_template
     assert (
         "quaternary_action_visible = quaternary_action_href and quaternary_action_label|lower not in hidden_action_labels"
