@@ -3213,7 +3213,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "Could not load property search status." not in visible_source
     assert "Found" in visible_source
     assert "179" in visible_source
-    assert "29 providers selected" in visible_source
+    assert "29 sources selected" in visible_source
     assert "Found" in visible_source
     assert "details caught up" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
@@ -10516,8 +10516,8 @@ def test_property_run_live_board_uses_selected_total_when_only_active_rows_mater
         plan_key="agent",
     )
 
-    assert snapshot["source_count_label"] == "2/29 providers"
-    assert snapshot["summary_label"] == "29 providers"
+    assert snapshot["source_count_label"] == "2/29 sources"
+    assert snapshot["summary_label"] == "29 sources"
 
 
 def test_property_run_live_board_sanitizes_stale_source_counts_without_source_rows() -> None:
@@ -10538,7 +10538,7 @@ def test_property_run_live_board_sanitizes_stale_source_counts_without_source_ro
     )
 
     assert "156" not in snapshot["source_count_label"]
-    assert snapshot["source_count_label"] in {"0/3 providers", "waiting for providers"}
+    assert snapshot["source_count_label"] in {"0/3 sources", "waiting for sources"}
     assert "selected sources" not in snapshot["source_count_label"]
 
 
@@ -11777,7 +11777,7 @@ def test_property_search_status_hides_active_source_fetch_suppression_receipt_no
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert not any("suppressed_source_fetch_forbidden" in message for message in messages)
-    assert "12 providers · 42 homes found · details caught up" in messages
+    assert "12 sources · 42 homes found · details caught up" in messages
 
 
 def test_property_search_status_replaces_raw_provider_failure_with_repair_copy(monkeypatch) -> None:

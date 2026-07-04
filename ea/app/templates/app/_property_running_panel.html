@@ -18,7 +18,7 @@
 		          {% set run_source_check_done_head = run_source_check_total_head %}
 		        {% endif %}
 		        {% set run_source_check_done_head = run_source_check_done_head if run_source_check_total_head <= 0 or run_source_check_done_head < run_source_check_total_head else run_source_check_total_head %}
-		        {% set run_source_unit_head = 'search pages' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'providers' %}
+		        {% set run_source_unit_head = 'search pages' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'sources' %}
 		        {% set run_source_check_label_head = run_source_check_done_head|string ~ ' / ' ~ run_source_check_total_head|string ~ ' ' ~ run_source_unit_head if run_source_check_total_head > 0 and run_source_total_head > 0 else '' %}
 		        {% set run_source_left_head = run_source_check_total_head - run_source_check_done_head if run_source_check_total_head > run_source_check_done_head else 0 %}
 		        {% set run_queue_label_head = run_to_review_head|string ~ ' to review' if run_to_review_head > 0 else (run_source_left_head|string ~ ' ' ~ run_source_unit_head ~ ' left' if run_source_total_head > 0 and run_source_left_head > 0 else 'details caught up') %}
@@ -66,7 +66,7 @@
     {% set run_source_check_total = run_source_total if run_source_total > run_provider_display_total else run_provider_display_total %}
     {% set run_source_check_done = run_source_done_total if run_source_done_total > 0 else 0 %}
     {% set run_source_check_done = run_source_check_done if run_source_check_total <= 0 or run_source_check_done < run_source_check_total else run_source_check_total %}
-    {% set run_source_unit = 'search pages' if run_source_total > run_provider_display_total and run_provider_display_total > 0 else 'providers' %}
+    {% set run_source_unit = 'search pages' if run_source_total > run_provider_display_total and run_provider_display_total > 0 else 'sources' %}
     {% set run_source_check_label = run_source_check_done|string ~ ' / ' ~ run_source_check_total|string ~ ' ' ~ run_source_unit if run_source_check_total > 0 and run_source_total > 0 else '' %}
     {% set run_source_left_total = run_source_check_total - run_source_check_done if run_source_check_total > run_source_check_done else 0 %}
     {% set run_source_left_label = run_source_left_total|string ~ ' ' ~ run_source_unit ~ ' left' if run_source_left_total > 0 else '' %}
@@ -121,7 +121,7 @@
         {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
         {% set event_label = 'Preparing search' %}
         {% elif event_step in ['source_search', 'provider_search', 'search'] %}
-        {% set event_label = 'Checking providers' %}
+        {% set event_label = 'Checking sources' %}
         {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
         {% set event_label = 'Checking details' %}
         {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}

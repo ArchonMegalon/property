@@ -2569,10 +2569,10 @@ def test_propertyquarry_running_progress_panel_fits_the_first_viewport(
         progress_target = page.locator('[data-pqx-screenfit-target="run-progress"]').first
         progress_text = progress_target.inner_text().strip()
         assert progress_text
-        assert "selected sources" not in progress_text.lower()
         assert "source update" not in progress_text.lower()
         assert "source lanes" not in progress_text.lower()
-        assert re.search(r"\bproviders?\b|\bprovider checks?\b", progress_text, flags=re.IGNORECASE)
+        assert "provider" not in progress_text.lower()
+        assert re.search(r"\bsources?\b|\bsearch pages?\b", progress_text, flags=re.IGNORECASE)
         page.screenshot(path=str(screenshot_path), full_page=False)
         layout = page.evaluate(
             """
@@ -4548,10 +4548,10 @@ def test_propertyquarry_running_progress_panel_fits_the_first_mobile_viewport(
         progress_target = page.locator('[data-pqx-screenfit-target="run-progress"]').first
         progress_text = progress_target.inner_text().strip()
         assert progress_text
-        assert "selected sources" not in progress_text.lower()
         assert "source update" not in progress_text.lower()
         assert "source lanes" not in progress_text.lower()
-        assert re.search(r"\bproviders?\b|\bprovider checks?\b", progress_text, flags=re.IGNORECASE)
+        assert "provider" not in progress_text.lower()
+        assert re.search(r"\bsources?\b|\bsearch pages?\b", progress_text, flags=re.IGNORECASE)
         layout = page.evaluate(
             """
             () => {

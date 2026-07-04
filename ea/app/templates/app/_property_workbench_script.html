@@ -2087,7 +2087,7 @@
       const providerTotal = Math.max(0, Number(providerDisplayTotal || summary.provider_display_total || summary.provider_total || 0));
       if (sourceVariantTotal > 0 && providerTotal > 0 && sourceVariantTotal > providerTotal) return 'search pages';
       if (Number(total || 0) > 0 && providerTotal > 0 && Number(total || 0) > providerTotal) return 'search pages';
-      return 'providers';
+      return 'sources';
     };
     const runSourceWorkLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
       const countTotal = Math.max(0, Number(counts?.total || 0));
@@ -2096,7 +2096,7 @@
         const done = Math.min(total, Math.max(0, Number(counts?.done || 0)));
         return `${done} / ${total} ${runSourceUnitLabel(summary, total, providerDisplayTotal)}`;
       }
-      if (total > 0) return `${total} providers selected`;
+      if (total > 0) return `${total} sources selected`;
       return 'Search warming up';
     };
     const runSourceWorkLeftLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
@@ -2206,7 +2206,7 @@
 	      const checkedLabel = runListingQueueMessage(found, toReview);
       const scanLabel = found > 0
         ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary) : checkedLabel)
-        : (providerDisplayTotal ? `${providerDisplayTotal} providers selected` : checkedLabel);
+        : (providerDisplayTotal ? `${providerDisplayTotal} sources selected` : checkedLabel);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -2227,7 +2227,7 @@
           return 'Preparing search';
         }
         if (['source_search', 'provider_search', 'search'].includes(step)) {
-          return 'Checking providers';
+          return 'Checking sources';
         }
         if (['source_detail_check', 'listing_detail_check', 'source_fetch', 'source_fetch_page'].includes(step)) {
           return 'Checking details';
@@ -2732,7 +2732,7 @@
         sourceWork,
         found,
         toReview,
-        providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Waiting for first listings',
+        providerDisplayTotal > 0 ? `${providerDisplayTotal} sources selected` : 'Waiting for first listings',
         providerDisplayTotal,
         summary,
       );

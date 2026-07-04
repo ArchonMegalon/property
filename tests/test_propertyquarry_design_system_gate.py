@@ -164,6 +164,8 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "select providers",
         "all providers",
         "provider allowance",
+        "providers selected",
+        "checking providers",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

@@ -2090,7 +2090,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     to_review_total = listing_work["to_review"]
     checked_label = _property_run_listing_queue_label(found_total, to_review_total)
     scan_label = checked_label if found_total > 0 else (
-        f"{provider_display_total} providers selected" if provider_display_total > 0 else checked_label
+        f"{provider_display_total} sources selected" if provider_display_total > 0 else checked_label
     )
     if found_total > 0 and source_work["open"] > 0:
         source_label = _property_run_provider_check_label(summary, status=status)
@@ -2333,7 +2333,7 @@ def build_property_run_live_board_snapshot(
         ):
             provider_total = inferred_provider_total
     scan_total_label = (
-        f"{provider_total} providers"
+        f"{provider_total} sources"
         if provider_total
         else (f"{source_total} search pages" if source_total else "")
     )
@@ -2348,7 +2348,7 @@ def build_property_run_live_board_snapshot(
         source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} {unit}"
     else:
         unit = _property_run_source_unit_label(summary, total=source_total)
-        source_count_label = live_info.get("fraction_label") or ("waiting for providers" if source_total == 0 else f"0/{source_total} {unit}")
+        source_count_label = live_info.get("fraction_label") or ("waiting for sources" if source_total == 0 else f"0/{source_total} {unit}")
     summary_label = (
         f"{aggregate_label} · {provider_label} · {live_info.get('fraction_label')}"
         if aggregate_label != "checking" and provider_full_label and live_info.get("fraction_label")

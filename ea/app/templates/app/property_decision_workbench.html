@@ -333,7 +333,7 @@
 {% set source_check_total = source_check_total if source_check_total > 0 else provider_display_total %}
 {% set source_check_done = source_done_total if source_done_total > 0 else 0 %}
 {% set source_check_done = source_check_done if source_check_total <= 0 or source_check_done < source_check_total else source_check_total %}
-{% set source_unit = 'search pages' if source_variant_total > provider_display_total and provider_display_total > 0 else 'providers' %}
+{% set source_unit = 'search pages' if source_variant_total > provider_display_total and provider_display_total > 0 else 'sources' %}
 {% set source_check_label = source_check_done|string ~ ' / ' ~ source_check_total|string ~ ' ' ~ source_unit if source_check_total > 0 and source_variant_total > 0 else '' %}
 {% set raw_listing_total = (summary.get('found_listing_total') if summary.get('found_listing_total') is not none else (summary.get('raw_listing_total') or 0))|int %}
 {% set listing_total = (summary.get('listing_total') or 0)|int %}
@@ -349,9 +349,9 @@
 {% if source_variant_total > 0 %}
 {% set scan_count_label = source_check_label %}
 {% elif provider_display_total > 0 %}
-{% set scan_count_label = provider_display_total|string ~ ' providers selected' %}
+{% set scan_count_label = provider_display_total|string ~ ' sources selected' %}
 {% elif source_completed > 0 or source_total > 0 %}
-{% set scan_count_label = 'Checking providers' %}
+{% set scan_count_label = 'Checking sources' %}
 {% else %}
 {% set scan_count_label = 'Search warming up' %}
 {% endif %}
@@ -436,7 +436,7 @@
 		  <div class="pqx-source-progress" data-pqx-source-progress>
 		    <div class="pqx-source-progress-head">
 				      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-						      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total and source_open_total > 0 %}{{ source_open_total }} {{ source_unit }} left{% elif found_total %}details caught up{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first listings{% endif %}</span>
+						      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total and source_open_total > 0 %}{{ source_open_total }} {{ source_unit }} left{% elif found_total %}details caught up{% elif provider_display_total %}{{ provider_display_total }} sources selected{% else %}Waiting for first listings{% endif %}</span>
 						      {% if found_total and to_review_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
 					    </div>
 				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first source.' }}</span>
@@ -10901,7 +10901,7 @@
           {% set live_source_check_total = live_source_check_total if live_source_check_total > 0 else live_provider_total %}
           {% set live_source_check_done = live_source_done_total if live_source_done_total > 0 else 0 %}
           {% set live_source_check_done = live_source_check_done if live_source_check_total <= 0 or live_source_check_done < live_source_check_total else live_source_check_total %}
-          {% set live_source_unit = 'search pages' if live_source_total > live_provider_total and live_provider_total > 0 else 'providers' %}
+          {% set live_source_unit = 'search pages' if live_source_total > live_provider_total and live_provider_total > 0 else 'sources' %}
           {% set live_source_check_label = live_source_check_done|string ~ ' / ' ~ live_source_check_total|string ~ ' ' ~ live_source_unit if live_source_check_total > 0 and live_source_total > 0 else '' %}
           {% set live_reviewed_total = (run_summary.get('scanned_listing_total') if run_summary.get('scanned_listing_total') is not none else (run_summary.get('reviewed_listing_total') or 0))|int %}
           {% set live_raw_found_total = (run_summary.get('found_listing_total') if run_summary.get('found_listing_total') is not none else (run_summary.get('raw_listing_total') or live_reviewed_total or run_summary.get('listing_total') or 0))|int %}
@@ -10957,7 +10957,7 @@
 	            <div class="pqx-pref-list">
 	              <div class="pqx-pref-row">
 	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
-		                  <div><strong>Sources</strong><small>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} providers selected{% else %}Preparing{% endif %}</small></div>
+		                  <div><strong>Sources</strong><small>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} sources selected{% else %}Preparing{% endif %}</small></div>
 		                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
 				                <div><strong>{{ live_detail_queue_label }}</strong><small>{{ live_detail_queue_value }}</small></div>
 	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
@@ -12109,7 +12109,7 @@
                 {% set variant_display_total = (run.get('source_variant_display_total') or run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
                 {% set homes_checked = (run_summary.get('listing_total') or run_summary.get('raw_listing_total') or 0)|int %}
               {% if provider_display_total > 0 and variant_display_total > provider_display_total %}
-                {{ provider_display_total }} providers · {{ homes_checked }} homes checked
+                {{ provider_display_total }} sources · {{ homes_checked }} homes checked
               {% else %}
                 {{ homes_checked }} homes checked
                 {% endif %}
@@ -12337,7 +12337,7 @@
           {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
           {% set event_label = 'Preparing search' %}
           {% elif event_step in ['source_search', 'provider_search', 'search'] %}
-          {% set event_label = 'Checking providers' %}
+          {% set event_label = 'Checking sources' %}
           {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
           {% set event_label = 'Checking details' %}
           {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
