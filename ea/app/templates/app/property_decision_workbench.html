@@ -53,6 +53,13 @@
   {%- else -%}{{ label }}
   {%- endif -%}
 {%- endmacro %}
+{% macro pqx_route_preview_text(value, fallback='') -%}
+  {%- set raw = (value or '')|string|trim -%}
+  {%- set lowered = raw|lower -%}
+  {%- if not raw or lowered.startswith('http://') or lowered.startswith('https://') or 'google.com/maps' in lowered or 'maps.google.' in lowered -%}{{ fallback }}
+  {%- else -%}{{ raw }}
+  {%- endif -%}
+{%- endmacro %}
 {% macro pqx_calm_ui_label(value, fallback='') -%}
   {%- set raw = (value or fallback or '')|string|trim -%}
   {%- set lowered = raw|lower -%}
@@ -465,8 +472,8 @@
     <article class="pqx-route-preview-card">
       {% if route.get('map_url') %}<a class="pqx-route-preview-link" href="{{ route.get('map_url') }}" target="_blank" rel="noreferrer">{% endif %}
         <div class="pqx-route-preview-head">
-          <span class="pqx-small">{{ route.get('label') or 'Route' }}</span>
-          <strong>{{ route.get('title') or 'Route preview' }}</strong>
+          <span class="pqx-small">{{ pqx_route_preview_text(route.get('label'), 'Route') }}</span>
+          <strong>{{ pqx_route_preview_text(route.get('title'), 'Route preview') }}</strong>
         </div>
         <svg class="pqx-route-preview-svg" viewBox="0 0 144 68" aria-hidden="true">
           <circle cx="12" cy="56" r="5"></circle>
@@ -474,8 +481,8 @@
           <circle cx="132" cy="18" r="5"></circle>
         </svg>
         <div class="pqx-route-preview-meta">
-          <span>{{ route.get('detail') }}</span>
-          <b>{{ route.get('mode_label') or 'Route' }}</b>
+          <span>{{ pqx_route_preview_text(route.get('detail'), '') }}</span>
+          <b>{{ pqx_route_preview_text(route.get('mode_label'), 'Route') }}</b>
         </div>
       {% if route.get('map_url') %}</a>{% endif %}
     </article>

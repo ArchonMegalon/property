@@ -1043,6 +1043,9 @@ def test_propertyquarry_browser_route_preview_uses_confirmed_distance_fallback_c
     assert "Nearest ${String(label || 'place').toLowerCase()}" in body
     assert "const distance = Number(facts[distanceKey] || 0);" in body
     assert "if (!Number.isFinite(distance) || distance <= 0) return;" in body
+    assert "const routePreviewText = (value, fallback = '') => {" in body
+    assert "lowered.includes('google.com/maps')" in body
+    assert "const href = routePreviewHref(route?.map_url);" in body
 
 
 def test_propertyquarry_research_missing_rows_respect_confirmed_distance_aliases() -> None:
@@ -11255,6 +11258,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Berlin Hauptbahnhof" in search.text
     assert "Berlin Hauptbahnhof" in search.text
     assert "https://www.google.com/maps/dir/?api=1" in search.text
+    assert "Your route https://www.google.com/maps/dir/?api=1" not in search.text
+    assert '<span class="pqx-route-preview-strip" hidden data-pqx-route-preview-strip></span>' in search.text
     assert "Official data" in search.text or "Supermarket" in search.text
     assert "Supermarket" in search.text
     assert "280 m" in search.text

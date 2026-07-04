@@ -2586,14 +2586,33 @@
       });
       return previews.slice(0, 3);
     };
+    const routePreviewText = (value, fallback = '') => {
+      const raw = String(value || '').trim();
+      const lowered = raw.toLowerCase();
+      if (!raw || /^https?:\/\//i.test(raw) || lowered.includes('google.com/maps') || lowered.includes('maps.google.')) {
+        return fallback;
+      }
+      return raw;
+    };
+    const routePreviewHref = (value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      try {
+        const parsed = new URL(raw, window.location.origin);
+        return ['http:', 'https:'].includes(parsed.protocol) ? parsed.href : '';
+      } catch (_error) {
+        return '';
+      }
+    };
     const renderRoutePreviewStrip = (runPayload) => {
       const previews = propertyRoutePreviews(runPayload);
       if (!Array.isArray(previews) || !previews.length) return '';
       const cards = previews.slice(0, 3).map((route) => {
+        const href = routePreviewHref(route?.map_url);
         const inner = `
           <div class="pqx-route-preview-head">
-            <span class="pqx-small">${escapeHtml(route?.label || 'Route')}</span>
-            <strong>${escapeHtml(route?.title || 'Route preview')}</strong>
+            <span class="pqx-small">${escapeHtml(routePreviewText(route?.label, 'Route'))}</span>
+            <strong>${escapeHtml(routePreviewText(route?.title, 'Route preview'))}</strong>
           </div>
           <svg class="pqx-route-preview-svg" viewBox="0 0 144 68" aria-hidden="true">
             <circle cx="12" cy="56" r="5"></circle>
@@ -2601,11 +2620,11 @@
             <circle cx="132" cy="18" r="5"></circle>
           </svg>
           <div class="pqx-route-preview-meta">
-            <span>${escapeHtml(route?.detail || '')}</span>
-            <b>${escapeHtml(route?.mode_label || 'Route')}</b>
+            <span>${escapeHtml(routePreviewText(route?.detail, ''))}</span>
+            <b>${escapeHtml(routePreviewText(route?.mode_label, 'Route'))}</b>
           </div>
         `;
-        return `<article class="pqx-route-preview-card">${route?.map_url ? `<a class="pqx-route-preview-link" href="${escapeHtml(route.map_url)}" target="_blank" rel="noreferrer">${inner}</a>` : `<div class="pqx-route-preview-link">${inner}</div>`}</article>`;
+        return `<article class="pqx-route-preview-card">${href ? `<a class="pqx-route-preview-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${inner}</a>` : `<div class="pqx-route-preview-link">${inner}</div>`}</article>`;
       }).join('');
       return `<div class="pqx-route-preview-strip" data-pqx-route-preview-strip>${cards}</div>`;
     };
