@@ -3,6 +3,9 @@
 {% set is_shortlist_surface = surface_mode == 'shortlist' %}
 {% set is_research_surface = surface_mode == 'research' %}
 {% set run_sources = run_summary.get('sources') or [] %}
+{% set full_results_total = results|length %}
+{% set first_paint_result_limit = 24 if (surface_mode in ['properties', 'shortlist']) else full_results_total %}
+{% set visible_results = results[:first_paint_result_limit] %}
 {% set location_mismatch = namespace(total=(run_summary.get('location_mismatch_candidate_total') or 0)|int) %}
 {% if not location_mismatch.total %}
   {% for source in run_sources %}
@@ -31,7 +34,7 @@
       {% endif %}
       {% endif %}
       <div class="pqx-note pqx-results-summary-row">
-        <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> {{ results_label }}</a>
+        <a class="pqx-results-summary-link" href="#results-list"><b>{{ full_results_total }}</b> {{ results_label }}</a>
         {% if filtered_total %}
         <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} homes need a wider brief">
           {{ filtered_total }} {{ 'outside area' if location_mismatch.total else 'outside brief' }}
@@ -44,7 +47,7 @@
     </div>
   </div>
   {% include "app/_property_recent_run_strip.html" %}
-	  <div class="pqx-results-list" id="results-list" data-workbench-results-table>
+	  <div class="pqx-results-list" id="results-list" data-workbench-results-table data-results-total="{{ full_results_total }}" data-results-rendered="{{ visible_results|length }}">
 		    <span hidden>Match homes</span>
 	    <span class="pqx-route-preview-strip" hidden data-pqx-route-preview-strip>Your route https://www.google.com/maps/dir/?api=1</span>
 	    <span hidden data-pqx-progress-board>Results are ready</span>
@@ -53,7 +56,7 @@
 	    <span class="pqx-route-evidence" hidden></span>
 	    <span hidden>Filtered floorplans pending These homes are still being checked for a floorplan Floorplan still missing</span>
 	    <dialog data-pqx-filtered-dialog hidden></dialog>
-	    {% for candidate in results %}
+	    {% for candidate in visible_results %}
     <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}{% if loop.first %} is-top-ranked{% endif %}" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-candidate-listing-url="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
       {% set orientation_preview = candidate.get('orientation_preview') or {} %}
 		      {% set diorama_scene = candidate.get('diorama_scene') or {} %}

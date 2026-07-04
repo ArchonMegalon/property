@@ -441,6 +441,179 @@ def _property_search_compact_source_rows(summary: dict[str, object]) -> dict[str
     return normalized
 
 
+_PROPERTY_SEARCH_LIGHTWEIGHT_CANDIDATE_FACT_KEYS = (
+    "price_display",
+    "rent_display",
+    "price_per_sqm_display",
+    "currency_code",
+    "price_eur",
+    "rent_eur",
+    "total_rent_eur",
+    "monthly_rent_eur",
+    "purchase_price_eur",
+    "area_sqm",
+    "living_area_sqm",
+    "rooms",
+    "floor",
+    "has_floorplan",
+    "floorplan_count",
+    "postal_name",
+    "district",
+    "city",
+    "map_lat",
+    "map_lng",
+    "lat",
+    "lng",
+    "latitude",
+    "longitude",
+    "nearest_school_m",
+    "nearest_school_name",
+    "nearest_supermarket_m",
+    "nearest_supermarket_name",
+    "nearest_playground_m",
+    "nearest_playground_name",
+    "nearest_subway_m",
+    "nearest_subway_name",
+)
+
+
+def _property_search_lightweight_image_url(value: object) -> str:
+    url = str(value or "").strip()
+    if not url:
+        return ""
+    if url.lower().startswith("data:"):
+        return ""
+    return url
+
+
+def _property_search_lightweight_image_payload(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw = dict(value)
+    compact: dict[str, object] = {}
+    for key in ("image_url", "thumb_image_url", "preview_image_url"):
+        cleaned = _property_search_lightweight_image_url(raw.get(key))
+        if cleaned:
+            compact[key] = cleaned
+    return compact
+
+
+def _property_search_lightweight_tour_payload(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw = dict(value)
+    return {
+        key: raw.get(key)
+        for key in (
+            "status",
+            "url",
+            "embed_url",
+            "provider_url",
+            "provider",
+            "label",
+            "detail",
+            "eta_label",
+            "progress_pct",
+        )
+        if raw.get(key) not in (None, "", [], {})
+    }
+
+
+def _property_search_lightweight_candidate_payload(
+    candidate: dict[str, object],
+    *,
+    run_id: str,
+    index: int,
+) -> dict[str, object]:
+    raw = dict(candidate or {})
+    candidate_ref = str(raw.get("candidate_ref") or "").strip()
+    if not candidate_ref:
+        candidate_ref = _property_candidate_ref(
+            {
+                "title": str(raw.get("title") or "").strip(),
+                "property_url": str(raw.get("property_url") or "").strip(),
+                "review_url": str(raw.get("review_url") or "").strip(),
+                "source_ref": str(raw.get("source_ref") or "").strip(),
+                "source_label": str(raw.get("source_label") or raw.get("source_url") or "").strip(),
+            }
+        )
+    if not candidate_ref:
+        candidate_ref = f"candidate-{index}"
+    packet_url = str(raw.get("packet_url") or "").strip()
+    review_url = str(raw.get("review_url") or "").strip()
+    if not packet_url and review_url.startswith("/app/research/"):
+        packet_url = review_url
+    if not packet_url and candidate_ref:
+        packet_url = f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}"
+        if run_id:
+            packet_url = f"{packet_url}?run_id={urllib.parse.quote(run_id, safe='')}"
+    compact: dict[str, object] = {
+        "candidate_ref": candidate_ref,
+        "rank": raw.get("rank") or index,
+    }
+    if packet_url:
+        compact["packet_url"] = packet_url
+    for key in (
+        "title",
+        "source_label",
+        "source_platform",
+        "source_ref",
+        "location_label",
+        "price_display",
+        "costs_display",
+        "rent_display",
+        "price_per_sqm_display",
+        "layout_display",
+        "fit_score",
+        "personal_fit_score",
+        "fit_label",
+        "fit_summary",
+        "property_url",
+        "source_url",
+        "listing_url",
+        "map_url",
+        "floorplan_url",
+        "source_virtual_tour_url",
+        "vendor_tour_url",
+        "tour_url",
+        "tour_status",
+        "tour_provider",
+        "flythrough_url",
+        "flythrough_status",
+        "diorama_preview_url",
+    ):
+        value = raw.get(key)
+        if value not in (None, "", [], {}):
+            compact[key] = value
+    preview_image_url = _property_search_lightweight_image_url(raw.get("preview_image_url"))
+    if preview_image_url:
+        compact["preview_image_url"] = preview_image_url
+    orientation_preview = _property_search_lightweight_image_payload(raw.get("orientation_preview"))
+    if orientation_preview:
+        compact["orientation_preview"] = orientation_preview
+    diorama_scene = _property_search_lightweight_image_payload(raw.get("diorama_scene"))
+    if diorama_scene:
+        compact["diorama_scene"] = diorama_scene
+    tour_payload = _property_search_lightweight_tour_payload(raw.get("tour"))
+    if tour_payload:
+        compact["tour"] = tour_payload
+    flythrough_payload = _property_search_lightweight_tour_payload(raw.get("flythrough"))
+    if flythrough_payload:
+        compact["flythrough"] = flythrough_payload
+    facts = dict(raw.get("property_facts") or {}) if isinstance(raw.get("property_facts"), dict) else {}
+    compact_facts = {
+        key: facts.get(key)
+        for key in _PROPERTY_SEARCH_LIGHTWEIGHT_CANDIDATE_FACT_KEYS
+        if facts.get(key) not in (None, "", [], {})
+    }
+    if compact_facts:
+        compact["property_facts"] = compact_facts
+    match_reasons = [str(item).strip() for item in list(raw.get("match_reasons") or []) if str(item).strip()]
+    if match_reasons:
+        compact["match_reasons"] = match_reasons[:3]
+    return compact
+
+
 def _property_search_payload_with_status_url(payload: dict[str, object], *, canonical: bool) -> dict[str, object]:
     copied = dict(payload or {})
     summary = dict(copied.get("summary") or {}) if isinstance(copied.get("summary"), dict) else {}
@@ -710,6 +883,11 @@ def _property_search_run_status_payload(
             if packet_url:
                 candidate["packet_url"] = packet_url
         if ranked_candidates:
+            if lightweight:
+                ranked_candidates = [
+                    _property_search_lightweight_candidate_payload(candidate, run_id=run_id, index=index)
+                    for index, candidate in enumerate(ranked_candidates, start=1)
+                ]
             summary["ranked_candidates"] = ranked_candidates
         held_back_total = int(
             summary.get("held_back_total")

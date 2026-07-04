@@ -4010,8 +4010,57 @@ def test_propertyquarry_shortlist_bootstrap_uses_compact_client_payload(monkeypa
     result = payload["results"][0]
     assert result["title"] == "Compact payload apartment"
     assert result["property_facts"]["has_floorplan"] is True
-    assert result["property_facts"]["floorplan_urls_json"] == ["https://cdn.example.test/floorplan.png"]
-    assert result["property_facts"]["source_virtual_tour_url"] == "https://tour.example.test/360"
+    assert "floorplan_urls_json" not in result["property_facts"]
+    assert "source_virtual_tour_url" not in result["property_facts"]
+    assert "review_url" not in result
+
+
+def test_propertyquarry_shortlist_server_first_paint_bounds_rendered_rows(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-first-paint-bound")
+    start_workspace(client, mode="personal", workspace_name="Shortlist First Paint Office")
+    ranked_candidates = [
+        {
+            "candidate_ref": f"candidate-{index}",
+            "title": f"Candidate {index}",
+            "property_url": f"https://example.test/listing/{index}",
+            "source_label": "Willhaben",
+            "fit_score": 100 - index,
+            "price_display": "EUR 1,200",
+            "layout_display": "2 rooms | 54 m2",
+        }
+        for index in range(40)
+    ]
+
+    def _fake_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        assert lightweight is True
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "message": "Results are ready.",
+            "summary": {
+                "status": "processed",
+                "provider_total": 1,
+                "source_variant_total": 1,
+                "sources_total": 1,
+                "sources_completed": 1,
+                "ranked_total": 40,
+                "ranked_candidates": ranked_candidates,
+                "sources": [],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+
+    response = client.get("/app/shortlist", params={"run_id": "run-first-paint"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert 'data-results-total="40"' in response.text
+    assert 'data-results-rendered="24"' in response.text
+    assert response.text.count('<article class="pqx-result pqx-card') == 24
+    assert "<b>40</b> saved homes" in response.text
 
 
 def test_propertyquarry_properties_route_bootstraps_full_run_trail(monkeypatch) -> None:
@@ -11956,6 +12005,73 @@ def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources
     assert "3 providers selected for this search." in messages
     assert "Search pages: 30 checked of 30." in messages
     assert not any("queued" in message.lower() or "running" in message.lower() for message in messages)
+
+
+def test_property_search_status_lightweight_compacts_ranked_candidates(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-lightweight-ranked-candidates")
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Lightweight Ranked Candidates")
+    heavy_blob = "x" * 12000
+
+    def _fake_run_status(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        lightweight: bool = False,
+        account_email: str = "",
+    ):
+        assert lightweight is True
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "message": "Results are ready.",
+            "summary": {
+                "status": "processed",
+                "ranked_total": 1,
+                "ranked_candidates": [
+                    {
+                        "title": "Compact ranked home",
+                        "review_url": "/app/research/compact-ranked-home?run_id=run-ranked-compact",
+                        "property_url": "https://example.test/compact-ranked-home",
+                        "source_label": "Willhaben",
+                        "fit_score": 92,
+                        "preview_image_url": "data:image/png;base64," + heavy_blob,
+                        "source_virtual_tour_url": "https://tour.example.test/compact-ranked-home",
+                        "property_facts": {
+                            "postal_name": "1020 Vienna",
+                            "has_floorplan": True,
+                            "floorplan_urls_json": ["https://cdn.example.test/floorplan.png"],
+                            "source_virtual_tour_url": "https://tour.example.test/compact-ranked-home",
+                            "raw_listing_text": heavy_blob,
+                        },
+                        "assessment": {"raw_model_notes": heavy_blob},
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get(
+        "/app/api/signals/property/search/run/run-ranked-compact?lightweight=1",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    serialized = json.dumps(payload, sort_keys=True)
+    assert heavy_blob not in serialized
+    candidate = payload["summary"]["ranked_candidates"][0]
+    assert candidate["title"] == "Compact ranked home"
+    assert candidate["packet_url"] == "/app/research/compact-ranked-home?run_id=run-ranked-compact"
+    assert candidate["source_virtual_tour_url"] == "https://tour.example.test/compact-ranked-home"
+    assert candidate["property_facts"]["has_floorplan"] is True
+    assert "floorplan_urls_json" not in candidate["property_facts"]
+    assert "review_url" not in candidate
 
 
 def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:

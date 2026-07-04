@@ -6199,23 +6199,35 @@ def app_shell(
     requested_agent_id = str(load_agent or run_agent or agent_id or "").strip()
     if property_brand and resolved_section in {"properties", "shortlist", "research"} and normalized_run_id:
         product = build_product_service(container)
+        route_run_lightweight = resolved_section in {"shortlist", "research"}
         try:
             route_run = dict(
                 product.get_property_search_run_status(
                     principal_id=context.principal_id,
                     run_id=normalized_run_id,
+                    lightweight=route_run_lightweight,
                     account_email=context.access_email,
                 )
                 or {}
             )
         except TypeError:
-            route_run = dict(
-                product.get_property_search_run_status(
-                    principal_id=context.principal_id,
-                    run_id=normalized_run_id,
+            try:
+                route_run = dict(
+                    product.get_property_search_run_status(
+                        principal_id=context.principal_id,
+                        run_id=normalized_run_id,
+                        lightweight=route_run_lightweight,
+                    )
+                    or {}
                 )
-                or {}
-            )
+            except TypeError:
+                route_run = dict(
+                    product.get_property_search_run_status(
+                        principal_id=context.principal_id,
+                        run_id=normalized_run_id,
+                    )
+                    or {}
+                )
         if not route_run:
             if resolved_section == "properties":
                 target_query = str(request.url.query or "").strip()
