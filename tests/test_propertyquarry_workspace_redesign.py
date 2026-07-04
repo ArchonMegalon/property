@@ -10799,6 +10799,11 @@ def test_propertyquarry_results_template_marks_top_rank_and_watch_out_copy() -> 
     assert "Fit {{ candidate.get('fit_score') or candidate.get('personal_fit_score') }}" in body
     assert "pqx-thumb-link" in body
     assert "pqx-results-filter-link" in body
+    assert "<span hidden data-pqx-progress-board></span>" in body
+    assert "<span hidden data-pqx-progress-eta></span>" in body
+    assert "Filtered floorplans pending These homes are still being checked for a floorplan Floorplan still missing" not in body
+    assert "Results are ready</span>" not in body
+    assert "100% · complete</span>" not in body
 
 
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:
@@ -11260,6 +11265,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "https://www.google.com/maps/dir/?api=1" in search.text
     assert "Your route https://www.google.com/maps/dir/?api=1" not in search.text
     assert '<span class="pqx-route-preview-strip" hidden data-pqx-route-preview-strip></span>' in search.text
+    assert '<span hidden data-pqx-progress-board></span>' in search.text
+    assert '<span hidden data-pqx-progress-eta></span>' in search.text
+    assert "Filtered floorplans pending These homes are still being checked for a floorplan Floorplan still missing" not in search.text
     assert "Official data" in search.text or "Supermarket" in search.text
     assert "Supermarket" in search.text
     assert "280 m" in search.text
@@ -11274,14 +11282,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-tour-eta="about 12 min"' in search.text
     assert 'href="/app/properties/packets?run_id=run-42"' in search.text
     assert 'href="/app/search?run_id=run-42" data-pqx-loading-link>Edit search</a>' in search.text
-    assert "floorplans pending" in search.text
     assert "not scheduled yet" not in search.text
     assert "3D tour" in search.text
     assert "Match" in search.text
     assert "EUR 420,000" in search.text
-    assert "floorplans pending" in search.text
     assert "Pending layout proof" not in search.text
-    assert "These homes are still being checked for a floorplan" in search.text
     assert 'data-pqx-progress-board' in search.text
     assert 'data-pqx-progress-eta' in search.text
     assert 'class="pqx-source-progress"' in search.text
@@ -11297,13 +11302,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Open property" in search.text
     assert 'data-candidate-packet-url="/app/research/' in search.text
     assert 'data-candidate-listing-url="https://www.immobilienscout24.de/expose/altbau-u6"' in search.text
-    assert "Filtered" in search.text
-    assert "Floorplan still missing" in search.text
     assert "Floorplan gate" not in search.text
-    assert "floorplans pending" in search.text
-    assert "These homes are still being checked for a floorplan" in search.text
     assert "Layout not verified" not in search.text
-    assert "Floorplan still missing" in search.text
+    assert "floorplans pending" not in search.text
+    assert "These homes are still being checked for a floorplan" not in search.text
+    assert "Floorplan still missing" not in search.text
     assert 'data-pqx-filtered-dialog' in search.text
     assert re.search(r"<button[^>]+data-property-start-top[^>]*>\\s*Launch search\\s*</button>", search.text) is None
     assert "Morning Memo" not in search.text

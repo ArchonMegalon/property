@@ -49,13 +49,13 @@
   </div>
   {% include "app/_property_recent_run_strip.html" %}
 	<div class="pqx-results-list" id="results-list" data-workbench-results-table data-results-total="{{ full_results_total }}" data-results-rendered="{{ visible_results|length }}">
-		    <span hidden>Match homes</span>
+		    <span hidden></span>
 	    <span class="pqx-route-preview-strip" hidden data-pqx-route-preview-strip></span>
-	    <span hidden data-pqx-progress-board>Results are ready</span>
-	    <span hidden data-pqx-progress-eta>100% · complete</span>
+	    <span hidden data-pqx-progress-board></span>
+	    <span hidden data-pqx-progress-eta></span>
 	    <span class="pqx-source-progress" hidden></span>
 	    <span class="pqx-route-evidence" hidden></span>
-	    <span hidden>Filtered floorplans pending These homes are still being checked for a floorplan Floorplan still missing</span>
+	    <span hidden></span>
 	    <dialog data-pqx-filtered-dialog hidden></dialog>
 	    {% for candidate in visible_results %}
     <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}{% if loop.first %} is-top-ranked{% endif %}" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-candidate-listing-url="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
