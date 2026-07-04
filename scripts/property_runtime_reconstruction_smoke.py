@@ -63,18 +63,18 @@ def _http_probe(url: str) -> dict[str, object]:
     opener = urllib.request.build_opener(_NoRedirect)
     try:
         with opener.open(request, timeout=30) as response:
-            body = response.read(32_768)
+            body = response.read(65_536)
             return {
                 "status_code": int(response.getcode() or 0),
                 "location": str(response.headers.get("location") or ""),
-                "body_excerpt": body.decode("utf-8", errors="replace")[:2000],
+                "body_excerpt": body.decode("utf-8", errors="replace")[:65_536],
             }
     except urllib.error.HTTPError as exc:
-        body = exc.read(32_768)
+        body = exc.read(65_536)
         return {
             "status_code": int(exc.code or 0),
             "location": str(exc.headers.get("location") or ""),
-            "body_excerpt": body.decode("utf-8", errors="replace")[:2000],
+            "body_excerpt": body.decode("utf-8", errors="replace")[:65_536],
         }
     except Exception as exc:
         return {"status_code": 0, "error": type(exc).__name__, "detail": str(exc)[:500]}
