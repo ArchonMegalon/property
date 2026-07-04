@@ -207,15 +207,15 @@ def _make_diorama(packet: dict[str, Any], listing: ListingSpec, hero_path: Path,
     draw.text((84, 478), "Diorama preview", fill=(254, 242, 228), font=_load_font(24, bold=True))
     for idx, line in enumerate(
         [
-            "White-label layout-first preview with route emphasis,",
-            "floorplan context, and a direct review path into the",
-            "hosted 3D reconstruction and flythrough lane.",
+            "Layout-first preview with route emphasis,",
+            "floor-plan context, and a direct review path into the",
+            "hosted 3D tour and walkthrough.",
         ]
     ):
         draw.text((84, 522 + idx * 28), line, fill=(225, 221, 218), font=small_font)
 
     draw.rounded_rectangle((82, 690, 366, 760), radius=22, fill=(248, 244, 237))
-    draw.text((108, 712), "Open 3D reconstruction", fill=(42, 42, 42), font=_load_font(24, bold=True))
+    draw.text((108, 712), "Open 3D tour", fill=(42, 42, 42), font=_load_font(24, bold=True))
 
     # A subtle route ribbon across the floorplan card.
     route = [(800, 638), (910, 580), (1032, 542), (1188, 500), (1294, 450)]
@@ -363,7 +363,7 @@ def main() -> int:
             "image_url": diorama_path.resolve().as_uri(),
             "video_url": flythrough_url,
             "tour_url": packet["tour_url"],
-            "summary": "A white-label diorama preview introduces the floorplan route, then hands off into the hosted reconstruction and flythrough lane.",
+            "summary": "A diorama preview introduces the floor-plan route, then hands off into the hosted tour and walkthrough.",
             "privacy_mode": "share_safe",
         }
         packet["compare_reason"] = spec.compare_reason

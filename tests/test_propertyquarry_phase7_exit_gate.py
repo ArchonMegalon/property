@@ -37,7 +37,7 @@ def test_propertyquarry_phase7_exit_gate_is_green() -> None:
     assert_contains_strings(
         payload["required_ui_affordances"],
         [
-            "Open 3D reconstruction floor plan",
+            "Open floor plan",
             "Play flythrough",
             "Familienroute und schulische Selbstständigkeit section",
             "Sicherheit, Kriminalität und Klimarisiko section",

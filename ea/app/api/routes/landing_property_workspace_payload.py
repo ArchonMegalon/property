@@ -3331,7 +3331,7 @@ def property_workspace_payload(
                     {"title": "Open 3D tour" if str(tour_payload.get("url") or "").strip() else tour_status_line, "detail": "Hosted 3D tour" if str(tour_payload.get("url") or "").strip() else "", "href": str(tour_payload.get("url") or "").strip()},
                     {"title": f"#{len(results_table_rows) + 1} {str(candidate.get('title') or 'Home').strip() or 'Home'}", "detail": str(candidate.get("source_label") or "").strip()},
                     {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Home").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
-                    {"title": "Open Map" if map_url else "Map pending", "detail": "", "href": map_url},
+                    {"title": "Open map" if map_url else "Map pending", "detail": "", "href": map_url},
                     {"title": price_line, "detail": ""},
                     {"title": " | ".join(part for part in layout_parts if part) or "n/a", "detail": ""},
                     {"title": ooda_detail or "Packet explains the neighbourhood fit.", "detail": "", "href": packet_url},

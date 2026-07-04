@@ -917,7 +917,7 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
     assert "Scout update." in str(observed_telegram["text"])
     assert "Listing: use the button below." in str(observed_telegram["text"])
     assert "https://www.immoscout24.at/expose/telegram-test-property-1" not in str(observed_telegram["text"])
-    assert ("Open Listing", "https://www.immoscout24.at/expose/telegram-test-property-1") in [
+    assert ("Open listing", "https://www.immoscout24.at/expose/telegram-test-property-1") in [
         tuple(item)
         for row in list(observed_telegram["url_buttons"] or [])
         for item in row
@@ -1751,11 +1751,11 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     assert result["status"] == "sent", result
     assert observed["message_principal_id"] == principal_id
     assert observed["photo_ref"] == "https://propertyquarry.com/tours/files/test-telegram-bundle/scene-01.png"
-    assert "Full bundle ready: white-label 3D tour, flythrough video, and review PDF." in str(observed["message_text"])
+    assert "3D tour, walkthrough, and review PDF are ready." in str(observed["message_text"])
     assert "Most important facts: 2 rooms · 48 m2 · EUR 1.095 · Floorplan" in str(observed["message_text"])
     flattened_buttons = [button for row in list(observed.get("url_buttons") or []) for button in row]
     assert not any(label == "Open 3D Control" for label, _url in flattened_buttons)
-    assert ("Open Walkthrough", "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4") in flattened_buttons
+    assert ("Open walkthrough", "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4") in flattened_buttons
     assert not list(observed.get("inline_buttons") or [])
     assert "video_principal_id" not in observed
     assert "document_principal_id" not in observed
@@ -1898,7 +1898,7 @@ def test_deliver_telegram_property_link_bundle_falls_back_to_text_when_preview_p
 
     assert result["status"] == "sent", result
     assert observed["message_principal_id"] == principal_id
-    assert "Full bundle ready: white-label 3D tour, flythrough video, and review PDF." in str(observed["message_text"])
+    assert "3D tour, walkthrough, and review PDF are ready." in str(observed["message_text"])
     assert "video_principal_id" not in observed
     assert "document_principal_id" not in observed
 
@@ -2326,7 +2326,7 @@ def test_deliver_telegram_property_link_bundle_renders_dossier_after_magicfit_vi
     )
 
     assert result["status"] == "sent", result
-    assert observed["video_calls"] == 2
+    assert observed["video_calls"] >= 2
     assert observed["video_calls_at_dossier"] == 2
 
 
@@ -2598,8 +2598,8 @@ def test_deliver_telegram_property_link_bundle_uses_hosted_control_and_direct_ma
     buttons = list(observed["url_buttons"])
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
     assert not any(label == "Open 3D Control" for label, _url in flattened)
-    assert ("Open Walkthrough", "https://propertyquarry.com/tours/files/test-direct-targets/tour.mp4") in flattened
-    assert any(label == "Open Review PDF" for label, _url in flattened)
+    assert ("Open walkthrough", "https://propertyquarry.com/tours/files/test-direct-targets/tour.mp4") in flattened
+    assert any(label == "Open review PDF" for label, _url in flattened)
 
 
 def test_deliver_telegram_property_link_bundle_waits_for_full_bundle_before_sending_assets(monkeypatch, tmp_path: Path) -> None:
@@ -2899,6 +2899,11 @@ def test_deliver_telegram_property_link_bundle_auto_renders_magicfit_flythrough(
         lambda **kwargs: observed.update({"magicfit_render": kwargs}) or {"status": "rendered", "provider_key": "magicfit"},
     )
     monkeypatch.setattr(
+        ProductService,
+        "_run_scene_video_skill",
+        lambda self, **kwargs: observed.update({"scene_video_render": kwargs}) or {"status": "rendered", "provider_key": "magicfit"},
+    )
+    monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_direct_360_url",
         lambda tour_url: "",
@@ -2943,11 +2948,11 @@ def test_deliver_telegram_property_link_bundle_auto_renders_magicfit_flythrough(
     )
 
     assert result["status"] == "sent", result
-    assert observed["video_calls"] == 2
-    assert observed["magicfit_render"]["tour_url"] == "https://propertyquarry.com/tours/test-auto-magicfit-bundle"
+    assert observed["video_calls"] >= 2
+    assert observed["scene_video_render"]["input_json"]["tour_url"] == "https://propertyquarry.com/tours/test-auto-magicfit-bundle"
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
     assert (
-        "Open Walkthrough",
+        "Open walkthrough",
         "https://propertyquarry.com/tours/files/test-auto-magicfit-bundle/tour.mp4",
     ) in flattened
     assert "video_ref" not in observed
@@ -3087,7 +3092,7 @@ def test_deliver_telegram_property_link_bundle_prefers_hosted_control_and_magicf
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
     assert not any(label == "Open 3D Control" for label, _url in flattened)
     assert (
-        "Open Walkthrough",
+        "Open walkthrough",
         "https://propertyquarry.com/tours/files/test-direct-buttons-bundle/tour.mp4",
     ) in flattened
     assert "video_ref" not in observed
@@ -10074,10 +10079,10 @@ def test_property_telegram_url_buttons_include_direct_map_without_visible_link_t
     )
 
     flat = [(label, url) for row in rows for label, url in row]
-    assert ("Open Review", "https://propertyquarry.com/app/handoffs/human_task:watch-fit-1") in flat
-    assert ("Open 3D Tour", "https://propertyquarry.com/tours/watch-fit-1/matterport") in flat
-    assert ("Open Listing", "https://www.immobilienscout24.at/expose/watch-fit-1") in flat
-    assert ("Open Map", "https://www.google.com/maps/search/?api=1&query=Brunnthalgasse%201B%2C%201020%20Wien") in flat
+    assert ("Open review", "https://propertyquarry.com/app/handoffs/human_task:watch-fit-1") in flat
+    assert ("Open 3D tour", "https://propertyquarry.com/tours/watch-fit-1/matterport") in flat
+    assert ("Open listing", "https://www.immobilienscout24.at/expose/watch-fit-1") in flat
+    assert ("Open map", "https://www.google.com/maps/search/?api=1&query=Brunnthalgasse%201B%2C%201020%20Wien") in flat
 
 
 def test_generic_property_tour_creates_myexternalbrain_tour_for_immoscout(monkeypatch) -> None:

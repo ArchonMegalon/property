@@ -543,13 +543,13 @@ def test_telegram_bot_property_link_e2e_sends_diorama_photo_and_artifact_buttons
     photo = sent_photos[-1]
     assert photo["principal_id"] == "exec-telegram-e2e-property-link"
     assert photo["photo_ref"] == "https://propertyquarry.com/tours/files/e2e-property-link/diorama-preview.png"
-    assert "Full bundle ready: white-label 3D tour, flythrough video, and review PDF." in str(photo["caption"])
+    assert "3D tour, walkthrough, and review PDF are ready." in str(photo["caption"])
     buttons = list(photo["url_buttons"] or [])
     flattened = [button for row in buttons for button in row]
     assert ("Open 3D tour", "https://propertyquarry.com/tours/e2e-property-link/control/matterport") in flattened
     assert ("Open 3DVista", "https://propertyquarry.com/tours/e2e-property-link/control/3dvista") not in flattened
-    assert ("Open Walkthrough", "https://propertyquarry.com/tours/files/e2e-property-link/tour.mp4") in flattened
-    assert any(label == "Open Review PDF" for label, _url in flattened)
+    assert ("Open walkthrough", "https://propertyquarry.com/tours/files/e2e-property-link/tour.mp4") in flattened
+    assert any(label == "Open review PDF" for label, _url in flattened)
 
 
 def test_telegram_bot_property_pdf_upload_e2e_returns_rendered_pdf(
@@ -678,15 +678,15 @@ def test_telegram_bot_property_pdf_upload_e2e_returns_rendered_pdf(
     assert sent_documents
     assert viewer_gate_calls[-1] == {
         "matterport": "https://propertyquarry.com/tours/pdf-upload-tour/control/matterport",
-        "3dvista": "https://propertyquarry.com/tours/pdf-upload-tour/control/3dvista",
     }
     assert sent_documents[-1]["principal_id"] == "exec-telegram-e2e-property-pdf"
     assert sent_documents[-1]["document_ref"] == str(combined_pdf)
     assert "Original PDF first" in str(sent_documents[-1]["caption"])
     buttons = [button for row in list(sent_documents[-1]["url_buttons"] or []) for button in row]
-    assert ("Open Matterport", "https://propertyquarry.com/tours/pdf-upload-tour/control/matterport") in buttons
-    assert ("Open 3DVista", "https://propertyquarry.com/tours/pdf-upload-tour/control/3dvista") in buttons
-    assert ("Open Walkthrough", "https://propertyquarry.com/tours/files/pdf-upload-tour/tour.mp4") in buttons
+    assert ("Open 3D tour", "https://propertyquarry.com/tours/pdf-upload-tour/control/matterport") in buttons
+    assert ("Open 3D tour", "https://propertyquarry.com/tours/pdf-upload-tour/control/3dvista") not in buttons
+    assert not any(label in {"Open Matterport", "Open 3DVista"} for label, _url in buttons)
+    assert ("Open walkthrough", "https://propertyquarry.com/tours/files/pdf-upload-tour/tour.mp4") in buttons
     observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=20, principal_id="exec-telegram-e2e-property-pdf"))
     assert any(str(row.event_type) == "telegram.reply_async_sent" for row in observations)
 

@@ -1203,7 +1203,7 @@ def _visual_pdf_appendix(
     cta_y = 548
     if redacted_tour_url:
         _draw_rect(ops, MARGIN_X, cta_y, 190, 42, fill=(0.15, 0.38, 0.30))
-        _draw_text(ops, "Open 3D control", x=MARGIN_X + 18, y=cta_y + 17, size=11, font="F2", fill=(0.98, 0.98, 0.96))
+        _draw_text(ops, "Open 3D tour", x=MARGIN_X + 18, y=cta_y + 17, size=11, font="F2", fill=(0.98, 0.98, 0.96))
         annotations.append({"url": redacted_tour_url, "rect": [MARGIN_X, cta_y, MARGIN_X + 190, cta_y + 42]})
     if redacted_flythrough_url:
         fly_x = MARGIN_X
@@ -1634,7 +1634,7 @@ def _visual_pdf(
         _draw_rect(ops, MARGIN_X, cta_y, button_width, button_height, fill=(0.15, 0.38, 0.30))
         _draw_text(
             ops,
-            "Open 3D reconstruction floor plan",
+            "Open floor plan",
             x=MARGIN_X + 16,
             y=cta_y + 14,
             size=10.2,
@@ -1998,7 +1998,7 @@ def _visual_pdf(
     cta_y = 262
     if redacted_tour_url:
         _draw_rect(ops, MARGIN_X + 386, cta_y, 168, 34, fill=(0.15, 0.38, 0.30))
-        _draw_text(ops, "Open 3D reconstruction floor plan", x=MARGIN_X + 398, y=275, size=8.6, font="F2", fill=(0.98, 0.98, 0.96))
+        _draw_text(ops, "Open floor plan", x=MARGIN_X + 398, y=275, size=8.6, font="F2", fill=(0.98, 0.98, 0.96))
         media_annotations.append({"url": redacted_tour_url, "rect": [MARGIN_X + 386, cta_y, MARGIN_X + 554, cta_y + 34]})
     if redacted_flythrough_url:
         _draw_rect(ops, MARGIN_X + 386, cta_y - 46, 140, 34, fill=(0.74, 0.55, 0.18))
@@ -2251,7 +2251,7 @@ def _visual_pdf(
         _draw_text(ops, "Diorama preview", x=MARGIN_X, y=y, size=17, font="F2", fill=(0.15, 0.38, 0.30))
         _draw_wrapped(
             ops,
-            str(diorama_scene.get("summary") or "A white-label diorama preview of the property route and occupied interior scene."),
+            str(diorama_scene.get("summary") or "A diorama preview of the property route and occupied interior scene."),
             x=MARGIN_X,
             y=y - 24,
             width_chars=82,
@@ -2274,7 +2274,7 @@ def _visual_pdf(
         if redacted_tour_url:
             annotations.append({"url": redacted_tour_url, "rect": [MARGIN_X + 18, 142, MARGIN_X + 210, 176]})
             _draw_rect(ops, MARGIN_X + 18, 142, 192, 34, fill=(0.15, 0.38, 0.30))
-            _draw_text(ops, "Open 3D reconstruction", x=MARGIN_X + 32, y=155, size=9.5, font="F2", fill=(0.98, 0.98, 0.96))
+            _draw_text(ops, "Open 3D tour", x=MARGIN_X + 32, y=155, size=9.5, font="F2", fill=(0.98, 0.98, 0.96))
         if redacted_flythrough_url:
             annotations.append({"url": redacted_flythrough_url, "rect": [MARGIN_X + 224, 142, MARGIN_X + 392, 176]})
             _draw_rect(ops, MARGIN_X + 224, 142, 168, 34, fill=(0.74, 0.55, 0.18))

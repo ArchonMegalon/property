@@ -2378,7 +2378,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     data_json = json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/")
     title_html = html.escape(title)
     display_html = html.escape(display_title)
-    variant_label = html.escape(str(payload.get("variant_label") or payload.get("variant_key") or "").strip())
+    raw_variant_label = str(payload.get("variant_label") or payload.get("variant_key") or "").strip()
+    if re.search(r"\b(matterport|3d\s*vista|3dvista|pano2vr|krpano|magicfit|live\s*360|3d\s*tour)\b", raw_variant_label, flags=re.IGNORECASE):
+        raw_variant_label = ""
+    variant_label = html.escape(raw_variant_label)
     rooms = html.escape(_rooms_display())
     area_display = _fact_text("area_sqm", "area_m2", "living_area_m2")
     area = html.escape(area_display or "Area under research")
@@ -2389,37 +2392,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     rent = html.escape("" if rent_value == f"{display_currency_code} ?" else rent_value)
     availability = html.escape(_fact_text("availability", "availability_text") or "Availability under research")
     teaser = " · ".join(html.escape(str(value)) for value in (facts.get("teaser_attributes") or []))
-    creative_brief = html.escape(str(brief.get("creative_brief") or "").strip())
-    theme_name = html.escape(str(brief.get("theme_name") or "").strip())
-    tour_style = html.escape(str(brief.get("tour_style") or "").strip())
-    audience = html.escape(str(brief.get("audience") or "").strip())
-    cta = html.escape(str(brief.get("call_to_action") or "").strip())
-    brief_rows = "".join(
-        f'<div class="kv"><b>{label}</b>{value}</div>'
-        for label, value in (
-            ("Theme", theme_name),
-            ("Style", tour_style),
-            ("Audience", audience),
-            ("Creative Brief", creative_brief),
-            ("CTA", cta),
-        )
-        if value
-    )
-    tour_brief_panel = (
-        f"""
-        <aside class="panel">
-          <h2>Tour Brief</h2>
-          <div class="stack">
-            {brief_rows}
-          </div>
-        </aside>
-        """
-        if brief_rows
-        else ""
-    )
+    tour_brief_panel = ""
     brand_html = html.escape(brand_name)
-    listing_link = f'<a class="ghost" href="{html.escape(listing_url)}" target="_blank" rel="noreferrer">Open Listing</a>' if listing_url else ""
-    hosted_link = f'<a class="ghost" href="{html.escape(hosted_url)}">Permalink</a>' if hosted_url else ""
+    listing_link = f'<a class="ghost" href="{html.escape(listing_url)}" target="_blank" rel="noreferrer">Open listing</a>' if listing_url else ""
+    hosted_link = ""
     provider_action_links = [
         ("Open 3D tour", matterport_url, "ghost"),
         ("Open 3D tour", three_d_vista_url, "ghost"),
@@ -2432,14 +2408,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     )
     provider_actions_block = (
         f"""
-        <div class="actions" aria-label="Provider views">
+        <div class="actions" aria-label="Tour links">
           {provider_actions_html}
         </div>
         """
         if provider_actions_html
         else ""
     )
-    primary_cta = "Open Live 360" if source_virtual_tour_url else "Open Tour"
+    primary_cta = "Open 3D tour"
     primary_cta_href = "#live-360" if source_virtual_tour_url else "#viewer"
     assessment = dict(facts.get("personal_fit_assessment") or {}) if isinstance(facts.get("personal_fit_assessment"), dict) else {}
     if not assessment and isinstance(facts.get("decision_summary"), dict):
@@ -3198,7 +3174,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
   <body>
     <div class="shell">
       <div class="topbar">
-        <div class="eyebrow">Property Decision Workstation <span>•</span> personalized review</div>
+        <div class="eyebrow">Property review <span>•</span> personal shortlist</div>
         <nav class="section-nav">
           <a class="ghost" href="#decision">Decision</a>
           <a class="ghost" href="#match">Match</a>
@@ -3225,11 +3201,11 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             {recommendation_chip}
             {location_chip}
             {district_chip}
-            <div class="chip">{html.escape(str(payload.get("scene_count") or len(scenes)))} tour scenes</div>
+            <div class="chip">{html.escape(str(payload.get("scene_count") or len(scenes)))} views</div>
           </div>
           <p class="sub">{html.escape(recommendation_note)}</p>
           <div class="actions">
-            <a class="cta" href="#tour">Open 3D Tour</a>
+            <a class="cta" href="#tour">Open 3D tour</a>
             {listing_link}
             {hosted_link}
           </div>
@@ -3249,7 +3225,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           </div>
         </div>
         <aside class="panel">
-          <h2>Decision Summary</h2>
+          <h2>At a glance</h2>
           <div class="stat-grid">{decision_html}</div>
           <div class="ooda-grid" style="margin-top:16px;">
             <div class="ooda-cell"><b>Observe</b>{html.escape(highlight_lines[0]) if highlight_lines else 'Current facts are still incomplete.'}</div>
@@ -3263,7 +3239,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         <div class="tour-detail-stack">
           <section id="match" class="panel">
             <div class="eyebrow">Requirement Match</div>
-            <h2>Preference-to-Property Matrix</h2>
+            <h2>How it matches your brief</h2>
             <table class="requirement-table">
               <thead>
                 <tr><th>Requirement</th><th>Property answer</th><th>Status</th><th>Why it matters</th></tr>
@@ -3939,9 +3915,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <div class="shell">
       <section class="hero">
         <div class="card hero-main">
-          <div class="eyebrow">PropertyQuarry <span>•</span> Hosted 3D tour</div>
+          <div class="eyebrow">PropertyQuarry <span>•</span> 3D tour</div>
           <h1>{title_html}</h1>
-          <p class="sub">A white-label 360 review with an actual panorama viewer, a clear scene overview, and floorplan access on the same surface. Pure 360 hosted on {hosted_brand_html}.</p>
+          <p class="sub">Move through the tour, photos, and floor plans from one clean page.</p>
           <div class="actions">
             <a class="btn primary" href="#panorama-pane">Open panorama</a>
             {listing_link}
@@ -3952,8 +3928,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             <div class="kv"><b>Hosted by</b>{hosted_brand_html}</div>
             <div class="kv"><b>Location</b>{address or district or 'Location under review'}</div>
             <div class="kv"><b>Scenes</b>{html.escape(str(len([scene for scene in scene_data if scene.get('cube_faces')])))} panorama positions</div>
-            <div class="kv"><b>Floorplans</b>{html.escape(str(len([scene for scene in scene_data if str(scene.get('role') or '') == 'floorplan'])))} attached documents</div>
-            <div class="kv"><b>Review mode</b>Panorama first, then layout and packet review.</div>
+            <div class="kv"><b>Floor plans</b>{html.escape(str(len([scene for scene in scene_data if str(scene.get('role') or '') == 'floorplan'])))} attached documents</div>
+            <div class="kv"><b>Tour</b>Panorama, layout, and photos.</div>
           </div>
         </aside>
       </section>
@@ -3967,10 +3943,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           <div class="toggle" id="mode-toggle">
             <button type="button" class="active" data-pane="panorama-pane">Panorama</button>
             <button type="button" data-pane="overview-pane">Overview</button>
-            <button type="button" data-pane="floorplan-pane">Floorplans</button>
+            <button type="button" data-pane="floorplan-pane">Floor plans</button>
             {"<button type=\"button\" data-pane=\"flythrough-pane\">Flythrough</button>" if video_url else ""}
           </div>
-          <div class="status-pill" id="tour-status">Hosted white-label 360 review</div>
+          <div class="status-pill" id="tour-status">Interactive 3D tour</div>
         </div>
         <div class="stage-grid">
           <div class="card viewer-shell">
@@ -4069,7 +4045,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           fallbackButton.addEventListener('click', () => switchPane(floorplanScenes.length ? 'floorplan-pane' : 'overview-pane'));
         }}
         if (panoramaScenes.length) {{
-          document.getElementById('tour-status').textContent = 'Panorama unavailable · using white-label fallback';
+          document.getElementById('tour-status').textContent = 'Panorama unavailable · showing the overview';
         }}
       }}
 
@@ -4098,7 +4074,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           return viewer;
         }} catch (error) {{
           console.error('PropertyQuarry panorama init failed', error);
-          showPanoramaFallback('The white-label panorama viewer could not initialize here. The overview and floorplan stay available so the property page remains useful on mobile.');
+          showPanoramaFallback('The panorama could not initialize here. The overview and floor plans stay available so the property page remains useful on mobile.');
           return null;
         }}
       }}
@@ -4350,7 +4326,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         if (viewer) {{
           setPanoramaScene(initialPanoramaIndex);
         }} else {{
-          showPanoramaFallback('The white-label panorama viewer is currently unavailable here. Use the overview and floorplan lanes while the 3D scene is unavailable.');
+          showPanoramaFallback('The panorama is currently unavailable here. Use the overview and floor plans while the 3D scene is unavailable.');
         }}
       }}
     </script>
@@ -4361,13 +4337,13 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         <section id="live-360" class="live-shell">
           <div class="live-head">
             <div>
-              <div class="eyebrow">{brand_html} <span>•</span> Live 360</div>
-              <h2>Live Panorama Viewer</h2>
-              <p class="sub">The live browser view below stays entirely inside the {brand_html} public tour surface on this page.</p>
+              <div class="eyebrow">{brand_html} <span>•</span> 3D tour</div>
+              <h2>Interactive tour</h2>
+              <p class="sub">Open the interactive tour below without leaving this page.</p>
             </div>
             <div class="stack">
               <div class="kv"><b>Brand</b>{brand_html}</div>
-              <div class="kv"><b>Experience</b>Hosted on {html.escape(hostname or 'this domain')}</div>
+              <div class="kv"><b>Link</b>{html.escape(hostname or 'this domain')}</div>
             </div>
           </div>
           <div class="live-frame-wrap">
@@ -4787,7 +4763,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <div class="shell">
       <section class="hero">
         <div class="mast">
-          <div class="eyebrow">Property Tour <span>•</span> {variant_label}</div>
+          <div class="eyebrow">3D tour{f' <span>•</span> {variant_label}' if variant_label else ''}</div>
           <h1>{title_html}</h1>
           <p class="sub">{display_html}</p>
           <div class="facts">
@@ -4795,7 +4771,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             {area_legacy_chip_html}
             {rent_legacy_chip_html}
             {availability_legacy_chip_html}
-            <div class="chip">{html.escape(str(payload.get("scene_count") or len(scenes)))} Szenen</div>
+            <div class="chip">{html.escape(str(payload.get("scene_count") or len(scenes)))} views</div>
           </div>
           <p class="sub">{teaser}</p>
           <div class="actions">
@@ -4824,9 +4800,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         ) if video_url else ''}
         <div class="tour-toolbar">
           <div class="toggle" id="role-filter">
-            <button type="button" class="active" data-role="all">All Scenes</button>
+            <button type="button" class="active" data-role="all">All views</button>
             <button type="button" data-role="photo">Photos</button>
-            <button type="button" data-role="floorplan">Floorplans</button>
+            <button type="button" data-role="floorplan">Floor plans</button>
           </div>
           <div class="toggle">
             <button type="button" id="autoplay-btn">Autoplay Scenes</button>
@@ -5384,7 +5360,7 @@ def _tour_control_external_iframe_html(
             <div class="toggle" id="role-filter">
               <button type="button" class="active" data-role="all">All</button>
               <button type="button" data-role="photo">Photos</button>
-              <button type="button" data-role="floorplan">Floorplans</button>
+              <button type="button" data-role="floorplan">Floor plans</button>
             </div>
           </div>
           <div id="viewer" class="viewer">

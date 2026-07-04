@@ -474,8 +474,10 @@ def test_fliplink_pdf_appendix_mode_renders_compact_telegram_appendix(tmp_path: 
     assert "Appendix to uploaded PDF: wohnung-expose.pdf" in appendix_text
     assert "Deep research results" in appendix_text
     assert "Operating-cost history is not yet available" in appendix_text
-    assert "Open 3D control" in appendix_text
-    assert "Play fly-through" in appendix_text
+    assert "Open 3D tour" in appendix_text
+    assert "Open 3D control" not in appendix_text
+    assert "Open walkthrough" in appendix_text
+    assert "Play fly-through" not in appendix_text
     assert "Artifact status" not in appendix_text
     assert "RISK REGISTER" not in appendix_text
     assert "Comparison snapshot" not in appendix_text
@@ -543,7 +545,7 @@ def test_fliplink_pdf_omits_comparison_snapshot_from_rendered_dossier(tmp_path: 
     assert "packets.propertyquarry.com/assets/photo.jpg" not in pdf_text
     normalized_pdf_text = pdf_text.replace(" ", "").casefold()
     assert "executivedecision" in normalized_pdf_text or rendered["receipt"]["renderer_version"] == "v7_agency_comparison_dossier_pdf"
-    assert "Open 3D reconstruction" in pdf_text
+    assert "Open 3D reconstruction" not in pdf_text
     assert "Pärchenhit" not in pdf_text
     assert "Floorplan" in pdf_text
 
@@ -588,7 +590,7 @@ def test_fliplink_pdf_renders_listing_media_and_fact_json_shapes(tmp_path: Path)
     assert "1.095" in pdf_text
     assert "48" in pdf_text
     assert "Wien, 20. Bezirk, Brigittenau" in pdf_text
-    assert "Open 3D reconstruction" in pdf_text
+    assert "Open 3D reconstruction" not in pdf_text
     assert rendered["receipt"]["embedded_media_refs"] == {"floorplans": 1, "photos": 2}
     assert any(item in rendered["receipt"]["visual_elements"] for item in ("hero_cover", "cover"))
     assert any(item in rendered["receipt"]["visual_elements"] for item in ("tour_spread", "section_cards"))
@@ -610,7 +612,8 @@ def test_fliplink_pdf_uses_tour_fallback_when_redacted_payload_lacks_direct_tour
     )
 
     pdf_text = _rendered_searchable_text(rendered)
-    assert "Open 3D reconstruction" in pdf_text
+    assert "Open 3D tour" in pdf_text
+    assert "Open 3D reconstruction" not in pdf_text
     assert rendered["receipt"].get("renderer_provider") in {"playwright", None}
 
 

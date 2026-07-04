@@ -8129,9 +8129,12 @@ def test_public_tour_routes_embed_live_360_source_when_present(
     assert "Pioche Lecombe" in page.text
     assert 'src="https://360.example.test/view/portal/id/live-360"' in page.text
     assert 'href="#live-360"' in page.text
-    assert "Open Live 360" in page.text
-    assert "Live Panorama Viewer" in page.text
-    assert "Hosted on myexternalbrain.com" in page.text
+    assert "Open 3D tour" in page.text
+    assert "Interactive tour" in page.text
+    assert "Link</b>myexternalbrain.com" in page.text
+    assert "Open Live 360" not in page.text
+    assert "Live Panorama Viewer" not in page.text
+    assert "Hosted on myexternalbrain.com" not in page.text
     assert "Open Source 360" not in page.text
     assert ">Source<" not in page.text
 

@@ -158,7 +158,7 @@ def _public_tour_public_payload(payload: dict[str, object]) -> dict[str, object]
         if not public_payload.get("scenes"):
             public_payload["scenes"] = [
                 {
-                    "name": "Matterport Tour" if live_provider == "matterport" else "3DVista Tour",
+                    "name": "3D tour",
                     "role": "live_360",
                     "image_url": _matterport_thumb_url(live_url) if live_provider == "matterport" else "",
                     "mime_type": "image/jpeg",
@@ -1295,17 +1295,17 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "tour_title": f"{display_title} - live 360",
             "tour_id": None,
             "variant_key": variant_key,
-            "variant_label": "3DVista" if is_3dvista else ("Matterport" if is_matterport else "live 360"),
+            "variant_label": "3D tour",
             "scene_strategy": "live_360_embed",
             "control_mode": "3dvista" if is_3dvista else ("matterport" if is_matterport else "external_live_360"),
             "scene_count": 1,
             "facts": facts,
             "brief": {
-                "theme_name": "3DVista" if is_3dvista else "clean_light",
-                "tour_style": "embedded_3dvista" if is_3dvista else "embedded_live_360",
+                "theme_name": "Branded 3D tour",
+                "tour_style": "embedded_3d_tour",
                 "audience": "tenant_screening",
-                "creative_brief": "Render the 3DVista viewer directly inside the PropertyQuarry hosted tour page." if is_3dvista else "Render the live 360 viewer directly inside the PropertyQuarry hosted tour page.",
-                "call_to_action": "Open 3DVista tour." if is_3dvista else "Open live 360 tour.",
+                "creative_brief": "Render the hosted 3D tour directly inside the PropertyQuarry tour page.",
+                "call_to_action": "Open 3D tour.",
             },
             "editor_url": "",
             "crezlo_public_url": live_url,
@@ -1314,7 +1314,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "scenes": [
                 {
                     "ordinal": 1,
-                    "name": "3DVista Tour" if is_3dvista else "Live 360",
+                    "name": "3D tour",
                     "role": "live_360",
                     "image_url": _matterport_thumb_url(live_url)
                     or "",

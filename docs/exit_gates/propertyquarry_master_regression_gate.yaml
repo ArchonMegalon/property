@@ -18,6 +18,6 @@ fail_closed_conditions:
   - any core product route fails to render
   - any prior-phase primary affordance disappears
   - visual or interaction regression breaks core PQ loop
-  - hosted tour or flythrough lane regresses while the rest of the packet flow stays green
+  - hosted tour or walkthrough playback regresses while the rest of the packet flow stays green
 exit_criteria:
   - browser regression suite passes after every phase

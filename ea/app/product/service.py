@@ -13097,16 +13097,16 @@ def _property_telegram_url_button_rows(
     rows: list[list[tuple[str, str]]] = []
     primary: list[tuple[str, str]] = []
     if str(review_url or "").strip():
-        primary.append(("Open Review", str(review_url or "").strip()))
+        primary.append(("Open review", str(review_url or "").strip()))
     if str(tour_url or "").strip():
-        primary.append(("Open 3D Tour", str(tour_url or "").strip()))
+        primary.append(("Open 3D tour", str(tour_url or "").strip()))
     if primary:
         rows.append(primary[:2])
     secondary: list[tuple[str, str]] = []
     if str(property_url or "").strip():
-        secondary.append(("Open Listing", str(property_url or "").strip()))
+        secondary.append(("Open listing", str(property_url or "").strip()))
     if str(map_url or "").strip():
-        secondary.append(("Open Map", str(map_url or "").strip()))
+        secondary.append(("Open map", str(map_url or "").strip()))
     if secondary:
         rows.append(secondary[:2])
     return rows
@@ -33020,13 +33020,13 @@ class ProductService:
                 "pending_reasons": pending_reasons,
             }
         summary_lines = [title]
-        summary_lines.append("Full bundle ready: white-label 3D tour, flythrough video, and review PDF.")
+        summary_lines.append("3D tour, walkthrough, and review PDF are ready.")
         if fit_summary:
             summary_lines.append(fit_summary)
         elif fit_score > 0:
             summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
         summary_lines.extend(_property_link_bundle_key_facts_lines(property_facts_json))
-        summary_lines.append("Only polished 3D tour buttons are shown. Open Walkthrough starts the published video immediately.")
+        summary_lines.append("Open 3D tour starts the tour. Open walkthrough starts the video.")
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
         deep_flythrough_url = ""
@@ -33120,16 +33120,16 @@ class ProductService:
         if video_url:
             deep_flythrough_url = _telegram_safe_url_button_target(video_url)
             if deep_flythrough_url:
-                second_row.append(("Open Walkthrough", deep_flythrough_url))
+                second_row.append(("Open walkthrough", deep_flythrough_url))
         safe_public_pdf_url = _autologin_button_url(public_pdf_url)
         if safe_public_pdf_url:
-            second_row.append(("Open Review PDF", safe_public_pdf_url))
+            second_row.append(("Open review PDF", safe_public_pdf_url))
         if second_row:
             url_buttons.append(second_row[:2])
         third_row: list[tuple[str, str]] = []
         safe_listing_url = _telegram_safe_url_button_target(normalized_url)
         if safe_listing_url:
-            third_row.append(("Open Listing", safe_listing_url))
+            third_row.append(("Open listing", safe_listing_url))
         navigation_url = _telegram_safe_url_button_target(_google_navigation_button_url(property_facts_json))
         if navigation_url:
             third_row.append(("Navigation", navigation_url))
@@ -33630,7 +33630,7 @@ class ProductService:
                 url_buttons.append(first_row[2:4])
         second_row: list[tuple[str, str]] = []
         if direct_flythrough_url:
-            second_row.append(("Open Walkthrough", direct_flythrough_url))
+            second_row.append(("Open walkthrough", direct_flythrough_url))
         if second_row:
             url_buttons.append(second_row[:2])
         direct_matterport_url = str(compare_links.get("matterport") or "").strip()

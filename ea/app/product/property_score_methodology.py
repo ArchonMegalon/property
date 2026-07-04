@@ -115,7 +115,7 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
         "principles": [
             "Must-haves decide whether a home belongs in the current search: country, selected areas, listing mode, property type, budget, and explicit requirements.",
             "Nice-to-haves change the order, not whether a home disappears. A missing balcony should explain tradeoffs, not hide a good option.",
-            "Better details help. Floorplans, real 3D tours, operating costs, energy data, and local context make the result easier to trust.",
+            "Better details help. Floor plans, real 3D tours, operating costs, energy data, and local context make the result easier to trust.",
             "Missing details become questions for the viewing or agent.",
             "Saved feedback improves future searches while each property page keeps the current read visible.",
         ],

@@ -53,11 +53,11 @@
           </div>
           <div class="action-rail">
             <div class="action-copy">
-              <h3>Artifact links</h3>
-              <p>Use these actions to inspect the live visual layer and continue the owner review without exposing raw source internals.</p>
+              <h3>Property links</h3>
+              <p>Open the tour, walkthrough, or full property page from one place.</p>
             </div>
-            {% if dossier.tour_url %}<a class="cta" href="{{ dossier.tour_url }}">Open 3D control</a>{% endif %}
-            {% if dossier.flythrough_url %}<a class="cta cta-secondary" href="{{ dossier.flythrough_url }}">Play fly-through</a>{% endif %}
+            {% if dossier.tour_url %}<a class="cta" href="{{ dossier.tour_url }}">Open 3D tour</a>{% endif %}
+            {% if dossier.flythrough_url %}<a class="cta cta-secondary" href="{{ dossier.flythrough_url }}">Open walkthrough</a>{% endif %}
             {% if dossier.review_url %}<a class="cta cta-secondary" href="{{ dossier.review_url }}">Open dossier</a>{% endif %}
           </div>
         </div>
@@ -313,7 +313,7 @@
             <img class="gallery-hero" src="{{ payload.diorama_scene.image_url }}" alt="Diorama preview">
           </div>
           <div class="panel">
-            <h3>White-label spatial preview</h3>
+            <h3>Spatial preview</h3>
             <p>{{ payload.diorama_scene.summary or "A stylised preview of the route, layout, and overall living feel of the flat." }}</p>
             <ul>
               <li>Purpose: fast visual orientation before the full 3D surface</li>
@@ -441,8 +441,8 @@
               <h3>Open the full property page</h3>
               <p>Die digitale Medienebene führt direkt in die 3D-Tour, das Flythrough-Video und den PropertyQuarry-Pfad, statt nur rohe Quellenlinks zu sammeln.</p>
             </div>
-            {% if dossier.tour_url %}<a class="cta" href="{{ dossier.tour_url }}">Open 3D reconstruction</a>{% endif %}
-            {% if dossier.flythrough_url %}<a class="cta" href="{{ dossier.flythrough_url }}">Play flythrough</a>{% endif %}
+            {% if dossier.tour_url %}<a class="cta" href="{{ dossier.tour_url }}">Open 3D tour</a>{% endif %}
+            {% if dossier.flythrough_url %}<a class="cta" href="{{ dossier.flythrough_url }}">Open walkthrough</a>{% endif %}
             {% if dossier.map_url %}<a class="cta cta-secondary" href="{{ dossier.map_url }}">Open Google Maps</a>{% endif %}
             {% if dossier.review_url %}<a class="cta cta-secondary" href="{{ dossier.review_url }}">Open property page</a>{% endif %}
           </div>
