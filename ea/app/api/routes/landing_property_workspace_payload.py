@@ -1152,7 +1152,7 @@ def property_workspace_payload(
         if step == "source_shortlist":
             return "Matching homes"
         if step == "source_review_packet":
-            return "Open property ready"
+            return "Property page ready"
         if step.startswith("repair"):
             return "Source follow-up"
         return "Update"
@@ -2236,7 +2236,7 @@ def property_workspace_payload(
         if str(candidate.get("packet_url") or "").strip():
             rows.append(
                 {
-                    "title": "Page ready",
+                    "title": "Property page ready",
                     "detail": "The property page is ready for household or advisor follow-up.",
                     "tag": "Page",
                 }

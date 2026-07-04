@@ -131,7 +131,7 @@
         {% elif event_step == 'shortlist_ready' %}
         {% set event_label = 'First shortlist' %}
         {% elif event_step in ['source_review_packet', 'source_review_packet_failed'] %}
-        {% set event_label = 'Page ready' %}
+        {% set event_label = 'Property page ready' %}
         {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
         {% set event_label = 'Checking requirements' %}
         {% elif event_step in ['source_completed', 'completed'] %}

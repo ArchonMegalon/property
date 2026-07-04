@@ -2237,7 +2237,7 @@
         }
         if (['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'].includes(step)) return 'Matching homes';
         if (step === 'shortlist_ready') return 'First shortlist';
-        if (['source_review_packet', 'source_review_packet_failed'].includes(step)) return 'Open property ready';
+        if (['source_review_packet', 'source_review_packet_failed'].includes(step)) return 'Property page ready';
         if (['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'].includes(step)) return 'Checking requirements';
         if (['source_completed', 'completed'].includes(step)) return 'List finished';
         if (step === 'source_notify') return 'Sending update';

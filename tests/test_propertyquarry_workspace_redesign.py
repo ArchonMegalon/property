@@ -14895,7 +14895,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "event_label = 'Checking listings'" in running_body
     assert "event_label = 'Matching homes'" in running_body
     assert "event_label = 'First shortlist'" in running_body
-    assert "event_label = 'Page ready'" in running_body
+    assert "event_label = 'Property page ready'" in running_body
     assert "event_label = 'Checking requirements'" in running_body
     assert "event_label = 'List finished'" in running_body
     assert "event_label = 'Recovery'" in running_body
@@ -14911,7 +14911,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "return 'Checking listings';" in script_body
     assert "return 'Matching homes';" in script_body
     assert "return 'First shortlist';" in script_body
-    assert "return 'Open property ready';" in script_body
+    assert "return 'Property page ready';" in script_body
     assert "return 'Checking requirements';" in script_body
     assert "return 'List finished';" in script_body
     assert "return 'Recovery';" in script_body
