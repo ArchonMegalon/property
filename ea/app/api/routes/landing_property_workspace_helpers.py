@@ -1642,10 +1642,15 @@ def _artifact_receipt_rows(run_summary: dict[str, object]) -> list[dict[str, str
     repair_receipts = [dict(row) for row in list(run_summary.get("repair_receipts") or []) if isinstance(row, dict)]
     if repair_receipts:
         latest = repair_receipts[-1]
+        latest_resolution = str(latest.get("resolution") or "checked").replace("_", " ").strip()
+        latest_detail = (
+            f"Checked {len(repair_receipts)} time{'s' if len(repair_receipts) != 1 else ''}. "
+            f"Latest result: {latest_resolution}."
+        )
         rows.append(
             {
                 "title": "Repair outcome",
-                "detail": f"{len(repair_receipts)} repair attempt{'s' if len(repair_receipts) != 1 else ''}. Latest: {str(latest.get('resolution') or 'returned').replace('_', ' ')}.",
+                "detail": latest_detail,
                 "tag": "Repair",
             }
         )

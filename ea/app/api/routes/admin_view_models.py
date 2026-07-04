@@ -576,7 +576,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Workspace readiness", str(diagnostics_readiness.get("detail") or readiness_label), readiness_state.title()),
         _row("Queue state", str(diagnostics_queue.get("state") or "healthy"), "Queue"),
         _row("Queue detail", str(diagnostics_queue.get("detail") or "Queue posture is stable."), "Queue"),
-        _row("SLA breaches", str(diagnostics_queue.get("sla_breaches") or 0), "Queue"),
+        _row("Overdue handoffs", str(diagnostics_queue.get("sla_breaches") or 0), "Queue"),
         _row("Unclaimed handoffs", str(diagnostics_queue.get("unclaimed_handoffs") or 0), "Queue"),
         _row("Pending approvals", str(diagnostics_queue.get("pending_approvals") or 0), "Queue"),
         _row("Waiting on principal", str(diagnostics_queue.get("waiting_on_principal") or 0), "Queue"),

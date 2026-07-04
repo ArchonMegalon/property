@@ -13018,7 +13018,7 @@ def _property_scout_brief_text(
     if str(next_action or "").strip():
         lines.append(str(next_action or "").strip())
     if str(why_now or "").strip():
-        lines.append(f"Why now: {str(why_now or '').strip()}")
+        lines.append(f"Reason: {str(why_now or '').strip()}")
     lines.extend(str(line or "").strip() for line in extra_lines if str(line or "").strip())
     return "\n".join(line for line in lines if str(line or "").strip())
 
@@ -53086,7 +53086,7 @@ class ProductService:
         )
         if sla_breaches or len(approvals) >= 3 or waiting_on_principal >= 4 or retrying_delivery:
             state = "critical"
-            detail = "SLA breaches, approval backlog, or principal-gated work need active clearing."
+            detail = "Overdue handoffs, approval backlog, or principal-gated work need active clearing."
         elif unclaimed_tasks or at_risk_commitments >= 2 or pending_delivery or delivery_errors:
             state = "watch"
             detail = "The queue is stable, but there is visible backlog that should be cleared before the next memo cycle."
@@ -53946,10 +53946,10 @@ class ProductService:
         lanes = [
             {
                 "key": "sla",
-                "label": "SLA risk",
+                "label": "Overdue handoffs",
                 "state": "critical" if int(queue_health.get("sla_breaches") or 0) else "clear",
                 "count": int(queue_health.get("sla_breaches") or 0),
-                "detail": f"{int(queue_health.get('sla_breaches') or 0)} breaches · {int(queue_health.get('oldest_handoff_age_hours') or 0)}h oldest handoff",
+                "detail": f"{int(queue_health.get('sla_breaches') or 0)} overdue · {int(queue_health.get('oldest_handoff_age_hours') or 0)}h oldest handoff",
                 "href": "/admin/office",
             },
             {
@@ -54006,7 +54006,7 @@ class ProductService:
                 "state": "critical" if exception_total else "clear",
                 "count": exception_total,
                 "detail": (
-                    f"{int(queue_health.get('sla_breaches') or 0)} SLA breaches · "
+                    f"{int(queue_health.get('sla_breaches') or 0)} overdue handoffs · "
                     f"{active_delivery_issue_total} delivery issues · "
                     f"{len(blocked_actions)} blocked actions"
                 ),
@@ -54143,7 +54143,7 @@ class ProductService:
                         "; ".join(
                             part
                             for part in (
-                                f"{int(queue_health.get('sla_breaches') or 0)} SLA breaches" if int(queue_health.get("sla_breaches") or 0) else "",
+                                f"{int(queue_health.get('sla_breaches') or 0)} overdue handoffs" if int(queue_health.get("sla_breaches") or 0) else "",
                                 f"{active_delivery_issue_total} delivery issues"
                                 if active_delivery_issue_total
                                 else "",

@@ -747,18 +747,18 @@ def decision_detail(
             {"label": "Owner", "value": str(decision.owner_role or "office").replace("_", " ").title()},
             {"label": "Deadline", "value": str(decision.due_at or "")[:10] or "No due date"},
             {"label": "Status", "value": str(decision.status or "open").replace("_", " ").title()},
-            {"label": "SLA", "value": str(decision.sla_status or "unscheduled").replace("_", " ").title()},
+            {"label": "Schedule", "value": str(decision.sla_status or "unscheduled").replace("_", " ").title()},
         ],
-        object_sidebar_title="Decision pressure",
-        object_sidebar_copy="A decision stays tied to ownership, time pressure, and evidence instead of living as a generic card in a queue.",
+        object_sidebar_title="Decision context",
+        object_sidebar_copy="Owner, timing, next step, and supporting notes stay in one place.",
         object_sidebar_rows=[
             _object_detail_row("Recommendation", decision.recommendation or "No recommendation projected yet.", "Recommend"),
             _object_detail_row("Next action", decision.next_action or "No next action projected yet.", "Next"),
             _object_detail_row("Impact", decision.impact_summary or "Impact has not been projected yet.", "Impact"),
             _object_detail_row("Rationale", decision.rationale or "No rationale projected yet.", "Why"),
             _object_detail_row("Evidence attached", f"{len(decision.evidence_refs or [])} supporting refs attached to this decision.", "Evidence"),
-            _object_detail_row("SLA", str(decision.sla_status or "unscheduled").replace("_", " ").title(), "SLA"),
-            _object_detail_row("Why now", decision.summary or "This decision is still active in the queue.", "Priority"),
+            _object_detail_row("Schedule", str(decision.sla_status or "unscheduled").replace("_", " ").title(), "Timing"),
+            _object_detail_row("Timing", decision.summary or "This decision is still active.", "Priority"),
         ],
         object_sections=[
             {
@@ -1057,7 +1057,7 @@ def handoff_detail(
         mismatch_reasons = [str(item).strip() for item in list(assessment.get("mismatch_reasons_json") or []) if str(item).strip()]
         ooda_rows = [
             _object_detail_row(
-                "Why it fits",
+                "Main match",
                 match_reasons[0]
                 if match_reasons
                 else str(input_json.get("summary") or handoff.summary or "This home matches the current brief.").strip(),

@@ -793,8 +793,8 @@ def workspace_section_payload(
         if active_delivery_issue_total
     ] + [
         _row(
-            "SLA breaches",
-            f"{int(queue_health.get('sla_breaches') or 0)} handoffs already breached their SLA.",
+            "Overdue handoffs",
+            f"{int(queue_health.get('sla_breaches') or 0)} handoff{'s' if int(queue_health.get('sla_breaches') or 0) != 1 else ''} past the promised response window.",
             "Queue",
             href="/admin/office",
         )
@@ -1048,10 +1048,10 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Queue health",
                     "title": "Queue health",
-                    "body": "SLA breaches, unclaimed work, approvals, and delivery backlog stay visible in one operational view.",
+                    "body": "Overdue work, unclaimed handoffs, approvals, and delivery backlog stay visible in one operational view.",
                     "items": [
                         _row("Queue state", str(queue_health.get("state") or "healthy").title(), str(queue_health.get("state") or "healthy").title()),
-                        _row("SLA breaches", str(queue_health.get("sla_breaches") or 0), "Queue"),
+                        _row("Overdue handoffs", str(queue_health.get("sla_breaches") or 0), "Queue"),
                         _row("Unclaimed handoffs", str(queue_health.get("unclaimed_handoffs") or 0), "Queue"),
                         _row("Pending approvals", str(queue_health.get("pending_approvals") or 0), "Queue"),
                         _row("Waiting on principal", str(queue_health.get("waiting_on_principal") or 0), "Queue"),

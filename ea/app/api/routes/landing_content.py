@@ -359,7 +359,7 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "question": "What if a listing source keeps failing?",
-                "answer": "Source failures should trigger bounded repair attempts and then a visible partial-coverage status if that source cannot be recovered.",
+                "answer": "A failing source is retried a limited number of times. If it still cannot be reached, the search continues and shows partial coverage.",
             },
         ),
     },

@@ -15210,12 +15210,13 @@ def test_property_artifact_rows_are_readiness_copy_not_receipt_jargon() -> None:
     assert "Walkthrough videos stay request-only and must pass visual quality checks before delivery." in text
     assert "1 3D tour, 2 walkthrough videos, 3 sent updates." in text
     assert "Repair outcome" in text
-    assert "1 repair attempt." in text
+    assert "Checked 1 time. Latest result: completed partial." in text
     assert "MarkupGo" not in text
     assert "Playwright render receipt" not in text
     assert "export receipts" not in text
     assert "Telegram delivery" not in text
     assert "Telegram sends" not in text
+    assert "repair attempt" not in text.lower()
     assert "receipts" not in text.lower()
 
 
