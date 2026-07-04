@@ -92,6 +92,16 @@
       const directProvider = normalizeWalkthroughProvider(button.getAttribute?.('data-pw-walkthrough-provider') || '');
       return directProvider;
     };
+    const visualProviderLabel = (value, fallback = '') => {
+      const raw = String(value || '').replace(/\s+/g, ' ').trim();
+      const safeFallback = String(fallback || '').trim();
+      if (!raw) return safeFallback;
+      const normalized = raw.toLowerCase();
+      if (['3d tour', 'tour', 'walkthrough'].includes(normalized)) return raw;
+      if (normalized.includes('walkthrough')) return 'Walkthrough';
+      if (normalized.includes('tour') || normalized.includes('360') || normalized.includes('virtual')) return '3D tour';
+      return safeFallback;
+    };
     const rybbitEventAliases = {
       property_search_start: 'pq.search.started',
       shortlist_decision_saved: 'pq.decision.saved',
@@ -6434,8 +6444,8 @@
     const evidenceLayerCards = (candidate) => {
       const facts = evidenceFactsForCandidate(candidate);
       const visualRows = [
-        candidate?.tour?.url ? { source_label: candidate?.tour?.provider_label || '3D tour', url: candidate.tour.url, freshness_label: 'ready' } : null,
-        candidate?.flythrough?.url ? { source_label: candidate?.flythrough?.provider_label || 'Rendered walkthrough', url: candidate.flythrough.url, freshness_label: 'ready' } : null,
+        candidate?.tour?.url ? { source_label: visualProviderLabel(candidate?.tour?.provider_label, '3D tour'), url: candidate.tour.url, freshness_label: 'ready' } : null,
+        candidate?.flythrough?.url ? { source_label: visualProviderLabel(candidate?.flythrough?.provider_label, 'Walkthrough'), url: candidate.flythrough.url, freshness_label: 'ready' } : null,
       ].filter(Boolean);
       const environmentRows = officialRiskSourcesForCandidate(candidate, ['air_quality_risk', 'noise_risk', 'heat_risk', 'heat_resilience', 'cooling_corridor', 'flood_risk']);
       const mobilityValues = [

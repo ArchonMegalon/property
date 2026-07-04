@@ -107,6 +107,7 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "video evidence",
         "visual evidence",
         "magicfit walkthrough",
+        "rendered walkthrough",
         "risk and evidence",
         "decision support",
         "run ranking",

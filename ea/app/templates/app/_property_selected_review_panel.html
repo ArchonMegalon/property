@@ -11,7 +11,7 @@
     {%- set label = (value or '')|string|trim -%}
     {%- set lowered = label|lower -%}
     {%- if not label -%}{{ fallback }}
-    {%- elif lowered in ['3d tour', 'tour', 'walkthrough', 'rendered walkthrough'] -%}{{ label }}
+    {%- elif lowered in ['3d tour', 'tour', 'walkthrough'] -%}{{ label }}
     {%- elif 'walkthrough' in lowered -%}Walkthrough
     {%- elif 'tour' in lowered -%}3D tour
     {%- else -%}{{ fallback }}

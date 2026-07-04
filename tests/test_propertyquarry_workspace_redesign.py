@@ -396,10 +396,14 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert "walkthrough.get('url') and not shortlist_compact_actions" in results
     assert "pqx_visual_provider_label" in review
     assert "pqx_visual_provider_label" in workbench
+    assert "visualProviderLabel" in script
     assert "{{ selected_tour.get('provider_label') or '3D tour' }}" not in review
     assert "{{ selected_tour.get('provider_label') or '3D tour' }}" not in workbench
     assert "{{ selected_flythrough.get('provider_label') or 'Walkthrough' }}" not in review
     assert "{{ selected_flythrough.get('provider_label') or 'Walkthrough' }}" not in workbench
+    assert "candidate?.tour?.provider_label || '3D tour'" not in script
+    assert "candidate?.flythrough?.provider_label || 'Rendered walkthrough'" not in script
+    assert "Rendered walkthrough" not in script
     assert "<summary><strong>More actions</strong></summary>" not in review
     assert "Request walkthrough" in review
     assert "Open 3D tour" in review
