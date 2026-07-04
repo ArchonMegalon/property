@@ -60,6 +60,16 @@
   {%- else -%}{{ raw }}
   {%- endif -%}
 {%- endmacro %}
+{% macro pqx_visual_provider_label(value, fallback) -%}
+  {%- set label = (value or '')|string|trim -%}
+  {%- set lowered = label|lower -%}
+  {%- if not label -%}{{ fallback }}
+  {%- elif lowered in ['3d tour', 'tour', 'walkthrough', 'rendered walkthrough'] -%}{{ label }}
+  {%- elif 'walkthrough' in lowered -%}Walkthrough
+  {%- elif 'tour' in lowered -%}3D tour
+  {%- else -%}{{ fallback }}
+  {%- endif -%}
+{%- endmacro %}
 {% macro pqx_calm_ui_label(value, fallback='') -%}
   {%- set raw = (value or fallback or '')|string|trim -%}
   {%- set lowered = raw|lower -%}
@@ -12432,14 +12442,14 @@
                 {% if selected_tour.get('url') or selected_tour_pending or selected_tour.get('status') == 'blocked' or selected_flythrough.get('url') or selected_flythrough_pending or selected_flythrough.get('status') == 'blocked' %}
                 <div class="pqx-result-facts pqx-mobile-visual-facts" aria-label="Visual delivery status">
                   {% if selected_tour.get('url') %}
-                  <span class="pqx-result-fact">{{ selected_tour.get('provider_label') or '3D tour' }} ready</span>
+                  <span class="pqx-result-fact">{{ pqx_visual_provider_label(selected_tour.get('provider_label'), '3D tour') }} ready</span>
                   {% elif selected_tour_pending %}
                   <span class="pqx-result-fact">{{ selected_tour.get('recovery_label') or '3D tour in progress' }}</span>
                   {% elif selected_tour.get('status') == 'blocked' %}
                   <span class="pqx-result-fact warn">{{ selected_tour.get('recovery_label') or '3D tour unavailable' }}</span>
                   {% endif %}
                   {% if selected_flythrough.get('url') %}
-                  <span class="pqx-result-fact">{{ selected_flythrough.get('provider_label') or 'Walkthrough' }} ready</span>
+                  <span class="pqx-result-fact">{{ pqx_visual_provider_label(selected_flythrough.get('provider_label'), 'Walkthrough') }} ready</span>
                   {% elif selected_flythrough_pending %}
                   <span class="pqx-result-fact">{{ selected_flythrough.get('recovery_label') or 'Walkthrough in progress' }}</span>
                   {% elif selected_flythrough.get('status') == 'blocked' %}

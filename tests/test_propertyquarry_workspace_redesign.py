@@ -383,6 +383,7 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     repo_root = Path(__file__).resolve().parents[1]
     results = (repo_root / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
     review = (repo_root / "ea/app/templates/app/_property_selected_review_panel.html").read_text(encoding="utf-8")
+    workbench = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
     research_detail = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
     feedback_script = (repo_root / "ea/app/templates/app/_property_workbench_feedback_script.html").read_text(encoding="utf-8")
@@ -393,6 +394,12 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert "Walkthrough available" in results
     assert "tour.get('url') and not shortlist_compact_actions" in results
     assert "walkthrough.get('url') and not shortlist_compact_actions" in results
+    assert "pqx_visual_provider_label" in review
+    assert "pqx_visual_provider_label" in workbench
+    assert "{{ selected_tour.get('provider_label') or '3D tour' }}" not in review
+    assert "{{ selected_tour.get('provider_label') or '3D tour' }}" not in workbench
+    assert "{{ selected_flythrough.get('provider_label') or 'Walkthrough' }}" not in review
+    assert "{{ selected_flythrough.get('provider_label') or 'Walkthrough' }}" not in workbench
     assert "<summary><strong>More actions</strong></summary>" not in review
     assert "Request walkthrough" in review
     assert "Open 3D tour" in review

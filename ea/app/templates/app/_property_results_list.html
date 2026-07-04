@@ -89,8 +89,6 @@
       {% set walkthrough_progress = walkthrough.get('progress_pct') if walkthrough.get('progress_pct') is not none else (100 if walkthrough.get('url') else 0) %}
       {% set walkthrough_label = walkthrough.get('label') or ('Walkthrough available' if walkthrough.get('url') else ('Walkthrough queued' if walkthrough_pending else 'Request walkthrough')) %}
       {% set walkthrough_tooltip = (walkthrough.get('detail') or ('Walkthrough available' if walkthrough.get('url') else 'Request when you want a guided walkthrough.')) ~ ((' · ETA ' ~ walkthrough.get('eta_label')) if walkthrough.get('eta_label') else '') %}
-      {% set tour_provider_label = tour.get('provider_label') or '' %}
-      {% set walkthrough_provider_label = walkthrough.get('provider_label') or '' %}
       {% set visual_delivery_note = '' %}
       {% if tour.get('status_detail') and (tour.get('url') or tour_pending or tour_status == 'blocked') %}
       {% set visual_delivery_note = tour.get('status_detail') %}

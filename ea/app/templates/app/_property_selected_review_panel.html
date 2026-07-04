@@ -7,6 +7,16 @@
     {%- else -%}{{ label }}
     {%- endif -%}
   {%- endmacro %}
+  {% macro pqx_visual_provider_label(value, fallback) -%}
+    {%- set label = (value or '')|string|trim -%}
+    {%- set lowered = label|lower -%}
+    {%- if not label -%}{{ fallback }}
+    {%- elif lowered in ['3d tour', 'tour', 'walkthrough', 'rendered walkthrough'] -%}{{ label }}
+    {%- elif 'walkthrough' in lowered -%}Walkthrough
+    {%- elif 'tour' in lowered -%}3D tour
+    {%- else -%}{{ fallback }}
+    {%- endif -%}
+  {%- endmacro %}
   {% set is_shortlist_surface = surface_mode == 'shortlist' %}
   {% set review_query_suffix = ('?run_id=' ~ ((run_payload.get('run_id') or '')|urlencode)) if run_payload.get('run_id') else '' %}
   <template data-pw-shortlist-empty-state-template>
@@ -50,8 +60,8 @@
       {% set selected_flythrough_pending = selected_flythrough_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
       {% set selected_tour_progress = selected_tour.get('progress_pct') if selected_tour.get('progress_pct') is not none else (100 if selected_tour.get('url') else 0) %}
       {% set selected_flythrough_progress = selected_flythrough.get('progress_pct') if selected_flythrough.get('progress_pct') is not none else (100 if selected_flythrough.get('url') else 0) %}
-      {% set selected_tour_provider_label = selected_tour.get('provider_label') or '' %}
-      {% set selected_flythrough_provider_label = selected_flythrough.get('provider_label') or '' %}
+      {% set selected_tour_provider_label = pqx_visual_provider_label(selected_tour.get('provider_label'), '3D tour') %}
+      {% set selected_flythrough_provider_label = pqx_visual_provider_label(selected_flythrough.get('provider_label'), 'Walkthrough') %}
       {% set selected_visual_status = '' %}
       {% if selected_tour_pending %}
         {% set selected_visual_status = (selected_tour.get('status_detail') or selected_tour.get('detail') or selected_tour.get('label') or 'Preparing 3D tour.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') %}
