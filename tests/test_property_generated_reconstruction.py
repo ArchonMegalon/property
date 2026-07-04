@@ -202,8 +202,8 @@ def test_generated_reconstruction_does_not_satisfy_verified_provider_gate(tmp_pa
     assert receipt["provider_counts"]["pano2vr"] == 0
     assert receipt["provider_counts"]["krpano"] == 0
     assert receipt["provider_counts"]["magicfit"] == 0
-    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "krpano", "magicfit"}
-    assert receipt["optional_provider_modes"] == ["pano2vr"]
+    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "magicfit"}
+    assert receipt["optional_provider_modes"] == ["pano2vr", "krpano"]
 
 
 def test_generated_reconstruction_can_disclose_inferred_floorplan_from_photos(tmp_path: Path) -> None:

@@ -32,7 +32,7 @@ except ModuleNotFoundError:
 
 
 PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
-PUBLIC_REQUIRED_PROVIDER_MODES = ("matterport", "3dvista", "krpano", "magicfit")
+PUBLIC_REQUIRED_PROVIDER_MODES = ("matterport", "3dvista", "magicfit")
 PROVIDER_DELIVERY_REQUIREMENTS = {
     "matterport": [
         "A public Matterport model URL on my.matterport.com or matterport.com",

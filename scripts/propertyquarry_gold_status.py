@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 
-REQUIRED_TOUR_PROVIDER_MODES = ("matterport", "3dvista", "krpano", "magicfit")
-OPTIONAL_TOUR_PROVIDER_MODES = ("pano2vr",)
+REQUIRED_TOUR_PROVIDER_MODES = ("matterport", "3dvista", "magicfit")
+OPTIONAL_TOUR_PROVIDER_MODES = ("pano2vr", "krpano")
 ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES = ("AT", "DE", "CR")
 REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
     "research_candidate",
@@ -567,7 +567,7 @@ def _tour_provider_evidence_action(missing_provider_modes: list[str]) -> str:
         "matterport": "verified hosted 3D model URL/control receipt",
         "3dvista": "verified branded 3D tour export or allowlisted hosted tour URL",
         "pano2vr": "verified panorama tour export",
-        "krpano": "real panorama/cube walkable_scene plus the licensed environment",
+        "krpano": "optional operator-only panorama scene evidence",
         "magicfit": "receipt-backed playable walkthrough",
     }
     provider_labels = {
@@ -599,7 +599,7 @@ def _tour_provider_missing_note(missing_provider_modes: list[str]) -> str:
         "matterport": "Matterport hosted 3D model",
         "3dvista": "3DVista branded 3D tour export",
         "pano2vr": "Pano2VR panorama tour export",
-        "krpano": "krpano panorama/cube viewer",
+        "krpano": "optional krpano panorama/cube viewer",
         "magicfit": "MagicFit playable walkthrough",
     }
     providers = [provider_labels[provider] for provider in missing_provider_modes if provider in provider_labels]
@@ -1373,7 +1373,7 @@ def build_gold_status_receipt(
     expected_import_providers = (
         set()
         if import_manifest_not_needed
-        else (manifest_providers or {"3dvista", "krpano", "magicfit"})
+        else (manifest_providers or {"3dvista", "magicfit"})
     )
     prepared_drop_providers = set(_operator_drop_provider_rows(import_manifest))
     hardened_readmes_ok, hardened_readme_provider_count, missing_hardened_readme_providers, hardened_readme_failures = _operator_drop_readme_status(
@@ -2155,8 +2155,10 @@ def build_gold_status_receipt(
             "magicfit_playback": magicfit_playback,
             "magicfit_playback_ok": magicfit_playback_ok,
             "ready_provider_modes": tour_controls.get("ready_provider_modes"),
-            "required_provider_modes": tour_controls.get("required_provider_modes") or list(REQUIRED_TOUR_PROVIDER_MODES),
-            "optional_provider_modes": tour_controls.get("optional_provider_modes") or list(OPTIONAL_TOUR_PROVIDER_MODES),
+            "required_provider_modes": list(REQUIRED_TOUR_PROVIDER_MODES),
+            "optional_provider_modes": list(OPTIONAL_TOUR_PROVIDER_MODES),
+            "receipt_required_provider_modes": tour_controls.get("required_provider_modes") or [],
+            "receipt_optional_provider_modes": tour_controls.get("optional_provider_modes") or [],
             "missing_provider_modes": missing_provider_modes,
             "receipt_path": str(tour_control_receipt_path),
         },

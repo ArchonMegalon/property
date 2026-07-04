@@ -19513,7 +19513,6 @@ def _property_3d_viewer_links_exit_gate(
     required = {
         "matterport": ("3D Tour", "/control/matterport"),
         "3dvista": ("3D Tour", "/control/3dvista"),
-        "pano2vr": ("3D Tour", "/control/pano2vr"),
     }
     checked: dict[str, dict[str, object]] = {}
     metrics: dict[str, object] = {"checked": checked, "legacy_removed": False}
@@ -19581,7 +19580,7 @@ def _property_3d_viewer_links_exit_gate(
                 return False, f"{key}_viewer_resolved_to_hosting_panel", metrics
             if bool(row["contains_legacy_viewer"]):
                 return False, f"{key}_viewer_legacy_viewer_present", metrics
-            if key in {"matterport", "3dvista", "pano2vr"}:
+            if key in {"matterport", "3dvista"}:
                 if bool(row["contains_cube_fallback_viewer"]):
                     return False, f"{key}_viewer_is_propertyquarry_cube_fallback", metrics
                 if not bool(row["contains_iframe"]):
@@ -19818,8 +19817,6 @@ def _hosted_property_tour_provider_export_keys(tour_url: str) -> tuple[str, ...]
         keys.append("matterport")
     if _hosted_property_tour_has_3dvista_export(tour_url):
         keys.append("3dvista")
-    if _hosted_property_tour_has_pano2vr_export(tour_url):
-        keys.append("pano2vr")
     return tuple(keys)
 
 
@@ -19849,10 +19846,6 @@ def _property_walkthrough_scene_video_context(
         return {}
     manifest = _hosted_property_tour_manifest(normalized_tour_url)
     compare_links = dict(_property_tour_compare_links(normalized_tour_url))
-    if _hosted_property_tour_has_krpano_control(normalized_tour_url):
-        krpano_url = _property_tour_control_link(normalized_tour_url, viewer="krpano")
-        if krpano_url:
-            compare_links.setdefault("krpano", krpano_url)
     route_labels: list[str] = []
     walkable_scene = dict(manifest.get("walkable_scene") or {}) if isinstance(manifest.get("walkable_scene"), dict) else {}
     for collection_key in ("route", "rooms"):
@@ -19942,8 +19935,6 @@ def _property_walkthrough_context_reference_text(tour_context_json: dict[str, ob
     provider_label = {
         "matterport": "3D tour",
         "3dvista": "3D tour",
-        "pano2vr": "panorama import",
-        "krpano": "panorama viewer",
     }.get(verified_provider, verified_provider)
     route_labels = _property_walkthrough_context_route_labels(context_payload)
     prompt_parts: list[str] = []
@@ -20030,13 +20021,6 @@ def _property_3d_provider_rule_exit_gate(
         "3dvista": "3dvista",
         "3d_vista": "3dvista",
         "three_d_vista": "3dvista",
-        "panorama": "pano2vr",
-        "pano2vr": "pano2vr",
-        "pano_2_vr": "pano2vr",
-        "pano-2-vr": "pano2vr",
-        "krpano": "krpano",
-        "kr_pano": "krpano",
-        "kr-pano": "krpano",
     }
     if expected_providers is None:
         expected = list(_hosted_property_tour_provider_export_keys(normalized))
@@ -20049,8 +20033,6 @@ def _property_3d_provider_rule_exit_gate(
     links = _property_tour_compare_links(normalized)
     declared_provider_controls = {
         "3dvista": _hosted_property_tour_has_3dvista_export(normalized),
-        "pano2vr": _hosted_property_tour_has_pano2vr_export(normalized),
-        "krpano": _hosted_property_tour_has_krpano_control(normalized),
     }
     metrics["expected_providers"] = list(expected)
     metrics["available_links"] = dict(links)
@@ -20063,15 +20045,11 @@ def _property_3d_provider_rule_exit_gate(
             return False, "matterport_export_missing_for_rule", metrics
         if provider == "3dvista" and not _hosted_property_tour_has_3dvista_export(normalized):
             return False, "3dvista_export_missing_for_rule", metrics
-        if provider == "pano2vr" and not _hosted_property_tour_has_pano2vr_export(normalized):
-            return False, "pano2vr_export_missing_for_rule", metrics
-        if provider == "krpano" and not _hosted_property_tour_has_krpano_control(normalized):
-            return False, "krpano_control_missing_for_rule", metrics
         link = str(
             links.get(provider)
             or (
                 _property_tour_control_link(normalized, viewer=provider)
-                if provider in {"3dvista", "pano2vr", "krpano"} and declared_provider_controls.get(provider)
+                if provider in {"3dvista"} and declared_provider_controls.get(provider)
                 else ""
             )
         ).strip()

@@ -276,10 +276,9 @@ def test_property_tour_control_verifier_next_actions_only_include_globally_missi
     receipt = build_property_tour_control_receipt(tour_root=tmp_path)
 
     assert receipt["ready_provider_modes"] == ["matterport"]
-    assert set(receipt["missing_provider_modes"]) == {"3dvista", "krpano", "magicfit"}
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "magicfit"}
     assert {row["provider"] for row in receipt["next_required_actions"]} == {
         "3dvista",
-        "krpano",
         "magicfit",
     }
 
@@ -294,10 +293,9 @@ def test_property_tour_control_verifier_can_require_all_provider_modes_for_gold_
     assert receipt["require_all_provider_modes"] is True
     assert summary["require_all_provider_modes"] is True
     assert receipt["ready_provider_modes"] == ["matterport"]
-    assert set(receipt["missing_provider_modes"]) == {"3dvista", "krpano", "magicfit"}
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "magicfit"}
     assert {row["provider"] for row in receipt["next_required_actions"]} == {
         "3dvista",
-        "krpano",
         "magicfit",
     }
     assert summary["provider_blockers"]["3dvista"]["blocked_count"] == 1
@@ -342,13 +340,11 @@ def test_property_tour_control_verifier_counts_provider_gaps_on_ready_tours(tmp_
     missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
     assert receipt["status"] == "blocked_missing_provider_modes"
     assert receipt["tours"][0]["status"] == "ready"
-    assert set(missing) == {"3dvista", "krpano", "magicfit"}
+    assert set(missing) == {"3dvista", "magicfit"}
     assert missing["3dvista"]["reason"] == "missing_3dvista_export"
-    assert missing["krpano"]["reason"] in {"missing_walkable_scene", "missing_krpano_license_environment"}
     assert missing["magicfit"]["reason"] == "missing_magicfit_walkthrough"
-    assert set(receipt["tours"][0]["missing_provider_modes"]) == {"3dvista", "krpano", "magicfit"}
+    assert set(receipt["tours"][0]["missing_provider_modes"]) == {"3dvista", "magicfit"}
     assert actions["3dvista"]["blocked_tour_count"] == 1
-    assert actions["krpano"]["blocked_tour_count"] == 1
     assert actions["magicfit"]["blocked_tour_count"] == 1
 
 
@@ -494,7 +490,7 @@ def test_property_tour_control_verifier_does_not_fail_public_gate_for_optional_p
     assert receipt["provider_counts"]["matterport"] == 1
     assert receipt["provider_counts"]["pano2vr"] == 0
     assert receipt["ready_provider_modes"] == ["matterport"]
-    assert set(receipt["missing_provider_modes"]) == {"3dvista", "krpano", "magicfit"}
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "magicfit"}
     assert controls["pano2vr"]["status"] == "optional_probe_failed"
 
 
@@ -728,7 +724,7 @@ def test_property_tour_control_verifier_blocks_when_no_verified_controls(tmp_pat
     assert receipt["ready_provider_modes"] == []
     assert receipt["tours"][0]["status"] == "blocked_missing_verified_controls"
     assert receipt["tours"][0]["blocked_reason"] == "generated_cube_not_verified_3d"
-    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "krpano", "magicfit"}
+    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "magicfit"}
 
 
 def test_property_tour_control_verifier_marks_photo_gallery_as_not_3d(tmp_path: Path) -> None:
@@ -759,7 +755,6 @@ def test_property_tour_control_verifier_marks_photo_gallery_as_not_3d(tmp_path: 
     assert {row["provider"] for row in receipt["next_required_actions"]} == {
         "matterport",
         "3dvista",
-        "krpano",
         "magicfit",
     }
 
@@ -792,7 +787,7 @@ def test_property_tour_control_verifier_reports_actionable_missing_evidence(tmp_
     assert missing["3dvista"]["reason"] == "3dvista_entry_missing_or_not_verified"
     assert "pano2vr" not in missing
     assert receipt["provider_blockers"]["pano2vr"]["reasons"][0]["reason"] == "pano2vr_entry_missing_or_not_verified"
-    assert missing["krpano"]["reason"] == "missing_krpano_license_environment"
+    assert "krpano" not in missing
     assert missing["magicfit"]["reason"] == "walkthrough_provider_not_magicfit"
     assert "tracker.example" not in json.dumps(receipt)
 

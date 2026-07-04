@@ -2382,7 +2382,7 @@ def property_workspace_payload(
             provider_label = _visual_provider_label(provider_key) if provider_key else "3D tour"
             ready_tour_url = verified_tour_url
             if ready_tour_url:
-                verified_provider_keys = {"matterport", "3dvista", "pano2vr", "krpano"}
+                verified_provider_keys = {"matterport", "3dvista"}
                 status_detail = "3D tour is available on this page."
                 visual_runtime = _visual_runtime_payload(
                     candidate,

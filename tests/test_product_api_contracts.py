@@ -27070,7 +27070,7 @@ def test_public_tour_control_rejects_removed_legacy_viewer() -> None:
     assert exc_info.value.detail == "tour_control_legacy_viewer_removed"
 
 
-def test_public_tour_control_krpano_requires_license(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_public_tour_control_krpano_is_hidden_without_license(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import public_tours
 
     monkeypatch.delenv("KRPANO_LICENSE_DOMAIN", raising=False)
@@ -27087,7 +27087,7 @@ def test_public_tour_control_krpano_requires_license(monkeypatch: pytest.MonkeyP
         )
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "tour_control_krpano_license_missing"
+    assert exc_info.value.detail == "tour_control_panorama_export_hidden"
 
 
 def _write_test_equirectangular_panorama(path: Path) -> None:
@@ -27097,7 +27097,7 @@ def _write_test_equirectangular_panorama(path: Path) -> None:
     Image.new("RGB", (2048, 1024), color=(28, 42, 36)).save(path, format="JPEG")
 
 
-def test_public_tour_control_krpano_embeds_license_marker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_public_tour_control_krpano_is_hidden_even_with_license(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from app.api.routes import public_tours
 
     slug = "krpano-licensed-tour"
@@ -27107,21 +27107,18 @@ def test_public_tour_control_krpano_embeds_license_marker(monkeypatch: pytest.Mo
     monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
     monkeypatch.setenv("KRPANO_LICENSE_KEY", "demo-license")
 
-    html = public_tours._tour_control_html(
-        {
-            "slug": slug,
-            "display_title": "krpano Licensed Tour",
-            "walkable_scene": {"projection": "equirectangular", "panorama_relpath": "krpano/panorama.jpg"},
-        },
-        viewer_mode="krpano",
-    )
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": slug,
+                "display_title": "krpano Licensed Tour",
+                "walkable_scene": {"projection": "equirectangular", "panorama_relpath": "krpano/panorama.jpg"},
+            },
+            viewer_mode="krpano",
+        )
 
-    assert 'data-viewer="krpano"' in html
-    assert "Panorama Viewer" in html
-    assert "Viewer license" in html
-    assert "Registered for propertyquarry.com" in html
-    assert 'id="krpano-license"' in html
-    assert 'window.__PROPERTYQUARRY_KRPANO_LICENSE__' in html
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_panorama_export_hidden"
 
 
 def test_public_tour_control_krpano_rejects_placeholder_walkable_scene(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -27143,7 +27140,7 @@ def test_public_tour_control_krpano_rejects_placeholder_walkable_scene(monkeypat
         )
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "tour_control_krpano_asset_missing"
+    assert exc_info.value.detail == "tour_control_panorama_export_hidden"
 
 
 def test_public_tour_landing_hides_magicfit_without_route_coverage_proof() -> None:
@@ -27386,10 +27383,10 @@ def test_public_tour_control_krpano_route_requires_license(monkeypatch: pytest.M
     response = client.get(f"/tours/{slug}/control/krpano")
 
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "tour_control_krpano_license_missing"
+    assert response.json()["error"]["code"] == "tour_control_panorama_export_hidden"
 
 
-def test_public_tour_control_krpano_route_renders_licensed_viewer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_public_tour_control_krpano_route_hides_licensed_viewer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     slug = "krpano-route-licensed"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
@@ -27412,11 +27409,8 @@ def test_public_tour_control_krpano_route_renders_licensed_viewer(monkeypatch: p
     client = build_product_client(principal_id="public-tour-krpano-licensed")
     response = client.get(f"/tours/{slug}/control/krpano")
 
-    assert response.status_code == 200
-    assert 'data-viewer="krpano"' in response.text
-    assert "Panorama Viewer" in response.text
-    assert "Viewer license" in response.text
-    assert "Registered for propertyquarry.com" in response.text
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "tour_control_panorama_export_hidden"
 
 
 def test_public_tour_control_krpano_route_rejects_placeholder_scene(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -27443,7 +27437,7 @@ def test_public_tour_control_krpano_route_rejects_placeholder_scene(monkeypatch:
     response = client.get(f"/tours/{slug}/control/krpano")
 
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "tour_control_krpano_asset_missing"
+    assert response.json()["error"]["code"] == "tour_control_panorama_export_hidden"
 
 
 def test_public_tour_control_pano2vr_requires_declared_entry() -> None:
@@ -27462,7 +27456,7 @@ def test_public_tour_control_pano2vr_requires_declared_entry() -> None:
     assert exc_info.value.detail == "tour_control_panorama_export_hidden"
 
 
-def test_public_tour_control_pano2vr_embeds_export_entry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_public_tour_control_pano2vr_hides_export_entry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from app.api.routes import public_tours
 
     slug = "pano2vr-control-tour"
@@ -27474,18 +27468,18 @@ def test_public_tour_control_pano2vr_embeds_export_entry(monkeypatch: pytest.Mon
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("PROPERTYQUARRY_SHOW_PANO2VR", "1")
-    html = public_tours._tour_control_html(
-        {
-            "slug": slug,
-            "display_title": "Panorama Control Tour",
-            "pano2vr_entry_relpath": "pano2vr/index.html",
-        },
-        viewer_mode="pano2vr",
-    )
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": slug,
+                "display_title": "Panorama Control Tour",
+                "pano2vr_entry_relpath": "pano2vr/index.html",
+            },
+            viewer_mode="pano2vr",
+        )
 
-    assert "3D Tour" in html
-    assert "Pano2VR Control" not in html
-    assert 'src="/tours/pano2vr/pano2vr-control-tour/pano2vr/index.html"' in html
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_panorama_export_hidden"
 
 
 def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -27507,6 +27501,7 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
             {
                 "slug": slug,
                 "display_title": "Pano2VR Route Export",
+                "control_mode": "pano2vr",
                 "pano2vr_entry_relpath": "pano2vr/index.html",
             }
         ),
@@ -27526,13 +27521,10 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
     other_response = client.get(f"/tours/pano2vr/{slug}/other/index.html")
     private_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/private.json")
 
-    assert default_control_response.status_code == 200
-    assert "3D Tour" in default_control_response.text
-    assert "Pano2VR Control" not in default_control_response.text
-    assert control_response.status_code == 200
-    assert "3D Tour" in control_response.text
-    assert "Pano2VR Control" not in control_response.text
-    assert f"/tours/pano2vr/{slug}/pano2vr/index.html" in control_response.text
+    assert default_control_response.status_code == 404
+    assert default_control_response.json()["error"]["code"] == "tour_control_panorama_export_hidden"
+    assert control_response.status_code == 404
+    assert control_response.json()["error"]["code"] == "tour_control_panorama_export_hidden"
     assert entry_response.status_code == 200
     assert "Pano2VR" in entry_response.text
     assert script_response.status_code == 200
@@ -27567,7 +27559,7 @@ def test_public_tour_control_pano2vr_route_rejects_placeholder_entry(
     entry_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/index.html")
 
     assert control_response.status_code == 404
-    assert control_response.json()["error"]["code"] == "tour_control_pano2vr_export_missing"
+    assert control_response.json()["error"]["code"] == "tour_control_panorama_export_hidden"
     assert entry_response.status_code == 404
 
 
@@ -27937,7 +27929,7 @@ def test_property_tour_compare_links_hide_pano2vr_even_when_entry_exists(monkeyp
     tour_url = f"https://propertyquarry.com/tours/{slug}"
 
     assert product_service._property_tour_compare_links(tour_url) == {}
-    assert product_service._hosted_property_tour_provider_export_keys(tour_url) == ("pano2vr",)
+    assert product_service._hosted_property_tour_provider_export_keys(tour_url) == ()
     assert property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) == ""
 
 
@@ -28325,7 +28317,7 @@ def test_property_3d_provider_rule_exit_gate_requires_selected_provider_links(mo
     assert metrics["available_links"] == metrics["selected_links"]
 
 
-def test_property_3d_provider_rule_exit_gate_accepts_licensed_krpano_control(monkeypatch, tmp_path: Path) -> None:
+def test_property_3d_provider_rule_exit_gate_ignores_krpano_as_public_provider(monkeypatch, tmp_path: Path) -> None:
     slug = "provider-rule-krpano-tour"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
@@ -28354,10 +28346,9 @@ def test_property_3d_provider_rule_exit_gate_accepts_licensed_krpano_control(mon
 
     assert ok is True
     assert reason == ""
-    assert metrics["expected_providers"] == ["krpano"]
-    assert metrics["selected_links"] == {
-        "krpano": f"https://propertyquarry.com/tours/{slug}/control/krpano",
-    }
+    assert metrics["expected_providers"] == []
+    assert metrics["selected_links"] == {}
+    assert metrics["skipped"] == "no_provider_export_rule"
 
 
 def test_property_3d_provider_rule_exit_gate_rejects_when_one_requested_viewer_is_missing(monkeypatch, tmp_path: Path) -> None:

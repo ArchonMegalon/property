@@ -165,7 +165,7 @@ def _drop_readme_body(*, row: dict[str, Any], provider: str, slug: str, drop_sta
             "",
             f"After exports are copied, run: {manifest.get('next_command')}",
             "Then rerun: python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --require-all-provider-modes --summary-only",
-            "Public gold only passes when verify_property_tour_controls reports ready provider modes for matterport, 3dvista, krpano, and magicfit.",
+            "Public gold only requires customer-facing modes: matterport, 3dvista, and magicfit. Pano2VR and krpano stay optional/operator-only panorama lanes.",
             "Pano2VR is an optional/internal export lane and must stay hidden unless a clean verified export is deliberately enabled.",
             "",
         ]

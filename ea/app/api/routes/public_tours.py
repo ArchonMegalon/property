@@ -1655,14 +1655,7 @@ def _pano2vr_export_root_relpath(payload: dict[str, object]) -> str:
 
 
 def _pano2vr_control_url(slug: str, payload: dict[str, object]) -> str:
-    if not _pano2vr_public_enabled():
-        return ""
-    entry_relpath = _pano2vr_entry_relpath(payload)
-    if not slug or not entry_relpath:
-        return ""
-    if not _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_PANO2VR_EXPORT_MARKERS):
-        return ""
-    return f"/tours/{html.escape(slug)}/control/pano2vr"
+    return ""
 
 
 def _pano2vr_public_enabled() -> bool:
@@ -5100,33 +5093,15 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "", ful
         return _tour_control_matterport_html(payload)
     if forced_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         return _tour_control_3dvista_html(payload)
-    if forced_mode in {"pano2vr", "pano_2_vr"}:
-        if not _pano2vr_public_enabled():
-            raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
-        return _tour_control_pano2vr_html(payload)
-    if forced_mode == "krpano":
-        license_config = _krpano_license_runtime_config()
-        if not license_config:
-            raise HTTPException(status_code=404, detail="tour_control_krpano_license_missing")
-        if not _walkable_scene_has_real_360_asset(payload):
-            raise HTTPException(status_code=404, detail="tour_control_krpano_asset_missing")
-        return _tour_control_walkable_html(
-            payload,
-            provider_label="Panorama Viewer",
-            license_config=license_config,
-            viewer_name="krpano",
-        )
+    if forced_mode in {"pano2vr", "pano_2_vr", "krpano"}:
+        raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
     control_mode = str(payload.get("control_mode") or "").strip().lower()
     if control_mode == "marzipano":
         raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
     if control_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         return _tour_control_3dvista_html(payload)
     if control_mode in {"pano2vr", "pano_2_vr"}:
-        if not _pano2vr_public_enabled():
-            raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
-        return _tour_control_pano2vr_html(payload)
-    if _pano2vr_public_enabled() and _pano2vr_entry_relpath(payload):
-        return _tour_control_pano2vr_html(payload)
+        raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
     if control_mode == "internal_walkable_3d":
         raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
     if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
@@ -5462,9 +5437,6 @@ def _tour_control_external_iframe_html(
               <p class="hint">Explore the space.</p>
               {provider_layer_switch_html}
               <p class="provider-layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>
-            </div>
-            <div class="provider-actions">
-              <a href="{clean_fullscreen_href}" target="_blank" rel="noopener noreferrer">Open fullscreen</a>
             </div>
           </div>
           <div class="provider-frame-wrap">

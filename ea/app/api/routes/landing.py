@@ -1150,7 +1150,6 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         score += 100 if targets.get("walkthrough_href") else 0
         score += 80 if "/control/3dvista" in targets.get("tour_href", "") else 0
         score += 40 if "/control/matterport" in targets.get("tour_href", "") else 0
-        score += 20 if "/control/pano2vr" in targets.get("tour_href", "") else 0
         score += 30 if "/generated-reconstruction/" in targets.get("tour_href", "") else 0
         candidates.append((score, str(payload.get("display_title") or payload.get("title") or slug), targets))
     if candidates:

@@ -342,9 +342,9 @@ def test_tour_delivery_contract_checker_accepts_matterport_ready_and_3dvista_blo
     assert receipt["status"] == "pass"
     assert receipt["matterport_ready_count"] == 1
     assert "matterport" in receipt["ready_provider_modes"]
-    assert receipt["required_provider_modes"] == ["matterport", "3dvista", "krpano", "magicfit"]
-    assert receipt["optional_provider_modes"] == ["pano2vr"]
-    assert set(receipt["missing_provider_modes"]) == {"3dvista", "krpano", "magicfit"}
+    assert receipt["required_provider_modes"] == ["matterport", "3dvista", "magicfit"]
+    assert receipt["optional_provider_modes"] == ["pano2vr", "krpano"]
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "magicfit"}
 
 
 def test_tour_delivery_contract_checker_rejects_matterport_url_leak(tmp_path: Path) -> None:

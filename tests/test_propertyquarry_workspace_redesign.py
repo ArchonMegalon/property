@@ -9168,9 +9168,10 @@ def test_property_workbench_step_triggers_prevent_default_and_use_semantic_hidde
     assert "targetIndex = steps.findIndex" not in body
 
 
-def test_property_workbench_treats_krpano_control_as_direct_hosted_tour() -> None:
+def test_property_workbench_only_treats_customer_facing_controls_as_direct_hosted_tours() -> None:
     body = _read_workbench_bundle()
-    assert "matterport|3dvista|pano2vr|krpano" in body
+    assert "matterport|3dvista" in body
+    assert "matterport|3dvista|pano2vr|krpano" not in body
 
 
 def test_property_workbench_restores_district_map_scroll_lock_synchronously() -> None:
@@ -9583,17 +9584,17 @@ def test_property_research_media_uses_generic_label_for_verified_controls(monkey
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: "https://propertyquarry.com/tours/pano-ready/control/pano2vr",
+        lambda _url: "https://propertyquarry.com/tours/ready-tour/control/3dvista",
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url: "pano2vr",
+        lambda _url: "3dvista",
     )
 
     payload = landing_property_research._property_tour_media_payload(
         {
-            "tour_url": "https://propertyquarry.com/tours/pano-ready",
+            "tour_url": "https://propertyquarry.com/tours/ready-tour",
             "property_url": "https://example.test/listing",
         }
     )

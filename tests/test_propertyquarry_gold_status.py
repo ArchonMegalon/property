@@ -588,8 +588,8 @@ def _tour_delivery_contract_payload(*, status: str = "pass") -> dict[str, object
     return {
         "schema": "propertyquarry.tour_delivery_contract_shape_receipt.v1",
         "status": status,
-        "required_provider_modes": ["matterport", "3dvista", "krpano", "magicfit"],
-        "optional_provider_modes": ["pano2vr"],
+        "required_provider_modes": ["matterport", "3dvista", "magicfit"],
+        "optional_provider_modes": ["pano2vr", "krpano"],
         "ready_provider_modes": ["3dvista", "krpano", "magicfit", "matterport", "pano2vr"] if status == "pass" else ["krpano", "magicfit", "pano2vr"],
         "missing_provider_modes": [] if status == "pass" else ["3dvista", "matterport"],
         "matterport_ready_count": 29 if status == "pass" else 0,
@@ -1020,7 +1020,7 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert receipt["provider_matrix"]["dispatch_acceptance_complete"] is True
     assert receipt["provider_matrix"]["status_readback_complete"] is True
     assert receipt["provider_matrix"]["payload_contracts_ok"] is True
-    assert receipt["tour_controls"]["missing_provider_modes"] == ["3dvista", "krpano", "magicfit"]
+    assert receipt["tour_controls"]["missing_provider_modes"] == ["3dvista", "magicfit"]
     assert receipt["tour_controls"]["delivery_contracts"]["3dvista"]["blocked_reason"] == "missing_3dvista_export"
     assert "verified non-trial 3DVista" in receipt["tour_controls"]["delivery_contracts"]["3dvista"]["required_to_send"][0]
     assert receipt["operator_import_manifest"]["ready_for_exports"] is True
@@ -1128,21 +1128,22 @@ def test_gold_status_missing_tour_action_excludes_already_verified_modes(tmp_pat
     )
 
     blocker = next(row for row in receipt["blockers"] if row["area"] == "verified_tour_provider_modes")
-    assert blocker["missing_provider_modes"] == ["3dvista", "krpano"]
+    assert blocker["missing_provider_modes"] == ["3dvista"]
     assert receipt["tour_controls"]["provider_blockers"]["krpano"]["reasons"][0]["reason"] == "missing_walkable_scene"
     assert "MagicFit" not in blocker["action"]
     assert "Matterport" not in blocker["action"]
     assert "3DVista" in blocker["action"]
     assert "Pano2VR" not in blocker["action"]
-    assert "krpano" in blocker["action"]
+    assert "krpano" not in blocker["action"]
     aggregate_action = receipt["next_required_actions"][-1]
-    assert aggregate_action["provider"] == "3dvista_krpano"
-    assert {row["provider"] for row in aggregate_action["rejected_sample"]} == {"3dvista", "krpano"}
+    assert aggregate_action["provider"] == "3dvista"
+    assert {row["provider"] for row in aggregate_action["rejected_sample"]} == {"3dvista"}
     assert receipt["notes"][0] == "Gold remains blocked until every failing gate below is repaired."
     missing_note = receipt["notes"][-1]
     assert "MagicFit" not in missing_note
     assert "Matterport" not in missing_note
-    assert "3DVista, krpano" in missing_note
+    assert "3DVista" in missing_note
+    assert "krpano" not in missing_note
 
 
 def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: Path) -> None:

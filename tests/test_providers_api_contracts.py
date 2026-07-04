@@ -8189,6 +8189,7 @@ def test_public_tour_routes_allow_matterport_thumb_preview_for_live_360(
     assert "Matterport Live 360" in page.text
     assert 'src="https://my.matterport.com/show/?m=BmVWxvZQZLq"' in page.text
     assert "Explore the space." in page.text
+    assert "Open fullscreen" not in page.text
     assert "Property Tour" not in page.text
     assert "Load 3D tour" not in page.text
 
@@ -8265,9 +8266,50 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
     assert control.status_code == 200
     assert "3D Tour" in control.text
     assert "Property Tour" not in control.text
+    assert "Open fullscreen" not in control.text
     assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control.text
     assert locale.status_code == 200
     assert wasm.status_code == 200
+
+
+def test_public_tour_routes_hide_forced_panorama_controls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "test-license")
+    slug = "propertyquarry-panorama-hidden"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Hidden panorama fallback",
+                "display_title": "Hidden panorama fallback",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "scene_strategy": "walkable_panorama",
+                "creation_mode": "hosted_walkable_360",
+                "walkable_scene": {
+                    "projection": "equirectangular",
+                    "panorama_relpath": "panorama.jpg",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-panorama-hidden")
+    krpano = client.get(f"/tours/{slug}/control/krpano", headers={"host": "propertyquarry.com"})
+    pano2vr = client.get(f"/tours/{slug}/control/pano2vr", headers={"host": "propertyquarry.com"})
+
+    assert krpano.status_code == 404
+    assert krpano.json()["error"]["code"] == "tour_control_panorama_export_hidden"
+    assert pano2vr.status_code == 404
+    assert pano2vr.json()["error"]["code"] == "tour_control_panorama_export_hidden"
 
 
 def test_public_tour_hides_3dvista_link_without_browser_render_proof_but_keeps_probe_control(

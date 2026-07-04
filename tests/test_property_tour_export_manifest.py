@@ -227,8 +227,10 @@ def test_materialize_property_tour_export_manifest_prepares_drop_dir_readmes(tmp
         assert "Missing now:" in body
         assert "import_property_tour_exports.py" in body
         assert "Single-provider dry import example:" in body
-        assert "Public gold only passes when verify_property_tour_controls reports ready provider modes" in body
-        assert "matterport, 3dvista, krpano, and magicfit" in body
+        assert "Public gold only requires customer-facing modes" in body
+        assert "matterport, 3dvista, and magicfit" in body
+        assert "Pano2VR and krpano stay optional/operator-only panorama lanes" in body
+        assert "matterport, 3dvista, krpano, and magicfit" not in body
         assert "matterport, 3dvista, pano2vr, krpano, and magicfit" not in body.lower()
         assert "Pano2VR is an optional/internal export lane" in body
         assert "generated cube fallbacks" in body
