@@ -10625,15 +10625,15 @@
 </head>
 <body>
   {% set workbench_client = {
-    'results': results,
-    'selected': selected,
+    'results': workbench.get('client_results') or results,
+    'selected': workbench.get('client_selected') or selected,
     'brief_preferences': workbench.get('brief_preferences') or {},
     'preferences': workbench.get('preferences') or {},
     'market': workbench.get('market') or {},
     'brief': brief,
     'selected_platforms': workbench.get('selected_platforms') or brief.get('providers') or [],
     'endpoints': workbench.get('endpoints') or {},
-    'run': run,
+    'run': workbench.get('client_run') or run,
     'empty_outcome': empty_outcome,
   } %}
   <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-surface="{{ surface_mode }}" data-pqx-state="{{ 'results' if has_results else ('running' if run_active else ('empty_results' if run_terminal_no_results else 'setup')) }}">

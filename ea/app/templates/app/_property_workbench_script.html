@@ -3026,10 +3026,17 @@
         });
       });
       collected.sort((left, right) => candidateSortScore(right) - candidateSortScore(left));
-      return limitRowsForPlan(collected, 50).map((candidate, index) => ({
-        rank: candidate.rank || index + 1,
-        ...candidate,
-      }));
+      if (collected.length) {
+        return limitRowsForPlan(collected, 50).map((candidate, index) => ({
+          rank: candidate.rank || index + 1,
+          ...candidate,
+        }));
+      }
+      const fallbackResults = Array.isArray(data.results)
+        ? data.results.filter(isRankableCandidate)
+        : [];
+      if (fallbackResults.length) return fallbackResults;
+      return [];
     };
     const syncCanonicalRunState = (runPayload) => {
       if (!runPayload || typeof runPayload !== 'object') return runPayload;

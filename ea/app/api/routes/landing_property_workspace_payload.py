@@ -156,6 +156,266 @@ def _property_workbench_lightweight_orientation_preview(value: object) -> dict[s
     return preview
 
 
+def _property_workbench_client_image_url(value: object) -> str:
+    url = str(value or "").strip()
+    if not url or url.lower().startswith("data:"):
+        return ""
+    return _property_workbench_lightweight_image_url(url)
+
+
+def _property_workbench_client_image_payload(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    compact: dict[str, object] = {}
+    for key in ("image_url", "thumb_image_url", "preview_image_url"):
+        cleaned = _property_workbench_client_image_url(dict(value).get(key))
+        if cleaned:
+            compact[key] = cleaned
+    return compact
+
+
+_PROPERTY_WORKBENCH_CLIENT_FACT_KEYS = (
+    "price_display",
+    "rent_display",
+    "price_per_sqm_display",
+    "currency_code",
+    "price",
+    "rent",
+    "price_eur",
+    "rent_eur",
+    "total_rent_eur",
+    "monthly_rent_eur",
+    "purchase_price_eur",
+    "area_sqm",
+    "rooms",
+    "floor",
+    "has_floorplan",
+    "floorplan_count",
+    "floorplan_urls_json",
+    "source_virtual_tour_url",
+    "exact_address",
+    "street_address",
+    "address",
+    "postal_name",
+    "district",
+    "city",
+    "map_lat",
+    "map_lng",
+    "lat",
+    "lng",
+    "latitude",
+    "longitude",
+    "nearest_school_m",
+    "nearest_school_name",
+    "nearest_school_lat",
+    "nearest_school_lng",
+    "nearest_supermarket_m",
+    "nearest_supermarket_name",
+    "nearest_supermarket_lat",
+    "nearest_supermarket_lng",
+    "nearest_playground_m",
+    "nearest_playground_name",
+    "nearest_playground_lat",
+    "nearest_playground_lng",
+    "nearest_pharmacy_m",
+    "nearest_pharmacy_name",
+    "nearest_pharmacy_lat",
+    "nearest_pharmacy_lng",
+    "nearest_subway_m",
+    "nearest_subway_name",
+    "nearest_subway_lat",
+    "nearest_subway_lng",
+)
+
+
+def _property_workbench_client_facts(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    facts = dict(value)
+    return {
+        key: facts.get(key)
+        for key in _PROPERTY_WORKBENCH_CLIENT_FACT_KEYS
+        if facts.get(key) not in (None, "", [], {})
+    }
+
+
+def _property_workbench_client_tour_payload(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw = dict(value)
+    return {
+        key: raw.get(key)
+        for key in (
+            "status",
+            "url",
+            "embed_url",
+            "provider_url",
+            "provider",
+            "label",
+            "detail",
+            "eta_label",
+            "progress_pct",
+        )
+        if raw.get(key) not in (None, "", [], {})
+    }
+
+
+def _property_workbench_client_route_rows(value: object) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for row in list(value or [])[:4]:
+        if not isinstance(row, dict):
+            continue
+        raw = dict(row)
+        rows.append(
+            {
+                key: raw.get(key)
+                for key in ("label", "distance", "map_url", "icon")
+                if raw.get(key) not in (None, "", [], {})
+            }
+        )
+    return rows
+
+
+def _property_workbench_client_candidate_payload(candidate: dict[str, object]) -> dict[str, object]:
+    raw = dict(candidate or {})
+    facts = _property_workbench_client_facts(raw.get("property_facts"))
+    compact: dict[str, object] = {
+        key: raw.get(key)
+        for key in (
+            "candidate_ref",
+            "rank",
+            "title",
+            "source_label",
+            "source_platform",
+            "source_ref",
+            "location_label",
+            "price_display",
+            "costs_display",
+            "rent_display",
+            "price_per_sqm_display",
+            "layout_display",
+            "fit_score",
+            "personal_fit_score",
+            "fit_label",
+            "fit_summary",
+            "packet_url",
+            "review_url",
+            "property_url",
+            "source_url",
+            "listing_url",
+            "map_url",
+            "floorplan_url",
+            "source_virtual_tour_url",
+            "vendor_tour_url",
+            "tour_url",
+            "tour_status",
+            "tour_provider",
+            "flythrough_url",
+            "flythrough_status",
+            "diorama_preview_url",
+        )
+        if raw.get(key) not in (None, "", [], {})
+    }
+    preview_image_url = _property_workbench_client_image_url(raw.get("preview_image_url"))
+    if preview_image_url:
+        compact["preview_image_url"] = preview_image_url
+    orientation_preview = _property_workbench_client_image_payload(raw.get("orientation_preview"))
+    if orientation_preview:
+        compact["orientation_preview"] = orientation_preview
+    diorama_scene = _property_workbench_client_image_payload(raw.get("diorama_scene"))
+    if diorama_scene:
+        compact["diorama_scene"] = diorama_scene
+    tour_payload = _property_workbench_client_tour_payload(raw.get("tour"))
+    if tour_payload:
+        compact["tour"] = tour_payload
+    flythrough_payload = _property_workbench_client_tour_payload(raw.get("flythrough"))
+    if flythrough_payload:
+        compact["flythrough"] = flythrough_payload
+    if facts:
+        compact["property_facts"] = facts
+    match_reasons = [str(item).strip() for item in list(raw.get("match_reasons") or []) if str(item).strip()]
+    if match_reasons:
+        compact["match_reasons"] = match_reasons[:3]
+    route_rows = _property_workbench_client_route_rows(raw.get("route_evidence"))
+    if route_rows:
+        compact["route_evidence"] = route_rows
+    return compact
+
+
+def _property_workbench_client_run_payload(run_payload: dict[str, object]) -> dict[str, object]:
+    raw_run = dict(run_payload or {})
+    raw_summary = dict(raw_run.get("summary") or {}) if isinstance(raw_run.get("summary"), dict) else {}
+    summary_keys = (
+        "status",
+        "listing_total",
+        "raw_listing_total",
+        "found_listing_total",
+        "reviewed_listing_total",
+        "scanned_listing_total",
+        "to_review_listing_total",
+        "ranked_total",
+        "ranked_candidate_total",
+        "filtered_total",
+        "held_back_total",
+        "score_demoted_total",
+        "filtered_low_fit_total",
+        "provider_total",
+        "provider_display_total",
+        "source_variant_total",
+        "source_variant_display_total",
+        "sources_total",
+        "sources_completed",
+        "completed_sources",
+        "current_plan_key",
+        "max_results_per_source",
+        "current_step",
+        "repair_status",
+        "repair_status_label",
+        "repair_replacement_run_id",
+    )
+    compact_summary = {
+        key: raw_summary.get(key)
+        for key in summary_keys
+        if raw_summary.get(key) not in (None, "", [], {})
+    }
+    compact_run = {
+        key: raw_run.get(key)
+        for key in (
+            "run_id",
+            "status",
+            "status_label",
+            "progress",
+            "message",
+            "status_url",
+            "eta_label",
+            "current_step",
+            "provider_display_total",
+            "source_variant_display_total",
+            "selected_platform_count",
+            "filtered_total",
+            "held_back_total",
+            "score_demoted_total",
+        )
+        if raw_run.get(key) not in (None, "", [], {})
+    }
+    if compact_summary:
+        compact_run["summary"] = compact_summary
+    events = [dict(row) for row in list(raw_run.get("events") or []) if isinstance(row, dict)]
+    if events:
+        compact_run["events"] = events[-10:]
+    route_previews = [dict(row) for row in list(raw_run.get("route_previews") or []) if isinstance(row, dict)]
+    if route_previews:
+        compact_run["route_previews"] = route_previews[:3]
+    reliability = dict(raw_run.get("reliability") or {}) if isinstance(raw_run.get("reliability"), dict) else {}
+    if reliability:
+        compact_run["reliability"] = {
+            key: reliability.get(key)
+            for key in ("health_label", "health_tone", "customer_status_message", "coverage_label", "result_label")
+            if reliability.get(key) not in (None, "", [], {})
+        }
+    return compact_run
+
+
 def _compact_property_account_status(status: dict[str, object]) -> dict[str, object]:
     """Keep authenticated account UI state without carrying raw preference/run blobs."""
     raw_status = dict(status or {})
@@ -4347,6 +4607,31 @@ def property_workspace_payload(
         or workbench_filtered_total
         or 0
     )
+    client_results = [
+        _property_workbench_client_candidate_payload(candidate)
+        for candidate in workbench_results
+        if isinstance(candidate, dict)
+    ]
+    client_selected = (
+        _property_workbench_client_candidate_payload(selected_result)
+        if selected_result
+        else (client_results[0] if client_results else {})
+    )
+    client_run = _property_workbench_client_run_payload(
+        {
+            **run_payload_for_surface,
+            "summary": run_summary_for_surface,
+            "message": run_status_note or run_message,
+            "events": run_events[-10:],
+            "route_previews": progress_route_previews,
+            "provider_display_total": run_provider_display_total,
+            "source_variant_display_total": run_source_variant_total,
+            "selected_platform_count": len(selected_platforms),
+            "filtered_total": workbench_filtered_total,
+            "held_back_total": workbench_held_back_total,
+            "score_demoted_total": workbench_score_demoted_total,
+        }
+    )
     decision_workbench = PropertyDecisionWorkbenchContract(
         run=PropertyDecisionWorkbenchRunContract(
             run_id=run_id,
@@ -4433,6 +4718,9 @@ def property_workspace_payload(
             else {}
         ),
         results=workbench_results,
+        client_results=client_results,
+        client_selected=client_selected,
+        client_run=client_run,
         search_guard_rows=[],
         suppression_rows=suppression_rows,
         delivery_proof_rows=delivery_proof_rows,

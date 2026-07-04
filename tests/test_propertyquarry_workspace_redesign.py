@@ -3931,6 +3931,89 @@ def test_propertyquarry_properties_route_does_not_duplicate_heavy_run_payload(mo
     assert "data-console-form-meta" not in response.text
 
 
+def test_propertyquarry_shortlist_bootstrap_uses_compact_client_payload(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-compact-client")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    heavy_blob = "x" * 12000
+
+    def _fake_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        candidate = {
+            "candidate_ref": "compact-candidate",
+            "title": "Compact payload apartment",
+            "property_url": "https://example.test/compact-payload-apartment",
+            "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+            "fit_score": 77,
+            "fit_summary": "Good layout near transit.",
+            "price_display": "EUR 1,250",
+            "layout_display": "2 rooms | 54 m2",
+            "preview_image_url": "data:image/png;base64," + heavy_blob,
+            "property_facts": {
+                "postal_name": "1020 Vienna",
+                "has_floorplan": True,
+                "floorplan_count": 1,
+                "floorplan_urls_json": ["https://cdn.example.test/floorplan.png"],
+                "source_virtual_tour_url": "https://tour.example.test/360",
+                "raw_listing_text": heavy_blob,
+            },
+            "property_facts_json": {"raw_duplicate": heavy_blob},
+            "assessment": {"raw_model_notes": heavy_blob},
+            "investment": {"raw_model_notes": heavy_blob},
+        }
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "message": "Results are ready.",
+            "summary": {
+                "status": "processed",
+                "provider_total": 1,
+                "source_variant_total": 1,
+                "sources_total": 1,
+                "sources_completed": 1,
+                "ranked_total": 1,
+                "ranked_candidates": [dict(candidate)],
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "status": "completed",
+                        "source_html": heavy_blob,
+                        "top_candidates": [dict(candidate)],
+                    }
+                ],
+            },
+            "events": [{"step": "completed", "message": "Results are ready.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+
+    response = client.get("/app/shortlist", params={"run_id": "run-compact"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "Compact payload apartment" in response.text
+    workbench_match = re.search(
+        r'<script type="application/json" data-property-workbench-json>(.*?)</script>',
+        response.text,
+        re.S,
+    )
+    assert workbench_match
+    raw_payload = html.unescape(workbench_match.group(1))
+    payload = json.loads(raw_payload)
+    serialized = json.dumps(payload)
+    assert len(raw_payload) < 25000
+    assert heavy_blob not in serialized
+    assert "source_html" not in serialized
+    assert "raw_listing_text" not in serialized
+    assert "property_facts_json" not in serialized
+    assert "ranked_candidates" not in payload["run"].get("summary", {})
+    assert "sources" not in payload["run"].get("summary", {})
+    result = payload["results"][0]
+    assert result["title"] == "Compact payload apartment"
+    assert result["property_facts"]["has_floorplan"] is True
+    assert result["property_facts"]["floorplan_urls_json"] == ["https://cdn.example.test/floorplan.png"]
+    assert result["property_facts"]["source_virtual_tour_url"] == "https://tour.example.test/360"
+
+
 def test_propertyquarry_properties_route_bootstraps_full_run_trail(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-properties-full-run-trail")
     start_workspace(client, mode="personal", workspace_name="Property Office")
