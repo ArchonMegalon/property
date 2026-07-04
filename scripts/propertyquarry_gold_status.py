@@ -149,6 +149,7 @@ DEFAULT_RECEIPT_PATTERNS = {
     "tour_provider_ownership": ("_completion/property_tour_ownership/*.json",),
     "vendor_tooling": ("_completion/tours/property-tour-vendor-tooling*.json",),
     "repair_canary": ("_completion/repair/propertyquarry-repair-canary*.json",),
+    "provider_catalog": ("_completion/smoke/property-live-provider-catalog*.json",),
     "provider_matrix": (
         "state/receipts/property_provider_stage*.json",
         "state/receipts/property_live_provider_smoke*.json",
@@ -198,6 +199,7 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "tour_provider_ownership": "_completion/property_tour_ownership/release-gate.json",
     "vendor_tooling": "_completion/tours/property-tour-vendor-tooling-current.json",
     "repair_canary": "_completion/repair/propertyquarry-repair-canary-latest.json",
+    "provider_catalog": "_completion/smoke/property-live-provider-catalog-latest.json",
     "provider_matrix": "_completion/smoke/property-live-provider-latest.json",
     "whole_project_scope": "_completion/whole_project_scope/property-whole-project-scope-latest.json",
     "security_posture": "_completion/security/property-security-posture-latest.json",
@@ -326,6 +328,68 @@ def _provider_matrix_scope_rank(payload: dict[str, Any]) -> int:
     return 2 if str(payload.get("country_scope") or "").strip().lower() == "explicit" else 1
 
 
+def _provider_catalog_smoke_summary(payload: dict[str, Any], receipt_path: Path | None) -> dict[str, Any]:
+    if receipt_path is None:
+        return {
+            "status": "not_configured",
+            "raw_status": "",
+            "check_count": 0,
+            "failed_checks": [],
+            "targeted_search_matrix_executed": None,
+            "targeted_search_matrix_status": "",
+            "receipt_path": "",
+            "note": "No separate provider-catalog smoke receipt was supplied.",
+        }
+
+    checks = [row for row in list(payload.get("checks") or []) if isinstance(row, dict)]
+    failed_checks = [
+        {
+            "country_code": row.get("country_code"),
+            "status": row.get("status") or "unknown",
+            "runtime_provider_count_ok": row.get("runtime_provider_count_ok"),
+            "runtime_defaults_present_ok": row.get("runtime_defaults_present_ok"),
+            "runtime_provider_country_scope_ok": row.get("runtime_provider_country_scope_ok"),
+        }
+        for row in checks
+        if row.get("status") != "pass"
+        or row.get("runtime_provider_count_ok") is False
+        or row.get("runtime_defaults_present_ok") is False
+        or row.get("runtime_provider_country_scope_ok") is False
+    ]
+    cross_country_summary = dict(payload.get("cross_country_sanitization_summary") or {})
+    cross_country_failed = (
+        bool(cross_country_summary)
+        and (
+            cross_country_summary.get("sanitization_ok") is False
+            or int(dict(cross_country_summary.get("status_counts") or {}).get("fail") or 0) > 0
+        )
+    )
+    if cross_country_failed:
+        failed_checks.append(
+            {
+                "country_code": "cross_country_sanitization",
+                "status": "fail",
+                "runtime_provider_count_ok": None,
+                "runtime_defaults_present_ok": None,
+                "runtime_provider_country_scope_ok": cross_country_summary.get("sanitization_ok"),
+            }
+        )
+
+    raw_status = str(payload.get("status") or "unknown")
+    missing_or_invalid = raw_status in {"missing", "invalid", "unknown"}
+    checks_ok = bool(checks) and not failed_checks and not missing_or_invalid
+    return {
+        "status": "pass" if checks_ok else "blocked",
+        "raw_status": raw_status,
+        "check_count": len(checks),
+        "failed_checks": failed_checks[:12],
+        "targeted_search_matrix_executed": payload.get("targeted_search_matrix_executed"),
+        "targeted_search_matrix_status": payload.get("targeted_search_matrix_status"),
+        "receipt_path": str(receipt_path),
+        "note": "Catalog smoke checks provider/default-provider runtime parity. The strict/soft targeted search matrix is reported under provider_matrix.",
+    }
+
+
 def _latest_receipt_path(patterns: tuple[str, ...], *, fallback: str) -> Path:
     candidates: list[Path] = []
     for pattern in patterns:
@@ -367,6 +431,11 @@ def _default_receipt_path(name: str) -> Path:
         DEFAULT_RECEIPT_PATTERNS[name],
         fallback=DEFAULT_RECEIPT_FALLBACKS[name],
     )
+
+
+def _default_receipt_path_if_exists(name: str) -> Path | None:
+    path = _default_receipt_path(name)
+    return path if path.is_file() else None
 
 
 def _canonical_gold_status_alias_targets(output_path: Path) -> list[Path]:
@@ -1088,6 +1157,7 @@ def build_gold_status_receipt(
     scene_video_provider_refresh_packet_path: Path | None = None,
     scene_video_provider_refresh_packet_verifier_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
+    provider_catalog_receipt_path: Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     performance = _load_json(performance_receipt_path)
@@ -1123,6 +1193,7 @@ def build_gold_status_receipt(
         else {}
     )
     repair_canary = _load_json(repair_canary_receipt_path)
+    provider_catalog = _load_json(provider_catalog_receipt_path) if provider_catalog_receipt_path is not None else {}
     provider_matrix = _load_json(provider_matrix_receipt_path)
     receipt_freshness_ok, stale_receipts = _receipt_freshness_status(
         {
@@ -1131,6 +1202,7 @@ def build_gold_status_receipt(
             "export_discovery": export_discovery,
             **({"billing_handoff": billing_receipt} if billing_receipt_path is not None else {}),
             "repair_canary": repair_canary,
+            **({"provider_catalog_smoke": provider_catalog} if provider_catalog_receipt_path is not None else {}),
             "provider_matrix": provider_matrix,
             **({"live_mobile_surfaces": live_mobile} if live_mobile_receipt_path is not None else {}),
             **({"public_auth_surfaces": public_smoke} if public_smoke_receipt_path is not None else {}),
@@ -1196,6 +1268,8 @@ def build_gold_status_receipt(
         and int(cross_country_sanitization_summary.get("case_count") or 0) > 0
         and int(dict(cross_country_sanitization_summary.get("status_counts") or {}).get("fail") or 0) == 0
     )
+    provider_catalog_smoke = _provider_catalog_smoke_summary(provider_catalog, provider_catalog_receipt_path)
+    provider_catalog_smoke_ok = provider_catalog_receipt_path is None or provider_catalog_smoke.get("status") == "pass"
     research_performance_ok, missing_research_performance_checks, research_performance_path = _performance_research_detail_checks(performance)
     search_performance_ok, missing_search_performance_checks, search_performance_path = _performance_search_checks(performance)
     analytics_ok, missing_analytics_checks, failed_analytics_checks, analytics_route_count = _performance_analytics_checks(performance)
@@ -1629,6 +1703,15 @@ def build_gold_status_receipt(
                 "action": "run property_live_provider_smoke.py for all search-ready countries with --execute-search-matrix so every provider has strict/soft-filter evidence and wrong-country provider selections are sanitized before dispatch",
             }
         )
+    if not provider_catalog_smoke_ok:
+        blockers.append(
+            {
+                "area": "provider_catalog_smoke",
+                "status": provider_catalog_smoke.get("raw_status") or provider_catalog_smoke.get("status") or "unknown",
+                "failed_checks": provider_catalog_smoke.get("failed_checks") or [],
+                "action": "rerun the post-deploy provider catalog smoke and fix provider/default-provider parity or country-scope failures before using the latest runtime catalog",
+            }
+        )
     if not whole_project_scope_ok:
         blockers.append(
             {
@@ -1811,6 +1894,15 @@ def build_gold_status_receipt(
         }
         if provider_matrix_ok
         else None,
+        {
+            "area": "provider_catalog_smoke",
+            "status": "pass",
+            "raw_status": provider_catalog_smoke.get("raw_status"),
+            "check_count": provider_catalog_smoke.get("check_count"),
+            "receipt_path": provider_catalog_smoke.get("receipt_path"),
+        }
+        if provider_catalog_smoke_ok and provider_catalog_receipt_path is not None
+        else None,
         {"area": "self_healing", "status": "pass", "receipt_path": str(repair_canary_receipt_path)}
         if repair_canary_ok
         else None,
@@ -1929,6 +2021,7 @@ def build_gold_status_receipt(
             and operator_import_manifest_ok
             and billing_ok
             and repair_canary_ok
+            and provider_catalog_smoke_ok
             and provider_matrix_ok
             and whole_project_scope_ok
             and security_posture_ok
@@ -2270,6 +2363,7 @@ def build_gold_status_receipt(
             "cross_country_sanitization_case_count": cross_country_sanitization_summary.get("case_count"),
             "receipt_path": str(provider_matrix_receipt_path),
         },
+        "provider_catalog_smoke": provider_catalog_smoke,
         "whole_project_scope": {
             "status": whole_project_scope.get("status") or ("not_configured" if whole_project_scope_receipt_path is None else "missing"),
             "schema": str(whole_project_scope.get("schema") or "") if whole_project_scope_receipt_path is not None else "",
@@ -2374,6 +2468,7 @@ def main() -> int:
     parser.add_argument("--scene-video-provider-refresh-packet", default="")
     parser.add_argument("--scene-video-provider-refresh-packet-verifier-receipt", default="")
     parser.add_argument("--repair-canary-receipt", default="")
+    parser.add_argument("--provider-catalog-receipt", default="")
     parser.add_argument("--provider-matrix-receipt", default="")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
     parser.add_argument("--max-receipt-age-hours", type=float, default=24.0)
@@ -2426,6 +2521,11 @@ def main() -> int:
             else _default_receipt_path("scene_video_provider_refresh_packet_verifier")
         ),
         repair_canary_receipt_path=Path(args.repair_canary_receipt) if args.repair_canary_receipt else _default_receipt_path("repair_canary"),
+        provider_catalog_receipt_path=(
+            Path(args.provider_catalog_receipt)
+            if args.provider_catalog_receipt
+            else _default_receipt_path_if_exists("provider_catalog")
+        ),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt) if args.provider_matrix_receipt else _default_receipt_path("provider_matrix"),
         max_receipt_age_hours=args.max_receipt_age_hours,
     )

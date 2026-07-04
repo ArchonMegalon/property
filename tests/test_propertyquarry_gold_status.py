@@ -337,6 +337,33 @@ def _provider_matrix_payload(*, status: str = "pass", executed: bool = True) -> 
     }
 
 
+def _provider_catalog_payload(*, check_status: str = "pass") -> dict[str, object]:
+    return {
+        "generated_at": "2026-06-26T19:30:00+00:00",
+        "status": "blocked_targeted_search_matrix_not_executed",
+        "targeted_search_matrix_status": "planned",
+        "targeted_search_matrix_executed": False,
+        "targeted_search_matrix_count": 6,
+        "checks": [
+            {
+                "country_code": "AT",
+                "status": check_status,
+                "runtime_provider_count_ok": check_status == "pass",
+                "runtime_defaults_present_ok": True,
+                "runtime_provider_country_scope_ok": True,
+            }
+        ],
+        "targeted_search_matrix_summary": {
+            "executed": False,
+            "planned_case_count": 6,
+            "executed_case_count": 0,
+            "passed_case_count": 0,
+            "all_search_ready_provider_modes_passed": True,
+            "country_codes": ["AT"],
+        },
+    }
+
+
 def _performance_payload(
     *,
     include_research_checks: bool = True,
@@ -2549,6 +2576,87 @@ def test_gold_status_blocks_when_provider_matrix_is_not_executed(tmp_path: Path)
 
     assert receipt["status"] == "blocked"
     assert any(row["area"] == "provider_targeted_search_matrix" for row in receipt["blockers"])
+
+
+def test_gold_status_reports_catalog_smoke_separately_from_provider_e2e(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    provider_catalog = _write_json(tmp_path / "provider-catalog.json", _provider_catalog_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_catalog_receipt_path=provider_catalog,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["provider_catalog_smoke"]["status"] == "pass"
+    assert receipt["provider_catalog_smoke"]["raw_status"] == "blocked_targeted_search_matrix_not_executed"
+    assert receipt["provider_catalog_smoke"]["targeted_search_matrix_executed"] is False
+    assert not any(row["area"] == "provider_catalog_smoke" for row in receipt["blockers"])
+
+
+def test_gold_status_blocks_when_provider_catalog_smoke_fails(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    provider_catalog = _write_json(
+        tmp_path / "provider-catalog.json",
+        _provider_catalog_payload(check_status="fail"),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_catalog_receipt_path=provider_catalog,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["provider_catalog_smoke"]["status"] == "blocked"
+    assert any(row["area"] == "provider_catalog_smoke" for row in receipt["blockers"])
 
 
 def test_gold_status_blocks_when_cross_country_provider_sanitization_is_missing(tmp_path: Path) -> None:
