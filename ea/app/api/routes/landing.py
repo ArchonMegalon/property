@@ -6401,8 +6401,8 @@ def app_shell(
                     "properties": "Open results",
                 }
                 property_context["route_recovery"] = {
-                    "title": "That run is no longer available",
-                    "detail": "Showing the current workspace instead of the expired run link.",
+                    "title": "Opened the current workspace",
+                    "detail": "That saved link was stale, so PropertyQuarry opened the current search workspace.",
                     "run_id": recovered_run_id,
                     "action_href": str(request.url.path or "").strip() or "/app/search",
                     "action_label": route_action_labels.get(current_nav, "Stay here"),

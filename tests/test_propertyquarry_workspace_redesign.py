@@ -2253,6 +2253,7 @@ def test_propertyquarry_properties_alias_does_not_show_stale_banner_from_preflig
     assert response.status_code == 200
     assert str(response.url).endswith("/app/search?run_id=run-missing")
     assert "That run is no longer available" not in response.text
+    assert "Opened the current workspace" not in response.text
     assert 'data-pqx-route-recovery' not in response.text
 
 
@@ -2268,9 +2269,11 @@ def test_propertyquarry_search_route_preserves_stale_run_banner_state() -> None:
     )
 
     assert response.status_code == 200
-    assert "That run is no longer available" in response.text
-    assert "Showing the current workspace instead of the expired run link." in response.text
-    assert "run-missing" in response.text
+    assert "Opened the current workspace" in response.text
+    assert "That saved link was stale, so PropertyQuarry opened the current search workspace." in response.text
+    assert "That run is no longer available" not in response.text
+    assert "Showing the current workspace instead of the expired run link." not in response.text
+    assert ">run-missing<" not in response.text
     assert 'data-pqx-route-recovery' in response.text
 
 
@@ -4520,6 +4523,9 @@ def test_property_action_cards_filter_legacy_full_view_buttons() -> None:
         in object_template
     )
     assert "_is_redundant_property_action_label(cleaned.get(label_key))" in payload_builder
+    surface_state = (repo_root / "ea/app/product/property_surface_state.py").read_text(encoding="utf-8")
+    assert "ordered_results = [_strip_hidden_property_action_slots(row)" in surface_state
+    assert "research_actions=_clean_property_action_rows(actions)" in surface_state
 
 
 def test_propertyquarry_customer_copy_uses_sources_not_provider_coverage() -> None:
@@ -5511,16 +5517,16 @@ def test_property_workspace_payload_keeps_saved_brief_when_run_snapshot_is_old()
 
     assert brief_preferences["max_price_eur"] == 26000
     assert brief_preferences["max_price_eur"] != 1200
-    assert run["status_label"] == "Old run"
+    assert run["status_label"] == "Older search"
     assert run["filtered_total"] == 0
     assert run["held_back_total"] == 0
     assert run_summary["brief_snapshot_status"] == "old_run"
     assert run_summary["filtered_total"] == 0
     assert run_summary["held_back_total"] == 0
     assert run_summary["previous_filtered_total"] == 22
-    assert workbench["suppression_rows"][0]["rule_key"] == "Old run snapshot"
+    assert workbench["suppression_rows"][0]["rule_key"] == "Older search snapshot"
     assert workbench["counterfactual_rows"][0]["adjustments"] == {}
-    assert workbench["empty_outcome"]["active_rule"] == "Old run"
+    assert workbench["empty_outcome"]["active_rule"] == "Older search"
     assert "current saved brief" in workbench["empty_outcome"]["next_move"]
 
 
@@ -5555,7 +5561,7 @@ def test_property_workspace_previous_search_marks_old_snapshot_without_filter_ac
                         "status": "processed",
                         "brief_preferences_stale": True,
                         "brief_snapshot_status": "old_run",
-                        "brief_stale_message": "This run used an earlier brief. Start an updated search.",
+                        "brief_stale_message": "This search used an earlier brief. Start an updated search.",
                         "previous_ranked_total": 3,
                         "previous_filtered_total": 9,
                         "filtered_total": 9,
@@ -5580,7 +5586,7 @@ def test_property_workspace_previous_search_marks_old_snapshot_without_filter_ac
     previous = dict(payload["decision_workbench"]["previous_search_runs"][0])
 
     assert previous["is_old_snapshot"] is True
-    assert previous["status_label"] == "Old run"
+    assert previous["status_label"] == "Older search"
     assert previous["held_back_total"] == 0
     assert previous["previous_filtered_total"] == 9
     assert previous["previous_ranked_total"] == 3
@@ -6316,13 +6322,26 @@ def test_property_surface_state_builds_shortlist_snapshot_and_preserves_rank_ord
     snapshot = property_surface_state.build_property_shortlist_snapshot(
         [
             {"candidate_ref": "a", "title": "A"},
-            {"candidate_ref": "b", "title": "B"},
+            {
+                "candidate_ref": "b",
+                "title": "B",
+                "tertiary_action_href": "/app/shortlist?run_id=run-42&full=1#results-list",
+                "tertiary_action_label": "Full view",
+                "tertiary_action_method": "get",
+                "actions": [
+                    {"href": "/app/research/b", "label": "Open property"},
+                    {"href": "/app/shortlist?run_id=run-42&full=1#results-list", "label": "Full view"},
+                ],
+            },
             {"candidate_ref": "c", "title": "C"},
         ],
         selected_candidate_ref="b",
     )
     assert snapshot["selected_candidate_ref"] == "b"
     assert snapshot["selected"]["title"] == "B"
+    assert "tertiary_action_href" not in snapshot["selected"]
+    assert "tertiary_action_label" not in snapshot["selected"]
+    assert snapshot["selected"]["actions"] == [{"href": "/app/research/b", "label": "Open property"}]
     assert [row["candidate_ref"] for row in snapshot["results"]] == ["a", "b", "c"]
     assert snapshot["results_total"] == 3
     assert snapshot["has_results"] is True
@@ -19314,7 +19333,7 @@ def test_property_run_customer_visible_events_collapses_failed_parent_replacemen
             "run_id": "failed-parent",
             "status": "failed",
             "current_step": "failed",
-            "message": "This run used an earlier brief.",
+            "message": "This search used an earlier brief.",
             "summary": {
                 "status": "failed",
                 "provider_total": 27,

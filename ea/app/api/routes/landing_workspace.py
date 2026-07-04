@@ -854,7 +854,7 @@ def settings_usage_detail(
             _object_detail_row("Search status", str(property_usage["repair_status"]), "Status"),
             _object_detail_row(
                 "List health",
-                "Waiting for first search" if int(property_usage["run_total"] or 0) <= 0 else "Derived from recent runs",
+                "Waiting for first search" if int(property_usage["run_total"] or 0) <= 0 else "Derived from recent searches",
                 "Lists",
             ),
         ]
@@ -896,8 +896,8 @@ def settings_usage_detail(
         ]
         usage_sections = [
             {
-                "eyebrow": "Search runs",
-                "title": "Recent run outcomes",
+                "eyebrow": "Searches",
+                "title": "Recent search outcomes",
                 "items": run_outcomes_items,
                 "open": True,
             },
@@ -2119,10 +2119,10 @@ def settings_trust_detail(
                 },
                 {
                     "eyebrow": "Recent searches",
-                    "title": "Recent run outcomes",
+                    "title": "Recent search outcomes",
                     "items": [
                         _object_detail_row(
-                            f"Run {row['run_id'][:8] or 'latest'}",
+                            f"Search {row['run_id'][:8] or 'latest'}",
                             f"{row['status']} · {row['ranked']} ranked · {row['filtered']} filtered",
                             "Search",
                             href=row["href"],

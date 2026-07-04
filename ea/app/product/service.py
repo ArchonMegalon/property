@@ -1226,7 +1226,7 @@ def _property_search_mark_stale_brief_snapshot(
     previous_ranked_total = _safe_int(summary.get("ranked_total"), summary.get("ranked_candidate_total"))
     previous_filtered_total = _safe_int(summary.get("filtered_total"), summary.get("held_back_total"))
     message = (
-        "This run used an earlier brief. Start an updated search to refresh counts "
+        "This search used an earlier brief. Start an updated search to refresh counts "
         "with your current budget, area, providers, and filters."
     )
     summary.update(

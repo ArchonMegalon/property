@@ -824,14 +824,14 @@ def _property_old_brief_snapshot_notice(
         run_summary.get("ranked_candidate_total"),
     )
     message = str(run_summary.get("brief_stale_message") or "").strip() or (
-        "This run used an earlier brief. Start an updated search to refresh counts "
+        "This search used an earlier brief. Start an updated search to refresh counts "
         "with your current budget, area, lists, and requirements."
     )
     return {
-        "title": "Run used an earlier brief",
-        "rule_key": "Old run snapshot",
+        "title": "Search used an earlier brief",
+        "rule_key": "Older search snapshot",
         "detail": message,
-        "tag": "Old run",
+        "tag": "Older search",
         "affected_total": 0,
         "previous_filtered_total": previous_filtered_total,
         "previous_ranked_total": previous_ranked_total,
@@ -1215,7 +1215,7 @@ def property_workspace_payload(
             "filtered_low_fit_total": 0,
             "message": stale_scope_message or str(run_health.get("message") or "").strip(),
             "status_note": stale_scope_message or str(run_health.get("status_note") or "").strip(),
-            "status_label": "Old run" if old_brief_snapshot_notice else str(run_health.get("status_label") or "").strip(),
+            "status_label": "Older search" if old_brief_snapshot_notice else str(run_health.get("status_label") or "").strip(),
         }
         run_summary_for_surface = _management_safe_run_summary(run_summary) if compact_summary_surface else run_summary
         run_payload_for_surface = {**run_payload_for_surface, "summary": run_summary_for_surface}
@@ -4327,7 +4327,7 @@ def property_workspace_payload(
                 },
                 {
                     "eyebrow": "Latest outcomes",
-                    "title": "Recent runs",
+                    "title": "Recent searches",
                     "body": "",
                     "items": (
                         [

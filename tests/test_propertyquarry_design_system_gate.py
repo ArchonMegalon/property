@@ -193,6 +193,16 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "moved to the latest run",
         "original run link expired",
         "open latest shortlist",
+        "that run is no longer available",
+        "expired run link",
+        "old run",
+        "old run snapshot",
+        "open an earlier run",
+        "recent runs",
+        "recent run outcomes",
+        "after the first run",
+        "rest of the run",
+        "packet is refreshed",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

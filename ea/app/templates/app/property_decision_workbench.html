@@ -10816,13 +10816,10 @@
       {% if route_recovery %}
       <aside class="pqx-recovery-banner" data-pqx-route-recovery role="status">
         <div>
-          <strong>{{ route_recovery.get('title') or 'That run is no longer available' }}</strong>
-          <span>{{ route_recovery.get('detail') or 'Showing the current workspace instead of the expired run link.' }}</span>
+          <strong>{{ route_recovery.get('title') or 'Opened the current workspace' }}</strong>
+          <span>{{ route_recovery.get('detail') or 'That saved link was stale, so PropertyQuarry opened the current search workspace.' }}</span>
         </div>
         <div class="pqx-recovery-meta">
-          {% if route_recovery.get('run_id') %}
-          <span class="pqx-pill warn">{{ route_recovery.get('run_id') }}</span>
-          {% endif %}
           <a class="pqx-link-button subtle" href="{{ route_recovery.get('action_href') or request.url.path }}">{{ route_recovery.get('action_label') or 'Stay here' }}</a>
         </div>
       </aside>
@@ -10831,7 +10828,7 @@
       <aside class="pqx-recovery-banner" data-pqx-packet-recovery role="status">
         <div>
           <strong>{{ packet_recovery.get('title') or 'Property page is being rebuilt' }}</strong>
-          <span>{{ packet_recovery.get('detail') or 'The shortlist remains available while this packet is refreshed.' }}</span>
+          <span>{{ packet_recovery.get('detail') or 'The shortlist remains available while this page is refreshed.' }}</span>
         </div>
         <div class="pqx-recovery-meta">
           {% if packet_recovery.get('candidate_ref') %}
@@ -11002,7 +10999,7 @@
                   {% endif %}
                   <div style="min-width:0;">
                     <strong style="display:block;">Preview</strong>
-                    <small style="display:block;">Open the current leading listing while the rest of the run continues.</small>
+                    <small style="display:block;">Open the current leading listing while the rest of the search continues.</small>
                   </div>
                 </div>
                 <div class="pqx-actions">
@@ -11082,16 +11079,16 @@
             <span class="pqx-small">Search history</span>
             <strong>
               {% if previous_total %}
-              {{ previous_total }} recent {{ 'run' if previous_total == 1 else 'runs' }}
+              {{ previous_total }} recent {{ 'search' if previous_total == 1 else 'searches' }}
               {% else %}
               No previous searches yet
               {% endif %}
             </strong>
             <span class="pqx-note">
               {% if previous_total %}
-              Open an earlier run without losing the current brief.
+              Open an earlier search without losing the current brief.
               {% else %}
-              Recent searches will appear here after the first run.
+              Recent searches will appear here after the first search.
               {% endif %}
             </span>
           </div>
@@ -11131,7 +11128,7 @@
                 {% else %}
                 <div class="pqx-previous-scope-empty">
                   <strong>Scope saved</strong>
-                  <span class="pqx-note">This run kept the area and labels. The preview can be rebuilt the next time this search runs.</span>
+                  <span class="pqx-note">This search kept the area and labels. The preview can be rebuilt next time it runs.</span>
                 </div>
                 {% endif %}
                 <div class="pqx-previous-scope-caption">
@@ -11153,7 +11150,7 @@
                   {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
                   {% if previous.get('top_fit_score') %}<span>top match</span>{% endif %}
                   {% if previous.get('is_old_snapshot') %}
-                  <span class="pqx-pill warn">Old run</span>
+                  <span class="pqx-pill warn">Older search</span>
                   {% if previous.get('previous_filtered_total') %}
                   <span><b>{{ previous.get('previous_filtered_total') }}</b> old filtered</span>
                   {% endif %}
@@ -11184,7 +11181,7 @@
             <div class="pqx-dashboard-row">
               <span class="pqx-small">No previous searches yet</span>
               <strong>Start with one search or evaluate a single listing.</strong>
-              <span class="pqx-note">Recent searches will appear here after the first run.</span>
+              <span class="pqx-note">Recent searches will appear here after the first search.</span>
             </div>
             {% endfor %}
           </div>
@@ -11197,7 +11194,7 @@
                 <span class="pqx-note">Keep this brief open and jump back into any earlier result.</span>
               </span>
               <span class="pqx-mobile-fold-meta">
-                <span class="pqx-pill">{{ previous_total }} runs</span>
+                <span class="pqx-pill">{{ previous_total }} searches</span>
               </span>
             </summary>
             <div class="pqx-mobile-fold-content">
@@ -11210,7 +11207,7 @@
                   </div>
                   <div class="pqx-actions">
                     {% if previous.get('is_old_snapshot') %}
-                    <span class="pqx-pill warn">Old run</span>
+                    <span class="pqx-pill warn">Older search</span>
                     {% endif %}
                     {% if previous.get('ranked_total') %}
                     <span class="pqx-pill">{{ previous.get('ranked_total') }} ranked</span>

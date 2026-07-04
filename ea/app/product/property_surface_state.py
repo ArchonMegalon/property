@@ -98,6 +98,45 @@ _RAW_PROVIDER_FAILURE_TOKENS = (
     " 503",
 )
 
+_HIDDEN_PROPERTY_ACTION_LABELS = {
+    "full view",
+    "open full view",
+}
+
+
+def _is_hidden_property_action_label(label: object) -> bool:
+    return str(label or "").strip().lower() in _HIDDEN_PROPERTY_ACTION_LABELS
+
+
+def _clean_property_action_rows(actions: object) -> list[dict[str, object]]:
+    cleaned_actions: list[dict[str, object]] = []
+    for action in list(actions or []):
+        if not isinstance(action, dict):
+            continue
+        if _is_hidden_property_action_label(action.get("label") or action.get("action_label")):
+            continue
+        cleaned_actions.append(dict(action))
+    return cleaned_actions
+
+
+def _strip_hidden_property_action_slots(row: dict[str, object]) -> dict[str, object]:
+    cleaned = dict(row)
+    for prefix in ("", "secondary_", "tertiary_", "quaternary_"):
+        label_key = f"{prefix}action_label"
+        if not _is_hidden_property_action_label(cleaned.get(label_key)):
+            continue
+        for key in (
+            f"{prefix}action_href",
+            f"{prefix}action_label",
+            f"{prefix}action_method",
+            f"{prefix}action_value",
+            f"{prefix}return_to",
+        ):
+            cleaned.pop(key, None)
+    if isinstance(cleaned.get("actions"), list):
+        cleaned["actions"] = _clean_property_action_rows(cleaned.get("actions"))
+    return cleaned
+
 _CUSTOMER_SAFE_FAILURE_PREFIXES = (
     "search paused",
     "search stopped before",
@@ -2687,9 +2726,9 @@ def build_property_previous_run_summary(
         or len(ranked_candidates)
     )
     if is_old_snapshot:
-        status_label = "Old run"
+        status_label = "Older search"
         status_note = str(summary.get("brief_stale_message") or "").strip() or (
-            "This run used an earlier brief. Start an updated search to refresh counts with the current saved brief."
+            "This search used an earlier brief. Start an updated search to refresh counts with the current saved brief."
         )
     scope_preview = (
         _build_scope_preview(
@@ -2771,12 +2810,12 @@ def build_property_empty_outcome_summary(
             history_parts.append(f"{previous_ranked_total} matches")
         if previous_filtered_total:
             history_parts.append(f"{previous_filtered_total} outside brief")
-        historical_detail = " · ".join(history_parts) if history_parts else "historical counts are kept with the old run"
+        historical_detail = " · ".join(history_parts) if history_parts else "historical counts are kept with the older search"
         return {
-            "happened": "This run used an earlier brief.",
-            "still_worked": f"Old snapshot: {historical_detail}.",
+            "happened": "This search used an earlier brief.",
+            "still_worked": f"Older snapshot: {historical_detail}.",
             "next_move": "Start an updated search so the counts use the current saved brief.",
-            "active_rule": "Old run",
+            "active_rule": "Older search",
             "eta_feedback": str(run_summary.get("brief_stale_message") or "").strip() or "The current brief has changed since this run finished.",
         }
     filtered_total = int(run_summary.get("filtered_total") or run_summary.get("held_back_total") or 0)
@@ -2996,7 +3035,7 @@ def build_property_shortlist_snapshot(
     *,
     selected_candidate_ref: str = "",
 ) -> dict[str, object]:
-    ordered_results = [dict(row) for row in list(results or []) if isinstance(row, dict)]
+    ordered_results = [_strip_hidden_property_action_slots(row) for row in list(results or []) if isinstance(row, dict)]
     selected = ordered_results[0] if ordered_results else {}
     normalized_selected_ref = str(selected_candidate_ref or "").strip()
     if normalized_selected_ref:
@@ -3247,7 +3286,7 @@ def build_property_research_packet_snapshot(
         research_preview_image=preview_image_payload,
         research_gallery_items=[dict(row) for row in list(gallery_items or []) if isinstance(row, dict)],
         research_location_preview=dict(location_preview or {}),
-        research_actions=[dict(row) for row in list(actions or []) if isinstance(row, dict)],
+        research_actions=_clean_property_action_rows(actions),
         research_visual_status_line=str(visual_status_line or "").strip(),
         research_source_ref=str(source_ref or "").strip(),
         research_run_id=str(run_id or "").strip(),
