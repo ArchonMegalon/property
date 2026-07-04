@@ -32,6 +32,31 @@ def test_health_ready_and_version() -> None:
     assert "id_austria_sign_in_missing_env" in version_body
 
 
+def test_version_exposes_authoritative_propertyquarry_release_manifest(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_RELEASE_REPOSITORY", "https://github.com/ArchonMegalon/propertyquarry.git")
+    monkeypatch.setenv("PROPERTYQUARRY_RELEASE_BRANCH", "main")
+    monkeypatch.setenv("PROPERTYQUARRY_RELEASE_COMMIT_SHA", "f" * 40)
+    monkeypatch.setenv("PROPERTYQUARRY_RELEASE_DEPLOYMENT_ID", "local-20260704T141600Z-ffffffffffff")
+    monkeypatch.setenv("PROPERTYQUARRY_RELEASE_PUBLIC_ORIGIN", "https://propertyquarry.com/")
+    monkeypatch.setenv("PROPERTYQUARRY_RELEASE_ARTIFACT_SET", "propertyquarry-web-runtime,propertyquarry-scheduler")
+    monkeypatch.setenv("PROPERTYQUARRY_RELEASE_LABEL", "propertyquarry-live")
+    monkeypatch.setenv("PROPERTYQUARRY_RELEASE_GENERATED_AT", "2026-07-04T14:16:00Z")
+
+    version = _client(storage_backend="memory").get("/version")
+
+    assert version.status_code == 200
+    body = version.json()
+    assert body["release_manifest_status"] == "complete"
+    assert body["release_repository"] == "https://github.com/ArchonMegalon/propertyquarry.git"
+    assert body["release_branch"] == "main"
+    assert body["release_commit_sha"] == "f" * 40
+    assert body["release_deployment_id"] == "local-20260704T141600Z-ffffffffffff"
+    assert body["release_public_origin"] == "https://propertyquarry.com"
+    assert body["release_artifact_set"] == "propertyquarry-web-runtime,propertyquarry-scheduler"
+    assert body["release_label"] == "propertyquarry-live"
+    assert body["release_generated_at"] == "2026-07-04T14:16:00Z"
+
+
 def test_rewrite_and_policy_audit_flow() -> None:
     client = _client(storage_backend="memory")
     create = client.post("/v1/rewrite/artifact", json={"text": "smoke"})
