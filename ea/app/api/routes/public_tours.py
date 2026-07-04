@@ -5727,11 +5727,15 @@ def _tour_control_walkable_html(
     walkable_scene = payload.get("walkable_scene") if isinstance(payload.get("walkable_scene"), dict) else {}
     if not walkable_scene:
         raise HTTPException(status_code=404, detail="tour_control_walkable_scene_missing")
+    public_walkable_scene = dict(walkable_scene)
+    if "walkthrough_scene_images" not in public_walkable_scene and isinstance(public_walkable_scene.get("magicfit_scene_images"), list):
+        public_walkable_scene["walkthrough_scene_images"] = list(public_walkable_scene.get("magicfit_scene_images") or [])
+    public_walkable_scene.pop("magicfit_scene_images", None)
     normalized_license = license_config or {}
     license_enabled = bool(str(normalized_license.get("domain") or "").strip() and str(normalized_license.get("key") or "").strip())
     if license_enabled and ((viewer_name or "").strip().lower() == "krpano" or "krpano" in safe_provider_label.lower()) and not _walkable_scene_has_real_360_asset(payload):
         raise HTTPException(status_code=404, detail="tour_control_krpano_asset_missing")
-    data_json = html.escape(json.dumps(walkable_scene, ensure_ascii=False), quote=False)
+    data_json = html.escape(json.dumps(public_walkable_scene, ensure_ascii=False), quote=False)
     license_domain = html.escape(str(normalized_license.get("domain") or "").strip())
     license_json = html.escape(json.dumps({"domain": str(normalized_license.get("domain") or "").strip()}, ensure_ascii=False), quote=False) if license_enabled else ""
     license_badge = f'<div class="panel license"><strong>Viewer license</strong><span>Registered for {license_domain}</span></div>' if license_enabled else ""
@@ -5747,7 +5751,7 @@ def _tour_control_walkable_html(
     <style>
       html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: #15130f; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
       #viewer {{ position: fixed; inset: 0; }}
-      #magicfit-view {{ position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: cover; display: none; z-index: 1; background: #15130f; }}
+      #walkthrough-still-view {{ position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: cover; display: none; z-index: 1; background: #15130f; }}
       .hud {{ position: fixed; left: 14px; top: 14px; z-index: 5; display: flex; gap: 8px; flex-wrap: wrap; max-width: min(620px, calc(100vw - 28px)); }}
       .panel {{ background: rgba(18,16,13,.72); border: 1px solid rgba(255,255,255,.18); border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(12px); }}
       .panel strong {{ display: block; font-size: 13px; margin-bottom: 3px; }}
@@ -5768,7 +5772,7 @@ def _tour_control_walkable_html(
   </head>
   <body data-viewer="{resolved_viewer_name}">
     <div id="viewer"></div>
-    <img id="magicfit-view" alt="">
+    <img id="walkthrough-still-view" alt="">
     <div class="hud"><div class="panel"><strong>{safe_provider_label}</strong><span>Walk with WASD or arrows. Drag to look around. Room buttons jump inside rooms.</span></div>{license_badge}</div>
     <div class="rooms" id="rooms"></div>
     <div class="move-pad">
@@ -5786,9 +5790,9 @@ def _tour_control_walkable_html(
       if (krpanoLicense) window.__PROPERTYQUARRY_KRPANO_LICENSE__ = JSON.parse(krpanoLicense.textContent || '{{}}');
       const rooms = Array.isArray(spec.rooms) ? spec.rooms : [];
       const stops = Array.isArray(spec.route) ? spec.route : [];
-      const magicfitImages = Array.isArray(spec.magicfit_scene_images) ? spec.magicfit_scene_images : [];
-      const magicfitView = document.getElementById('magicfit-view');
-      const useMagicfitImages = magicfitImages.length > 0;
+      const walkthroughStillImages = Array.isArray(spec.walkthrough_scene_images) ? spec.walkthrough_scene_images : [];
+      const walkthroughStillView = document.getElementById('walkthrough-still-view');
+      const useWalkthroughStillImages = walkthroughStillImages.length > 0;
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0xf2eee7);
       scene.fog = new THREE.Fog(0xf2eee7, 8, 22);
@@ -5798,9 +5802,9 @@ def _tour_control_walkable_html(
       renderer.setSize(innerWidth, innerHeight);
       renderer.shadowMap.enabled = true;
       document.getElementById('viewer').appendChild(renderer.domElement);
-      if (useMagicfitImages) {{
+      if (useWalkthroughStillImages) {{
         document.getElementById('viewer').style.display = 'none';
-        magicfitView.style.display = 'block';
+        walkthroughStillView.style.display = 'block';
       }}
       const mats = {{
         floor: new THREE.MeshStandardMaterial({{ color: 0xb78959, roughness: .82 }}),
@@ -5851,7 +5855,7 @@ def _tour_control_walkable_html(
       function jump(stop, index) {{
         pos.set(stop.at[0], 1.52, stop.at[1]);
         yaw = THREE.MathUtils.degToRad(stop.start_deg || 0);
-        if (useMagicfitImages && magicfitImages[index]) magicfitView.src = magicfitImages[index].url || magicfitImages[index].image_url || magicfitImages[index];
+        if (useWalkthroughStillImages && walkthroughStillImages[index]) walkthroughStillView.src = walkthroughStillImages[index].url || walkthroughStillImages[index].image_url || walkthroughStillImages[index];
         [...roomButtons.children].forEach((b,i)=>b.classList.toggle('active', i===index));
       }}
       stops.forEach((stop,index)=>{{ const b=document.createElement('button'); b.type='button'; b.textContent=stop.label || stop.room || `Room ${{index+1}}`; b.addEventListener('click',()=>jump(stop,index)); b.classList.toggle('active', index===0); roomButtons.appendChild(b); }});

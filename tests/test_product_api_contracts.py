@@ -26895,6 +26895,27 @@ def test_public_tour_control_links_walkthrough_without_embedding_provider_video(
     assert "magicfit" not in html
 
 
+def test_public_tour_walkable_control_hides_walkthrough_provider_source_names() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_control_walkable_html(
+        {
+            "slug": "walkthrough-still-control",
+            "display_title": "Walkthrough still control",
+            "walkable_scene": {
+                "rooms": [{"name": "Living", "x": 0, "z": 0, "w": 3, "d": 3}],
+                "route": [{"label": "Living", "room": "Living", "at": [1.5, 1.5]}],
+                "magicfit_scene_images": [{"url": "/tours/files/walkthrough-still-control/still-01.jpg"}],
+            },
+        }
+    )
+
+    assert "magicfit" not in html.lower()
+    assert "walkthrough_scene_images" in html
+    assert "walkthrough-still-view" in html
+    assert "/tours/files/walkthrough-still-control/still-01.jpg" in html
+
+
 def test_public_tour_walkthrough_route_serves_video_without_public_provider_filename(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
