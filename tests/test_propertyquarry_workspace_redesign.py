@@ -15267,7 +15267,7 @@ def test_property_delivery_rows_are_customer_outcomes_not_provider_receipts() ->
     )
 
     assert "Writing: ready" in text
-    assert "Messages use titled links instead of long raw URLs." in text
+    assert "Messages use titled links instead of long URLs." in text
     assert "2 review pages, 1 tour, 3 sent updates." in text
     assert "NeuronWriter" not in text
     assert "Telegram notification receipts" not in text

@@ -1607,7 +1607,7 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
         },
         {
             "title": "Message links",
-            "detail": "Messages use titled links instead of long raw URLs.",
+            "detail": "Messages use titled links instead of long URLs.",
             "tag": "Clean links",
         },
         {

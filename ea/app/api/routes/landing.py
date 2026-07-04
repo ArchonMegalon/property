@@ -3924,7 +3924,7 @@ def integration_detail(
                 "Broader Gmail or Drive context stays an explicit upgrade path instead of the default.",
             ),
             "body_points": (
-                "Explain permissions in plain language first and raw scopes second.",
+                "Explain permissions in plain language first and technical scopes second.",
                 "Show a real connected account and a real first success instead of treating consent as the finish line.",
                 "Keep Google as optional account access, not as the center of the product story.",
             ),

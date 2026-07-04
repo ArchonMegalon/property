@@ -156,6 +156,10 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "usable original 360",
         "rebuild the tour",
         "missing-fact research queued",
+        "raw pdfs",
+        "raw portal",
+        "long raw urls",
+        "raw scopes",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

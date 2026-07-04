@@ -5797,7 +5797,7 @@ def app_section_payload(
                 {
                     "eyebrow": "Recent matches",
                     "title": "Hosted pages already delivered",
-                    "body": "Strong matches should resolve to branded hosted property pages, not raw portal links.",
+                    "body": "Strong matches should resolve to branded hosted property pages, not source links alone.",
                     "items": property_recent_matches
                     or property_event_rows
                     or [

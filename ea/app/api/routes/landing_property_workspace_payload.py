@@ -3474,7 +3474,7 @@ def property_workspace_payload(
         ],
         "shortlist": [
             {"label": "Candidates", "value": str(len(admitted_shortlist_candidates)), "detail": "Ranked properties worth direct review now.", "href": f"/app/shortlist{run_suffix}"},
-            {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready before the raw portal listing.", "href": f"/app/research{run_suffix}"},
+            {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready before the source listing.", "href": f"/app/research{run_suffix}"},
             {"label": "3D tours", "value": str(tour_ready_total), "detail": "Hosted or embedded tours already available.", "href": f"/app/research{run_suffix}"},
             {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest run status.", "href": f"/app/properties{run_suffix}"},
         ],
@@ -4164,7 +4164,7 @@ def property_workspace_payload(
                 {
                     "eyebrow": "Research pages",
                     "title": "Open the strongest property pages first",
-                    "body": "Hosted property pages and 3D tours stay primary. Raw portal links remain secondary.",
+                    "body": "Hosted property pages and 3D tours stay primary. Source links remain secondary.",
                     "items": research_rows,
                 }
             ],
