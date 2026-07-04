@@ -33,7 +33,8 @@ def test_alerts_and_delivery_copy_stay_customer_facing() -> None:
     assert "Connect Google sign-in if you want a faster return path and account access without another sign-up." in view_model_body
     assert "Community-sourced hits should stay separate until a human confirms identity, freshness, and legitimacy." in view_model_body
     assert "def _property_run_progress_fallback_message(" in surface_state_body
-    assert 'return "Preparing providers."' in surface_state_body
+    assert 'return "Preparing sources."' in surface_state_body
+    assert 'return "Preparing providers."' not in surface_state_body
     assert "Preparing provider checks." not in surface_state_body
 
 

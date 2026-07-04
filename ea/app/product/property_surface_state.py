@@ -820,8 +820,8 @@ def _property_run_progress_fallback_message(summary: dict[str, object]) -> str:
             return f"{found} homes found · {source_left_label or source_label}"
         return _property_run_listing_queue_label(found, to_review)
     if provider_total > 0:
-        return "Preparing providers."
-    return "Preparing providers."
+        return "Preparing sources."
+    return "Preparing sources."
 
 
 def _property_run_source_status_counts(summary: dict[str, object]) -> dict[str, int]:
@@ -924,7 +924,7 @@ def _property_run_provider_check_label(summary: dict[str, object], *, status: st
         unit = _property_run_source_unit_label(summary, total=total)
         return f"{done} / {total} {unit}"
     if total > 0:
-        return f"{total} providers selected"
+        return f"{total} sources selected"
     return ""
 
 
@@ -951,12 +951,12 @@ def _property_run_source_unit_label(summary: dict[str, object], *, total: int = 
     source_variant_total = _positive_int(summary.get("source_variant_total") or summary.get("sources_total"))
     provider_total = _positive_int(summary.get("provider_display_total") or summary.get("provider_total"))
     if total > 0 and provider_total > 0 and total <= provider_total:
-        return "providers"
+        return "sources"
     if source_variant_total > 0 and provider_total > 0 and source_variant_total > provider_total:
         return "search pages"
     if total > 0 and provider_total > 0 and total > provider_total:
         return "search pages"
-    return "providers"
+    return "sources"
 
 
 def _property_run_count_label(count: int, singular: str, plural: str | None = None) -> str:
@@ -1033,7 +1033,7 @@ def _property_run_synthetic_progress_events(
             )
 
     if provider_total > 0:
-        add("sources_resolved", f"{_property_run_count_label(provider_total, 'provider')} selected for this search.")
+        add("sources_resolved", f"{_property_run_count_label(provider_total, 'source')} selected for this search.")
 
     source_work = _property_run_source_work_counts(summary, status=status)
     if counts["rows"] or counts["done"] or counts["active"]:
@@ -1051,7 +1051,7 @@ def _property_run_synthetic_progress_events(
             unit = _property_run_source_unit_label(summary, total=counts["total"]).capitalize()
             add("source_search", f"{unit}: {', '.join(parts)}{total_suffix}.")
     elif provider_total > 0:
-        add("source_started", "Waiting for the first provider.")
+        add("source_started", "Waiting for the first source.")
 
     found_total = raw_found
     to_review = listing_work["to_review"]
@@ -1566,9 +1566,9 @@ def build_property_run_reliability_snapshot(
         elif results_total > 0:
             customer_status = "The strongest matches are already ready while the rest of the search finishes."
         elif source_checked > 0:
-            customer_status = "Providers are still running and the first shortlist is still building."
+            customer_status = "Sources are still running and the first shortlist is still building."
         else:
-            customer_status = message or "Preparing providers."
+            customer_status = message or "Preparing sources."
     customer_status = _customer_safe_source_status_text(customer_status)
     if status in {"processed", "completed"}:
         health_tone = "good"
@@ -1620,7 +1620,7 @@ def build_property_run_reliability_snapshot(
 def _compact_run_message(value: object) -> str:
     text = str(value or "").strip()
     if not text:
-        return "Waiting for the first provider."
+        return "Waiting for the first source."
     stale_zero_match = _STALE_ZERO_REVIEW_SEARCH_PAGES_RE.search(text)
     if stale_zero_match:
         found = _positive_int(stale_zero_match.group("found"))
@@ -1643,6 +1643,8 @@ def _compact_run_message(value: object) -> str:
     text = re.sub(r"\blists left\b", "search pages waiting", text, flags=re.IGNORECASE)
     text = re.sub(r"\blists open\b", "search pages still running", text, flags=re.IGNORECASE)
     text = re.sub(r"\blist update\b", "search update", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bwaiting for the first provider update\.?\b", "Waiting for the first source.", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bwaiting for the first provider\.?\b", "Waiting for the first source.", text, flags=re.IGNORECASE)
     candidate_match = re.search(r"(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
     if candidate_match:
         return f"Checking home details {candidate_match.group(1)} / {candidate_match.group(2)}"
@@ -1670,7 +1672,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
             "raw": "",
             "fraction_label": "",
             "source_label": "",
-            "phase_label": "Waiting for the first provider.",
+            "phase_label": "Waiting for the first source.",
         }
     provider_load_match = re.search(r"^Loading provider page for\s+(.+?)\.?$", text, flags=re.IGNORECASE)
     if provider_load_match:
@@ -2168,9 +2170,9 @@ def build_property_run_live_board_snapshot(
         aggregate_label = _property_run_listing_queue_label(found_total, to_review_total)
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} floorplans pending"
-    phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first provider."
-    if phase_label == "Waiting for the first provider update.":
-        phase_label = "Waiting for the first provider."
+    phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first source."
+    if phase_label in {"Waiting for the first provider update.", "Waiting for the first provider.", "Waiting for the first provider check."}:
+        phase_label = "Waiting for the first source."
     active_source_summary = _property_run_source_summary_for_label(source_rows, active_source_label)
     source_near_miss_label = _property_run_source_near_miss_phase_label(active_source_summary)
     candidate_reason_label = _latest_property_run_candidate_reason_label(payload)
@@ -2179,13 +2181,13 @@ def build_property_run_live_board_snapshot(
     elif current_info.get("fraction_label") and candidate_reason_label:
         phase_label = candidate_reason_label
     current_step = str(payload.get("current_step") or "").strip().lower()
-    if phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider."} and packet_prepared > 0 and current_step == "source_review_packet":
+    if phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider.", "Waiting for the first source."} and packet_prepared > 0 and current_step == "source_review_packet":
         phase_label = f"{packet_prepared} property pages prepared"
     elif (
         current_step == "source_shortlist"
         and shortlist_ready > 0
         and (
-            phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider.", "Shortlist ready"}
+            phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider.", "Waiting for the first source.", "Shortlist ready"}
             or phase_label.lower().startswith("shortlist ready")
         )
     ):

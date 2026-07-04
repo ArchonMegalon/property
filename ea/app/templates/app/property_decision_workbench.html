@@ -381,9 +381,9 @@
       {% set progress_message_display = progress_compact_queue_message %}
     {% endif %}
   {% elif provider_display_total > 0 %}
-  {% set progress_message_display = 'Preparing providers.' %}
-      {% else %}
-  {% set progress_message_display = 'Preparing providers.' %}
+  {% set progress_message_display = 'Preparing sources.' %}
+  {% else %}
+  {% set progress_message_display = 'Preparing sources.' %}
   {% endif %}
 {% endif %}
 {% set reliability_message_raw = progress_customer_message if reliability else '' %}
@@ -429,7 +429,7 @@
 						      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total and source_open_total > 0 %}{{ source_open_total }} {{ source_unit }} left{% elif found_total %}details caught up{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Waiting for first listings{% endif %}</span>
 						      {% if found_total and to_review_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
 					    </div>
-				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider.' }}</span>
+				    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first source.' }}</span>
 				    <div class="pqx-live-review-bars" aria-label="Search totals">
 		      <span>
 		        <b>Found</b>
@@ -10931,10 +10931,10 @@
 					            {% set live_run_message_display = live_compact_queue_message %}
 			            {% endif %}
 		          {% elif live_provider_total > 0 %}
-				          {% set live_run_message_display = 'Preparing providers.' %}
-			          {% else %}
-			          {% set live_run_message_display = 'Preparing providers.' %}
-		          {% endif %}
+				          {% set live_run_message_display = 'Preparing sources.' %}
+				        {% else %}
+			          {% set live_run_message_display = 'Preparing sources.' %}
+				        {% endif %}
           {% endif %}
           <section class="pqx-card" style="margin-bottom:14px;">
             <div class="pqx-section-head">

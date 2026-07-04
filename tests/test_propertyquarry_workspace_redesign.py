@@ -1816,6 +1816,7 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
         "generated artifacts",
         "Provider risk",
         "Repair and delivery posture",
+        "retry work is still open",
     )
     for marker in forbidden_copy:
         assert marker not in page.text
@@ -2081,13 +2082,17 @@ def test_propertyquarry_support_and_trust_pages_cut_developer_voice() -> None:
     assert support.status_code == 200
     assert trust.status_code == 200
     assert "See what failed, what still works, and the next useful action." in support.text
-    assert "Reliability" in trust.text
+    assert "Search health" in trust.text
     assert "Source health, recent searches, and account controls in one place." in trust.text
     assert "Source health" in trust.text
     forbidden_copy = (
         "Support and recovery",
         "Support posture",
         "Health score",
+        "Reliability",
+        "Recovery",
+        "Retry",
+        "retry state",
         "Runtime posture",
         "Runtime and provider posture",
         "Readiness detail",
@@ -3517,7 +3522,7 @@ def test_propertyquarry_running_panel_avoids_zero_provider_copy_when_count_unkno
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "0 lists" not in visible_message
-    assert "Preparing providers." in visible_message
+    assert "Preparing sources." in visible_message
 
 
 def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> None:
@@ -11812,7 +11817,7 @@ def test_property_search_status_avoids_zero_provider_copy_when_count_unknown(mon
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Could not load property search status." not in messages
     assert not any("0 lists" in message for message in messages)
-    assert "Preparing providers." in messages
+    assert "Waiting for the first source." in messages
 
 
 def test_property_run_public_eta_label_suppresses_too_precise_one_minute() -> None:
@@ -11838,9 +11843,9 @@ def test_property_run_customer_visible_events_adds_useful_synthetic_progress() -
     )
 
     messages = [str(event.get("message") or "") for event in events]
-    assert "9 providers selected for this search." in messages
-    assert "Waiting for the first provider." in messages
-    assert "Preparing providers." in messages
+    assert "9 sources selected for this search." in messages
+    assert "Waiting for the first source." in messages
+    assert "Preparing sources." in messages
 
 
 def test_property_run_customer_visible_events_summarizes_real_listing_progress() -> None:
@@ -11866,9 +11871,9 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     )
 
     messages = [str(event.get("message") or "") for event in events]
-    assert "9 providers selected for this search." in messages
-    assert "Providers: 1 checked, 1 running, 7 waiting of 9." in messages
-    assert "42 homes found · 30 to review · 8 providers left." in messages
+    assert "9 sources selected for this search." in messages
+    assert "Sources: 1 checked, 1 running, 7 waiting of 9." in messages
+    assert "42 homes found · 30 to review · 8 sources left." in messages
     assert "3 homes outside the current brief." in messages
 
 
@@ -12041,7 +12046,7 @@ def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources
     assert len(summary["sources"]) == 24
     assert {row["status"] for row in summary["sources"]} == {"completed_partial"}
     messages = [str(event.get("message") or "") for event in payload["events"]]
-    assert "3 providers selected for this search." in messages
+    assert "3 sources selected for this search." in messages
     assert "Search pages: 30 checked of 30." in messages
     assert not any("queued" in message.lower() or "running" in message.lower() for message in messages)
 

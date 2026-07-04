@@ -86,8 +86,8 @@ PROPERTY_WORKER_QUEUES: tuple[PropertyWorkerQueueSpec, ...] = (
     ),
     PropertyWorkerQueueSpec(
         key="repair",
-        label="Repair",
-        purpose="Execute bounded provider, packet and run-recovery repair work.",
+        label="Search health",
+        purpose="Refresh bounded source, packet, and run-recovery work.",
         max_attempts=3,
         timeout_seconds=300,
         customer_visible=True,

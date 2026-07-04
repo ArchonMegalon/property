@@ -1480,7 +1480,7 @@
     ]);
     const compactRunMessage = (value) => {
       let text = String(value || '').trim();
-      if (!text) return 'Waiting for the first provider.';
+      if (!text) return 'Waiting for the first source.';
       const staleZeroReviewMatch = text.match(/\b(\d+)\s+homes?\s+found\s*·\s*0\s+to\s+review\s*·\s*(\d+)\s*\/\s*(\d+)\s*(search pages|providers|sources)\b/i);
       if (staleZeroReviewMatch) {
         const found = Number(staleZeroReviewMatch[1] || 0);
@@ -1515,7 +1515,7 @@
       .trim();
     const parseRunMessageInfo = (value) => {
       const text = String(value || '').trim();
-      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first provider.' };
+      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first source.' };
       const providerLoadMatch = text.match(/^Loading provider page for\s+(.+?)\.?$/i);
       if (providerLoadMatch) {
         const sourceLabel = canonicalSourceLabel(providerLoadMatch[1] || '');
@@ -2312,9 +2312,9 @@
           return runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary);
         }
         if (providers > 0) {
-          return 'Preparing providers.';
+          return 'Preparing sources.';
         }
-        return 'Preparing providers.';
+        return 'Preparing sources.';
       }
       return raw;
     };

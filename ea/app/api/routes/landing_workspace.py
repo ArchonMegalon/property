@@ -851,7 +851,7 @@ def settings_usage_detail(
             ]
         )
         reliability_items = [
-            _object_detail_row("Recovery", str(property_usage["repair_status"]), "Retry"),
+            _object_detail_row("Search status", str(property_usage["repair_status"]), "Status"),
             _object_detail_row(
                 "List health",
                 "Waiting for first search" if int(property_usage["run_total"] or 0) <= 0 else "Derived from recent runs",
@@ -859,9 +859,9 @@ def settings_usage_detail(
             ),
         ]
         if int(property_usage["failed_source_total"] or 0) > 0:
-            reliability_items.append(_object_detail_row("List failures", str(property_usage["failed_source_total"]), "Retry"))
+            reliability_items.append(_object_detail_row("Unavailable lists", str(property_usage["failed_source_total"]), "Lists"))
         if int(property_usage["repairing_source_total"] or 0) > 0:
-            reliability_items.append(_object_detail_row("Lists retrying", str(property_usage["repairing_source_total"]), "Retry"))
+            reliability_items.append(_object_detail_row("Lists refreshing", str(property_usage["repairing_source_total"]), "Lists"))
         usage_sidebar_rows = []
         if int(property_usage["run_total"] or 0) <= 0:
             usage_sidebar_rows.append(
@@ -883,7 +883,7 @@ def settings_usage_detail(
         usage_sidebar_rows.extend(
             [
                 _object_detail_row("Current plan", current_plan.replace("_", " ").title(), "Plan", href=billing_href),
-                _object_detail_row("Recovery", str(property_usage["repair_status"]), "Repair"),
+                _object_detail_row("Search health", str(property_usage["repair_status"]), "Status"),
             ]
         )
         run_outcomes_items = latest_run_rows or [
@@ -921,8 +921,8 @@ def settings_usage_detail(
         if reliability_items:
             usage_sections.append(
                 {
-                    "eyebrow": "Reliability",
-                    "title": "Repair and delivery",
+                    "eyebrow": "Search health",
+                    "title": "Status and delivery",
                     "items": reliability_items,
                 }
             )
@@ -946,10 +946,10 @@ def settings_usage_detail(
                 {"label": "Matches", "value": str(property_usage["ranked_total"])},
                 {"label": "Outside brief", "value": str(property_usage["filtered_total"])},
                 {"label": "Lists used", "value": str(property_usage["source_total"])},
-                {"label": "Recovery", "value": str(property_usage["repair_status"])},
+                {"label": "Search health", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What usage and activation mean here",
-            object_sidebar_copy="Usage and activation are driven by completed searches, matching homes, and whether retry work is still open.",
+            object_sidebar_copy="Usage and activation are driven by completed searches, matching homes, and whether list refresh is still open.",
             object_sidebar_rows=usage_sidebar_rows,
             object_sections=usage_sections,
         )
@@ -1089,7 +1089,7 @@ def settings_support_detail(
             ),
             object_meta=[
                 {"label": "List failures", "value": str(property_usage["failed_source_total"])},
-                {"label": "Lists retrying", "value": str(property_usage["repairing_source_total"])},
+                {"label": "Lists refreshing", "value": str(property_usage["repairing_source_total"])},
                 {"label": "Partial runs", "value": str(property_usage["partial_total"])},
                 {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
             ],
@@ -1101,12 +1101,12 @@ def settings_support_detail(
             ],
             object_sections=[
                 {
-                    "eyebrow": "Retry",
+                    "eyebrow": "Search health",
                     "title": "Search health",
                     "items": [
-                        _object_detail_row("Recovery", str(property_usage["repair_status"]), ""),
-                        _object_detail_row("List failures", str(property_usage["failed_source_total"]), ""),
-                        _object_detail_row("Lists retrying", str(property_usage["repairing_source_total"]), ""),
+                        _object_detail_row("Search status", str(property_usage["repair_status"]), ""),
+                        _object_detail_row("Unavailable lists", str(property_usage["failed_source_total"]), ""),
+                        _object_detail_row("Lists refreshing", str(property_usage["repairing_source_total"]), ""),
                         _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), ""),
                         _object_detail_row("Partial runs", str(property_usage["partial_total"]), ""),
                     ],
@@ -1437,7 +1437,7 @@ def settings_outcomes_detail(
             page_title="PropertyQuarry outcomes",
             current_nav="settings",
             console_title="Outcomes",
-            console_summary="Outcomes track whether searches produced matching homes, whether retry work stayed bounded, and what follow-up is ready.",
+            console_summary="Outcomes track whether searches produced matching homes, whether search checks stayed bounded, and what follow-up is ready.",
             object_kind="Outcomes",
             object_title=f"{property_usage['ranked_total']} matches",
             object_summary=(
@@ -1449,7 +1449,7 @@ def settings_outcomes_detail(
                 {"label": "Matches", "value": str(property_usage["ranked_total"])},
                 {"label": "Completed searches", "value": str(property_usage["completed_total"])},
                 {"label": "Partial searches", "value": str(property_usage["partial_total"])},
-                {"label": "Recovery", "value": str(property_usage["repair_status"])},
+                {"label": "Search health", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What a healthy search shows",
             object_sidebar_copy="A healthy PropertyQuarry loop returns matching homes quickly, keeps requirements understandable, preserves useful partial results, and keeps open details visible.",
@@ -1457,8 +1457,8 @@ def settings_outcomes_detail(
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Matches", str(property_usage["ranked_total"]), "Shortlist"),
                 _object_detail_row("Outside brief", str(property_usage["filtered_total"]), "Rules"),
-                _object_detail_row("List failures", str(property_usage["failed_source_total"]), "Retry"),
-                _object_detail_row("Recovery", str(property_usage["repair_status"]), "Retry"),
+                _object_detail_row("Unavailable lists", str(property_usage["failed_source_total"]), "Lists"),
+                _object_detail_row("Search health", str(property_usage["repair_status"]), "Status"),
                 _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Account"),
             ],
             object_sections=[
@@ -2065,11 +2065,11 @@ def settings_trust_detail(
             request=request,
             context=context,
             workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
-            page_title="PropertyQuarry reliability",
+            page_title="PropertyQuarry search health",
             current_nav="settings",
-            console_title="Reliability",
+            console_title="Search health",
             console_summary="Source health, recent searches, and account controls in one place.",
-            object_kind="Reliability",
+            object_kind="Search health",
             object_title=workspace_summary,
             object_summary=(
                 f"{property_usage['ranked_total']} matches · "
@@ -2083,12 +2083,12 @@ def settings_trust_detail(
                 {"label": "Plan", "value": str(billing.get("current_plan_label") or billing.get("current_plan_key") or "Free").replace("_", " ").title()},
             ],
             object_sidebar_title="What this checks",
-            object_sidebar_copy="List health, retry state, and account controls stay visible here.",
+            object_sidebar_copy="List health, recent searches, and account controls stay visible here.",
             object_sidebar_rows=[
                 _object_detail_row("Summary", workspace_summary, "Summary"),
                 _object_detail_row("Account", readiness_detail_label, "Account"),
                 _object_detail_row("List health", str(property_usage["repair_status"]), "Lists"),
-                _object_detail_row("Recovery", str(property_usage["repair_status"]), "Lists"),
+                _object_detail_row("Search health", str(property_usage["repair_status"]), "Status"),
                 _object_detail_row("List failures", str(property_usage["failed_source_total"]), "Lists"),
                 _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
                 _object_detail_row("Unavailable", ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:4]) or "Nothing blocked", "Access"),
@@ -2102,7 +2102,7 @@ def settings_trust_detail(
                         _object_detail_row("Details", readiness_detail_label, "Account"),
                         _object_detail_row("List health", str(property_usage.get("repair_status") or "unknown"), "Lists"),
                         _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
-                        _object_detail_row("Recovery", str(property_usage["repair_status"]), "Lists"),
+                        _object_detail_row("Search health", str(property_usage["repair_status"]), "Status"),
                         _object_detail_row("List failures", str(property_usage["failed_source_total"]), "Lists"),
                     ],
                 },
@@ -2150,15 +2150,15 @@ def settings_trust_detail(
         request=request,
         context=context,
         workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
-        page_title="PropertyQuarry reliability",
+        page_title="PropertyQuarry search health",
         current_nav="settings",
-        console_title="Reliability",
+        console_title="Search health",
         console_summary=(
             "Source health, recent searches, and account controls in one place."
             if is_property_brand
             else "Context, rules, readiness, provider state, and recent product events make the assistant legible when the office asks why something happened."
         ),
-        object_kind="Reliability",
+        object_kind="Search health",
         object_title=workspace_summary,
         object_summary=f"{trust.get('evidence_count') or 0} checks · {trust.get('rule_count') or 0} settings",
         object_meta=[

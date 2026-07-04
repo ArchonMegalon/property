@@ -1503,9 +1503,9 @@ def property_workspace_payload(
     fleet_digest = dict(billing_truth.get("fleet_digest") or property_state.get("fleet_digest") or {}) if wants_credit_digest else {}
     fleet_digest_items = [
         row_item(
-            str(item.get("title") or "Retry update"),
-            str(item.get("detail") or item.get("value") or "").strip() or str(fleet_digest.get("preview_text") or "Retry update pending"),
-            str(item.get("tag") or "Repair"),
+            str(item.get("title") or "Status update"),
+            str(item.get("detail") or item.get("value") or "").strip() or str(fleet_digest.get("preview_text") or "Update pending"),
+            str(item.get("tag") or "Status"),
         )
         for item in list(fleet_digest.get("items") or [])[:4]
         if isinstance(item, dict)

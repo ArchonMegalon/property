@@ -375,7 +375,8 @@ def test_propertyquarry_search_results_keep_hidden_homes_copy_minimal() -> None:
     body = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
 
     assert "Search guard" not in body
-    assert "Review hidden homes" in body
+    assert "Review outside-brief homes" in body
+    assert "Review hidden homes" not in body
     assert "Widen one requirement" in body
     assert "Choose one small change, then rerun." in body
     assert "provider active" not in body
@@ -422,7 +423,8 @@ def test_propertyquarry_customer_surfaces_keep_accessibility_exit_gates() -> Non
     assert 'aria-label="PropertyQuarry view mode"' in workbench
     assert 'aria-label="Search setup"' in workbench
     assert 'aria-label="Account navigation"' in workbench
-    assert 'aria-label="Close hidden homes"' in workbench
+    assert 'aria-label="Close outside-brief homes"' in workbench
+    assert 'aria-label="Close hidden homes"' not in workbench
 
 
 def test_propertyquarry_console_shell_uses_new_property_surface_links() -> None:

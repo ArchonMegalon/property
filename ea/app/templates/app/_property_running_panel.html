@@ -96,9 +96,9 @@
 		          {% set run_message_display = run_compact_queue_message %}
 		        {% endif %}
       {% elif run_provider_total %}
-      {% set run_message_display = 'Preparing providers.' %}
+      {% set run_message_display = 'Preparing sources.' %}
       {% else %}
-      {% set run_message_display = 'Preparing providers.' %}
+      {% set run_message_display = 'Preparing sources.' %}
       {% endif %}
     {% endif %}
     <div class="pqx-note" data-pqx-run-message>{{ run_message_display or 'The search is queued.' }}</div>
