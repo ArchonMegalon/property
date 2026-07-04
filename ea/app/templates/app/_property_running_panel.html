@@ -32,7 +32,7 @@
         {% else %}
         <a class="pqx-link-button" href="/app/search">Start new search</a>
         {% if run.get('run_id') %}
-        <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Delete this finished search run?">Delete run</button>
+        <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Delete this finished search?">Delete search</button>
         {% endif %}
         {% endif %}
       </div>

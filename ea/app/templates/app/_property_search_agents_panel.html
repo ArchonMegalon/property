@@ -56,12 +56,12 @@
           <span><b>{{ agent.get('notification_label') or 'No cap' }}</b></span>
         </div>
         <div class="pqx-automation-rhythm" style="font-size:10px; line-height:1.2;">
-          <span>{{ agent.get('run_label') or 'Waiting for first run' }}</span>
+          <span>{{ agent.get('run_label') or 'Waiting for first search' }}</span>
           <span>{{ agent.get('delivery_label') or 'Alerts not set' }}</span>
-          <span>{{ agent.get('latest_outcome_label') or 'No finished run yet' }}</span>
+          <span>{{ agent.get('latest_outcome_label') or 'No finished search yet' }}</span>
         </div>
         <div class="pqx-automation-actions" style="gap:5px; padding-top:0;">
-          <button class="pqx-button primary" type="button" data-search-agent-action="run" data-run-agent-href="/app/search?run_agent={{ (agent.get('agent_id') or 'current')|urlencode }}" style="padding-inline:10px;">Run</button>
+          <button class="pqx-button primary" type="button" data-search-agent-action="run" data-run-agent-href="/app/search?run_agent={{ (agent.get('agent_id') or 'current')|urlencode }}" style="padding-inline:10px;">Search now</button>
           {% if agent.get('enabled') %}
           <button class="pqx-button subtle" type="button" data-search-agent-action="pause" style="padding-inline:10px;">Pause</button>
           {% else %}

@@ -672,7 +672,7 @@
     };
     const safeCandidateTitle = (value) => {
       const rawTitle = String(value || '').trim();
-      return rawTitle && !/^(https?:\/\/|www\.)/i.test(rawTitle) ? rawTitle : 'Property candidate';
+      return rawTitle && !/^(https?:\/\/|www\.)/i.test(rawTitle) ? rawTitle : 'Property';
     };
     const packetCandidatePayload = (candidate) => {
       const facts = candidate?.property_facts && typeof candidate.property_facts === 'object'

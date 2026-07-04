@@ -12528,7 +12528,8 @@ def test_property_workbench_sparse_candidates_do_not_display_raw_urls() -> None:
     assert "const rawTitle = String(value || '').trim();" in body
     assert "!/^(https?:\\/\\/|www\\.)/i.test(rawTitle)" in body
     assert "const title = safeCandidateTitle(candidate?.title);" in body
-    assert "Property candidate" in body
+    assert "Property candidate" not in body
+    assert "candidate.get('title') or 'Property'" in body
 
 
 def test_property_workspace_source_cards_do_not_display_raw_source_urls() -> None:
@@ -13950,14 +13951,14 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "Limits" not in page.text
     assert 'href="/app/search' in page.text
     assert "/app/properties?load_agent=" not in page.text
-    assert "Run</button>" in page.text
+    assert "Search now</button>" in page.text
     assert "Refresh" not in page.text
     assert 'class="pqx-automation-thumbnail-action">Edit</span>' in page.text
     assert "Pause</button>" in page.text
     assert "/app/search?load_agent=" in page.text
     assert "/app/search?run_agent=" in page.text
     assert 'style="min-height:28px; padding-inline:8px;"' not in page.text
-    assert 'style="padding-inline:10px;">Run</button>' in page.text
+    assert 'style="padding-inline:10px;">Search now</button>' in page.text
     template = _read_workbench_bundle()
     product_api = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/product_api.py").read_text(encoding="utf-8")
     assert ".pqx-automation-grid" in template
@@ -14648,7 +14649,7 @@ def test_property_search_agents_can_open_focused_cockpit_view(monkeypatch) -> No
     assert "Vienna rent watch" in page.text
     assert "Ranked 1 | Sent 2 | Filtered 8" not in page.text
     assert "run-agent-1" not in page.text
-    assert "No finished run yet" in page.text
+    assert "No finished search yet" in page.text
     assert "/app/search?load_agent=" in page.text
 
 
@@ -16083,7 +16084,7 @@ def test_propertyquarry_completed_empty_results_hide_run_updates(monkeypatch) ->
 
     assert response.status_code == 200
     assert "No homes in scope yet." in response.text
-    assert "Run updates" not in rendered_html
+    assert "Search updates" not in rendered_html
     assert "Fetched listings from Willhaben." not in rendered_html
 
 
@@ -16122,7 +16123,7 @@ def test_propertyquarry_failed_empty_results_keep_run_updates(monkeypatch) -> No
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
 
     assert response.status_code == 200
-    assert "Run updates" in rendered_html
+    assert "Search updates" in rendered_html
     assert "Provider changed the listing page layout." in rendered_html
     assert "Repair is retrying the fetch with a safer path." in rendered_html
 
@@ -22220,9 +22221,9 @@ def test_property_alerts_surface_exposes_routing_and_recovery_language() -> None
     payload_source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
     template_source = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
 
-    assert "Sent pages, notifications, and run updates in one place." in payload_source
-    assert "Sent pages, replies, and run updates." in payload_source
+    assert "Sent pages, notifications, and search updates in one place." in payload_source
+    assert "Sent pages, replies, and search updates." in payload_source
     assert "Notifications" in payload_source
     assert "Recovery" in payload_source
     assert "Delivery retries stay visible here." in payload_source
-    assert "Sent pages, notifications, follow-up, and run updates." in template_source
+    assert "Sent pages, notifications, follow-up, and search updates." in template_source

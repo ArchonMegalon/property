@@ -22,6 +22,7 @@ CUSTOMER_COPY_SOURCES = CUSTOMER_TEMPLATES + (
     ROOT / "ea/app/api/routes/landing_property_research.py",
     ROOT / "ea/app/api/routes/landing_property_workspace_payload.py",
     ROOT / "ea/app/templates/app/_property_running_panel.html",
+    ROOT / "ea/app/templates/app/_property_workbench_feedback_script.html",
     ROOT / "ea/app/templates/app/_property_workbench_script.html",
     ROOT / "ea/app/templates/app/property_ranked_run_fast.html",
 )
@@ -173,6 +174,17 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "preparing sources",
         "waiting for the first source",
         "the search is queued",
+        "run updates",
+        "run events",
+        "open live run",
+        "delete run",
+        "property candidate",
+        "propertyquarry candidate",
+        "no finished run yet",
+        "waiting for first run",
+        "run state",
+        "search · run",
+        "packets already sent",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

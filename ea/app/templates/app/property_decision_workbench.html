@@ -10835,7 +10835,7 @@
         </div>
         <div class="pqx-recovery-meta">
           {% if packet_recovery.get('candidate_ref') %}
-          <span class="pqx-pill warn">{{ packet_recovery.get('candidate_ref') }}</span>
+          <span class="pqx-pill warn">Home needs refresh</span>
           {% endif %}
           {% if packet_recovery.get('queue_item_ref') %}
           <span class="pqx-pill good">Queued</span>
@@ -10861,7 +10861,7 @@
               {% elif surface_mode in ['agents', 'alerts', 'account', 'billing', 'research'] %}
               {{ hero_kicker or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
-              Run
+              Search
               {% endif %}
             </span>
             <h1>
@@ -10960,11 +10960,11 @@
 		                  <div><strong>Sources</strong><small>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} sources selected{% else %}Preparing{% endif %}</small></div>
 		                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
 				                <div><strong>{{ live_detail_queue_label }}</strong><small>{{ live_detail_queue_value }}</small></div>
-	                <div><strong>Run</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open live run</a></small></div>
+	                <div><strong>Search</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open search</a></small></div>
 	              </div>
           {% if live_preview %}
           {% set live_preview_href = live_preview.get('source_url') or live_preview.get('property_url') or live_preview.get('review_url') or '' %}
-          {% set live_preview_title = live_preview.get('title') or live_preview.get('listing_title') or 'Property candidate' %}
+          {% set live_preview_title = live_preview.get('title') or live_preview.get('listing_title') or 'Property' %}
           {% set live_preview_image = live_preview.get('preview_image_url') or '' %}
           {% set live_preview_facts = live_preview.get('property_facts') or {} %}
           {% set live_preview_snapshot = live_preview_facts.get('listing_research_snapshot') if live_preview_facts.get('listing_research_snapshot') is mapping else {} %}
@@ -11067,7 +11067,7 @@
             {% if surface_mode != 'search' %}
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Flow</span>
-              <strong>{% if dashboard_agents %}Search · Run · Shortlist{% else %}Create the first search brief{% endif %}</strong>
+              <strong>{% if dashboard_agents %}Search · Results · Shortlist{% else %}Create the first search brief{% endif %}</strong>
             </div>
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/search">New search</a>
@@ -11279,7 +11279,7 @@
                 {% if surface_mode == 'agents' %}
                 Review saved searches, rerun them, and open recent results.
                 {% elif surface_mode == 'alerts' %}
-                Sent pages, notifications, follow-up, and run updates.
+                Sent pages, notifications, follow-up, and search updates.
                 {% elif surface_mode == 'billing' %}
                 Current access and billing.
                 {% elif surface_mode == 'account' %}
@@ -12253,7 +12253,7 @@
                         {% endif %}
                       </span>
                       <span>
-                        {{ candidate.get('title') or 'Property candidate' }}<br>
+                        {{ candidate.get('title') or 'Property' }}<br>
                         <span class="pqx-small">{{ candidate.get('source_label') or candidate.get('source_platform') or 'Listing' }}</span>
                       </span>
                     </div>
@@ -12329,7 +12329,7 @@
         {% endif %}
         {% if run_failed_no_results and run.get('events') %}
         <details class="pqx-card">
-          <summary><strong>Run updates</strong><span class="pqx-note">Open only when you want the latest scan notes.</span></summary>
+          <summary><strong>Search updates</strong><span class="pqx-note">Open only when you want the latest scan notes.</span></summary>
         <div class="pqx-note" data-pqx-run-updated>Last update {{ run.get('updated_at') or run.get('generated_at') or 'not available' }}</div>
         <div class="pqx-event-list" data-pqx-run-events>
           {% for event in (run.get('events') or [])|reverse %}
@@ -12365,7 +12365,7 @@
           </div>
           {% endfor %}
           {% if not run.get('events') %}
-          <div class="pqx-empty">No run events were recorded.</div>
+          <div class="pqx-empty">No search updates yet.</div>
           {% endif %}
         </div>
         </details>
@@ -12439,7 +12439,7 @@
               {% endif %}
               <div class="pqx-dossier-head">
                 <div class="pqx-dossier-title">
-                  <span data-pw-source>{{ [selected.get('source_label'), selected.get('location_label')]|select|join(' · ') or 'PropertyQuarry candidate' }}</span>
+                  <span data-pw-source>{{ [selected.get('source_label'), selected.get('location_label')]|select|join(' · ') or 'PropertyQuarry home' }}</span>
                   <h1 data-pw-title>{{ selected.get('title') or 'Selected property' }}</h1>
                 </div>
               <div class="pqx-dossier-summary" data-pw-summary-facts>

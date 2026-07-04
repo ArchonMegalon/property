@@ -860,7 +860,7 @@
       const coverImages = [...root.querySelectorAll('[data-pw-cover-image]')];
       titles.forEach((title) => { title.textContent = candidate.title || 'Selected property'; });
       sources.forEach((source) => {
-        source.textContent = [candidate.source_label, candidate.location_label].filter(Boolean).join(' · ') || 'PropertyQuarry candidate';
+        source.textContent = [candidate.source_label, candidate.location_label].filter(Boolean).join(' · ') || 'PropertyQuarry home';
       });
       summaryFactsNodes.forEach((summaryFacts) => {
         clearNode(summaryFacts);

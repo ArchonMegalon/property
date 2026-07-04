@@ -1732,7 +1732,7 @@ def property_workspace_payload(
                         "href": f"/app/search{run_suffix}",
                     },
                     {
-                        "label": "Providers",
+                        "label": "Sources",
                         "value": str(len(selected_platforms) or 0),
                         "detail": "The selected portals for the next sweep.",
                         "href": f"/app/search{run_suffix}",
@@ -3470,19 +3470,19 @@ def property_workspace_payload(
             },
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": f"/app/properties{run_suffix}"},
             {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "Record what should matter most.", "href": f"/app/properties{run_suffix}"},
-            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "The selected portals for the next sweep.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Sources", "value": str(len(selected_platforms) or 0), "detail": "The selected portals for the next sweep.", "href": f"/app/properties{run_suffix}"},
         ],
         "shortlist": [
-            {"label": "Candidates", "value": str(len(admitted_shortlist_candidates)), "detail": "Ranked properties worth direct review now.", "href": f"/app/shortlist{run_suffix}"},
+            {"label": "Homes", "value": str(len(admitted_shortlist_candidates)), "detail": "Ranked properties worth direct review now.", "href": f"/app/shortlist{run_suffix}"},
             {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready before the source listing.", "href": f"/app/research{run_suffix}"},
             {"label": "3D tours", "value": str(tour_ready_total), "detail": "Hosted or embedded tours already available.", "href": f"/app/research{run_suffix}"},
-            {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest run status.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Search status", "value": run_status_label, "detail": run_message or "Latest search status.", "href": f"/app/properties{run_suffix}"},
         ],
         "research": [
             {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready for inspection.", "href": f"/app/research{run_suffix}"},
-            {"label": "Tours", "value": str(tour_ready_total), "detail": "Candidates already backed by a live tour or original 360.", "href": f"/app/research{run_suffix}"},
+            {"label": "Tours", "value": str(tour_ready_total), "detail": "Homes already backed by a live tour or original 360.", "href": f"/app/research{run_suffix}"},
             {"label": "Homes checked", "value": str(_run_homes_checked_total(run_summary)), "detail": "Homes checked in the latest run.", "href": f"/app/properties{run_suffix}"},
-            {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest research pass.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Search status", "value": run_status_label, "detail": run_message or "Latest research pass.", "href": f"/app/properties{run_suffix}"},
         ],
         "profile": [
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "No areas saved yet.", "href": f"/app/search{run_suffix}"},
@@ -3491,10 +3491,10 @@ def property_workspace_payload(
             {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": signed_in_billing_href},
         ],
         "alerts": [
-            {"label": "Delivered", "value": str(len(recent_matches_card.get("items") or [])), "detail": "Hosted pages or packets already sent.", "href": f"/app/alerts{run_suffix}"},
-            {"label": "Run events", "value": str(len(run_events[-4:])), "detail": "Recent run updates visible to the user.", "href": f"/app/alerts{run_suffix}"},
-            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Selected sources for saved-search alerts.", "href": f"/app/properties{run_suffix}"},
-            {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest saved-search sweep.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Delivered", "value": str(len(recent_matches_card.get("items") or [])), "detail": "Hosted pages already sent.", "href": f"/app/alerts{run_suffix}"},
+            {"label": "Recent updates", "value": str(len(run_events[-4:])), "detail": "Latest search updates.", "href": f"/app/alerts{run_suffix}"},
+            {"label": "Sources", "value": str(len(selected_platforms) or 0), "detail": "Selected sources for saved-search alerts.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Search status", "value": run_status_label, "detail": run_message or "Latest saved-search sweep.", "href": f"/app/properties{run_suffix}"},
         ],
         "agents": [
             {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring briefs available for editing and rerunning.", "href": f"/app/agents{run_suffix}"},
@@ -3505,7 +3505,7 @@ def property_workspace_payload(
         "billing": [
             {"label": "Plan", "value": current_plan_label, "detail": "Active plan.", "href": signed_in_billing_href},
             {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "Research depth for each property.", "href": signed_in_billing_href},
-            {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Portal allowance for the active plan.", "href": signed_in_billing_href},
+            {"label": "Sources", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Search-source allowance for the active plan.", "href": signed_in_billing_href},
             {"label": "Saved searches", "value": ("Unlimited" if int(commercial.get("search_agent_limit") or 0) <= 0 else str(commercial.get("search_agent_limit") or 1)), "detail": "Briefs that can keep running in the background.", "href": signed_in_billing_href},
         ],
         "settings": [
@@ -4107,7 +4107,7 @@ def property_workspace_payload(
                 {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
             ]),
             "hero_highlights": [
-                {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
+                {"label": "Search status", "value": run_status_label, "detail": run_message or "Current live search status."},
                 (
                     {
                         "label": "Lists",
@@ -4205,14 +4205,14 @@ def property_workspace_payload(
             "summary": "See what was sent, what is waiting, and what needs attention.",
             "hero_kicker": "Alerts",
             "hero_title": "Sent pages and updates.",
-            "hero_summary": "Sent pages, notifications, and run updates in one place.",
+            "hero_summary": "Sent pages, notifications, and search updates in one place.",
             "hero_actions": hero_actions["alerts"],
             "hero_highlights": hero_highlights["alerts"],
             "primary_cards": [
                 {
                     "eyebrow": "Recent activity",
                     "title": "Recent pages and updates",
-                    "body": "Sent pages, replies, and run updates.",
+                    "body": "Sent pages, replies, and search updates.",
                     "items": alerts_rows,
                 }
             ],
@@ -4266,13 +4266,13 @@ def property_workspace_payload(
                                 "secondary_action_label": "Edit",
                             },
                             row_item("Notification cap", str((selected_agent or {}).get("delivery_label") or "Set a daily or weekly cap."), str((selected_agent or {}).get("notification_label") or "Budget")),
-                            row_item("Schedule", str((selected_agent or {}).get("run_label") or "Waiting for the first run."), "Timing"),
+                            row_item("Schedule", str((selected_agent or {}).get("run_label") or "Waiting for the first search."), "Timing"),
                             row_item(
                                 "Latest finished run",
                                 (
                                     _run_outcome_compact_detail(selected_agent_latest_run)
                                     if selected_agent_latest_run
-                                    else "No finished run yet."
+                                    else "No finished search yet."
                                 ),
                                 str((selected_agent_latest_run or {}).get("status_label") or "Waiting"),
                             ),
@@ -4333,7 +4333,7 @@ def property_workspace_payload(
                         [
                             {
                                 "title": str(run.get("title") or "Saved search"),
-                                "detail": f"{str(run.get('status_label') or 'Run').strip()} | {_run_outcome_compact_detail(run)}",
+                                "detail": f"{str(run.get('status_label') or 'Search').strip()} | {_run_outcome_compact_detail(run)}",
                                 "tag": str(run.get("top_fit_score") or 0),
                                 "action_href": str(run.get("href") or ""),
                                 "action_method": "get",
@@ -4341,7 +4341,7 @@ def property_workspace_payload(
                             }
                             for run in (selected_agent_runs[:3] if selected_agent_runs else previous_search_runs[:3])
                         ]
-                        or [row_item("No finished run yet", "The first completed run will show matches, updates, and hidden homes here.", "Waiting")]
+                        or [row_item("No finished search yet", "The first completed search will show matches, updates, and hidden homes here.", "Waiting")]
                     ),
                 },
                 run_card,
