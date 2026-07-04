@@ -33928,7 +33928,7 @@ class ProductService:
                         if has_partial_results
                         else ("Checking again" if task_status in {"opened", "existing"} else "Needs attention")
                     ),
-                    "repair_step_label": "Checking again after the run was interrupted.",
+                    "repair_step_label": "Checking again after the search was interrupted.",
                     "provider_repair_task_opened_total": 1 if task_status == "opened" else 0,
                     "provider_repair_task_existing_total": 1 if task_status == "existing" else 0,
                     "provider_repair_tasks": [
@@ -33937,7 +33937,7 @@ class ProductService:
                             "filter_key": "run_interrupted_stale",
                             "human_task_id": human_task_ref,
                             "queue_item_ref": human_task_ref,
-                            "source_label": str(repair_task.get("source_label") or "Property search run").strip(),
+                            "source_label": str(repair_task.get("source_label") or "Property search").strip(),
                             "repair_owner": "ea_one_manager",
                             "repair_workflow": "ea_provider_ooda",
                         }
@@ -37303,7 +37303,7 @@ class ProductService:
                     repair_summary_updates = {
                         "repair_status": "repairing" if task_status in {"opened", "existing"} else "degraded",
                         "repair_status_label": "Checking again" if task_status in {"opened", "existing"} else "Needs attention",
-                        "repair_step_label": "Checking again after the run was interrupted.",
+                        "repair_step_label": "Checking again after the search was interrupted.",
                         "provider_repair_task_opened_total": 1 if task_status == "opened" else 0,
                         "provider_repair_task_existing_total": 1 if task_status == "existing" else 0,
                         "provider_repair_tasks": [
@@ -37312,7 +37312,7 @@ class ProductService:
                                 "filter_key": "run_worker_exception",
                                 "human_task_id": human_task_ref,
                                 "queue_item_ref": human_task_ref,
-                                "source_label": str(repair_task.get("source_label") or "Property search run").strip(),
+                                "source_label": str(repair_task.get("source_label") or "Property search").strip(),
                                 "repair_owner": "propertyquarry_repair",
                                 "repair_workflow": "property_provider_repair",
                             }

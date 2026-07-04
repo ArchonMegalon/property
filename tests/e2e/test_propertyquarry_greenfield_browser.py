@@ -2106,7 +2106,7 @@ def test_propertyquarry_repair_states_use_calm_browser_copy_on_properties_surfac
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
         expect(page.locator(".pqx-shell")).to_have_attribute("data-pqx-state", "empty_results")
         expect(page.locator("[data-pqx-empty-results] h1")).to_contain_text(
-            "One source changed, so this run could not finish automatically."
+            "One source changed, so this search could not finish automatically."
         )
         expect(page.locator("[data-pqx-empty-results] .pqx-empty-outcome-line")).to_contain_text(
             "Last real update: Jun 27, 2026 00:07 UTC."
@@ -7246,14 +7246,14 @@ def test_propertyquarry_start_failure_explains_backend_reason(
               );
               const sawBackendFailure = Boolean(
                 inlineError
-                && String(inlineError.textContent || '').includes('Upgrade required for this run')
+                && String(inlineError.textContent || '').includes('Upgrade required for this search')
               );
               return sawLoading || sawBackendFailure;
             }
             """
         )
         inline_error = page.locator("[data-property-inline-error]")
-        expect(inline_error).to_contain_text("Upgrade required for this run")
+        expect(inline_error).to_contain_text("Upgrade required for this search")
         expect(inline_error).to_contain_text("plus plan")
         expect(page.locator("[data-property-start-top]")).to_have_attribute("aria-busy", "false")
     finally:

@@ -203,6 +203,22 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "after the first run",
         "rest of the run",
         "packet is refreshed",
+        "no matching homes in this run",
+        "the run is taking longer",
+        "during the run",
+        "useful run",
+        "upgrade required for this run",
+        "this run could not finish",
+        "after the run was interrupted",
+        "final matching homes in this run",
+        "run health",
+        "no active run",
+        "keep the run visible",
+        "review the finished run",
+        "while the run is active",
+        "the run is complete",
+        "this run finished",
+        "next run changes",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

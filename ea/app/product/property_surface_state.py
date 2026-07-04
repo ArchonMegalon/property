@@ -140,7 +140,7 @@ def _strip_hidden_property_action_slots(row: dict[str, object]) -> dict[str, obj
 _CUSTOMER_SAFE_FAILURE_PREFIXES = (
     "search paused",
     "search stopped before",
-    "a replacement search run is now checking the saved brief",
+    "a replacement search is now checking the saved brief",
     "repair is retrying",
     "retrying ",
     "no source completed cleanly enough",
@@ -663,7 +663,7 @@ def _customer_friendly_repair_reason(summary: dict[str, object]) -> str:
     if resolution == "suppressed_generic_listing_page" or "generic marketing or overview page" in reason:
         return "This source opened an overview page instead of one concrete home."
     if resolution == "provider_quarantined_retry_budget_exhausted" or "manual_provider_patch_required" in combined:
-        return "This source changed enough that the run could not recover it automatically yet."
+        return "This source changed enough that the search could not recover it automatically yet."
     if resolution == "suppressed_missing_location" or "lacks a concrete location" in reason:
         return "This source no longer returned a clear location for the home."
     if resolution == "suppressed_missing_price" or "lacks a concrete price" in reason:
@@ -671,7 +671,7 @@ def _customer_friendly_repair_reason(summary: dict[str, object]) -> str:
     if resolution == "suppressed_location_scope" or "conflicts with the active search location" in reason:
         return "This source no longer matched the saved search area cleanly."
     if resolution in {"worker_exception_restart_required", "stale_run_restart_required"}:
-        return "The retry restarted the run, but it still did not reach a ready shortlist."
+        return "The retry restarted the search, but it still did not reach a ready shortlist."
     if "provider page" in combined or "webpage" in combined or "extract" in combined:
         return "This source changed and the current check could not confirm the listing reliably."
     return ""
@@ -788,7 +788,7 @@ def _calm_customer_repair_copy(
     if repair_active and _repair_reason_points_to_provider_site_change(repair_reason):
         return "One source changed, so PropertyQuarry is retrying it."
     if repair_failed and _repair_reason_points_to_provider_site_change(repair_reason):
-        return "One source changed, so this run could not finish automatically."
+        return "One source changed, so this search could not finish automatically."
     return ""
 
 
@@ -2816,7 +2816,7 @@ def build_property_empty_outcome_summary(
             "still_worked": f"Older snapshot: {historical_detail}.",
             "next_move": "Start an updated search so the counts use the current saved brief.",
             "active_rule": "Older search",
-            "eta_feedback": str(run_summary.get("brief_stale_message") or "").strip() or "The current brief has changed since this run finished.",
+            "eta_feedback": str(run_summary.get("brief_stale_message") or "").strip() or "The current brief has changed since this search finished.",
         }
     filtered_total = int(run_summary.get("filtered_total") or run_summary.get("held_back_total") or 0)
     score_demoted_total = int(
@@ -2991,7 +2991,7 @@ def build_property_empty_outcome_summary(
     else:
         next_move = (
             str(strongest_relax.get("detail") or "").strip()
-            or (f"Relax {active_rule} first so the next run changes one rule at a time." if active_rule else "")
+            or (f"Relax {active_rule} first so the next search changes one rule at a time." if active_rule else "")
             or "Widen one rule first, then rerun."
         )
     if status_value == "failed" and replacement_run_id:
@@ -3020,7 +3020,7 @@ def build_property_empty_outcome_summary(
     elif status_value == "failed":
         eta_feedback = "A fresh check is queued; this page switches when results are ready."
     else:
-        eta_feedback = "The run is complete; rerun after changing one rule to get a fresh ETA."
+        eta_feedback = "This search is complete; change one rule and search again for a fresh ETA."
     return {
         "happened": happened,
         "still_worked": still_worked,

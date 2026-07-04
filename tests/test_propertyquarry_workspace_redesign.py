@@ -11644,7 +11644,7 @@ def test_property_search_status_synthesizes_repair_events_for_compact_failed_run
             "summary": {
                 "repair_status": "repairing",
                 "repair_status_label": "Checking again",
-                "repair_step_label": "Checking again after the run was interrupted.",
+                "repair_step_label": "Checking again after the search was interrupted.",
                 "repair_receipts": [
                     {
                         "source_label": "Willhaben",
@@ -16323,7 +16323,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
                 "ranked_candidates": [],
                 "eta_label": "about 8 hr",
                 "repair_status_label": "Checking again",
-                "repair_step_label": "Checking again after the run was interrupted.",
+                "repair_step_label": "Checking again after the search was interrupted.",
                 "sources": [],
             },
             "events": [],
@@ -16342,7 +16342,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
-    assert "Checking again after the run was interrupted." in response.text
+    assert "Checking again after the search was interrupted." in response.text
     assert "More options" in response.text
     assert "Provider-level details" not in response.text
     assert "Filtering diagnostics" not in response.text
@@ -19391,7 +19391,7 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
             "listing_total": 0,
             "repair_status": "repairing",
             "repair_status_label": "Checking again",
-            "repair_step_label": "Checking again after the run was interrupted.",
+            "repair_step_label": "Checking again after the search was interrupted.",
             "provider_repair_tasks": [{"status": "opened"}],
         },
         run_sources=[],
@@ -19487,7 +19487,7 @@ def test_propertyquarry_failed_empty_outcome_explains_terminal_repair_failure() 
     )
 
     combined = " ".join(str(value) for value in summary.values())
-    assert summary["happened"] == "One source changed, so this run could not finish automatically."
+    assert summary["happened"] == "One source changed, so this search could not finish automatically."
     assert "this source stopped returning a usable listing page" not in combined.lower()
     assert "Last real update: Jun 27, 2026 00:07 UTC." in combined
     assert "Repair is retrying the saved search." not in combined
@@ -19537,7 +19537,7 @@ def test_propertyquarry_failed_terminal_repair_run_uses_grounded_copy(monkeypatc
     visible_text = re.sub(r"<script.*?</script>", "", page.text, flags=re.S)
 
     assert page.status_code == 200
-    assert "One source changed, so this run could not finish automatically." in visible_text
+    assert "One source changed, so this search could not finish automatically." in visible_text
     assert "This source stopped returning a usable listing page." not in visible_text
     assert "Last real update: Jun 27, 2026 00:07 UTC." in visible_text
     assert "Repair is retrying the saved search." not in visible_text

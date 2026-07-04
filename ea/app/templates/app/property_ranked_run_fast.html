@@ -550,10 +550,10 @@
     const section = document.createElement('section');
     section.className = 'pq-fast-card pq-fast-empty';
     const title = document.createElement('h2');
-    title.textContent = retry ? 'Still loading results' : 'No matching homes in this run';
+    title.textContent = retry ? 'Still loading results' : 'No matching homes yet';
     const paragraph = document.createElement('p');
     paragraph.textContent = retry
-      ? 'The run is taking longer than usual. You can keep this page open or refresh.'
+      ? 'This search is taking longer than usual. You can keep this page open or refresh.'
       : 'Start a broader search.';
     const actions = document.createElement('div');
     actions.className = 'pq-fast-actions';

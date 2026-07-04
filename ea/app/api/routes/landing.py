@@ -6429,7 +6429,7 @@ def app_shell(
                         "This property page is queued for refresh. The shortlist stays available while "
                         "PropertyQuarry rebuilds the page."
                         if repair_task_ref
-                        else "That property page is not available from the current packet. The shortlist stays available while the run can be refreshed."
+                        else "That property page is not available right now. The shortlist stays available while the page is refreshed."
                     ),
                     "candidate_ref": missing_ref,
                     "run_id": normalized_run_id,

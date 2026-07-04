@@ -12057,7 +12057,7 @@
               {% if run_status == 'failed' %}
                 {{ empty_eta_feedback or empty_still_worked or 'The search is saved. Adjust it and try again.' }}
               {% elif held_back_ranked_total > 0 %}
-                {{ held_back_ranked_total }} home{% if held_back_ranked_total != 1 %}s{% endif %} appeared during the run but stayed outside the selected area or another requirement.
+                {{ held_back_ranked_total }} home{% if held_back_ranked_total != 1 %}s{% endif %} appeared during this search but stayed outside the selected area or another requirement.
               {% else %}
                 {{ empty_eta_feedback or empty_still_worked or 'Nothing matched the current search yet.' }}
               {% endif %}
@@ -12315,7 +12315,7 @@
             <div class="pqx-section-head">
               <div>
                 <h2>{% if run_status == 'failed' %}Retry running{% else %}No homes yet{% endif %}</h2>
-                <div class="pqx-note" data-pqx-run-summary>{% if run_status == 'failed' %}The search will switch when a useful run is ready.{% else %}Change one requirement if you want another pass.{% endif %}</div>
+                <div class="pqx-note" data-pqx-run-summary>{% if run_status == 'failed' %}This page will switch when a useful search is ready.{% else %}Change one requirement if you want another pass.{% endif %}</div>
               </div>
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
             </div>

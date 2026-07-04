@@ -4076,21 +4076,21 @@ def property_workspace_payload(
 
     sections: dict[str, dict[str, object]] = {
         "properties": {
-            "title": "Run",
+            "title": "Search",
             "summary": (
                 "Review the final results table."
                 if run_status_value in {"processed", "completed"} and results_table_rows
                 else (
-                    "Keep coverage, source health, and the next useful update visible while the run is active."
+                    "Keep coverage, source health, and the next useful update visible while the search is active."
                     if run_in_progress
-                    else "This surface is for run health, partial coverage, and the last completed sweep."
+                    else "This surface is for search health, partial coverage, and the last completed sweep."
                 )
             ),
-            "hero_kicker": "Run",
+            "hero_kicker": "Search",
             "hero_title": (
-                "Review the finished run in one table."
+                "Review the finished search in one table."
                 if run_status_value in {"processed", "completed"} and results_table_rows
-                else ("Keep the run visible until the shortlist is ready." if run_in_progress else "No run is active right now.")
+                else ("Keep this search visible until the shortlist is ready." if run_in_progress else "No search is active right now.")
             ),
             "hero_summary": (
                 "Coverage and pages."
@@ -4098,7 +4098,7 @@ def property_workspace_payload(
                 else (
                     "Health and coverage."
                     if run_in_progress
-                    else "No active run."
+                    else "No active search."
                 )
             ),
             "hero_actions": [{"href": f"/app/properties{run_suffix}", "label": "Open search"}, {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"}] if run_in_progress else (hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
@@ -4124,7 +4124,7 @@ def property_workspace_payload(
                 ),
                 {"label": "Homes checked", "value": str(_run_homes_checked_total(run_summary)), "detail": "Homes checked so far."},
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
-                {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final matching homes in this run."},
+                {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final matching homes in this search."},
                 {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready now."},
                 {"label": "3D tours", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
             ]),

@@ -1976,7 +1976,7 @@
       if (
         resolution === 'provider_quarantined_retry_budget_exhausted'
         || combined.includes('manual_provider_patch_required')
-      ) return 'This source changed enough that the run could not recover it automatically yet.';
+      ) return 'This source changed enough that the search could not recover it automatically yet.';
       if (
         resolution === 'suppressed_missing_location'
         || combined.includes('missing location')
@@ -2040,7 +2040,7 @@
       }
       if (!repairReasonPointsToProviderSiteChange(repairReason)) return '';
       if (repairStatus === 'failed' || repairStatus === 'repair failed') {
-        return 'One source changed, so this run could not finish automatically.';
+        return 'One source changed, so this search could not finish automatically.';
       }
       return 'One source changed, so PropertyQuarry is retrying it.';
     };

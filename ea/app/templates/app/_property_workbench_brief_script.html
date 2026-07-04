@@ -716,7 +716,7 @@
       if (!raw) return fallback;
       if (raw.startsWith('property_plan_upgrade_required:')) {
         const plan = raw.split(':').pop() || 'paid';
-        return `Upgrade required for this run. Reduce the selected lists or max results, or switch to the ${plan} plan.`;
+        return `Upgrade required for this search. Reduce the selected lists or max results, or switch to the ${plan} plan.`;
       }
       if (raw === 'invalid_property_search_platform') return 'One selected provider is not available for this country. Reopen Sources and choose again.';
       if (raw === 'principal_id_required') return 'You are not signed in cleanly. Sign in again before starting a search.';
