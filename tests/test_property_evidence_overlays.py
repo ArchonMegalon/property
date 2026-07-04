@@ -18,7 +18,9 @@ def test_property_evidence_overlays_fail_closed_when_no_cached_rollup(tmp_path: 
     assert len(rows) == 8
     assert {row["ui_state"] for row in rows} == {"unavailable"}
     assert all(row["search_policy"] == "read_cached_rollup_only_no_inline_fetch" for row in rows)
-    assert all("did not crawl or index this source inline" in str(row["detail"]) for row in rows)
+    assert all("not available for this address yet" in str(row["detail"]) for row in rows)
+    assert all("crawl" not in str(row["detail"]).lower() for row in rows)
+    assert all("index" not in str(row["detail"]).lower() for row in rows)
 
 
 def test_property_evidence_overlays_read_verified_and_stale_cached_rollups(tmp_path: Path, monkeypatch) -> None:
@@ -64,8 +66,12 @@ def test_property_evidence_overlays_read_verified_and_stale_cached_rollups(tmp_p
     assert by_key["media_attention"]["tag"] == "Ready"
     assert by_key["media_attention"]["article_url"] == "https://news.example.test/article/1"
     assert "12 local articles" in str(by_key["media_attention"]["detail"])
+    assert by_key["media_attention"]["source_name"] == "Media index"
+    assert "Terms-safe" not in str(by_key["media_attention"]["detail"])
+    assert "uncertainty:" not in str(by_key["media_attention"]["detail"]).lower()
     assert by_key["fiber_broadband"]["ui_state"] == "stale"
     assert by_key["fiber_broadband"]["tag"] == "Stale"
+    assert "Update pending" in str(by_key["fiber_broadband"]["detail"])
     assert by_key["environmental_quality"]["ui_state"] == "unavailable"
 
 

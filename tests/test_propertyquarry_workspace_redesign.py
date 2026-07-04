@@ -7345,10 +7345,12 @@ def test_property_research_packet_renders_cached_evidence_overlays(monkeypatch, 
     assert "Map layers and local notes appear here when available." in packet.text
     assert "Media attention" in packet.text
     assert "12 local articles in the last 90 days" in packet.text
-    assert "Terms-safe media index" in packet.text
+    assert "Media index" in packet.text
+    assert "Terms-safe media index" not in packet.text
     assert "Environmental quality" in packet.text
-    assert "No cached rollup is available yet" in packet.text
-    assert "Search did not crawl or index this source inline" in packet.text
+    assert "This layer is not available for this address yet." in packet.text
+    assert "No cached rollup is available yet" not in packet.text
+    assert "Search did not crawl or index this source inline" not in packet.text
 
 
 def test_property_research_packet_renders_attached_summer_cooling_context_without_rollup(

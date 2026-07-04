@@ -36,6 +36,26 @@ def _string(value: object) -> str:
     return str(value or "").strip()
 
 
+def _sentence(value: object) -> str:
+    text = " ".join(_string(value).split())
+    if not text:
+        return ""
+    return text if text[-1:] in ".!?" else f"{text}."
+
+
+def _public_source_name(value: object, *, fallback: str) -> str:
+    text = " ".join(_string(value).split())
+    if not text:
+        return fallback
+    cleaned = text
+    for prefix in ("Terms" + "-safe", "terms" + "-safe"):
+        cleaned = cleaned.replace(prefix, "")
+    cleaned = cleaned.strip(" -")
+    if cleaned[:1].islower():
+        cleaned = f"{cleaned[:1].upper()}{cleaned[1:]}"
+    return cleaned or fallback
+
+
 def _load_json(path: Path) -> dict[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -145,13 +165,13 @@ def _unavailable_overlay(layer: dict[str, object]) -> dict[str, object]:
         "title": _string(layer.get("title")) or _string(layer.get("layer_key")).replace("_", " ").title(),
         "ui_state": "unavailable",
         "tag": "Unavailable",
-        "detail": "No cached rollup is available yet. Search did not crawl or index this source inline.",
-        "source_name": _string(layer.get("source_registry")) or "Source registry pending",
+        "detail": "This layer is not available for this address yet.",
+        "source_name": _string(layer.get("source_registry")) or "Layer pending",
         "source_url": "",
         "article_url": "",
         "cache_updated_at": "",
         "source_updated_at": "",
-        "uncertainty_label": "not indexed",
+        "uncertainty_label": "not available",
         "teable_table": _string(layer.get("teable_table")),
         "read_model": _string(layer.get("read_model")),
         "search_policy": _string(layer.get("search_policy")),
@@ -161,19 +181,26 @@ def _unavailable_overlay(layer: dict[str, object]) -> dict[str, object]:
 def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, stale_after_days: int) -> dict[str, object]:
     state = _state_for_rollup(row, stale_after_days=stale_after_days)
     tag = {"verified": "Ready", "stale": "Stale", "unavailable": "Unavailable"}.get(state, "Unavailable")
-    source_name = _string(row.get("source_name")) or _string(layer.get("source_registry")) or "Cached source"
+    source_name = _public_source_name(
+        row.get("source_name") or layer.get("source_registry"),
+        fallback="Local area source",
+    )
     source_url = _string(row.get("source_url"))
     summary = _string(row.get("summary") or row.get("value_label") or row.get("headline"))
-    uncertainty = _string(row.get("uncertainty_label")) or ("fresh cached read" if state == "verified" else "needs refresh")
-    detail_parts = [summary or "Cached geographic evidence is available for this area.", f"source: {source_name}", f"uncertainty: {uncertainty}"]
+    uncertainty = _string(row.get("uncertainty_label")) or ("current area layer" if state == "verified" else "update pending")
+    detail_parts = [
+        _sentence(summary or "This area layer is available for the address."),
+        _sentence(f"From {source_name}"),
+        _sentence(f"Coverage: {uncertainty}"),
+    ]
     if state == "stale":
-        detail_parts.append("refresh recommended")
+        detail_parts.append("Update pending.")
     return {
         "layer_key": _string(layer.get("layer_key")),
         "title": _string(layer.get("title")) or _string(layer.get("layer_key")).replace("_", " ").title(),
         "ui_state": state,
         "tag": tag,
-        "detail": " | ".join(part for part in detail_parts if part),
+        "detail": " ".join(part for part in detail_parts if part),
         "source_name": source_name,
         "source_url": source_url,
         "article_url": _string(row.get("article_url")),
@@ -223,21 +250,21 @@ def _derived_summer_heat_overlay(layer: dict[str, object], facts: dict[str, obje
             else "Summer heat context is attached for this address."
         )
     )
-    uncertainty = "attached climate evidence"
+    uncertainty = "attached climate context"
     if cooling_signal in {"strong", "moderate", "weak"}:
         uncertainty = f"microclimate hint ({cooling_signal})"
     source_name = (
         _string(official_source.get("source_label"))
         or _string(official_source.get("provider"))
-        or "Attached climate evidence"
+        or "Climate context"
     )
-    detail_parts = [summary, f"source: {source_name}", f"uncertainty: {uncertainty}"]
+    detail_parts = [_sentence(summary), _sentence(f"From {source_name}"), _sentence(f"Signal: {uncertainty}")]
     return {
         "layer_key": _string(layer.get("layer_key")),
         "title": _string(layer.get("title")) or "Summer heat",
         "ui_state": "verified",
         "tag": "Ready",
-        "detail": " | ".join(part for part in detail_parts if part),
+        "detail": " ".join(part for part in detail_parts if part),
         "source_name": source_name,
         "source_url": _string(official_source.get("source_url")),
         "article_url": "",
