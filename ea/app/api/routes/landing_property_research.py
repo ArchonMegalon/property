@@ -579,9 +579,9 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
     blocked_reason = str(candidate.get("blocked_reason") or "").strip()
     if blocked_reason:
         reason_map = {
-            "listing_360_media_missing": "Floorplan or original 360 media missing: the listing does not expose enough tour material yet.",
-            "pure_360_assets_unavailable": "Original 360 media is not accessible enough to rebuild the tour.",
-            "property_tour_fallback_disabled": "3D tour generation is waiting for a floorplan or usable original 360 media.",
+            "listing_360_media_missing": "Floor plan or room photos are missing, so a real tour is not ready yet.",
+            "pure_360_assets_unavailable": "The available media is not usable enough for a real tour yet.",
+            "property_tour_fallback_disabled": "3D tour generation is waiting for a floor plan or usable room photos.",
         }
         return reason_map.get(blocked_reason, blocked_reason.replace("_", " "))
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -601,9 +601,9 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
         return False
 
     if _false_flag(facts.get("has_floorplan")) or _zero_count("floorplan_count", "floorplans_count"):
-        return "3D tour not ready yet. Floorplan or original 360 media is still missing."
+        return "3D tour not ready yet. A floor plan or usable room photos are still missing."
     if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
-        return "3D tour not ready yet. This listing does not expose enough room media or a usable original 360."
+        return "3D tour not ready yet. This listing does not expose enough usable room media."
     return "3D tour not ready yet. More source media is still needed."
 
 
@@ -1306,7 +1306,7 @@ def _property_packet_missing_rows(
             continue
         label = str(item.get("label") or item.get("field") or "Missing fact").strip()
         ooda = dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {}
-        detail = str(ooda.get("act") or item.get("evidence") or "Missing-fact research queued.").strip()
+        detail = str(ooda.get("act") or item.get("evidence") or "We are still checking this detail.").strip()
         rows.append(_object_detail_row(label, detail, "Research"))
     return rows
 

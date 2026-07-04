@@ -2118,7 +2118,7 @@ def property_workspace_payload(
                 {
                     "label": "Research",
                     "value": str(item.get("display_value") or label).strip(),
-                    "detail": str(ooda.get("act") or item.get("evidence") or "Missing-fact research queued.").strip(),
+                    "detail": str(ooda.get("act") or item.get("evidence") or "We are still checking this detail.").strip(),
                 }
             )
         for risk_key, label, detail in (

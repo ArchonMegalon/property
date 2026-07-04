@@ -151,6 +151,11 @@ def test_propertyquarry_public_copy_avoids_proof_heavy_language() -> None:
         "repair state",
         "coverage, pages, repair",
         "health, coverage, repair",
+        "how the provider is selling",
+        "original 360 media",
+        "usable original 360",
+        "rebuild the tour",
+        "missing-fact research queued",
     )
     for phrase in forbidden_phrases:
         assert phrase not in lowered

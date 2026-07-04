@@ -5214,7 +5214,7 @@ def property_research_packet(
         ooda_summary_rows.append(
             _object_detail_row(
                 str(item.get("label") or item.get("field") or "Missing fact").strip(),
-                str(ooda.get("orient") or ooda.get("act") or item.get("evidence") or "Missing-fact research queued.").strip(),
+                str(ooda.get("orient") or ooda.get("act") or item.get("evidence") or "We are still checking this detail.").strip(),
                 "Research",
             )
         )
