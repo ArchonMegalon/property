@@ -19883,7 +19883,11 @@ def _property_walkthrough_scene_video_context(
             generated_reconstruction[output_key] = asset_url
     verified_provider = _hosted_property_tour_verified_provider(normalized_tour_url)
     verified_open_url = _hosted_property_tour_verified_open_url(normalized_tour_url)
-    first_party_open_url = _hosted_property_tour_first_party_open_url(normalized_tour_url)
+    first_party_open_url = (
+        _hosted_property_tour_first_party_open_url(normalized_tour_url)
+        if verified_provider or verified_open_url
+        else ""
+    )
     reference_provider = verified_provider
     payload = {
         "tour_url": normalized_tour_url,
@@ -19897,7 +19901,7 @@ def _property_walkthrough_scene_video_context(
         "verified_provider": verified_provider,
         "first_party_open_url": first_party_open_url,
         "verified_open_url": verified_open_url,
-        "control_url": first_party_open_url or _property_tour_control_link(normalized_tour_url),
+        "control_url": first_party_open_url or (_property_tour_control_link(normalized_tour_url) if verified_provider else ""),
         "control_urls": compare_links,
         "provider_exports": list(_hosted_property_tour_provider_export_keys(normalized_tour_url)),
         "control_mode": str(manifest.get("control_mode") or "").strip(),

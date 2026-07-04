@@ -168,7 +168,7 @@ def test_runtime_reconstruction_smoke_fails_when_generated_asset_claims_verified
     assert receipt["honest_disclosure_ok"] is False
 
 
-def test_runtime_reconstruction_smoke_fails_when_required_browser_base_url_missing(monkeypatch) -> None:
+def test_runtime_reconstruction_smoke_fails_when_required_public_contract_base_url_missing(monkeypatch) -> None:
     monkeypatch.setattr(smoke.shutil, "which", lambda command: "/usr/bin/docker" if command == "docker" else None)
 
     def _fake_run(command: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -206,11 +206,11 @@ def test_runtime_reconstruction_smoke_fails_when_required_browser_base_url_missi
     )
 
     assert receipt["status"] == "failed"
-    assert receipt["browser_render_ok"] is False
-    assert receipt["browser_render"]["reason"] == "public_base_url_missing"
+    assert receipt["public_route_contract_ok"] is False
+    assert receipt["public_route_contract"]["reason"] == "public_base_url_missing"
 
 
-def test_runtime_reconstruction_smoke_requires_browser_render_when_public_base_url_is_set(monkeypatch) -> None:
+def test_runtime_reconstruction_smoke_requires_public_route_rejection_when_public_base_url_is_set(monkeypatch) -> None:
     monkeypatch.setattr(smoke.shutil, "which", lambda command: "/usr/bin/docker" if command == "docker" else None)
 
     def _fake_run(command: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -241,12 +241,13 @@ def test_runtime_reconstruction_smoke_requires_browser_render_when_public_base_u
 
     observed: dict[str, str] = {}
 
-    def _fake_browser_check(*, viewer_url: str) -> dict[str, object]:
-        observed["viewer_url"] = viewer_url
-        return {"status": "failed", "failures": ["mobile:wall_mesh_count_low"]}
+    def _fake_public_contract(*, public_base_url: str, slug: str) -> dict[str, object]:
+        observed["public_base_url"] = public_base_url
+        observed["slug"] = slug
+        return {"status": "failed", "failures": ["viewer_not_redirected"]}
 
     monkeypatch.setattr(smoke, "_run", _fake_run)
-    monkeypatch.setattr(smoke, "_browser_check_generated_reconstruction_viewer", _fake_browser_check)
+    monkeypatch.setattr(smoke, "_check_generated_reconstruction_public_contract", _fake_public_contract)
 
     receipt = smoke.build_runtime_reconstruction_receipt(
         container="propertyquarry-api",
@@ -254,9 +255,33 @@ def test_runtime_reconstruction_smoke_requires_browser_render_when_public_base_u
         public_base_url="https://propertyquarry.com",
     )
 
-    assert observed["viewer_url"] == (
-        "https://propertyquarry.com/tours/files/runtime-smoke/generated-reconstruction/viewer.html"
-    )
+    assert observed == {"public_base_url": "https://propertyquarry.com", "slug": "runtime-smoke"}
     assert receipt["status"] == "failed"
-    assert receipt["browser_render_ok"] is False
-    assert receipt["browser_render"]["failures"] == ["mobile:wall_mesh_count_low"]
+    assert receipt["public_route_contract_ok"] is False
+    assert receipt["public_route_contract"]["failures"] == ["viewer_not_redirected"]
+
+
+def test_generated_reconstruction_public_contract_requires_redirect_unavailable_and_gone(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def _fake_probe(url: str) -> dict[str, object]:
+        calls.append(url)
+        if url.endswith("/generated-reconstruction/viewer.html"):
+            return {"status_code": 302, "location": "/tours/runtime-smoke", "body_excerpt": ""}
+        if url.endswith("/generated-reconstruction/model.obj"):
+            return {"status_code": 410, "location": "", "body_excerpt": "This generated model is not a public 3D tour."}
+        return {
+            "status_code": 404,
+            "location": "",
+            "body_excerpt": "This link pointed to an older generated layout preview, not a real 3D tour.",
+        }
+
+    monkeypatch.setattr(smoke, "_http_probe", _fake_probe)
+
+    receipt = smoke._check_generated_reconstruction_public_contract(
+        public_base_url="https://propertyquarry.com",
+        slug="runtime-smoke",
+    )
+
+    assert receipt["status"] == "pass"
+    assert len(calls) == 3

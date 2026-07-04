@@ -43,7 +43,7 @@ Runs the focused PropertyQuarry release bundle:
   - BTS score-PDF methodology contract for source provenance and selected-district no-reward policy
   - public-safe tour delivery contract shape for polished 3D tours, panorama imports, and walkthroughs
   - hard browser-rendered 3D and walkthrough quality gates that fail on blank viewers, loading-only states, CSP/frame/network errors, missing room coverage, or frame jumps
-  - live generated-reconstruction GLB export smoke that fails when Blender/NumPy tooling is missing or the public viewer cannot render
+  - live generated-reconstruction GLB export smoke that fails when Blender/NumPy tooling is missing or generated previews leak as public 3D tours
   - required live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack, including a current /app/research/{id} detail route
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
@@ -233,7 +233,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_runtime_reconstruction_smoke.py \
   --container "${runtime_reconstruction_container}" \
   --slug "${runtime_reconstruction_slug}" \
   --public-base-url "${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_BASE_URL:-${live_mobile_base_url}}" \
-  --require-browser \
+  --require-public-contract \
   --require-glb \
   --write _completion/tours/property-runtime-reconstruction-release-gate.json \
   --fail-on-error \

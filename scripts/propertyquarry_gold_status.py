@@ -1255,7 +1255,7 @@ def build_gold_status_receipt(
         runtime_reconstruction_receipt_path is None
         or (
             runtime_reconstruction.get("status") == "pass"
-            and runtime_reconstruction.get("browser_render_ok") is True
+            and runtime_reconstruction.get("public_route_contract_ok") is True
             and runtime_reconstruction.get("glb_capability_ok") is True
             and runtime_reconstruction.get("glb_manifest_ok") is True
             and runtime_reconstruction.get("glb_non_empty") is True
@@ -1500,9 +1500,9 @@ def build_gold_status_receipt(
                 "glb_manifest_ok": runtime_reconstruction.get("glb_manifest_ok"),
                 "glb_capability_ok": runtime_reconstruction.get("glb_capability_ok"),
                 "required_paths_ok": runtime_reconstruction.get("required_paths_ok"),
-                "browser_render_ok": runtime_reconstruction.get("browser_render_ok"),
+                "public_route_contract_ok": runtime_reconstruction.get("public_route_contract_ok"),
                 "viewer_url": str(runtime_reconstruction.get("viewer_url") or ""),
-                "action": "rerun property_runtime_reconstruction_smoke.py with --require-glb and --require-browser; fix Blender/NumPy/runtime export or public viewer rendering before claiming generated 3D readiness",
+                "action": "rerun property_runtime_reconstruction_smoke.py with --require-glb and --require-public-contract; fix Blender/NumPy/runtime export or generated-preview route leakage before claiming generated reconstruction readiness",
             }
         )
     if not map_preview_flagship_ok:
@@ -1876,6 +1876,7 @@ def build_gold_status_receipt(
             "area": "generated_reconstruction_glb",
             "status": "pass",
             "viewer_url": str(runtime_reconstruction.get("viewer_url") or ""),
+            "public_route_contract_ok": runtime_reconstruction.get("public_route_contract_ok"),
             "glb_size_bytes": runtime_reconstruction_glb.get("size_bytes"),
             "receipt_path": str(runtime_reconstruction_receipt_path),
         }
@@ -1984,7 +1985,7 @@ def build_gold_status_receipt(
         if not browser_3d_gate_ok:
             notes.append("3D browser readiness is blocked until the viewer renders in Chromium, not merely until a tour route exists.")
         if not runtime_reconstruction_ok:
-            notes.append("Generated 3D readiness is blocked until the live runtime exports a non-empty GLB and the public viewer renders it in Chromium.")
+            notes.append("Generated reconstruction readiness is blocked until the live runtime exports a non-empty GLB and public routes reject generated previews as 3D tours.")
         if not map_preview_flagship_ok:
             notes.append("Map preview readiness is blocked until generated thumbnails pass the visual-asset gate, not merely until the PNG route exists.")
         if not walkthrough_quality_ok:
@@ -2084,11 +2085,11 @@ def build_gold_status_receipt(
             "glb_manifest_ok": runtime_reconstruction.get("glb_manifest_ok") if runtime_reconstruction_receipt_path is not None else None,
             "glb_capability_ok": runtime_reconstruction.get("glb_capability_ok") if runtime_reconstruction_receipt_path is not None else None,
             "required_paths_ok": runtime_reconstruction.get("required_paths_ok") if runtime_reconstruction_receipt_path is not None else None,
-            "browser_render_ok": runtime_reconstruction.get("browser_render_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "public_route_contract_ok": runtime_reconstruction.get("public_route_contract_ok") if runtime_reconstruction_receipt_path is not None else None,
             "viewer_url": str(runtime_reconstruction.get("viewer_url") or ""),
             "glb_size_bytes": runtime_reconstruction_glb.get("size_bytes"),
             "receipt_path": str(runtime_reconstruction_receipt_path) if runtime_reconstruction_receipt_path is not None else "",
-            "note": "Hard generated-tour gate: OBJ/viewer existence does not prove GLB export or public browser rendering.",
+            "note": "Hard generated-reconstruction gate: OBJ/viewer existence does not prove GLB export, and generated previews must not leak as public 3D tours.",
         },
         "map_preview_flagship": {
             "status": map_preview_flagship.get("status") or ("not_configured" if map_preview_flagship_receipt_path is None else "missing"),

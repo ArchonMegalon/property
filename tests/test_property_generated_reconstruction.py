@@ -81,7 +81,9 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     body = json.loads(generated.stdout)
     assert body["status"] == "generated"
     assert body["provider"] == "propertyquarry_generated_reconstruction"
-    assert body["viewer_url"] == f"/tours/files/{slug}/generated-reconstruction/viewer.html"
+    assert body["viewer_relpath"] == "generated-reconstruction/viewer.html"
+    assert body["public_tour_url"] == ""
+    assert body["satisfies_verified_tour_gate"] is False
     output_dir = bundle_dir / "generated-reconstruction"
     for filename in (
         "source-floorplan.jpg",
@@ -94,8 +96,8 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     ):
         assert (output_dir / filename).is_file(), filename
     viewer_html = (output_dir / "viewer.html").read_text(encoding="utf-8")
-    assert "<title>3D tour | PropertyQuarry</title>" in viewer_html
-    assert "<h1>3D tour</h1>" in viewer_html
+    assert "<title>Layout preview | PropertyQuarry</title>" in viewer_html
+    assert "<h1>Layout preview</h1>" in viewer_html
     assert "Layout preview" in viewer_html
     assert "Built from the floorplan and listing photos" in viewer_html
     assert "three.module.js" in viewer_html
@@ -235,7 +237,7 @@ def test_generated_reconstruction_can_disclose_inferred_floorplan_from_photos(tm
     assert manifest["generated_reconstruction"]["satisfies_verified_tour_gate"] is False
 
 
-def test_generated_reconstruction_public_allowlist_exposes_viewer_model_and_video_not_receipt() -> None:
+def test_generated_reconstruction_public_allowlist_exposes_only_supporting_media_not_fake_tour() -> None:
     payload = {
         "slug": "generated-public-assets",
         "generated_reconstruction": {
@@ -255,13 +257,13 @@ def test_generated_reconstruction_public_allowlist_exposes_viewer_model_and_vide
 
     allowed = public_tour_allowed_asset_paths(payload)
 
-    assert "generated-reconstruction/viewer.html" in allowed
-    assert "generated-reconstruction/model.obj" in allowed
-    assert "generated-reconstruction/model.mtl" in allowed
+    assert "generated-reconstruction/viewer.html" not in allowed
+    assert "generated-reconstruction/model.obj" not in allowed
+    assert "generated-reconstruction/model.mtl" not in allowed
     assert "generated-reconstruction/source-floorplan.jpg" in allowed
     assert "generated-reconstruction/photo-01.jpg" in allowed
     assert "generated-reconstruction/photo-02.jpg" in allowed
-    assert "generated-reconstruction/model.glb" in allowed
+    assert "generated-reconstruction/model.glb" not in allowed
     assert "generated-reconstruction/generated-walkthrough.mp4" in allowed
     assert "generated-reconstruction/reconstruction.json" not in allowed
     assert "generated-reconstruction/private-debug.html" not in public_tour_allowed_asset_paths(

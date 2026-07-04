@@ -548,7 +548,7 @@ def _viewer_html(*, manifest: dict[str, object]) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>3D tour | PropertyQuarry</title>
+  <title>Layout preview | PropertyQuarry</title>
   <style>
     :root {{
       color-scheme: light;
@@ -667,7 +667,7 @@ def _viewer_html(*, manifest: dict[str, object]) -> str:
     <div class="viewport" id="viewport" aria-label="3D layout preview"></div>
     <div class="hud">
       <div class="title-card">
-        <h1>3D tour</h1>
+        <h1>Layout preview</h1>
         <p>Use the real floorplan layout to understand the space before deciding whether to visit.</p>
       </div>
       <div class="hint-pill">Drag, zoom, then inspect the plan beside it.</div>
@@ -1214,8 +1214,10 @@ def main() -> int:
                 "status": "generated",
                 "slug": slug,
                 "provider": "propertyquarry_generated_reconstruction",
-                "viewer_url": f"/tours/files/{slug}/{base_relpath}/viewer.html",
-                "model_url": f"/tours/files/{slug}/{base_relpath}/model.obj",
+                "viewer_relpath": f"{base_relpath}/viewer.html",
+                "model_relpath": f"{base_relpath}/model.obj",
+                "public_tour_url": "",
+                "satisfies_verified_tour_gate": False,
                 "walkthrough_status": walkthrough.get("status"),
                 "verified_provider_capture": False,
             },

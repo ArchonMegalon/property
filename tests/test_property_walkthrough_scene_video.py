@@ -118,15 +118,11 @@ def test_property_walkthrough_scene_video_context_uses_generated_reconstruction_
     context = product_service._property_walkthrough_scene_video_context("/tours/sample-generated-flat")
 
     assert context["tour_url"] == "/tours/sample-generated-flat"
-    assert context["reference_provider"] == "generated_reconstruction"
+    assert context["reference_provider"] == ""
     assert context["verified_provider"] == ""
     assert context["verified_open_url"] == ""
-    assert context["first_party_open_url"].endswith(
-        "/tours/files/sample-generated-flat/generated-reconstruction/viewer.html"
-    )
-    assert context["control_url"].endswith(
-        "/tours/files/sample-generated-flat/generated-reconstruction/viewer.html"
-    )
+    assert context["first_party_open_url"] == ""
+    assert context["control_url"] == ""
     assert context["generated_reconstruction"]["viewer_url"].endswith(
         "/tours/files/sample-generated-flat/generated-reconstruction/viewer.html"
     )
@@ -136,14 +132,13 @@ def test_property_walkthrough_scene_video_context_uses_generated_reconstruction_
     assert context["route_labels"] == ["Entry", "Living room", "Balcony"]
 
     reference_text = product_service._property_walkthrough_context_reference_text(context)
-    assert "prepared PropertyQuarry 3D tour" in reference_text
-    assert "primary spatial reference" in reference_text
+    assert "prepared PropertyQuarry 3D tour" not in reference_text
+    assert "primary spatial reference" not in reference_text
+    assert "secondary, non-authoritative layout hint" in reference_text
 
     enriched = product_service._property_walkthrough_enrich_facts_with_context({}, tour_context_json=context)
-    assert enriched["tour_control_provider"] == "generated_reconstruction"
-    assert enriched["tour_control_url"].endswith(
-        "/tours/files/sample-generated-flat/generated-reconstruction/viewer.html"
-    )
+    assert "tour_control_provider" not in enriched
+    assert "tour_control_url" not in enriched
     assert enriched["room_visit_plan"] == ["Entry", "Living room", "Balcony"]
 
 

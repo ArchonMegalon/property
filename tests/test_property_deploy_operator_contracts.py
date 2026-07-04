@@ -357,7 +357,7 @@ def test_property_release_gate_runs_generated_reconstruction_glb_smoke() -> None
     assert "PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER" in release_gate
     assert "PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG" in release_gate
     assert "PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_BASE_URL" in release_gate
-    assert "--require-browser" in release_gate
+    assert "--require-public-contract" in release_gate
     assert "--require-glb" in release_gate
     assert "_completion/tours/property-runtime-reconstruction-release-gate.json" in release_gate
     assert "--runtime-reconstruction-receipt _completion/tours/property-runtime-reconstruction-release-gate.json" in release_gate

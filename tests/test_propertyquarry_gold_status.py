@@ -646,7 +646,7 @@ def _runtime_reconstruction_payload(
     *,
     status: str = "pass",
     glb: bool = True,
-    browser: bool = True,
+    public_contract: bool = True,
 ) -> dict[str, object]:
     glb_size = 30700 if glb else 0
     return {
@@ -658,15 +658,15 @@ def _runtime_reconstruction_payload(
         "glb_manifest_ok": glb,
         "glb_capability_ok": glb,
         "required_paths_ok": glb,
-        "browser_render_ok": browser,
+        "public_route_contract_ok": public_contract,
         "viewer_url": "https://propertyquarry.com/tours/files/demo/generated-reconstruction/viewer.html",
         "details": {
             "glb_export_status": "generated" if glb else "failed",
             "paths": {"glb": {"size_bytes": glb_size}},
         },
-        "browser_render": {
-            "status": "pass" if browser else "failed",
-            "failures": [] if browser else ["mobile:wall_mesh_count_low"],
+        "public_route_contract": {
+            "status": "pass" if public_contract else "failed",
+            "failures": [] if public_contract else ["viewer_not_redirected"],
         },
     }
 
