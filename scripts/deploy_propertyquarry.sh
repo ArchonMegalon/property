@@ -992,6 +992,42 @@ if ! printf '%s' "${version_json}" | grep -q '"storage_backend"[[:space:]]*:[[:s
   echo "Expected /version to report storage_backend=postgres; got: ${version_json}" >&2
   exit 1
 fi
+release_manifest_check="$(
+  "${deploy_python_bin}" - "${version_json}" "${release_commit_sha}" "${release_public_origin%/}" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+expected_commit = str(sys.argv[2] or "").strip()
+expected_origin = str(sys.argv[3] or "").strip().rstrip("/")
+failures = []
+if payload.get("release_manifest_status") != "complete":
+    failures.append(f"release_manifest_status={payload.get('release_manifest_status')!r}")
+if expected_commit and str(payload.get("release_commit_sha") or "").strip() != expected_commit:
+    failures.append(
+        "release_commit_sha="
+        + repr(payload.get("release_commit_sha"))
+        + " expected="
+        + repr(expected_commit)
+    )
+if expected_origin and str(payload.get("release_public_origin") or "").strip().rstrip("/") != expected_origin:
+    failures.append(
+        "release_public_origin="
+        + repr(payload.get("release_public_origin"))
+        + " expected="
+        + repr(expected_origin)
+    )
+if failures:
+    print("; ".join(failures))
+    raise SystemExit(1)
+print("ok")
+PY
+)" || {
+  echo "Expected /version to expose the authoritative PropertyQuarry release manifest for this deploy." >&2
+  printf '%s\n' "${release_manifest_check}" >&2
+  printf '%s\n' "${version_json}" >&2
+  exit 1
+}
 
 landing_html="$(curl -fsS --connect-timeout 2 --max-time "${core_probe_timeout_seconds}" "${base_url}/")"
 if [[ "${landing_html}" != *PropertyQuarry* ]]; then
