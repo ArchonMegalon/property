@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
+from app.services.property_customer_copy import normalize_property_fit_note
 from app.product.property_location_research import (
     _property_research_boundary_record,
     _property_research_geojson_outer_rings,
@@ -201,6 +202,13 @@ def _clean_property_candidate_copy(value: object) -> str:
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
+    if re.search(
+        r"(?i)\b(?:chosen ahead of the next option because|ranked ahead of the next option because|it scored \d+(?:\.\d+)? points higher|next option)\b",
+        text,
+    ):
+        normalized_fit_note = normalize_property_fit_note(text)
+        if normalized_fit_note:
+            text = normalized_fit_note
     pattern_replacements = (
         (r"(?i)\bCurrent ranking bar:\s*\d+\s*/\s*100\b[;:,-]?\s*", ""),
         (r"(?i)\bCurrent ranking bar:\s*", ""),

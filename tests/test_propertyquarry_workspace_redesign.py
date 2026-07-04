@@ -4471,6 +4471,15 @@ def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint()
     assert "data-property-decision-workbench" not in response.text
 
 
+def test_property_action_cards_filter_legacy_full_view_buttons() -> None:
+    template = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "action_label|lower not in ['full view', 'open full view']" in template
+    assert "secondary_action_label|lower not in ['full view', 'open full view']" in template
+
+
 def test_propertyquarry_fast_ranked_run_uses_provider_progress_fraction() -> None:
     template = (
         Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_ranked_run_fast.html"
@@ -19083,6 +19092,7 @@ def test_property_customer_copy_uses_home_language_instead_of_candidate() -> Non
     from app.api.routes import landing
     from app.api.routes import landing_content
     from app.api.routes import landing_property_research
+    from app.services.property_customer_copy import normalize_property_fit_note
 
     raw = "Provider-ranked fallback candidate kept because strict personal-fit scoring produced no shortlist."
     cleaned_workspace = landing_view_models._clean_property_candidate_copy(raw)
@@ -19093,6 +19103,17 @@ def test_property_customer_copy_uses_home_language_instead_of_candidate() -> Non
         assert "candidate" not in cleaned.lower()
 
     assert landing_property_research._property_review_detail_line({}) == "No property page exists for this home yet."
+
+    rank_note = (
+        "Chosen ahead of the next option because it scored 6 points higher on the current brief; "
+        "it stays meaningfully cheaper than the next option."
+    )
+    cleaned_rank_note = landing_view_models._clean_property_candidate_copy(rank_note)
+    assert cleaned_rank_note == "It stayed closest to the current brief. It is meaningfully cheaper."
+    assert cleaned_rank_note == normalize_property_fit_note(rank_note)
+    assert "Chosen ahead" not in cleaned_rank_note
+    assert "scored" not in cleaned_rank_note
+    assert "next option" not in cleaned_rank_note
     product_copy = " ".join(str(row.get("body") or "") for row in landing_content.PRODUCT_MODULES)
     template_copy = "\n".join(
         [

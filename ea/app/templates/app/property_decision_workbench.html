@@ -11342,8 +11342,10 @@
                 </div>
                 <div class="pqx-actions">
                   {% if item.get('tag') %}<span class="pqx-pill">{{ pqx_display_tag(item.get('tag')) }}</span>{% endif %}
-                  {% if item.get('action_href') and item.get('action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ item.get('action_label') }}</a>{% endif %}
-                  {% if item.get('secondary_action_href') and item.get('secondary_action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ item.get('secondary_action_label') }}</a>{% endif %}
+                  {% set action_label = item.get('action_label') or '' %}
+                  {% set secondary_action_label = item.get('secondary_action_label') or '' %}
+                  {% if item.get('action_href') and action_label and action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ action_label }}</a>{% endif %}
+                  {% if item.get('secondary_action_href') and secondary_action_label and secondary_action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ secondary_action_label }}</a>{% endif %}
                 </div>
               </div>
               {% endfor %}
@@ -11370,8 +11372,10 @@
                 </div>
                 <div class="pqx-actions">
                   {% if item.get('tag') %}<span class="pqx-pill">{{ pqx_display_tag(item.get('tag')) }}</span>{% endif %}
-                  {% if item.get('action_href') and item.get('action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ item.get('action_label') }}</a>{% endif %}
-                  {% if item.get('secondary_action_href') and item.get('secondary_action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ item.get('secondary_action_label') }}</a>{% endif %}
+                  {% set action_label = item.get('action_label') or '' %}
+                  {% set secondary_action_label = item.get('secondary_action_label') or '' %}
+                  {% if item.get('action_href') and action_label and action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ action_label }}</a>{% endif %}
+                  {% if item.get('secondary_action_href') and secondary_action_label and secondary_action_label|lower not in ['full view', 'open full view'] %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ secondary_action_label }}</a>{% endif %}
                 </div>
               </div>
               {% endfor %}
