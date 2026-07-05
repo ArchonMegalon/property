@@ -214,6 +214,267 @@ def test_render_property_flythrough_routes_omagic_without_onemin_or_magicfit_fal
     assert result["model_path"].endswith("generated-reconstruction/model.glb")
 
 
+def test_render_property_flythrough_blank_provider_uses_runtime_selected_magicfit(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
+        lambda value, allow_non_final_fallback=True: {
+            "provider_key": "magicfit",
+            "provider_backend_key": "magicfit",
+            "runtime_readiness_json": {
+                "provider_key": "magicfit",
+                "provider_backend_key": "magicfit",
+                "ready": True,
+                "status": "ready",
+                "blockers": [],
+                "checks": {},
+            },
+            "checked": [
+                {"provider_key": "omagic", "ready": False, "status": "blocked", "blockers": ["omagic_model_upload_adapter_missing"]},
+                {"provider_key": "magicfit", "ready": True, "status": "ready", "blockers": []},
+            ],
+            "selected_via": "auto_final_ready",
+            "explicit_requested": False,
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_magicfit_property_flythrough_into_hosted_tour",
+        lambda **kwargs: {
+            "status": "rendered",
+            "reason": "",
+            "provider_key": "magicfit",
+            "video_url": "https://cdn.example/property/walkthrough.mp4",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_omagic_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_omagic_path")),
+    )
+
+    result = product_service._render_property_flythrough_into_hosted_tour(
+        tour_url="/tours/sample-flat",
+        title="Sample Flat",
+    )
+
+    assert result["status"] == "rendered"
+    assert result["media_route_provider_key"] == "magicfit"
+    assert result["media_route_auto_selected_provider_key"] == "magicfit"
+
+
+def test_render_property_flythrough_blank_provider_can_publish_with_runtime_selected_onemin(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
+        lambda value, allow_non_final_fallback=False: {
+            "provider_key": "onemin_i2v",
+            "provider_backend_key": "onemin_i2v",
+            "runtime_readiness_json": {
+                "provider_key": "onemin_i2v",
+                "provider_backend_key": "onemin_i2v",
+                "ready": True,
+                "status": "ready",
+                "blockers": [],
+                "checks": {},
+            },
+            "checked": [
+                {"provider_key": "omagic", "ready": False, "status": "blocked", "blockers": ["omagic_model_upload_adapter_missing"]},
+                {"provider_key": "magicfit", "ready": False, "status": "blocked", "blockers": ["magicfit_insufficient_credits"]},
+                {"provider_key": "onemin_i2v", "ready": True, "status": "ready", "blockers": []},
+            ],
+            "selected_via": "auto_final_ready",
+            "explicit_requested": False,
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_onemin_property_flythrough_into_hosted_tour",
+        lambda **kwargs: {
+            "status": "rendered",
+            "reason": "",
+            "provider_key": "onemin_i2v",
+            "video_url": "https://cdn.example/property/onemin.mp4",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_magicfit_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_magicfit_path")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_omagic_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_omagic_path")),
+    )
+
+    result = product_service._render_property_flythrough_into_hosted_tour(
+        tour_url="/tours/sample-flat",
+        title="Sample Flat",
+    )
+
+    assert result["status"] == "rendered"
+    assert result["media_route_provider_key"] == "onemin_i2v"
+    assert result["media_route_auto_selected_provider_key"] == "onemin_i2v"
+
+
+def test_magicfit_room_visit_plan_treats_maisonette_staircase_as_walkable_stop() -> None:
+    room_count, route_labels = product_service._magicfit_property_room_visit_plan(
+        title="Maisonette with balcony",
+        property_facts={
+            "rooms": 3,
+            "description": "Maisonette mit Treppe, Balkon und separatem WC.",
+        },
+    )
+
+    assert "staircase" in route_labels
+    assert "balcony/terrace" in route_labels
+    assert room_count == len(route_labels)
+    assert product_service._magicfit_flythrough_minimum_duration_seconds(
+        title="Maisonette with balcony",
+        property_facts={
+            "rooms": 3,
+            "description": "Maisonette mit Treppe, Balkon und separatem WC.",
+        },
+    ) == float(len(route_labels) * 15)
+
+
+def test_magicfit_room_visit_plan_keeps_explicit_route_labels_authoritative_over_scene_count() -> None:
+    room_count, route_labels = product_service._magicfit_property_room_visit_plan(
+        title="Runtime reconstruction smoke onemin 20260705",
+        property_facts={
+            "magicfit_route_labels": ["entry/hall"],
+            "room_count": 1,
+            "tour_scene_count": 12,
+        },
+    )
+
+    assert room_count == 2
+    assert route_labels == ["entry/hall", "living room"]
+    assert not any(label.startswith("walkthrough stop") for label in route_labels)
+
+
+def test_magicfit_room_visit_plan_extends_partial_explicit_route_labels_to_full_walkable_plan() -> None:
+    room_count, route_labels = product_service._magicfit_property_room_visit_plan(
+        title="2 room apartment",
+        property_facts={
+            "magicfit_route_labels": ["entry/hall", "living room"],
+            "room_count": 2,
+        },
+    )
+
+    assert room_count == 3
+    assert route_labels == ["entry/hall", "living room", "bedroom"]
+    assert product_service._magicfit_flythrough_minimum_duration_seconds(
+        title="2 room apartment",
+        property_facts={
+            "magicfit_route_labels": ["entry/hall", "living room"],
+            "room_count": 2,
+        },
+    ) == 45.0
+
+
+def test_property_walkthrough_onemin_timeouts_use_walkthrough_floor(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ONEMIN_FEATURE_TIMEOUT_SECONDS", "90")
+    monkeypatch.setenv("PROPERTYQUARRY_ONEMIN_SEGMENT_SUBPROCESS_TIMEOUT_SECONDS", "240")
+    monkeypatch.delenv("PROPERTYQUARRY_ONEMIN_WALKTHROUGH_FEATURE_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_ONEMIN_WALKTHROUGH_SEGMENT_SUBPROCESS_TIMEOUT_SECONDS", raising=False)
+
+    assert product_service._property_walkthrough_onemin_feature_timeout_seconds() == 120
+    assert product_service._property_walkthrough_onemin_segment_subprocess_timeout_seconds() == 420
+
+
+def test_onemin_walkthrough_defaults_to_15_second_room_segments(tmp_path, monkeypatch) -> None:
+    public_dir = tmp_path / "public_tours"
+    bundle_dir = public_dir / "sample-flat"
+    bundle_dir.mkdir(parents=True)
+    preview_path = bundle_dir / "preview.jpg"
+    preview_path.write_bytes(b"jpg")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "sample-flat",
+                "preview_relpath": "preview.jpg",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_dir))
+    monkeypatch.setenv("PROPERTYQUARRY_FLYTHROUGH_SECONDS_PER_ROUTE_STOP", "15")
+    monkeypatch.delenv("PROPERTYQUARRY_ONEMIN_SEGMENT_DURATION_SECONDS", raising=False)
+    monkeypatch.setattr(product_service, "_onemin_i2v_keys_available", lambda: True)
+    monkeypatch.setattr(product_service, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(product_service, "_property_walkthrough_scene_video_context", lambda _tour_url: {})
+    monkeypatch.setattr(
+        product_service,
+        "_property_walkthrough_enrich_facts_with_context",
+        lambda facts, tour_context_json=None: dict(facts or {}),
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_scene_count", lambda _tour_url: 0)
+    monkeypatch.setattr(product_service, "_default_magicfit_property_flythrough_prompt", lambda **kwargs: "Walk through the home.")
+    monkeypatch.setattr(product_service, "_write_hosted_property_visual_progress", lambda **kwargs: None)
+    monkeypatch.setattr(product_service, "_video_continuous_shot_gate", lambda _path: (True, "", {}))
+    monkeypatch.setattr(product_service, "_video_segment_boundary_gate", lambda _paths: (True, "", {}))
+    monkeypatch.setattr(
+        product_service,
+        "_extract_video_boundary_frame",
+        lambda _video, output_path, position="last": output_path.write_bytes(b"jpg"),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_concat_video_segments",
+        lambda _segment_paths, output_path: (output_path.write_bytes(b"mp4"), {})[1],
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_update_hosted_property_tour_video_manifest",
+        lambda **kwargs: None,
+    )
+    render_script = tmp_path / "scripts" / "render_onemin_property_i2v_segment.py"
+    render_script.parent.mkdir(parents=True, exist_ok=True)
+    render_script.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    captured_durations: list[str] = []
+    recorded_video_durations: dict[str, float] = {}
+
+    def _fake_video_duration_seconds(video_ref: str) -> float:
+        return float(recorded_video_durations.get(str(video_ref), 0.0))
+
+    monkeypatch.setattr(product_service, "_video_duration_seconds", _fake_video_duration_seconds)
+
+    def _fake_run(command, cwd=None, capture_output=None, text=None, timeout=None, check=None):
+        duration_index = command.index("--duration") + 1
+        captured_durations.append(str(command[duration_index]))
+        requested_duration = float(command[duration_index])
+        output_path = command[command.index("--out") + 1]
+        state_json_path = command[command.index("--state-json") + 1]
+        with open(output_path, "wb") as handle:
+            handle.write(b"mp4")
+        recorded_video_durations[str(output_path)] = requested_duration
+        with open(state_json_path, "w", encoding="utf-8") as handle:
+            json.dump({"status": "completed"}, handle)
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    def _fake_concat_video_segments(segment_paths, output_path):
+        output_path.write_bytes(b"mp4")
+        recorded_video_durations[str(output_path)] = sum(recorded_video_durations.get(str(path), 0.0) for path in segment_paths)
+        return {}
+
+    monkeypatch.setattr(product_service, "_concat_video_segments", _fake_concat_video_segments)
+    monkeypatch.setattr(product_service.subprocess, "run", _fake_run)
+
+    result = product_service._render_onemin_property_flythrough_into_hosted_tour(
+        tour_url="/tours/sample-flat",
+        title="2 room apartment",
+        property_facts={
+            "magicfit_route_labels": ["entry/hall", "living room"],
+            "room_count": 2,
+        },
+    )
+
+    assert result["status"] == "rendered"
+    assert result["provider_key"] == "onemin_i2v"
+    assert captured_durations == ["10", "5", "10", "5", "10", "5"]
+    assert result["combined_duration_seconds"] == 45.0
+
+
 def test_run_scene_video_skill_uses_principal_context_and_scrubs_payload_principal() -> None:
     captured_request = None
 

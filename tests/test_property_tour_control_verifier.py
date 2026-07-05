@@ -132,6 +132,90 @@ def test_running_container_public_tour_dir_reads_docker_mount(monkeypatch, tmp_p
     assert _running_container_public_tour_dir() == runtime_root
 
 
+def test_property_tour_control_verifier_live_probe_prefers_runtime_root_when_no_explicit_root(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    host_root = tmp_path / "host"
+    runtime_root = tmp_path / "runtime"
+    _write_tour(
+        host_root,
+        "host-only-3dvista",
+        {"three_d_vista_entry_relpath": "3dvista/index.html", **_clean_3dvista_private_viewer_proof()},
+        {"3dvista/index.html": "<html><script src='tdvplayer.js'></script><div>tourviewer</div></html>"},
+    )
+    _write_tour(
+        runtime_root,
+        "runtime-matterport",
+        {"matterport_url": "https://my.matterport.com/show/?m=READY123"},
+    )
+    monkeypatch.setattr("scripts.verify_property_tour_controls._tour_root", lambda: host_root)
+    monkeypatch.setattr("scripts.verify_property_tour_controls._running_container_public_tour_dir", lambda *_args, **_kwargs: runtime_root)
+    monkeypatch.setattr(
+        "scripts.verify_property_tour_controls._probe_url",
+        lambda *_args, **_kwargs: {"http_status": 200, "body_markers": {"matterport": True}},
+    )
+
+    receipt = build_property_tour_control_receipt(
+        tour_root=None,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+    )
+
+    assert receipt["tour_root"] == str(runtime_root.resolve())
+    assert receipt["tour_root_source"] == "runtime_container"
+    assert receipt["tour_count"] == 1
+    assert receipt["tours"][0]["slug"] == "runtime-matterport"
+    assert receipt["provider_counts"]["matterport"] == 1
+    assert receipt["provider_counts"]["3dvista"] == 0
+
+
+def test_property_tour_control_verifier_live_probe_uses_runtime_snapshot_when_mount_is_inaccessible(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    host_root = tmp_path / "host"
+    runtime_root = tmp_path / "runtime-snapshot"
+    _write_tour(
+        host_root,
+        "host-only-3dvista",
+        {"three_d_vista_entry_relpath": "3dvista/index.html", **_clean_3dvista_private_viewer_proof()},
+        {"3dvista/index.html": "<html><script src='tdvplayer.js'></script><div>tourviewer</div></html>"},
+    )
+    _write_tour(
+        runtime_root,
+        "runtime-matterport",
+        {"matterport_url": "https://my.matterport.com/show/?m=READY123"},
+    )
+
+    class _SnapshotHandle:
+        def cleanup(self) -> None:
+            return None
+
+    monkeypatch.setattr("scripts.verify_property_tour_controls._tour_root", lambda: host_root)
+    monkeypatch.setattr("scripts.verify_property_tour_controls._running_container_public_tour_dir", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "scripts.verify_property_tour_controls._snapshot_runtime_container_public_tours",
+        lambda *_args, **_kwargs: (runtime_root, _SnapshotHandle()),
+    )
+    monkeypatch.setattr(
+        "scripts.verify_property_tour_controls._probe_url",
+        lambda *_args, **_kwargs: {"http_status": 200, "body_markers": {"matterport": True}},
+    )
+
+    receipt = build_property_tour_control_receipt(
+        tour_root=None,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+    )
+
+    assert receipt["tour_root"] == str(runtime_root.resolve())
+    assert receipt["tour_root_source"] == "runtime_container_snapshot"
+    assert receipt["tour_count"] == 1
+    assert receipt["tours"][0]["slug"] == "runtime-matterport"
+    assert receipt["provider_counts"]["matterport"] == 1
+
+
 def test_public_tour_control_labels_manual_video_as_video_evidence_not_walkthrough() -> None:
     html_body = _tour_control_external_iframe_html(
         title="Manual media loft",
@@ -329,6 +413,53 @@ def test_property_tour_control_verifier_cli_fails_closed_for_blocked_gold_gate(
     output = capsys.readouterr().out
     assert '"status": "blocked_missing_provider_modes"' in output
     assert '"missing_provider_modes"' in output
+
+
+def test_property_tour_control_verifier_cli_delegates_live_probe_to_runtime_container_when_mount_is_inaccessible(
+    monkeypatch,
+    capsys,
+) -> None:
+    delegated_receipt = {
+        "generated_at": "2026-07-04T21:20:00+00:00",
+        "status": "pass",
+        "tour_root": "/data/public_property_tours",
+        "tour_root_source": "explicit",
+        "tour_count": 1,
+        "ready_tour_count": 1,
+        "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 0, "krpano": 0, "magicfit": 1},
+        "provider_blockers": {provider: {"blocked_count": 0, "reasons": []} for provider in ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")},
+        "ready_provider_modes": ["3dvista", "magicfit", "matterport"],
+        "required_provider_modes": ["matterport", "3dvista", "magicfit"],
+        "missing_provider_modes": [],
+        "next_required_actions": [],
+        "live_probe": True,
+        "base_url": "https://propertyquarry.example",
+        "require_all_provider_modes": False,
+        "tours": [],
+    }
+    monkeypatch.setattr("scripts.verify_property_tour_controls._running_container_public_tour_dir", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "scripts.verify_property_tour_controls._runtime_container_live_probe_receipt",
+        lambda **_kwargs: (dict(delegated_receipt), 0),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify_property_tour_controls.py",
+            "--base-url",
+            "https://propertyquarry.example",
+            "--live-probe",
+            "--summary-only",
+        ],
+    )
+
+    exit_code = main()
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert '"status": "pass"' in output
+    assert '"tour_root": "/data/public_property_tours"' in output
 
 
 def test_property_tour_control_verifier_counts_provider_gaps_on_ready_tours(tmp_path: Path) -> None:

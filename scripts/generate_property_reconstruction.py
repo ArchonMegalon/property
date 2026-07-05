@@ -5,9 +5,12 @@ import argparse
 import hashlib
 import html
 import json
+import math
 import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -15,19 +18,220 @@ from pathlib import Path, PurePosixPath
 from PIL import Image, ImageOps
 
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+try:
+    from scripts.property_tour_runtime_paths import preferred_public_tour_root, running_container_public_tour_dir
+except Exception:
+    preferred_public_tour_root = None  # type: ignore[assignment]
+    running_container_public_tour_dir = None  # type: ignore[assignment]
+
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 VIEWER_VERSION = "propertyquarry_3d_tour_viewer_v3"
 DISCLOSURE = "Planning preview built from the floor plan and listing photos. Use it as a layout aid, not as a captured tour."
+
+
+def _compact_route_label(value: object, *, fallback: str = "", limit: int = 80) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if not text:
+        return fallback
+    return text[:limit].strip() or fallback
+
+
+def _numeric_room_count(value: object) -> int:
+    try:
+        if value in (None, "", False):
+            return 0
+        parsed = float(str(value).replace(",", ".").strip())
+    except Exception:
+        return 0
+    if parsed <= 0:
+        return 0
+    return max(1, min(25, int(parsed) if float(parsed).is_integer() else int(math.ceil(parsed))))
+
+
+def _extract_room_count_from_text(text: object) -> int:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return 0
+    patterns = (
+        r"\b(\d+(?:[.,]\d+)?)\s*[- ]?\s*(?:zimmer|room|rooms|bedroom|bedrooms)\b",
+        r"\b(?:zimmer|rooms?|bedrooms?)\s*[:：]?\s*(\d+(?:[.,]\d+)?)\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized, flags=re.IGNORECASE)
+        if not match:
+            continue
+        count = _numeric_room_count(match.group(1))
+        if count > 0:
+            return count
+    return 0
+
+
+def _append_unique_route_label(labels: list[str], value: object) -> None:
+    label = _compact_route_label(value)
+    if not label:
+        return
+    lowered = label.lower()
+    if lowered in {item.lower() for item in labels}:
+        return
+    labels.append(label)
+
+
+def _reconstruction_walkthrough_route_labels(
+    payload: dict[str, object],
+    *,
+    explicit_labels: list[str] | tuple[str, ...] = (),
+    explicit_room_count: int = 0,
+) -> list[str]:
+    labels: list[str] = []
+    for raw_label in list(explicit_labels or []):
+        _append_unique_route_label(labels, raw_label)
+    if labels:
+        return labels
+
+    walkable_scene = dict(payload.get("walkable_scene") or {}) if isinstance(payload.get("walkable_scene"), dict) else {}
+    for collection_key in ("route", "rooms"):
+        for raw_item in list(walkable_scene.get(collection_key) or []):
+            if not isinstance(raw_item, dict):
+                continue
+            _append_unique_route_label(labels, raw_item.get("label") or raw_item.get("room") or raw_item.get("name"))
+    for collection_key in ("room_visit_plan", "covered_route_labels"):
+        for raw_label in list(payload.get(collection_key) or []):
+            _append_unique_route_label(labels, raw_label)
+    if labels:
+        return labels
+
+    facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
+    text_blob = " ".join(
+        part
+        for part in (
+            payload.get("title"),
+            payload.get("display_title"),
+            payload.get("tour_title"),
+            facts.get("title"),
+            facts.get("listing_title"),
+            facts.get("summary"),
+            facts.get("description"),
+            facts.get("rooms_label"),
+        )
+        if str(part or "").strip()
+    )
+    lowered_text = text_blob.lower()
+    base_room_count = _numeric_room_count(facts.get("room_count") or facts.get("rooms")) or _extract_room_count_from_text(text_blob)
+    if explicit_room_count > 0:
+        base_room_count = max(base_room_count, _numeric_room_count(explicit_room_count))
+
+    has_hall = bool(re.search(r"\b(hallway|hall|foyer|entry|entryway|eingang|vorraum|flur)\b", lowered_text))
+    has_kitchen = bool(re.search(r"\b(wohnkueche|wohnküche|küche|kueche|kitchen)\b", lowered_text))
+    has_bathroom = bool(re.search(r"\b(bathroom|badezimmer|bad)\b", lowered_text))
+    has_toilet = bool(re.search(r"\b(separate[rsn]*\s+wc|separate[rsn]*\s+toilet|wc|w\.?c\.?|toilette|toilet)\b", lowered_text))
+    has_storage = bool(re.search(r"\b(storage|storeroom|store room|utility room|abstellraum)\b", lowered_text))
+    has_dining = bool(re.search(r"\b(dining room|dining|esszimmer)\b", lowered_text))
+    has_outdoor = bool(re.search(r"\b(balcony|balkon|loggia|terrace|terrasse|dachterrasse)\b", lowered_text))
+    has_staircase = bool(
+        re.search(
+            r"\b(maisonette|duplex|split[- ]level|mezzanine|gallery|gallerie|stairs?|staircase|treppe|stiege|two floors?|two levels?|2 stockwerke|zwei stockwerke)\b",
+            lowered_text,
+        )
+    )
+
+    if has_hall or base_room_count > 0 or any((has_kitchen, has_bathroom, has_toilet, has_storage, has_outdoor, has_staircase)):
+        _append_unique_route_label(labels, "entry/hall")
+    if has_staircase:
+        _append_unique_route_label(labels, "staircase")
+    if has_storage:
+        _append_unique_route_label(labels, "storage room")
+    if has_bathroom:
+        _append_unique_route_label(labels, "bath/WC")
+    separate_toilet = has_toilet and ("separate" in lowered_text or "extra wc" in lowered_text or "gäste wc" in lowered_text or not has_bathroom)
+    if separate_toilet:
+        _append_unique_route_label(labels, "toilet")
+    if has_kitchen:
+        _append_unique_route_label(labels, "living kitchen")
+    if base_room_count >= 1:
+        _append_unique_route_label(labels, "living room")
+    if base_room_count >= 2:
+        _append_unique_route_label(labels, "bedroom")
+    for bedroom_index in range(2, max(1, base_room_count - 1) + 1):
+        _append_unique_route_label(labels, f"bedroom {bedroom_index}")
+    if has_dining and not has_kitchen:
+        _append_unique_route_label(labels, "dining room")
+    if has_outdoor:
+        _append_unique_route_label(labels, "balcony/terrace")
+    if labels:
+        return labels
+
+    fallback_room_count = max(base_room_count, _numeric_room_count(explicit_room_count))
+    if fallback_room_count <= 0:
+        fallback_room_count = 1
+    return [f"room stop {index}" for index in range(1, fallback_room_count + 1)]
 
 
 def _public_tour_dir() -> Path:
     configured = str(os.getenv("EA_PUBLIC_TOUR_DIR") or "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
+    if running_container_public_tour_dir is not None:
+        runtime_root = running_container_public_tour_dir(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "")
+        if isinstance(runtime_root, Path):
+            return runtime_root.expanduser().resolve()
+    if preferred_public_tour_root is not None:
+        return preferred_public_tour_root(
+            configured_root="",
+            repo_root=ROOT,
+            fallback_root=ROOT / "state" / "public_property_tours",
+            runtime_container=os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "",
+        )
     cwd = Path.cwd().resolve()
     if cwd.name == "property" and (cwd / "state" / "public_property_tours").exists():
         return (cwd / "state" / "public_property_tours").resolve()
     return Path("/data/public_property_tours").expanduser().resolve()
+
+
+def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[str, object]:
+    docker_bin = shutil.which("docker")
+    if not docker_bin:
+        return {"status": "docker_unavailable", "slug": slug}
+    container = str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "propertyquarry-api").strip()
+    if not container:
+        return {"status": "runtime_container_missing", "slug": slug}
+    normalized_bundle = bundle_dir.expanduser().resolve()
+    if not normalized_bundle.is_dir():
+        return {"status": "bundle_missing", "slug": slug, "bundle_dir": str(normalized_bundle)}
+    remote_bundle = f"/data/public_property_tours/{slug}"
+    mkdir_result = subprocess.run(
+        [docker_bin, "exec", container, "mkdir", "-p", remote_bundle],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    if mkdir_result.returncode != 0:
+        return {
+            "status": "runtime_mkdir_failed",
+            "slug": slug,
+            "container": container,
+            "stderr": (mkdir_result.stderr or "").strip()[-400:],
+        }
+    copy_result = subprocess.run(
+        [docker_bin, "cp", f"{normalized_bundle}/.", f"{container}:{remote_bundle}/"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if copy_result.returncode != 0:
+        return {
+            "status": "runtime_copy_failed",
+            "slug": slug,
+            "container": container,
+            "stderr": (copy_result.stderr or "").strip()[-400:],
+        }
+    return {"status": "updated", "slug": slug, "container": container}
 
 
 def _safe_relpath(value: str) -> str:
@@ -927,7 +1131,14 @@ renderer.setAnimationLoop(() => {{
 """
 
 
-def _write_walkthrough(target: Path, images: list[Path], *, style_label: str = "") -> dict[str, object]:
+def _write_walkthrough(
+    target: Path,
+    images: list[Path],
+    *,
+    style_label: str = "",
+    route_labels: list[str] | tuple[str, ...] = (),
+    room_count: int = 0,
+) -> dict[str, object]:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return {"status": "skipped", "reason": "ffmpeg_missing"}
@@ -936,24 +1147,53 @@ def _write_walkthrough(target: Path, images: list[Path], *, style_label: str = "
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="propertyquarry-reconstruction-") as tempdir:
         sheet_path = Path(tempdir) / "walkthrough-strip.jpg"
-        duration_seconds = max(34, min(90, len(images) * 5))
+        try:
+            seconds_per_stop = float(
+                os.getenv("PROPERTYQUARRY_RECONSTRUCTION_WALKTHROUGH_SECONDS_PER_STOP")
+                or os.getenv("PROPERTYQUARRY_FLYTHROUGH_SECONDS_PER_ROUTE_STOP")
+                or "15"
+            )
+        except Exception:
+            seconds_per_stop = 15.0
+        seconds_per_stop = max(5.0, min(30.0, seconds_per_stop))
+        normalized_route_labels = [
+            _compact_route_label(label)
+            for label in list(route_labels or [])
+            if _compact_route_label(label)
+        ]
+        floorplan_image = images[0] if len(images) > 1 else None
+        photo_images = list(images[1:]) if len(images) > 1 else list(images)
+        expected_segments = list(normalized_route_labels)
+        if not expected_segments:
+            fallback_stop_count = max(_numeric_room_count(room_count), len(photo_images) or len(images))
+            if fallback_stop_count <= 0:
+                fallback_stop_count = 1
+            expected_segments = [f"Room view {index:02d}" for index in range(1, fallback_stop_count + 1)]
+        duration_seconds = max(
+            int(math.ceil(seconds_per_stop)),
+            min(240, int(math.ceil(len(expected_segments) * seconds_per_stop))),
+        )
         fps = 24
         frame_count = max(1, int(duration_seconds * fps))
         viewport_w, viewport_h = 1280, 720
         tile_w, tile_h = 560, 420
         gap = 140
-        sheet_w = max(viewport_w + 960, 120 + (tile_w + gap) * len(images) + 120)
+        sheet_w = max(viewport_w + 960, 120 + (tile_w + gap) * len(expected_segments) + 120)
         from PIL import ImageDraw
 
         sheet = Image.new("RGB", (sheet_w, viewport_h), color=(245, 240, 229))
         draw = ImageDraw.Draw(sheet)
         draw.line((0, viewport_h - 90, sheet_w, viewport_h - 90), fill=(202, 188, 160), width=3)
-        labels: list[str] = []
-        for index, image_path in enumerate(images):
-            label = "Floorplan" if index == 0 else f"Room view {index:02d}"
-            labels.append(label)
+        floorplan_thumb = None
+        if floorplan_image is not None and floorplan_image.exists():
+            with Image.open(floorplan_image) as image:
+                floorplan_thumb = ImageOps.exif_transpose(image).convert("RGB")
+                floorplan_thumb.thumbnail((164, 112), Image.Resampling.LANCZOS)
+        for index, label in enumerate(expected_segments):
             x = 80 + index * (tile_w + gap)
             y = 120 + (index % 2) * 44
+            source_images = photo_images or list(images)
+            image_path = source_images[index % max(len(source_images), 1)]
             with Image.open(image_path) as image:
                 normalized = ImageOps.exif_transpose(image).convert("RGB")
                 normalized.thumbnail((tile_w, tile_h), Image.Resampling.LANCZOS)
@@ -964,6 +1204,15 @@ def _write_walkthrough(target: Path, images: list[Path], *, style_label: str = "
                 paste_y = 42 + (tile_h - normalized.height) // 2
                 card.paste(normalized, (paste_x, paste_y))
                 card_draw.text((18, 14), label, fill=(55, 45, 34))
+                if floorplan_thumb is not None:
+                    inset_x = tile_w + 32 - floorplan_thumb.width - 18
+                    inset_y = 12
+                    card.paste(floorplan_thumb, (inset_x, inset_y))
+                    card_draw.rectangle(
+                        (inset_x - 2, inset_y - 2, inset_x + floorplan_thumb.width + 1, inset_y + floorplan_thumb.height + 1),
+                        outline=(204, 187, 157),
+                        width=2,
+                    )
                 sheet.paste(card, (x, y))
         headline = "Walkthrough"
         if style_label:
@@ -972,6 +1221,7 @@ def _write_walkthrough(target: Path, images: list[Path], *, style_label: str = "
         draw.text((80, viewport_h - 62), "Layout preview from listing media. Confirm details at the viewing.", fill=(96, 72, 38))
         sheet.save(sheet_path, format="JPEG", quality=92)
         x_expr = f"if(gt(iw,{viewport_w}),(iw-{viewport_w})*n/{max(frame_count - 1, 1)},0)"
+        timeout_seconds = max(120, int(duration_seconds * 3))
         try:
             result = subprocess.run(
                 [
@@ -994,15 +1244,18 @@ def _write_walkthrough(target: Path, images: list[Path], *, style_label: str = "
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=timeout_seconds,
             )
         except subprocess.TimeoutExpired:
+            if target.exists():
+                target.unlink()
             return {"status": "failed", "reason": "ffmpeg_timeout"}
     if result.returncode != 0:
+        if target.exists():
+            target.unlink()
         return {"status": "failed", "reason": (result.stderr or "ffmpeg_failed")[-500:]}
     duration = _video_duration_seconds(target)
     sidecar_path = target.with_suffix(".quality.json")
-    expected_segments = labels
     coverage = {
         "status": "pass",
         "source": "propertyquarry_generated_reconstruction_continuous_pan",
@@ -1012,8 +1265,8 @@ def _write_walkthrough(target: Path, images: list[Path], *, style_label: str = "
             {
                 "segment": label,
                 "index": index + 1,
-                "start": round((index / max(len(expected_segments), 1)) * duration, 3),
-                "end": round(((index + 1) / max(len(expected_segments), 1)) * duration, 3),
+                "start": round(min(duration, index * seconds_per_stop), 3),
+                "end": round(min(duration, (index + 1) * seconds_per_stop), 3),
             }
             for index, label in enumerate(expected_segments)
         ],
@@ -1024,6 +1277,8 @@ def _write_walkthrough(target: Path, images: list[Path], *, style_label: str = "
         "composition": "continuous_generated_reconstruction_pan",
         "style_label": style_label,
         "duration_seconds": round(duration, 3),
+        "seconds_per_stop": seconds_per_stop,
+        "room_stop_count": len(expected_segments),
         "route_labels": expected_segments,
         "covered_route_labels": expected_segments,
         "walkthrough_coverage_proof": coverage,
@@ -1050,6 +1305,8 @@ def main() -> int:
     parser.add_argument("--target-subdir", default="generated-reconstruction")
     parser.add_argument("--max-width-m", type=float, default=10.0)
     parser.add_argument("--style-label", default="", help="Human-readable staging style label for receipts and walkthrough overlays.")
+    parser.add_argument("--room-label", action="append", default=[], help="Optional explicit walkthrough stop label. Can be provided multiple times.")
+    parser.add_argument("--room-count", type=int, default=0, help="Optional explicit walkthrough stop count when no labels are available.")
     parser.add_argument(
         "--infer-floorplan-from-photos",
         action="store_true",
@@ -1122,11 +1379,25 @@ def main() -> int:
         wall_rectangles=wall_rectangles,
     )
     glb_export = _write_glb_with_blender(output_dir)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise SystemExit("invalid_tour_manifest")
     source_images = [floorplan_target, *photo_paths]
+    route_labels = _reconstruction_walkthrough_route_labels(
+        payload,
+        explicit_labels=list(args.room_label or []),
+        explicit_room_count=int(args.room_count or 0),
+    )
     walkthrough = (
         {"status": "skipped", "reason": "skip_video_requested"}
         if args.skip_video
-        else _write_walkthrough(output_dir / "generated-walkthrough.mp4", source_images, style_label=str(args.style_label or "").strip())
+        else _write_walkthrough(
+            output_dir / "generated-walkthrough.mp4",
+            source_images,
+            style_label=str(args.style_label or "").strip(),
+            route_labels=route_labels,
+            room_count=int(args.room_count or 0),
+        )
     )
 
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -1168,9 +1439,6 @@ def main() -> int:
     receipt["viewer"]["sha256"] = _sha256(output_dir / "viewer.html")
     (output_dir / "reconstruction.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise SystemExit("invalid_tour_manifest")
     base_relpath = PurePosixPath(target_subdir).as_posix()
     generated_reconstruction = {
         "provider": "propertyquarry_generated_reconstruction",
@@ -1207,6 +1475,7 @@ def main() -> int:
             generated_reconstruction["walkthrough_coverage_proof"] = walkthrough["coverage_proof"]
     payload["generated_reconstruction"] = generated_reconstruction
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    runtime_publish = _sync_bundle_to_runtime_container(bundle_dir, slug=slug)
 
     print(
         json.dumps(
@@ -1220,6 +1489,7 @@ def main() -> int:
                 "satisfies_verified_tour_gate": False,
                 "walkthrough_status": walkthrough.get("status"),
                 "verified_provider_capture": False,
+                "runtime_publish": runtime_publish,
             },
             ensure_ascii=False,
         )

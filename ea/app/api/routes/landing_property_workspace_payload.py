@@ -2374,7 +2374,7 @@ def property_workspace_payload(
             try:
                 from app.product import property_tour_hosting
 
-                verified_tour_url = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url)  # type: ignore[attr-defined]
+                verified_tour_url = property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url)  # type: ignore[attr-defined]
                 provider_key = property_tour_hosting._hosted_property_tour_verified_provider(tour_url)  # type: ignore[attr-defined]
             except Exception:
                 verified_tour_url = ""

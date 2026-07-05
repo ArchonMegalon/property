@@ -5,9 +5,11 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -108,6 +110,52 @@ def _tour_root() -> Path:
         fallback_root="/docker/property/state/public_property_tours",
         runtime_container=os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "",
     )
+
+
+def _runtime_container_name() -> str:
+    return str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "propertyquarry-api").strip() or "propertyquarry-api"
+
+
+def _snapshot_runtime_container_public_tours(container_name: str = "") -> tuple[Path | None, tempfile.TemporaryDirectory[str] | None]:
+    docker_bin = shutil.which("docker")
+    if not docker_bin:
+        return None, None
+    normalized_container = str(container_name or _runtime_container_name()).strip()
+    if not normalized_container:
+        return None, None
+    temp_dir = tempfile.TemporaryDirectory(prefix="propertyquarry-public-tours-")
+    try:
+        completed = subprocess.run(
+            [docker_bin, "cp", f"{normalized_container}:/data/public_property_tours/.", temp_dir.name],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception:
+        temp_dir.cleanup()
+        return None, None
+    if completed.returncode != 0:
+        temp_dir.cleanup()
+        return None, None
+    return Path(temp_dir.name).resolve(), temp_dir
+
+
+def _resolve_tour_root(
+    *,
+    tour_root: Path | None,
+    live_probe: bool,
+) -> tuple[Path, str, tempfile.TemporaryDirectory[str] | None]:
+    if tour_root is not None:
+        return tour_root.expanduser().resolve(), "explicit", None
+    if live_probe:
+        runtime_root = _running_container_public_tour_dir(_runtime_container_name())
+        if runtime_root is not None:
+            return runtime_root.expanduser().resolve(), "runtime_container", None
+        runtime_snapshot_root, runtime_snapshot_handle = _snapshot_runtime_container_public_tours(_runtime_container_name())
+        if runtime_snapshot_root is not None and runtime_snapshot_handle is not None:
+            return runtime_snapshot_root, "runtime_container_snapshot", runtime_snapshot_handle
+    return _tour_root().expanduser().resolve(), "preferred", None
 
 
 def _load_cli_env_defaults() -> None:
@@ -356,6 +404,11 @@ def _pano2vr_entry_relpath(payload: dict[str, object]) -> str:
 def _three_d_vista_entry_relpath(payload: dict[str, object]) -> str:
     for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath"):
         relpath = _safe_asset_relpath(payload.get(key))
+        if relpath:
+            return relpath
+    import_payload = payload.get("three_d_vista_import")
+    if isinstance(import_payload, dict):
+        relpath = _safe_asset_relpath(import_payload.get("entry_relpath"))
         if relpath:
             return relpath
     return ""
@@ -625,6 +678,7 @@ def _load_provider_receipt(bundle_dir: Path) -> dict[str, object]:
         "pano2vr_root_relpath",
         "source_virtual_tour_url",
         "source_virtual_tour_origin",
+        "three_d_vista_browser_render_proof",
         "three_d_vista_import",
         "three_d_vista_white_label_proof",
         "three_d_vista_url",
@@ -1026,206 +1080,211 @@ def build_property_tour_control_receipt(
     timeout_seconds: float = 5.0,
     require_all_provider_modes: bool = False,
 ) -> dict[str, object]:
-    root = (tour_root or _tour_root()).expanduser().resolve()
-    manifests = sorted(root.glob("*/tour.json")) if root.is_dir() else []
-    tours: list[dict[str, object]] = []
-    provider_counts = {provider: 0 for provider in PROVIDER_MODES}
-    action_counts = {provider: 0 for provider in PROVIDER_MODES}
-    provider_blocker_reason_counts: dict[str, dict[str, dict[str, object]]] = {provider: {} for provider in PROVIDER_MODES}
-    provider_ready_controls: dict[str, list[dict[str, object]]] = {provider: [] for provider in PROVIDER_MODES}
-    three_d_vista_white_label_evidence: list[dict[str, object]] = []
-    magicfit_playback_evidence_count = 0
-    magicfit_playback_evidence: list[dict[str, object]] = []
-    failed_probes = 0
-    for manifest_path in manifests:
-        bundle_dir = manifest_path.parent.resolve()
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            tours.append({"slug": manifest_path.parent.name, "status": "invalid_manifest", "error": f"{type(exc).__name__}: {exc}"})
-            failed_probes += 1
-            continue
-        if not isinstance(payload, dict):
-            tours.append({"slug": manifest_path.parent.name, "status": "invalid_manifest"})
-            failed_probes += 1
-            continue
-        payload = _payload_with_private_provider_receipt(bundle_dir, payload)
-        slug = str(payload.get("slug") or manifest_path.parent.name).strip()
-        three_d_vista_white_label_evidence_row = _three_d_vista_white_label_evidence(payload)
-        controls = _control_candidates(slug=slug, bundle_dir=bundle_dir, payload=payload)
-        for control in controls:
-            provider = str(control.get("provider") or "").strip().lower()
-            internal_probe_url = str(control.pop("_probe_url", "") or "").strip()
-            if live_probe and ((base_url and control.get("control_path")) or internal_probe_url):
-                probe_url = internal_probe_url or urllib.parse.urljoin(base_url.rstrip("/") + "/", str(control["control_path"]).lstrip("/"))
-                probe = _probe_url(
-                    probe_url,
-                    timeout_seconds=timeout_seconds,
-                    provider=str(control.get("provider") or ""),
-                    host_header=host_header,
-                )
-                control["probe"] = probe
-                playback_markers = dict(probe.get("playback_markers") or {})
-                playback_failed = bool(playback_markers) and not all(bool(value) for value in playback_markers.values())
-                body_markers = dict(probe.get("body_markers") or {})
-                marker_failed = bool(body_markers) and provider in body_markers and not bool(body_markers.get(provider))
-                if int(probe.get("http_status") or 0) != 200 or playback_failed or marker_failed:
-                    if provider in PUBLIC_REQUIRED_PROVIDER_MODES:
-                        control["status"] = "probe_failed"
-                        failed_probes += 1
-                    else:
-                        control["status"] = "optional_probe_failed"
-                elif str(control.get("status") or "").strip().lower() == "probe_required":
-                    control["status"] = "ready"
-                    if provider == "magicfit":
-                        control["evidence"] = "live_probed_magicfit_video_url"
-            if provider in provider_counts and str(control.get("status") or "").strip().lower() == "ready":
-                provider_counts[provider] += 1
-                provider_ready_controls[provider].append(
-                    {
-                        "slug": slug,
-                        "title": str(payload.get("display_title") or payload.get("title") or slug).strip()[:160],
-                        "control_path": str(control.get("control_path") or "").strip(),
-                        "evidence": str(control.get("evidence") or "").strip(),
-                    }
-                )
-                if provider == "3dvista":
-                    three_d_vista_white_label_evidence.append(three_d_vista_white_label_evidence_row)
-                if provider == "magicfit" and str(control.get("evidence") or "").strip() in {
-                    "local_magicfit_playable_video",
-                    "live_probed_magicfit_video_url",
-                }:
-                    magicfit_playback_evidence_count += 1
-                    magicfit_playback_evidence.append(
+    root, root_source, runtime_snapshot_handle = _resolve_tour_root(tour_root=tour_root, live_probe=live_probe)
+    try:
+        manifests = sorted(root.glob("*/tour.json")) if root.is_dir() else []
+        tours: list[dict[str, object]] = []
+        provider_counts = {provider: 0 for provider in PROVIDER_MODES}
+        action_counts = {provider: 0 for provider in PROVIDER_MODES}
+        provider_blocker_reason_counts: dict[str, dict[str, dict[str, object]]] = {provider: {} for provider in PROVIDER_MODES}
+        provider_ready_controls: dict[str, list[dict[str, object]]] = {provider: [] for provider in PROVIDER_MODES}
+        three_d_vista_white_label_evidence: list[dict[str, object]] = []
+        magicfit_playback_evidence_count = 0
+        magicfit_playback_evidence: list[dict[str, object]] = []
+        failed_probes = 0
+        for manifest_path in manifests:
+            bundle_dir = manifest_path.parent.resolve()
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                tours.append({"slug": manifest_path.parent.name, "status": "invalid_manifest", "error": f"{type(exc).__name__}: {exc}"})
+                failed_probes += 1
+                continue
+            if not isinstance(payload, dict):
+                tours.append({"slug": manifest_path.parent.name, "status": "invalid_manifest"})
+                failed_probes += 1
+                continue
+            payload = _payload_with_private_provider_receipt(bundle_dir, payload)
+            slug = str(payload.get("slug") or manifest_path.parent.name).strip()
+            three_d_vista_white_label_evidence_row = _three_d_vista_white_label_evidence(payload)
+            controls = _control_candidates(slug=slug, bundle_dir=bundle_dir, payload=payload)
+            for control in controls:
+                provider = str(control.get("provider") or "").strip().lower()
+                internal_probe_url = str(control.pop("_probe_url", "") or "").strip()
+                if live_probe and ((base_url and control.get("control_path")) or internal_probe_url):
+                    probe_url = internal_probe_url or urllib.parse.urljoin(base_url.rstrip("/") + "/", str(control["control_path"]).lstrip("/"))
+                    probe = _probe_url(
+                        probe_url,
+                        timeout_seconds=timeout_seconds,
+                        provider=str(control.get("provider") or ""),
+                        host_header=host_header,
+                    )
+                    control["probe"] = probe
+                    playback_markers = dict(probe.get("playback_markers") or {})
+                    playback_failed = bool(playback_markers) and not all(bool(value) for value in playback_markers.values())
+                    body_markers = dict(probe.get("body_markers") or {})
+                    marker_failed = bool(body_markers) and provider in body_markers and not bool(body_markers.get(provider))
+                    if int(probe.get("http_status") or 0) != 200 or playback_failed or marker_failed:
+                        if provider in PUBLIC_REQUIRED_PROVIDER_MODES:
+                            control["status"] = "probe_failed"
+                            failed_probes += 1
+                        else:
+                            control["status"] = "optional_probe_failed"
+                    elif str(control.get("status") or "").strip().lower() == "probe_required":
+                        control["status"] = "ready"
+                        if provider == "magicfit":
+                            control["evidence"] = "live_probed_magicfit_video_url"
+                if provider in provider_counts and str(control.get("status") or "").strip().lower() == "ready":
+                    provider_counts[provider] += 1
+                    provider_ready_controls[provider].append(
                         {
                             "slug": slug,
-                            "evidence": str(control.get("evidence") or "").strip(),
+                            "title": str(payload.get("display_title") or payload.get("title") or slug).strip()[:160],
                             "control_path": str(control.get("control_path") or "").strip(),
+                            "evidence": str(control.get("evidence") or "").strip(),
                         }
                     )
-        ready_control_providers = {
-            str(control.get("provider") or "").strip().lower()
-            for control in controls
-            if str(control.get("status") or "").strip().lower() == "ready"
+                    if provider == "3dvista":
+                        three_d_vista_white_label_evidence.append(three_d_vista_white_label_evidence_row)
+                    if provider == "magicfit" and str(control.get("evidence") or "").strip() in {
+                        "local_magicfit_playable_video",
+                        "live_probed_magicfit_video_url",
+                    }:
+                        magicfit_playback_evidence_count += 1
+                        magicfit_playback_evidence.append(
+                            {
+                                "slug": slug,
+                                "evidence": str(control.get("evidence") or "").strip(),
+                                "control_path": str(control.get("control_path") or "").strip(),
+                            }
+                        )
+            ready_control_providers = {
+                str(control.get("provider") or "").strip().lower()
+                for control in controls
+                if str(control.get("status") or "").strip().lower() == "ready"
+            }
+            missing_evidence = [
+                row
+                for row in _provider_missing_evidence(bundle_dir, payload)
+                if str(row.get("provider") or "").strip().lower() not in ready_control_providers
+            ]
+            for row in missing_evidence:
+                provider = str(row.get("provider") or "").strip().lower()
+                if provider in action_counts:
+                    action_counts[provider] += 1
+                    reason = str(row.get("reason") or "unknown").strip() or "unknown"
+                    existing = provider_blocker_reason_counts[provider].setdefault(
+                        reason,
+                        {"count": 0, "action": str(row.get("action") or "").strip()},
+                    )
+                    existing["count"] = int(existing.get("count") or 0) + 1
+            ready_controls = [
+                control
+                for control in controls
+                if str(control.get("status") or "").strip().lower() == "ready"
+            ]
+            required_missing_evidence = [
+                row
+                for row in missing_evidence
+                if str(row.get("provider") or "").strip().lower() in PUBLIC_REQUIRED_PROVIDER_MODES
+            ]
+            missing_public_evidence = required_missing_evidence if require_all_provider_modes else ([] if ready_controls else required_missing_evidence)
+            tour_missing_provider_modes = sorted(
+                {
+                    str(row.get("provider") or "").strip().lower()
+                    for row in required_missing_evidence
+                }
+            )
+            tours.append(
+                {
+                    "slug": slug,
+                    "title": str(payload.get("display_title") or payload.get("title") or slug).strip()[:160],
+                    "status": "ready" if ready_controls else "blocked_missing_verified_controls",
+                    "blocked_reason": "" if ready_controls else _blocked_control_reason(payload),
+                    "controls": [
+                        {
+                            "provider": str(control.get("provider") or "").strip(),
+                            "status": str(control.get("status") or "").strip(),
+                            "control_path": str(control.get("control_path") or "").strip(),
+                            "evidence": str(control.get("evidence") or "").strip(),
+                        }
+                        for control in controls
+                    ],
+                    "missing_evidence": missing_public_evidence,
+                    "missing_provider_modes": tour_missing_provider_modes,
+                }
+            )
+        ready_provider_modes = sorted(provider for provider, count in provider_counts.items() if count > 0)
+        missing_provider_modes = [provider for provider in PUBLIC_REQUIRED_PROVIDER_MODES if provider not in ready_provider_modes]
+        provider_blockers = _summarize_provider_blockers(provider_blocker_reason_counts)
+        status = (
+            "blocked_no_tour_manifests"
+            if not manifests
+            else "fail"
+            if failed_probes
+            else "blocked_missing_provider_modes"
+            if require_all_provider_modes and missing_provider_modes
+            else "pass"
+            if ready_provider_modes
+            else "blocked_missing_verified_controls"
+        )
+        return {
+            "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "status": status,
+            "tour_root": str(root),
+            "tour_root_source": root_source,
+            "tour_count": len(manifests),
+            "ready_tour_count": sum(1 for tour in tours if tour.get("status") == "ready"),
+            "provider_counts": provider_counts,
+            "provider_blockers": provider_blockers,
+            "delivery_contracts": _provider_delivery_contracts(
+                tours=tours,
+                provider_counts=provider_counts,
+                provider_blockers=provider_blockers,
+                missing_provider_modes=missing_provider_modes,
+                provider_ready_controls=provider_ready_controls,
+                three_d_vista_white_label_evidence=three_d_vista_white_label_evidence,
+            ),
+            "magicfit_playback": {
+                "playback_ok": provider_counts.get("magicfit", 0) == 0 or magicfit_playback_evidence_count == provider_counts.get("magicfit", 0),
+                "playable_count": magicfit_playback_evidence_count,
+                "ready_count": provider_counts.get("magicfit", 0),
+                "evidence": magicfit_playback_evidence[:12],
+            },
+            "ready_provider_modes": ready_provider_modes,
+            "required_provider_modes": list(PUBLIC_REQUIRED_PROVIDER_MODES),
+            "optional_provider_modes": [provider for provider in PROVIDER_MODES if provider not in PUBLIC_REQUIRED_PROVIDER_MODES],
+            "missing_provider_modes": missing_provider_modes,
+            "next_required_actions": [
+                {
+                    "provider": provider,
+                    "blocked_tour_count": action_counts[provider],
+                    "action": {
+                        "matterport": "add a verified Matterport model URL to at least one hosted tour manifest",
+                        "3dvista": "import a verified 3DVista export or add an allowlisted 3dvista.com tour URL",
+                        "pano2vr": "import a verified Pano2VR export",
+                        "krpano": "provide a real walkable_scene and krpano license environment",
+                        "magicfit": "import a receipt-backed playable MagicFit walkthrough video",
+                    }[provider],
+                }
+                for provider in PUBLIC_REQUIRED_PROVIDER_MODES
+                if provider in missing_provider_modes
+            ],
+            "live_probe": bool(live_probe),
+            "base_url": base_url if live_probe else "",
+            "host_header": host_header if live_probe else "",
+            "require_all_provider_modes": bool(require_all_provider_modes),
+            "tours": tours,
+            "notes": [
+                "Matterport, 3DVista, and krpano are ready only when a hosted control route can be justified from manifest evidence.",
+                "Pano2VR is tracked as an optional/internal export lane and does not block the public tour-control gold gate.",
+                "MagicFit is ready only when the manifest points to a local playable video asset or a live-probed allowlisted hosted video URL with provider=magicfit.",
+                "The receipt intentionally omits raw external provider URLs and private listing/source fields.",
+            ],
         }
-        missing_evidence = [
-            row
-            for row in _provider_missing_evidence(bundle_dir, payload)
-            if str(row.get("provider") or "").strip().lower() not in ready_control_providers
-        ]
-        for row in missing_evidence:
-            provider = str(row.get("provider") or "").strip().lower()
-            if provider in action_counts:
-                action_counts[provider] += 1
-                reason = str(row.get("reason") or "unknown").strip() or "unknown"
-                existing = provider_blocker_reason_counts[provider].setdefault(
-                    reason,
-                    {"count": 0, "action": str(row.get("action") or "").strip()},
-                )
-                existing["count"] = int(existing.get("count") or 0) + 1
-        ready_controls = [
-            control
-            for control in controls
-            if str(control.get("status") or "").strip().lower() == "ready"
-        ]
-        required_missing_evidence = [
-            row
-            for row in missing_evidence
-            if str(row.get("provider") or "").strip().lower() in PUBLIC_REQUIRED_PROVIDER_MODES
-        ]
-        missing_public_evidence = required_missing_evidence if require_all_provider_modes else ([] if ready_controls else required_missing_evidence)
-        tour_missing_provider_modes = sorted(
-            {
-                str(row.get("provider") or "").strip().lower()
-                for row in required_missing_evidence
-            }
-        )
-        tours.append(
-            {
-                "slug": slug,
-                "title": str(payload.get("display_title") or payload.get("title") or slug).strip()[:160],
-                "status": "ready" if ready_controls else "blocked_missing_verified_controls",
-                "blocked_reason": "" if ready_controls else _blocked_control_reason(payload),
-                "controls": [
-                    {
-                        "provider": str(control.get("provider") or "").strip(),
-                        "status": str(control.get("status") or "").strip(),
-                        "control_path": str(control.get("control_path") or "").strip(),
-                        "evidence": str(control.get("evidence") or "").strip(),
-                    }
-                    for control in controls
-                ],
-                "missing_evidence": missing_public_evidence,
-                "missing_provider_modes": tour_missing_provider_modes,
-            }
-        )
-    ready_provider_modes = sorted(provider for provider, count in provider_counts.items() if count > 0)
-    missing_provider_modes = [provider for provider in PUBLIC_REQUIRED_PROVIDER_MODES if provider not in ready_provider_modes]
-    provider_blockers = _summarize_provider_blockers(provider_blocker_reason_counts)
-    status = (
-        "blocked_no_tour_manifests"
-        if not manifests
-        else "fail"
-        if failed_probes
-        else "blocked_missing_provider_modes"
-        if require_all_provider_modes and missing_provider_modes
-        else "pass"
-        if ready_provider_modes
-        else "blocked_missing_verified_controls"
-    )
-    return {
-        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "status": status,
-        "tour_root": str(root),
-        "tour_count": len(manifests),
-        "ready_tour_count": sum(1 for tour in tours if tour.get("status") == "ready"),
-        "provider_counts": provider_counts,
-        "provider_blockers": provider_blockers,
-        "delivery_contracts": _provider_delivery_contracts(
-            tours=tours,
-            provider_counts=provider_counts,
-            provider_blockers=provider_blockers,
-            missing_provider_modes=missing_provider_modes,
-            provider_ready_controls=provider_ready_controls,
-            three_d_vista_white_label_evidence=three_d_vista_white_label_evidence,
-        ),
-        "magicfit_playback": {
-            "playback_ok": provider_counts.get("magicfit", 0) == 0 or magicfit_playback_evidence_count == provider_counts.get("magicfit", 0),
-            "playable_count": magicfit_playback_evidence_count,
-            "ready_count": provider_counts.get("magicfit", 0),
-            "evidence": magicfit_playback_evidence[:12],
-        },
-        "ready_provider_modes": ready_provider_modes,
-        "required_provider_modes": list(PUBLIC_REQUIRED_PROVIDER_MODES),
-        "optional_provider_modes": [provider for provider in PROVIDER_MODES if provider not in PUBLIC_REQUIRED_PROVIDER_MODES],
-        "missing_provider_modes": missing_provider_modes,
-        "next_required_actions": [
-            {
-                "provider": provider,
-                "blocked_tour_count": action_counts[provider],
-                "action": {
-                    "matterport": "add a verified Matterport model URL to at least one hosted tour manifest",
-                    "3dvista": "import a verified 3DVista export or add an allowlisted 3dvista.com tour URL",
-                    "pano2vr": "import a verified Pano2VR export",
-                    "krpano": "provide a real walkable_scene and krpano license environment",
-                    "magicfit": "import a receipt-backed playable MagicFit walkthrough video",
-                }[provider],
-            }
-            for provider in PUBLIC_REQUIRED_PROVIDER_MODES
-            if provider in missing_provider_modes
-        ],
-        "live_probe": bool(live_probe),
-        "base_url": base_url if live_probe else "",
-        "host_header": host_header if live_probe else "",
-        "require_all_provider_modes": bool(require_all_provider_modes),
-        "tours": tours,
-        "notes": [
-            "Matterport, 3DVista, and krpano are ready only when a hosted control route can be justified from manifest evidence.",
-            "Pano2VR is tracked as an optional/internal export lane and does not block the public tour-control gold gate.",
-            "MagicFit is ready only when the manifest points to a local playable video asset or a live-probed allowlisted hosted video URL with provider=magicfit.",
-            "The receipt intentionally omits raw external provider URLs and private listing/source fields.",
-        ],
-    }
+    finally:
+        if runtime_snapshot_handle is not None:
+            runtime_snapshot_handle.cleanup()
 
 
 def _receipt_summary(receipt: dict[str, object]) -> dict[str, object]:
@@ -1233,6 +1292,7 @@ def _receipt_summary(receipt: dict[str, object]) -> dict[str, object]:
         "generated_at": receipt.get("generated_at"),
         "status": receipt.get("status"),
         "tour_root": receipt.get("tour_root"),
+        "tour_root_source": receipt.get("tour_root_source"),
         "tour_count": receipt.get("tour_count"),
         "ready_tour_count": receipt.get("ready_tour_count"),
         "provider_counts": receipt.get("provider_counts"),
@@ -1245,6 +1305,61 @@ def _receipt_summary(receipt: dict[str, object]) -> dict[str, object]:
         "base_url": receipt.get("base_url"),
         "require_all_provider_modes": receipt.get("require_all_provider_modes"),
     }
+
+
+def _runtime_container_live_probe_receipt(
+    *,
+    base_url: str,
+    host_header: str,
+    timeout_seconds: float,
+    require_all_provider_modes: bool,
+) -> tuple[dict[str, object] | None, int | None]:
+    docker_bin = shutil.which("docker")
+    if not docker_bin:
+        return None, None
+    container = _runtime_container_name()
+    command = [
+        docker_bin,
+        "exec",
+        "-e",
+        "EA_PUBLIC_TOUR_DIR=/data/public_property_tours",
+        container,
+        "python",
+        "/app/scripts/verify_property_tour_controls.py",
+        "--tour-root",
+        "/data/public_property_tours",
+        "--base-url",
+        base_url,
+        "--host-header",
+        host_header,
+        "--live-probe",
+        "--timeout-seconds",
+        str(timeout_seconds),
+    ]
+    if require_all_provider_modes:
+        command.append("--require-all-provider-modes")
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except Exception:
+        return None, None
+    stdout = str(completed.stdout or "").strip()
+    if not stdout:
+        return None, completed.returncode
+    try:
+        receipt = json.loads(stdout)
+    except Exception:
+        return None, completed.returncode
+    if not isinstance(receipt, dict):
+        return None, completed.returncode
+    receipt["host_runtime_probe_via"] = "docker_exec_runtime_container"
+    receipt["host_runtime_probe_command"] = " ".join(shlex.quote(part) for part in command)
+    return receipt, completed.returncode
 
 
 def main() -> int:
@@ -1264,8 +1379,17 @@ def main() -> int:
         help="Return a non-zero exit code for blocked_* receipts. Use this for gold/release gates.",
     )
     args = parser.parse_args()
-    receipt = build_property_tour_control_receipt(
-        tour_root=Path(args.tour_root) if str(args.tour_root or "").strip() else None,
+    explicit_tour_root = Path(args.tour_root) if str(args.tour_root or "").strip() else None
+    delegated_receipt: dict[str, object] | None = None
+    if bool(args.live_probe) and explicit_tour_root is None and _running_container_public_tour_dir(_runtime_container_name()) is None:
+        delegated_receipt, _ = _runtime_container_live_probe_receipt(
+            base_url=str(args.base_url or "").strip(),
+            host_header=str(args.host_header or "").strip(),
+            timeout_seconds=float(args.timeout_seconds),
+            require_all_provider_modes=bool(args.require_all_provider_modes),
+        )
+    receipt = delegated_receipt or build_property_tour_control_receipt(
+        tour_root=explicit_tour_root,
         base_url=str(args.base_url or "").strip(),
         host_header=str(args.host_header or "").strip(),
         live_probe=bool(args.live_probe),

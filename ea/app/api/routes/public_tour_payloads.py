@@ -31,6 +31,7 @@ class PrivateTourReceipt:
     panorama_source: str = ""
     three_d_vista_import: dict[str, object] = field(default_factory=dict)
     three_d_vista_white_label_proof: dict[str, object] = field(default_factory=dict)
+    three_d_vista_browser_render_proof: dict[str, object] = field(default_factory=dict)
     three_d_vista_url: str = ""
     matterport_url: str = ""
 
@@ -54,6 +55,9 @@ class PrivateTourReceipt:
             three_d_vista_white_label_proof=dict(source.get("three_d_vista_white_label_proof") or {})
             if isinstance(source.get("three_d_vista_white_label_proof"), dict)
             else {},
+            three_d_vista_browser_render_proof=dict(source.get("three_d_vista_browser_render_proof") or {})
+            if isinstance(source.get("three_d_vista_browser_render_proof"), dict)
+            else {},
             three_d_vista_url=str(source.get("three_d_vista_url") or "").strip(),
             matterport_url=str(source.get("matterport_url") or "").strip(),
         )
@@ -72,6 +76,7 @@ class PrivateTourReceipt:
             "panorama_source": self.panorama_source,
             "three_d_vista_import": self.three_d_vista_import,
             "three_d_vista_white_label_proof": self.three_d_vista_white_label_proof,
+            "three_d_vista_browser_render_proof": self.three_d_vista_browser_render_proof,
             "three_d_vista_url": self.three_d_vista_url,
             "matterport_url": self.matterport_url,
         }
@@ -420,8 +425,14 @@ def public_tour_asset_path_is_public(
     normalized_role = str(role or "").strip().lower().replace("-", "_")
     if suffix in {".htm", ".html"}:
         return (
-            normalized_privacy in _PUBLIC_TOUR_PANO2VR_PUBLIC_PRIVACY_CLASSES
-            and normalized_role in _PUBLIC_TOUR_PANO2VR_ENTRY_ROLES
+            (
+                normalized_privacy in _PUBLIC_TOUR_PANO2VR_PUBLIC_PRIVACY_CLASSES
+                and normalized_role in _PUBLIC_TOUR_PANO2VR_ENTRY_ROLES
+            )
+            or (
+                normalized_privacy in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES
+                and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_HTML_ROLES
+            )
         )
     if suffix in {".obj", ".mtl", ".glb"}:
         return False
@@ -468,6 +479,12 @@ def public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
         )
     generated_reconstruction = payload.get("generated_reconstruction")
     if isinstance(generated_reconstruction, dict):
+        _add(
+            generated_reconstruction.get("viewer_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="generated_reconstruction_viewer",
+            mime_type="text/html",
+        )
         _add(
             generated_reconstruction.get("walkthrough_video_relpath"),
             privacy_class="generated_reconstruction_public",
@@ -556,6 +573,12 @@ def public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str
         )
     generated_reconstruction = payload.get("generated_reconstruction")
     if isinstance(generated_reconstruction, dict):
+        _record(
+            generated_reconstruction.get("viewer_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="generated_reconstruction_viewer",
+            mime_type="text/html",
+        )
         _record(
             generated_reconstruction.get("walkthrough_video_relpath"),
             privacy_class="generated_reconstruction_public",

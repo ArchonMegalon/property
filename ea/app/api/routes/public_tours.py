@@ -1816,6 +1816,14 @@ def _public_tour_primary_control_path(payload: dict[str, object]) -> str:
     if not slug:
         return ""
     quoted_slug = urllib.parse.quote(slug, safe="")
+    local_3dvista_entry = _public_tour_safe_asset_relpath(
+        str(
+            payload.get("three_d_vista_entry_relpath")
+            or payload.get("threedvista_entry_relpath")
+            or payload.get("3dvista_entry_relpath")
+            or ""
+        ).strip()
+    )
     for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
         if _safe_matterport_external_url(payload.get(key)):
             return f"/tours/{quoted_slug}/control/matterport"
@@ -1825,16 +1833,19 @@ def _public_tour_primary_control_path(payload: dict[str, object]) -> str:
         for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
             if _safe_3dvista_external_url(payload.get(key)):
                 return f"/tours/{quoted_slug}/control/3dvista"
-        local_3dvista_entry = _public_tour_safe_asset_relpath(
-            str(
-                payload.get("three_d_vista_entry_relpath")
-                or payload.get("threedvista_entry_relpath")
-                or payload.get("3dvista_entry_relpath")
-                or ""
-            ).strip()
-        )
         if local_3dvista_entry and _3dvista_entry_ready(slug, payload, local_3dvista_entry):
             return f"/tours/{quoted_slug}/control/3dvista"
+    local_3dvista_shell = str(payload.get("viewer_provider") or payload.get("tour_provider") or "").strip().lower() in {
+        "3dvista_showcase_shell",
+        "propertyquarry_3dvista_showcase_shell",
+    }
+    control_mode = str(payload.get("control_mode") or "").strip().lower()
+    if (
+        local_3dvista_entry
+        and _3dvista_entry_export_ready(slug, payload, local_3dvista_entry)
+        and (local_3dvista_shell or control_mode in {"3dvista", "3d_vista", "three_d_vista"})
+    ):
+        return f"/tours/{quoted_slug}/control/3dvista"
 
     return ""
 
@@ -4987,25 +4998,31 @@ def public_tour_payload(slug: str) -> JSONResponse:
 
 @router.get("/tours/files/{slug}/{asset_path:path}")
 @router.head("/tours/files/{slug}/{asset_path:path}")
-def public_tour_file(slug: str, asset_path: str):
+def public_tour_file(slug: str, asset_path: str, request: Request):
     payload = _load_tour(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     safe_name = PurePosixPath(safe_relpath).name
     generated_asset_kind = _generated_reconstruction_non_tour_asset(payload, safe_relpath)
     if generated_asset_kind == "viewer":
-        primary_control_path = _public_tour_primary_control_path(payload)
-        if primary_control_path:
+        embed_requested = _truthy(
+            request.query_params.get("embed")
+            or request.query_params.get("embedded")
+            or request.query_params.get("raw")
+        )
+        if not embed_requested:
+            primary_control_path = _public_tour_primary_control_path(payload)
+            if primary_control_path:
+                return RedirectResponse(
+                    primary_control_path,
+                    status_code=302,
+                    headers=_public_tour_security_headers(cache_control="no-store"),
+                )
             return RedirectResponse(
-                primary_control_path,
+                f"/tours/{urllib.parse.quote(str(payload.get('slug') or slug).strip(), safe='')}",
                 status_code=302,
                 headers=_public_tour_security_headers(cache_control="no-store"),
             )
-        return RedirectResponse(
-            f"/tours/{urllib.parse.quote(str(payload.get('slug') or slug).strip(), safe='')}",
-            status_code=302,
-            headers=_public_tour_security_headers(cache_control="no-store"),
-        )
     if generated_asset_kind == "model":
         return Response(
             "This generated model is not a public 3D tour.\n",

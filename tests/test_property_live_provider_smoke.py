@@ -358,8 +358,8 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     assert all(row["status_probe_status"] == "queued" for row in receipt["targeted_search_matrix"])
     assert all(payload.get("dispatch_only") is True for payload in observed_payloads)
     assert all("max_results_per_source" not in payload for payload in observed_payloads)
-    assert set(observed_search_timeouts) == {25.0}
-    assert set(observed_status_timeouts) == {25.0}
+    assert set(observed_search_timeouts) == {60.0}
+    assert set(observed_status_timeouts) == {60.0}
     assert {
         dict(payload.get("property_preferences") or {}).get("search_mode")
         for payload in observed_payloads
@@ -424,6 +424,14 @@ def test_live_provider_smoke_can_use_explicit_search_run_timeout(monkeypatch) ->
     assert receipt["search_run_timeout_seconds"] == 60
     assert set(observed_search_timeouts) == {60}
     assert set(observed_status_timeouts) == {60}
+
+
+def test_live_provider_smoke_uses_deploy_timeout_floor_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DEPLOY_PROVIDER_SEARCH_RUN_TIMEOUT_SECONDS", "75")
+
+    from scripts import property_live_provider_smoke as smoke
+
+    assert smoke._effective_search_run_timeout_seconds(8.0, enabled=True, dry_run=False) == 75.0
 
 
 def test_live_provider_smoke_executes_filtered_provider_scope(monkeypatch) -> None:

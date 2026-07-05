@@ -94,3 +94,73 @@ def test_scene_video_magicfit_readiness_counts_three_accounts_json(monkeypatch, 
         "MAGICFIT_ACCOUNTS_JSON[2].email",
         "MAGICFIT_ACCOUNTS_JSON[3].email",
     ]
+
+
+def test_property_walkthrough_runtime_provider_prefers_magicfit_when_omagic_is_blocked(monkeypatch) -> None:
+    def _fake_readiness(provider_key):
+        provider_key = str(provider_key or "").strip()
+        if provider_key == "omagic":
+            return {
+                "provider_key": "omagic",
+                "provider_backend_key": "omagic",
+                "ready": False,
+                "status": "blocked",
+                "blockers": ["omagic_model_upload_adapter_missing"],
+                "checks": {},
+            }
+        if provider_key == "magicfit":
+            return {
+                "provider_key": "magicfit",
+                "provider_backend_key": "magicfit",
+                "ready": True,
+                "status": "ready",
+                "blockers": [],
+                "checks": {},
+            }
+        return {
+            "provider_key": provider_key,
+            "provider_backend_key": provider_key,
+            "ready": False,
+            "status": "blocked",
+            "blockers": [f"{provider_key}_blocked"],
+            "checks": {},
+        }
+
+    monkeypatch.setattr(service, "scene_video_provider_runtime_readiness", _fake_readiness)
+
+    resolution = service.resolve_property_walkthrough_runtime_provider("")
+
+    assert resolution["provider_backend_key"] == "magicfit"
+    assert resolution["selected_via"] == "auto_final_ready"
+    assert resolution["checked"][0]["provider_key"] == "omagic"
+    assert resolution["checked"][1]["provider_key"] == "magicfit"
+
+
+def test_property_walkthrough_runtime_provider_falls_back_to_onemin_when_final_primary_lanes_are_blocked(monkeypatch) -> None:
+    def _fake_readiness(provider_key):
+        provider_key = str(provider_key or "").strip()
+        if provider_key == "onemin_i2v":
+            return {
+                "provider_key": "onemin_i2v",
+                "provider_backend_key": "onemin_i2v",
+                "ready": True,
+                "status": "ready",
+                "blockers": [],
+                "checks": {},
+            }
+        return {
+            "provider_key": provider_key,
+            "provider_backend_key": provider_key,
+            "ready": False,
+            "status": "blocked",
+            "blockers": [f"{provider_key}_blocked"],
+            "checks": {},
+        }
+
+    monkeypatch.setattr(service, "scene_video_provider_runtime_readiness", _fake_readiness)
+
+    resolution = service.resolve_property_walkthrough_runtime_provider("")
+
+    assert resolution["provider_backend_key"] == "onemin_i2v"
+    assert resolution["selected_via"] == "auto_final_ready"
+    assert [entry["provider_key"] for entry in resolution["checked"]] == ["omagic", "magicfit", "onemin_i2v"]

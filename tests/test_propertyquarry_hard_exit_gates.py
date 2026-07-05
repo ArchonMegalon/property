@@ -104,6 +104,86 @@ def test_3d_browser_gate_ignores_noncritical_external_provider_asset_failures() 
     assert [row["resource_type"] for row in failures] == ["script", "document"]
 
 
+def test_3d_browser_gate_persists_3dvista_browser_render_proof_in_private_receipt(monkeypatch, tmp_path: Path) -> None:
+    from scripts import propertyquarry_3d_browser_gate as gate
+    from scripts.verify_property_tour_controls import build_property_tour_control_receipt
+
+    slug = "browser-proof-demo"
+    bundle = tmp_path / slug
+    bundle.mkdir(parents=True)
+    (bundle / "tour.json").write_text(
+        json.dumps(
+                {
+                    "slug": slug,
+                    "display_title": "Browser proof demo",
+                    "three_d_vista_entry_relpath": "3dvista/index.html",
+                    "three_d_vista_import": {
+                        "source_project": "propertyquarry",
+                        "entry_relpath": "3dvista/index.html",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+    (bundle / "3dvista").mkdir()
+    (bundle / "3dvista" / "index.html").write_text(
+        "<!doctype html><script>window.tdvplayer = true;</script><div>viewer</div>",
+        encoding="utf-8",
+    )
+    (bundle / "tour.private.json").write_text(
+        json.dumps(
+            {
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setattr(gate, "_candidate_public_tour_roots", lambda: [tmp_path])
+    monkeypatch.setattr(
+        gate,
+        "_persist_3dvista_browser_render_proof_in_runtime_container",
+        lambda slug, proof: {"status": "runtime_container_unavailable", "slug": slug, "provider": proof.get("provider")},
+    )
+
+    receipt = {
+        "contract_name": "propertyquarry.3d_browser_gate.v1",
+        "generated_at": "2026-07-04T10:00:00Z",
+        "base_url": "https://propertyquarry.com",
+        "browser_base_url": "https://propertyquarry.com",
+        "demo_slug": slug,
+        "providers": ["matterport", "3dvista"],
+        "checks": [
+            {"name": "3dvista_rendered_viewer", "ok": True},
+            {"name": "3dvista_control_page_ok", "ok": True},
+        ],
+        "provider_results": [
+            {
+                "provider": "3dvista",
+                "status": "pass",
+                "state": {"provider_frame_url": "https://propertyquarry.com/tours/demo/3dvista/index.html"},
+            }
+        ],
+    }
+
+    persistence = gate.persist_3dvista_browser_render_proof_from_receipt(receipt)
+
+    assert persistence["status"] == "updated"
+    public_manifest = json.loads((bundle / "tour.json").read_text(encoding="utf-8"))
+    assert "three_d_vista_browser_render_proof" not in public_manifest
+    private_manifest = json.loads((bundle / "tour.private.json").read_text(encoding="utf-8"))
+    assert private_manifest["three_d_vista_browser_render_proof"]["status"] == "pass"
+    control_receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+    assert "3dvista" in control_receipt["ready_provider_modes"]
+
+
 def test_walkthrough_quality_gate_fails_without_room_coverage_receipt(
     monkeypatch,
     tmp_path: Path,

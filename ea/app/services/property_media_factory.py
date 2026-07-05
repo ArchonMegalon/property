@@ -101,8 +101,8 @@ DEFAULT_PROPERTY_MEDIA_PROVIDERS: tuple[ProviderCapability, ...] = (
         tasks=("walkthrough_video", "video_segment"),
         supports_first_frame=True,
         supports_constant_speed_publication=True,
-        final_publisher=False,
-        reason="1min.AI remains an implementation fallback/probe lane, but it is not OMagic and not a final publisher.",
+        final_publisher=True,
+        reason="1min.AI is the governed final-publication fallback when OMagic and MagicFit are unavailable; publication still requires duration, continuity, and room-coverage gates.",
     ),
     ProviderCapability(
         provider_key="poppy_ai",

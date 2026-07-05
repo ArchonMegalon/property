@@ -70,6 +70,20 @@ def test_legacy_onemin_aliases_select_internal_i2v_lane() -> None:
         assert route.provider_key == "onemin_i2v"
 
 
+def test_onemin_can_publish_final_walkthrough_when_selected() -> None:
+    route = route_property_media_task(
+        MediaRequirement(
+            task="walkthrough_video",
+            preferred_provider_key="onemin_i2v",
+            first_frame_continuity=True,
+            constant_speed=True,
+        )
+    )
+
+    assert route.ok
+    assert route.provider_key == "onemin_i2v"
+
+
 def test_magicfit_preference_stays_magicfit() -> None:
     route = route_property_media_task(MediaRequirement(task="walkthrough_video", preferred_provider_key="magicfit"))
 

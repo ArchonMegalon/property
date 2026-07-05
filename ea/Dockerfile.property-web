@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl python3-numpy && \
+    ca-certificates curl ffmpeg python3-numpy && \
     rm -rf /var/lib/apt/lists/* && \
     adduser --system --uid 10001 --group --home /home/ea --shell /bin/sh ea
 

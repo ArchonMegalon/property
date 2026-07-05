@@ -2711,9 +2711,9 @@ def test_propertyquarry_shortlist_and_research_routes_backfill_cached_preview_fa
     )
     assert shortlist_result["title"] == "Cached floorplan listing"
     assert shortlist_result["property_facts"]["has_floorplan"] is True
-    assert shortlist_result["property_facts"]["floorplan_urls_json"] == [floorplan_url]
-    assert shortlist_result["property_facts"]["source_virtual_tour_url"] == "https://tour.example.com/360"
     assert shortlist_result["floorplan_url"] == floorplan_url
+    assert "floorplan_urls_json" not in shortlist_result["property_facts"]
+    assert "source_virtual_tour_url" not in shortlist_result["property_facts"]
 
     research_detail = client.get("/app/research/cand-preview", params={"run_id": "run-preview"}, headers=headers)
 
@@ -2722,6 +2722,75 @@ def test_propertyquarry_shortlist_and_research_routes_backfill_cached_preview_fa
     assert "Media and plans" in research_detail.text
     assert floorplan_url in research_detail.text
     assert media_url in research_detail.text
+
+
+def test_propertyquarry_shortlist_backfill_scrubs_willhaben_tracking_tour_link(monkeypatch) -> None:
+    principal_id = "pq-shortlist-preview-scrub-tracking-link"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Preview Scrub Office")
+
+    property_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-flat-1134225012/"
+    cached_preview = {
+        "property_url": property_url,
+        "title": "Tracking link listing",
+        "summary": "Legacy preview still carries a tracking URL.",
+        "listing_id": "cached-1134225012",
+        "property_facts_json": {"area_sqm": 72},
+        "media_urls_json": ["https://cdn.example.com/listing-photo.avif"],
+        "floorplan_urls_json": [],
+        "source_virtual_tour_url": "https://api.willhaben.at/restapi/v2/logevent/atz/1134225012/virtual-tour-link-clicked",
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        candidate = {
+            "candidate_ref": "cand-tracking-link",
+            "property_url": property_url,
+            "title": property_url,
+            "summary": "",
+            "fit_score": 68,
+            "fit_summary": "Usable listing, but no real tour input.",
+            "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+            "property_facts": {"has_floorplan": False, "has_360": True},
+        }
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "completed_partial",
+            "summary": {
+                "status": "completed_partial",
+                "ranked_candidates": [dict(candidate)],
+                "sources": [{"source_label": "Willhaben", "top_candidates": [dict(candidate)]}],
+            },
+        }
+
+    def _fake_preview_cache_index(self):
+        return {property_url: dict(cached_preview)}
+
+    def _fake_preview_cache_lookup(self, *, cache_index: dict[str, dict[str, object]], property_url: str):
+        return dict(cache_index.get(property_url) or {})
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(ProductService, "_property_public_preview_cache_index", _fake_preview_cache_index)
+    monkeypatch.setattr(ProductService, "_property_public_preview_cache_lookup", _fake_preview_cache_lookup)
+
+    shortlist = client.get("/app/shortlist", params={"run_id": "run-tracking-link"}, headers=headers)
+
+    assert shortlist.status_code == 200
+    shortlist_match = re.search(
+        r'<script type="application/json" data-property-workbench-json>(.*?)</script>',
+        shortlist.text,
+        re.S,
+    )
+    assert shortlist_match is not None
+    shortlist_payload = json.loads(html.unescape(shortlist_match.group(1)))
+    shortlist_result = next(
+        row
+        for row in list(shortlist_payload.get("results") or [])
+        if str(row.get("candidate_ref") or "").strip() == "cand-tracking-link"
+    )
+    assert shortlist_result["source_virtual_tour_url"] == ""
+    assert shortlist_result["property_facts"]["source_virtual_tour_url"] == ""
 
 
 def test_propertyquarry_shortlist_open_recovers_detailed_preview_for_selected_candidate(monkeypatch) -> None:
@@ -9761,6 +9830,47 @@ def test_property_research_media_never_uses_generated_reconstruction_as_tour(mon
     assert payload["provider_label"] == ""
     assert payload["provider_key"] == ""
     assert payload["status_label"] == "3D tour unavailable"
+
+
+def test_property_research_media_surfaces_generated_reconstruction_preview_honestly(monkeypatch) -> None:
+    monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_asset_urls",
+        lambda _url, *, asset_key="photo_relpaths": (
+            "https://propertyquarry.com/tours/files/generated-preview/photo-01.webp",
+            "https://propertyquarry.com/tours/files/generated-preview/photo-02.webp",
+        ),
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_asset_url",
+        lambda _url, *, asset_key="viewer_relpath": (
+            "https://propertyquarry.com/tours/files/generated-preview/floorplan.webp"
+            if asset_key == "floorplan_relpath"
+            else ""
+        ),
+    )
+
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "generated_reconstruction_url": "https://propertyquarry.com/tours/generated-preview",
+            "tour_status": "blocked",
+            "blocked_reason": "property_tour_fallback_disabled",
+            "review_url": "https://propertyquarry.com/app/research/generated-preview",
+        }
+    )
+
+    assert payload["hosted_ready"] is False
+    assert payload["generated_reconstruction_ready"] is True
+    assert payload["generated_reconstruction_href"] == "https://propertyquarry.com/tours/files/generated-preview/photo-01.webp"
+    assert payload["has_live_viewer"] is False
+    assert payload["embed_href"] == ""
+    assert payload["status_label"] == "3D tour unavailable"
+    assert payload["status_detail"] == "A layout preview is ready below. A real 3D tour is not available for this listing yet."
+    assert payload["show_status_line"] is True
+    assert payload["primary_label"] == "Open property page"
+    assert payload["primary_href"] == "https://propertyquarry.com/app/research/generated-preview"
 
 
 def test_property_research_media_uses_generic_vendor_tour_copy(monkeypatch) -> None:

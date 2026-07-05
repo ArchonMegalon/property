@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -20,6 +21,7 @@ def build_id_austria_verification_receipt() -> dict[str, object]:
     readiness = id_austria_provider_readiness()
     receipt = {
         "contract_name": "propertyquarry.id_austria_provider_verification.v1",
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "provider": "id_austria",
         "status": readiness.get("id_austria_sign_in_status", "disabled"),
         "required": readiness.get("id_austria_sign_in_required") == "true",

@@ -10,6 +10,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from typing import Iterable
 from uuid import uuid4
 
 from app.product.projections import compact_text
@@ -104,6 +105,27 @@ def _public_tour_dir() -> Path:
     raw_value = str(os.getenv("EA_PUBLIC_TOUR_DIR") or "").strip()
     if raw_value:
         return Path(raw_value).expanduser()
+    try:
+        from scripts.property_tour_runtime_paths import preferred_public_tour_root, running_container_public_tour_dir
+    except Exception:
+        try:
+            from property_tour_runtime_paths import preferred_public_tour_root, running_container_public_tour_dir  # type: ignore[no-redef]
+        except Exception:
+            preferred_public_tour_root = None  # type: ignore[assignment]
+            running_container_public_tour_dir = None  # type: ignore[assignment]
+    if running_container_public_tour_dir is not None:
+        runtime_root = running_container_public_tour_dir(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "")
+        if isinstance(runtime_root, Path):
+            return runtime_root.expanduser()
+    if preferred_public_tour_root is not None:
+        with_runtime_context = preferred_public_tour_root(
+            configured_root="",
+            repo_root=Path(__file__).resolve().parents[3],
+            fallback_root="/docker/property/state/public_property_tours",
+            runtime_container=os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "",
+        )
+        if isinstance(with_runtime_context, Path):
+            return with_runtime_context.expanduser()
     return Path("/docker/property/state/public_property_tours").expanduser()
 
 
@@ -201,6 +223,62 @@ def _load_hosted_property_tour_payload(bundle_dir: Path) -> dict[str, object]:
         if isinstance(private_payload, dict):
             payload = {**dict(payload), **dict(private_payload)}
     return payload
+
+
+def persist_hosted_property_tour_browser_render_proof(
+    *,
+    slug: str,
+    provider: str,
+    proof: dict[str, object],
+    public_roots: Iterable[Path | str] | None = None,
+) -> dict[str, object]:
+    normalized_slug = str(slug or "").strip()
+    normalized_provider = str(provider or "").strip().lower()
+    if not normalized_slug or "/" in normalized_slug or ".." in normalized_slug:
+        return {"status": "invalid_slug", "slug": normalized_slug, "provider": normalized_provider}
+    if normalized_provider != "3dvista":
+        return {"status": "unsupported_provider", "slug": normalized_slug, "provider": normalized_provider}
+    proof_payload = dict(proof or {})
+    proof_payload.setdefault("provider", "3dvista")
+    candidate_roots = list(public_roots or [_public_tour_dir()])
+    seen_roots: set[str] = set()
+    updated_private_manifests: list[str] = []
+    for raw_root in candidate_roots:
+        try:
+            root = Path(raw_root).expanduser().resolve()
+        except OSError:
+            continue
+        root_key = str(root)
+        if root_key in seen_roots or not root.exists() or not root.is_dir():
+            continue
+        seen_roots.add(root_key)
+        bundle_dir = root / normalized_slug
+        manifest_path = bundle_dir / "tour.json"
+        if not manifest_path.is_file():
+            continue
+        private_manifest_path = _public_tour_private_manifest_path(bundle_dir)
+        private_payload: dict[str, object] = {}
+        if private_manifest_path.is_file():
+            try:
+                loaded_private = json.loads(private_manifest_path.read_text(encoding="utf-8"))
+            except Exception:
+                loaded_private = {}
+            if isinstance(loaded_private, dict):
+                private_payload = dict(loaded_private)
+        private_payload["three_d_vista_browser_render_proof"] = proof_payload
+        private_manifest_path.write_text(
+            json.dumps(private_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        updated_private_manifests.append(str(private_manifest_path))
+    if not updated_private_manifests:
+        return {"status": "tour_bundle_not_found", "slug": normalized_slug, "provider": normalized_provider}
+    return {
+        "status": "updated",
+        "slug": normalized_slug,
+        "provider": normalized_provider,
+        "updated_private_manifests": updated_private_manifests,
+    }
 
 
 def revoke_hosted_property_tour_bundle(*, slug: str, principal_id: str = "", actor: str = "") -> dict[str, object]:
@@ -644,11 +722,48 @@ def _hosted_property_tour_verified_open_url(tour_url: object) -> str:
     return _hosted_property_tour_control_url(normalized_url, viewer=provider)
 
 
+def _hosted_property_tour_generated_reconstruction_open_url(tour_url: object) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ""
+    slug = _hosted_property_tour_slug_from_url(normalized_url)
+    if not slug:
+        return ""
+    bundle_dir = _public_tour_dir() / slug
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return ""
+    payload = _load_hosted_property_tour_payload(bundle_dir)
+    if not payload or not isinstance(payload, dict):
+        return ""
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return ""
+    provider = str(generated_reconstruction.get("provider") or "").strip().lower()
+    if provider != "propertyquarry_generated_reconstruction":
+        return ""
+    if bool(generated_reconstruction.get("verified_provider_capture")):
+        return ""
+    viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
+    if viewer_version != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
+        return ""
+    viewer_relpath = str(generated_reconstruction.get("viewer_relpath") or "").strip().lstrip("/")
+    if not viewer_relpath:
+        return ""
+    viewer_path = (bundle_dir / viewer_relpath).resolve()
+    if bundle_dir.resolve() not in viewer_path.parents or not viewer_path.exists() or not viewer_path.is_file():
+        return ""
+    return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=viewer_relpath)
+
+
 def _hosted_property_tour_first_party_open_url(tour_url: object) -> str:
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
         return ""
-    return _hosted_property_tour_verified_open_url(normalized_url)
+    verified_open_url = _hosted_property_tour_verified_open_url(normalized_url)
+    if verified_open_url:
+        return verified_open_url
+    return _hosted_property_tour_generated_reconstruction_open_url(normalized_url)
 
 
 def _hosted_property_tour_walkthrough_asset_url(tour_url: object) -> str:
@@ -728,6 +843,38 @@ def _hosted_property_tour_generated_reconstruction_asset_url(tour_url: object, *
     if bundle_dir.resolve() not in asset_path.parents or not asset_path.exists() or not asset_path.is_file():
         return ""
     return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=relpath)
+
+
+def _hosted_property_tour_generated_reconstruction_bundle_ready(tour_url: object) -> bool:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return False
+    slug = _hosted_property_tour_slug_from_url(normalized_url)
+    if not slug:
+        return False
+    bundle_dir = _public_tour_dir() / slug
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return False
+    payload = _load_hosted_property_tour_payload(bundle_dir)
+    if not payload or not isinstance(payload, dict):
+        return False
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return False
+    provider = str(generated_reconstruction.get("provider") or "").strip().lower()
+    if provider != "propertyquarry_generated_reconstruction":
+        return False
+    if bool(generated_reconstruction.get("verified_provider_capture")):
+        return False
+    viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
+    if viewer_version != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
+        return False
+    viewer_relpath = str(generated_reconstruction.get("viewer_relpath") or "").strip().lstrip("/")
+    if not viewer_relpath:
+        return False
+    viewer_path = (bundle_dir / viewer_relpath).resolve()
+    return bundle_dir.resolve() in viewer_path.parents and viewer_path.exists() and viewer_path.is_file()
 
 
 def _hosted_property_tour_generated_reconstruction_asset_urls(
@@ -826,7 +973,7 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     if generated_viewer_relpath:
         generated_viewer_path = (bundle_dir / generated_viewer_relpath).resolve()
         if bundle_dir.resolve() in generated_viewer_path.parents and generated_viewer_path.exists() and generated_viewer_path.is_file():
-            return hosted_url
+            return ""
     if source_virtual_tour_url and not scenes:
         return f"{hosted_url}#live-360"
     if not scenes:
@@ -854,18 +1001,18 @@ def _existing_hosted_property_tour_payload(slug: str) -> dict[str, object]:
     normalized_slug = str(slug or "").strip()
     if not normalized_slug:
         return {}
-    hosted_url = _existing_hosted_property_tour_url({"slug": normalized_slug})
-    if not hosted_url:
-        return {}
     public_dir = _public_tour_dir()
-    manifest_path = public_dir / normalized_slug / "tour.json"
     payload = _load_hosted_property_tour_payload(public_dir / normalized_slug)
     if not payload:
         return {}
+    hosted_url = _existing_hosted_property_tour_url({"slug": normalized_slug})
+    canonical_url = f"{_hosted_property_tour_public_base_url()}/{normalized_slug}"
+    if not hosted_url and not _hosted_property_tour_generated_reconstruction_bundle_ready(canonical_url):
+        return {}
     payload = dict(payload)
     payload["slug"] = normalized_slug
-    payload["hosted_url"] = hosted_url
-    payload["public_url"] = hosted_url
+    payload["hosted_url"] = hosted_url or canonical_url
+    payload["public_url"] = hosted_url or canonical_url
     payload["tour_cache_status"] = "existing"
     payload.setdefault("creation_mode", "hosted_property_tour")
     return payload
@@ -923,6 +1070,51 @@ def _existing_hosted_property_tour_url_for_identity(
             hosted_url = _existing_hosted_property_tour_url({"slug": bundle_dir.name})
             if hosted_url:
                 return hosted_url
+    return ""
+
+
+def _existing_generated_reconstruction_tour_url_for_identity(
+    *,
+    property_url: object = "",
+    source_ref: object = "",
+    external_id: object = "",
+) -> str:
+    normalized_property_url = _normalized_property_tour_identity_url(property_url)
+    normalized_source_ref = str(source_ref or "").strip()
+    normalized_external_id = str(external_id or "").strip()
+    if not normalized_property_url and not normalized_source_ref and not normalized_external_id:
+        return ""
+    public_dir = _public_tour_dir()
+    try:
+        bundle_dirs = sorted(
+            (path for path in public_dir.iterdir() if path.is_dir() and not path.name.startswith(".")),
+            key=lambda path: path.name,
+        )
+    except Exception:
+        return ""
+    for bundle_dir in bundle_dirs:
+        payload = _load_hosted_property_tour_payload(bundle_dir)
+        if not payload:
+            continue
+        payload_property_urls = {
+            _normalized_property_tour_identity_url(payload.get("property_url")),
+            _normalized_property_tour_identity_url(payload.get("listing_url")),
+        }
+        payload_property_urls.discard("")
+        payload_source_ref = str(payload.get("source_ref") or "").strip()
+        payload_external_id = str(payload.get("external_id") or "").strip()
+        matches_identity = False
+        if normalized_property_url and normalized_property_url in payload_property_urls:
+            matches_identity = True
+        if normalized_source_ref and normalized_source_ref == payload_source_ref:
+            matches_identity = True
+        if normalized_external_id and normalized_external_id == payload_external_id:
+            matches_identity = True
+        if not matches_identity:
+            continue
+        canonical_url = f"{_hosted_property_tour_public_base_url()}/{bundle_dir.name}"
+        if _hosted_property_tour_generated_reconstruction_bundle_ready(canonical_url):
+            return canonical_url
     return ""
 
 def _safe_live_property_tour_url(value: object) -> str:

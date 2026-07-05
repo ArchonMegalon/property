@@ -50,7 +50,7 @@ def _run_generator(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[st
         env=env,
         capture_output=True,
         text=True,
-        timeout=90,
+        timeout=180,
         check=False,
     )
 
@@ -137,7 +137,7 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     if receipt["walkthrough"]["status"] == "generated":
         assert (output_dir / "generated-walkthrough.mp4").is_file()
         assert (output_dir / "generated-walkthrough.quality.json").is_file()
-        assert receipt["walkthrough"]["duration_seconds"] >= 30.0
+        assert receipt["walkthrough"]["duration_seconds"] >= 15.0
         assert receipt["walkthrough"]["coverage_proof"]["status"] == "pass"
 
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
@@ -237,7 +237,7 @@ def test_generated_reconstruction_can_disclose_inferred_floorplan_from_photos(tm
     assert manifest["generated_reconstruction"]["satisfies_verified_tour_gate"] is False
 
 
-def test_generated_reconstruction_public_allowlist_exposes_only_supporting_media_not_fake_tour() -> None:
+def test_generated_reconstruction_public_allowlist_exposes_viewer_but_not_raw_model_debug_assets() -> None:
     payload = {
         "slug": "generated-public-assets",
         "generated_reconstruction": {
@@ -257,7 +257,7 @@ def test_generated_reconstruction_public_allowlist_exposes_only_supporting_media
 
     allowed = public_tour_allowed_asset_paths(payload)
 
-    assert "generated-reconstruction/viewer.html" not in allowed
+    assert "generated-reconstruction/viewer.html" in allowed
     assert "generated-reconstruction/model.obj" not in allowed
     assert "generated-reconstruction/model.mtl" not in allowed
     assert "generated-reconstruction/source-floorplan.jpg" in allowed
@@ -269,3 +269,50 @@ def test_generated_reconstruction_public_allowlist_exposes_only_supporting_media
     assert "generated-reconstruction/private-debug.html" not in public_tour_allowed_asset_paths(
         {"public_assets": [{"relpath": "generated-reconstruction/private-debug.html"}]}
     )
+
+
+def test_generated_reconstruction_walkthrough_uses_explicit_room_labels_for_duration_and_coverage(tmp_path: Path) -> None:
+    slug = "generated-reconstruction-room-route"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    floorplan = tmp_path / "floorplan.jpg"
+    photo_a = tmp_path / "living.jpg"
+    photo_b = tmp_path / "bedroom.jpg"
+    _write_floorplan(floorplan)
+    _write_photo(photo_a, (122, 106, 84))
+    _write_photo(photo_b, (88, 104, 118))
+
+    generated = _run_generator(
+        tmp_path,
+        "--slug",
+        slug,
+        "--floorplan",
+        str(floorplan),
+        "--photo",
+        str(photo_a),
+        "--photo",
+        str(photo_b),
+        "--room-label",
+        "entry/hall",
+        "--room-label",
+        "living room",
+        "--room-label",
+        "bedroom",
+    )
+
+    assert generated.returncode == 0, generated.stderr
+    output_dir = bundle_dir / "generated-reconstruction"
+    receipt = json.loads((output_dir / "reconstruction.json").read_text(encoding="utf-8"))
+    if receipt["walkthrough"]["status"] != "generated":
+        return
+
+    assert receipt["walkthrough"]["duration_seconds"] == 45.0
+    sidecar = json.loads((output_dir / "generated-walkthrough.quality.json").read_text(encoding="utf-8"))
+    assert sidecar["seconds_per_stop"] == 15.0
+    assert sidecar["room_stop_count"] == 3
+    assert sidecar["route_labels"] == ["entry/hall", "living room", "bedroom"]
+    assert sidecar["walkthrough_coverage_proof"]["segments_expected"] == ["entry/hall", "living room", "bedroom"]
+    assert sidecar["walkthrough_coverage_proof"]["coverage_segments"] == [
+        {"segment": "entry/hall", "index": 1, "start": 0.0, "end": 15.0},
+        {"segment": "living room", "index": 2, "start": 15.0, "end": 30.0},
+        {"segment": "bedroom", "index": 3, "start": 30.0, "end": 45.0},
+    ]

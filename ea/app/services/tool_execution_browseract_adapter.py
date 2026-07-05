@@ -2856,7 +2856,18 @@ class BrowserActToolAdapter:
 
     @staticmethod
     def _crezlo_public_tour_base_url() -> str:
-        return str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "https://myexternalbrain.com/tours").strip().rstrip("/")
+        explicit = str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
+        if explicit:
+            return explicit
+        property_explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
+        if property_explicit:
+            return property_explicit
+        public_app = (
+            str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+            or str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+            or "https://propertyquarry.com"
+        )
+        return f"{public_app}/tours"
 
     @staticmethod
     def _crezlo_public_tour_slug(
@@ -4025,6 +4036,8 @@ class BrowserActToolAdapter:
         direct_fields = (
             "tour_title",
             "property_url",
+            "source_virtual_tour_url",
+            "panorama_source",
             "creative_brief",
             "variant_key",
             "language",

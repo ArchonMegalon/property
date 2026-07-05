@@ -4,6 +4,7 @@
 {% set object_query_suffix = ('?run_id=' ~ (object_run_id|urlencode)) if object_run_id else '' %}
 {% set settings_surface = request.url.path.startswith('/app/settings/') if request is defined and request.url is defined else false %}
 {% set hidden_action_labels = ['full view', 'open full view'] %}
+{% set has_sidebar_content = (((object_sidebar_rows or [])|length) > 0) or object_sidebar_form or object_feedback or object_sidebar_title or object_sidebar_copy or object_sidebar_kicker %}
 <style>
   .object-grid,
   .object-media-grid,
@@ -18,6 +19,9 @@
   }
   .object-grid {
     grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  }
+  .object-grid.is-single-column {
+    grid-template-columns: minmax(0, 1fr);
   }
   .object-media-grid {
     grid-template-columns: 1fr;
@@ -217,6 +221,9 @@
     gap: 10px;
     padding: 12px;
   }
+  .object-media-carousel-stage {
+    position: relative;
+  }
   .object-media-carousel-main,
   .object-media-carousel-thumb {
     color: inherit;
@@ -225,7 +232,9 @@
   .object-media-carousel-main {
     position: relative;
     display: block;
-    min-height: 260px;
+    min-height: clamp(190px, 32vw, 320px);
+    max-height: min(44svh, 360px);
+    aspect-ratio: 4 / 3;
     border-radius: 18px;
     overflow: hidden;
     background: var(--panel-2);
@@ -244,17 +253,47 @@
     object-fit: contain;
     padding: 8px;
   }
-  .object-media-carousel-cta {
+  .object-media-carousel-nav,
+  .object-media-carousel-count {
     position: absolute;
-    right: 12px;
-    bottom: 12px;
     border-radius: 999px;
-    background: rgba(20, 18, 14, 0.72);
-    color: #fff;
-    padding: 9px 12px;
-    font-size: 12px;
-    font-weight: 700;
+    border: 1px solid rgba(222, 214, 200, 0.78);
+    background: rgba(255, 253, 248, 0.92);
+    color: var(--text);
     backdrop-filter: blur(14px);
+    box-shadow: 0 12px 28px rgba(38, 32, 22, 0.14);
+  }
+  html[data-pq-theme="dark"] .object-media-carousel-nav,
+  html[data-pq-theme="dark"] .object-media-carousel-count {
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+  }
+  .object-media-carousel-nav {
+    top: 50%;
+    width: 42px;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transform: translateY(-50%);
+    cursor: pointer;
+    font: inherit;
+    font-size: 18px;
+  }
+  .object-media-carousel-nav.is-prev {
+    left: 12px;
+  }
+  .object-media-carousel-nav.is-next {
+    right: 12px;
+  }
+  .object-media-carousel-count {
+    left: 12px;
+    bottom: 12px;
+    padding: 7px 11px;
+    font-size: 12px;
+    font-weight: 600;
   }
   .object-media-carousel-strip {
     display: flex;
@@ -273,6 +312,13 @@
     height: 70px;
     border-radius: 12px;
     border: 1px solid var(--line);
+  }
+  .object-media-carousel-thumb.is-active img {
+    border-color: rgba(189, 139, 47, 0.72);
+    box-shadow: 0 0 0 1px rgba(189, 139, 47, 0.16);
+  }
+  .object-media-carousel-thumb.is-active span {
+    color: var(--text);
   }
   .object-media-carousel-thumb span {
     color: var(--text-dim);
@@ -818,7 +864,12 @@
       grid-template-rows: auto auto auto;
     }
     .object-media-carousel-main {
-      min-height: 220px;
+      min-height: 180px;
+      max-height: min(36svh, 260px);
+    }
+    .object-media-carousel-nav {
+      width: 38px;
+      height: 38px;
     }
     .object-media-carousel-actions {
       align-items: stretch;
@@ -1048,13 +1099,40 @@
       {% elif object_media_carousel_items %}
       {% set object_media_primary = object_media_carousel_items[0] %}
       <div class="object-media-carousel" data-object-media-carousel>
-        <a class="object-media-carousel-main{% if object_media_primary.get('kind') == 'floorplan' %} is-floorplan{% endif %}" href="{{ object_media.get('primary_href') or object_media_primary.get('href') }}" aria-label="{{ object_media.get('primary_label') or 'Open 3D tour' }}">
-          <img src="{{ object_media_primary.get('src') }}" alt="{{ object_media_primary.get('label') or 'Property media' }}" loading="eager">
-          {% if object_media.get('primary_href') %}<span class="object-media-carousel-cta">{{ object_media.get('primary_label') or 'Open 3D tour' }}</span>{% endif %}
-        </a>
+        <div class="object-media-carousel-stage">
+          <a
+            class="object-media-carousel-main{% if object_media_primary.get('kind') == 'floorplan' %} is-floorplan{% endif %}"
+            href="{{ object_media_primary.get('href') }}"
+            aria-label="{{ object_media_primary.get('label') or 'Open photo' }}"
+            data-object-media-main
+          >
+            <img
+              src="{{ object_media_primary.get('src') }}"
+              alt="{{ object_media_primary.get('label') or 'Property media' }}"
+              loading="eager"
+              data-object-media-main-image
+            >
+          </a>
+          {% if (object_media_carousel_items|length) > 1 %}
+          <button class="object-media-carousel-nav is-prev" type="button" data-object-media-prev aria-label="Show previous photo">&lt;</button>
+          <button class="object-media-carousel-nav is-next" type="button" data-object-media-next aria-label="Show next photo">&gt;</button>
+          <div class="object-media-carousel-count" data-object-media-count>1 / {{ object_media_carousel_items|length }}</div>
+          {% endif %}
+        </div>
         <div class="object-media-carousel-strip" aria-label="Property photos">
           {% for item in object_media_carousel_items %}
-          <a class="object-media-carousel-thumb{% if item.get('kind') == 'floorplan' %} is-floorplan{% endif %}" href="{{ item.get('href') }}" aria-label="{{ item.get('label') or 'Property media' }}">
+          <a
+            class="object-media-carousel-thumb{% if item.get('kind') == 'floorplan' %} is-floorplan{% endif %}{% if loop.first %} is-active{% endif %}"
+            href="{{ item.get('href') }}"
+            aria-label="{{ item.get('label') or 'Property media' }}"
+            aria-current="{% if loop.first %}true{% else %}false{% endif %}"
+            data-object-media-thumb
+            data-object-media-index="{{ loop.index0 }}"
+            data-object-media-src="{{ item.get('src') }}"
+            data-object-media-href="{{ item.get('href') }}"
+            data-object-media-kind="{{ item.get('kind') or 'photo' }}"
+            data-object-media-label="{{ item.get('label') or 'Property media' }}"
+          >
             <img src="{{ item.get('src') }}" alt="{{ item.get('label') or 'Property media' }}" loading="lazy">
             <span>{{ item.get('label') or 'Photo' }}</span>
           </a>
@@ -1169,14 +1247,14 @@
 {% endif %}
 {% endif %}
 
-<section class="object-grid{% if settings_surface %} is-settings-surface{% endif %}">
+<section class="object-grid{% if settings_surface %} is-settings-surface{% endif %}{% if not has_sidebar_content %} is-single-column{% endif %}">
   <section class="object-panel">
     <div class="object-kicker">{{ object_kind }}</div>
     <h1>{{ object_title }}</h1>
     {% if object_summary %}<p class="object-copy">{{ object_summary }}</p>{% endif %}
     {% if object_ooda_rows %}
     <section class="object-section" style="margin-top:14px;">
-      <div class="object-kicker">Overview</div>
+      <div class="object-kicker">{{ object_ooda_kicker or 'Overview' }}</div>
       <h2>{{ object_ooda_title or 'Decision summary' }}</h2>
       {% if object_ooda_copy %}<p class="object-copy">{{ object_ooda_copy }}</p>{% endif %}
       <div class="object-list">
@@ -1211,6 +1289,7 @@
     </div>
   </section>
 
+  {% if has_sidebar_content %}
   <aside class="{% if settings_surface %}object-panel-stack{% else %}object-panel{% endif %}">
     {% set sidebar_link_state = namespace(has_links=false) %}
     {% for item in object_sidebar_rows %}
@@ -1587,8 +1666,10 @@
 	    </section>
 	    {% endif %}
 	  </aside>
+  {% endif %}
 	</section>
 
+{% if object_sections %}
 <section class="object-sections{% if settings_surface %} is-settings-surface{% endif %}">
   {% for section in object_sections %}
   {% if settings_surface %}
@@ -1731,6 +1812,7 @@
     {% endif %}
   {% endfor %}
 </section>
+{% endif %}
 {% if settings_surface %}
 <script>
 (() => {
@@ -1756,6 +1838,64 @@
       });
     }
   });
+})();
+</script>
+{% endif %}
+{% if object_media and (object_media.get('carousel_items') or []) %}
+<script>
+(() => {
+  const carousel = document.querySelector('[data-object-media-carousel]');
+  if (!carousel) return;
+  const mainLink = carousel.querySelector('[data-object-media-main]');
+  const mainImage = carousel.querySelector('[data-object-media-main-image]');
+  const countNode = carousel.querySelector('[data-object-media-count]');
+  const prevButton = carousel.querySelector('[data-object-media-prev]');
+  const nextButton = carousel.querySelector('[data-object-media-next]');
+  const thumbs = Array.from(carousel.querySelectorAll('[data-object-media-thumb]'));
+  if (!(mainLink instanceof HTMLAnchorElement) || !(mainImage instanceof HTMLImageElement) || !thumbs.length) return;
+  let activeIndex = Math.max(0, thumbs.findIndex((thumb) => thumb.getAttribute('aria-current') === 'true'));
+  const readThumb = (thumb) => ({
+    href: String(thumb.getAttribute('data-object-media-href') || '').trim(),
+    src: String(thumb.getAttribute('data-object-media-src') || '').trim(),
+    label: String(thumb.getAttribute('data-object-media-label') || thumb.getAttribute('aria-label') || 'Property media').trim(),
+    kind: String(thumb.getAttribute('data-object-media-kind') || '').trim().toLowerCase(),
+  });
+  const setActive = (nextIndex, options = {}) => {
+    const shouldFocus = Boolean(options.focus);
+    if (!thumbs.length) return;
+    activeIndex = (nextIndex + thumbs.length) % thumbs.length;
+    const activeThumb = thumbs[activeIndex];
+    const payload = readThumb(activeThumb);
+    if (payload.href) mainLink.href = payload.href;
+    if (payload.label) mainLink.setAttribute('aria-label', payload.label);
+    if (payload.src) mainImage.src = payload.src;
+    if (payload.label) mainImage.alt = payload.label;
+    mainLink.classList.toggle('is-floorplan', payload.kind === 'floorplan');
+    thumbs.forEach((thumb, index) => {
+      const isActive = index === activeIndex;
+      thumb.classList.toggle('is-active', isActive);
+      thumb.setAttribute('aria-current', isActive ? 'true' : 'false');
+    });
+    if (countNode) countNode.textContent = `${activeIndex + 1} / ${thumbs.length}`;
+    activeThumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    if (shouldFocus) {
+      try {
+        activeThumb.focus({ preventScroll: true });
+      } catch (_error) {
+        activeThumb.focus();
+      }
+    }
+  };
+  thumbs.forEach((thumb, index) => {
+    thumb.addEventListener('click', (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      setActive(index, { focus: true });
+    });
+  });
+  prevButton?.addEventListener('click', () => setActive(activeIndex - 1));
+  nextButton?.addEventListener('click', () => setActive(activeIndex + 1));
+  setActive(activeIndex);
 })();
 </script>
 {% endif %}

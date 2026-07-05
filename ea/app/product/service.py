@@ -133,6 +133,7 @@ from app.product.property_tour_hosting import (
     _download_public_tour_asset,
     _download_public_tour_asset_with_type,
     _embedded_live_360_source_url,
+    _existing_generated_reconstruction_tour_url_for_identity,
     _existing_hosted_property_tour_payload,
     _existing_hosted_property_tour_url_for_identity,
     _existing_hosted_property_tour_url,
@@ -146,6 +147,7 @@ from app.product.property_tour_hosting import (
     _hosted_property_tour_direct_360_url,
     _hosted_property_tour_first_party_open_url,
     _hosted_property_tour_generated_reconstruction_asset_url,
+    _hosted_property_tour_generated_reconstruction_bundle_ready,
     _hosted_property_tour_preview_image_url,
     _hosted_property_tour_public_base_url,
     _hosted_property_tour_slug,
@@ -3764,10 +3766,24 @@ def _property_search_prefetch_listing_urls(
 
 def _property_candidate_supports_live_tour(candidate: dict[str, object]) -> bool:
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    source_virtual_tour_url = _safe_provider_live_360_url(facts.get("source_virtual_tour_url"))
+    raw_source_virtual_tour_url = str(
+        candidate.get("source_virtual_tour_url") or facts.get("source_virtual_tour_url") or ""
+    ).strip()
+    source_virtual_tour_url = _safe_provider_live_360_url(raw_source_virtual_tour_url)
+    has_live_360_signal = bool(facts.get("has_360")) and not raw_source_virtual_tour_url
+    has_floorplan = bool(
+        candidate.get("floorplan_url")
+        or facts.get("has_floorplan")
+        or int(facts.get("floorplan_count") or 0) > 0
+        or list(candidate.get("floorplan_urls_json") or [])
+        or list(facts.get("floorplan_urls_json") or [])
+    )
     return bool(
-        facts.get("has_360")
+        str(candidate.get("tour_url") or "").strip()
+        or str(candidate.get("vendor_tour_url") or "").strip()
         or source_virtual_tour_url
+        or has_live_360_signal
+        or has_floorplan
     )
 
 
@@ -6034,6 +6050,7 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
             floorplan_urls = tuple(str(item or "").strip() for item in list(willhaben_packet_preview.get("floorplan_urls_json") or []) if str(item or "").strip())
         if not source_virtual_tour_url:
             source_virtual_tour_url = str(willhaben_packet_preview.get("source_virtual_tour_url") or "").strip()
+    source_virtual_tour_url = _safe_provider_live_360_url(source_virtual_tour_url)
     if not prefer_fast and str(property_facts.get("provider_channel") or "").strip() == "justiz_edikte_at":
         for detail_url in _property_scout_extract_context_links(
             source_url=normalized,
@@ -9570,6 +9587,7 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
                 continue
             if key in {
                 "tour_url",
+                "generated_reconstruction_url",
                 "vendor_tour_url",
                 "flythrough_url",
                 "tour_status",
@@ -16897,6 +16915,18 @@ def _hosted_property_tour_seed_image_path(tour_url: str) -> Path | None:
         value = str(payload.get(key) or "").strip()
         if value:
             candidate_relpaths.append(value)
+    generated_reconstruction = (
+        dict(payload.get("generated_reconstruction") or {})
+        if isinstance(payload.get("generated_reconstruction"), dict)
+        else {}
+    )
+    for value in list(generated_reconstruction.get("photo_relpaths") or []):
+        normalized = str(value or "").strip()
+        if normalized:
+            candidate_relpaths.append(normalized)
+    floorplan_relpath = str(generated_reconstruction.get("floorplan_relpath") or "").strip()
+    if floorplan_relpath:
+        candidate_relpaths.append(floorplan_relpath)
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -16931,6 +16961,12 @@ def _magicfit_property_room_visit_plan(
     property_facts: dict[str, object] | None,
 ) -> tuple[int, list[str]]:
     facts = dict(property_facts or {})
+    def _route_label_key(value: object) -> str:
+        normalized = _magicfit_normalized_route_label(value)
+        if normalized:
+            return normalized
+        return compact_text(str(value or "").strip().lower(), fallback="", limit=80)
+
     explicit_route_labels: list[str] = []
     for key in ("magicfit_route_labels", "room_visit_plan", "walkthrough_route_labels", "walkable_route_labels"):
         raw_labels = facts.get(key)
@@ -17002,6 +17038,12 @@ def _magicfit_property_room_visit_plan(
             ("flur", "hall", "foyer", "eingang", "entrance", "entry", "egress", "vorraum"),
         ),
         (
+            "stairs",
+            r"\b(?:stairs?|staircase|treppe|treppen|stiege|stiegen|maisonette|duplex|split[- ]level|mezzanine)\b",
+            "staircase",
+            ("stairs", "staircase", "treppe", "treppen", "stiege", "stiegen", "maisonette", "duplex", "split level", "mezzanine"),
+        ),
+        (
             "storage",
             r"\b(?:storage|store room|storeroom|utility room|abstellraum|abstellr(?:a|ä)ume|ar)\b",
             "storage room",
@@ -17043,53 +17085,65 @@ def _magicfit_property_room_visit_plan(
 
     def _add_route_label(labels: list[str], label: str) -> None:
         normalized = compact_text(str(label or "").strip(), fallback="", limit=80)
-        if normalized and normalized.lower() not in {item.lower() for item in labels}:
+        normalized_key = _route_label_key(normalized)
+        if normalized and normalized_key not in {_route_label_key(item) for item in labels}:
             labels.append(normalized)
+
+    inferred_route_labels: list[str] = []
+    if bonus.get("hall"):
+        _add_route_label(inferred_route_labels, "entry/hall")
+    if bonus.get("stairs"):
+        _add_route_label(inferred_route_labels, "staircase")
+    if bonus.get("storage"):
+        _add_route_label(inferred_route_labels, "storage room")
+    if bonus.get("bathroom"):
+        _add_route_label(inferred_route_labels, "bath/WC")
+    elif bonus.get("toilet"):
+        _add_route_label(inferred_route_labels, "toilet")
+    separate_toilet_signal = bool(
+        re.search(
+            r"\b(?:separat(?:e|es|er|en)?|separate|extra|eigen(?:e|es|er|en)?)\s+(?:w\.?c\.?|wc|toilette|toilet)\b",
+            room_signal_text,
+            flags=re.IGNORECASE,
+        )
+    )
+    bathroom_and_wc_listed_separately = bool(
+        bonus.get("bathroom")
+        and bonus.get("toilet")
+        and re.search(
+            r"\b(?:bad|bathroom|badezimmer)\s*[,;/+&]\s*(?:w\.?c\.?|wc|toilette|toilet)\b",
+            room_signal_text,
+            flags=re.IGNORECASE,
+        )
+    )
+    if bonus.get("toilet") and (not bonus.get("bathroom") or separate_toilet_signal or bathroom_and_wc_listed_separately):
+        _add_route_label(inferred_route_labels, "toilet")
+    if bonus.get("kitchen"):
+        _add_route_label(inferred_route_labels, "living kitchen")
+    if base_room_count >= 1:
+        _add_route_label(inferred_route_labels, "living room")
+    if base_room_count >= 2:
+        _add_route_label(inferred_route_labels, "bedroom")
+    for bedroom_index in range(2, max(1, base_room_count - 1) + 1):
+        _add_route_label(inferred_route_labels, f"bedroom {bedroom_index}")
+    if bonus.get("dining") and not bonus.get("kitchen"):
+        _add_route_label(inferred_route_labels, "dining room")
+    if bonus.get("outdoor"):
+        _add_route_label(inferred_route_labels, "balcony/terrace")
 
     room_visit_labels: list[str] = []
     if explicit_route_labels:
-        room_visit_labels = list(explicit_route_labels)
+        for label in explicit_route_labels:
+            _add_route_label(room_visit_labels, label)
+        # Some routes only expose a partial stop list. Keep the explicit order, then
+        # add any clearly missing walkable rooms from the listing facts so the
+        # walkthrough still covers the full flat instead of stopping early.
+        for label in inferred_route_labels:
+            _add_route_label(room_visit_labels, label)
     else:
-        if bonus.get("hall"):
-            _add_route_label(room_visit_labels, "entry/hall")
-        if bonus.get("storage"):
-            _add_route_label(room_visit_labels, "storage room")
-        if bonus.get("bathroom"):
-            _add_route_label(room_visit_labels, "bath/WC")
-        elif bonus.get("toilet"):
-            _add_route_label(room_visit_labels, "toilet")
-        separate_toilet_signal = bool(
-            re.search(
-                r"\b(?:separat(?:e|es|er|en)?|separate|extra|eigen(?:e|es|er|en)?)\s+(?:w\.?c\.?|wc|toilette|toilet)\b",
-                room_signal_text,
-                flags=re.IGNORECASE,
-            )
-        )
-        bathroom_and_wc_listed_separately = bool(
-            bonus.get("bathroom")
-            and bonus.get("toilet")
-            and re.search(
-                r"\b(?:bad|bathroom|badezimmer)\s*[,;/+&]\s*(?:w\.?c\.?|wc|toilette|toilet)\b",
-                room_signal_text,
-                flags=re.IGNORECASE,
-            )
-        )
-        if bonus.get("toilet") and (not bonus.get("bathroom") or separate_toilet_signal or bathroom_and_wc_listed_separately):
-            _add_route_label(room_visit_labels, "toilet")
-        if bonus.get("kitchen"):
-            _add_route_label(room_visit_labels, "living kitchen")
-        if base_room_count >= 1:
-            _add_route_label(room_visit_labels, "living room")
-        if base_room_count >= 2:
-            _add_route_label(room_visit_labels, "bedroom")
-        for bedroom_index in range(2, max(1, base_room_count - 1) + 1):
-            _add_route_label(room_visit_labels, f"bedroom {bedroom_index}")
-        if bonus.get("dining") and not bonus.get("kitchen"):
-            _add_route_label(room_visit_labels, "dining room")
-        if bonus.get("outdoor"):
-            _add_route_label(room_visit_labels, "balcony/terrace")
+        room_visit_labels = list(inferred_route_labels)
     if explicit_route_labels:
-        computed_room_count = max(1, len(explicit_route_labels))
+        computed_room_count = max(1, len(room_visit_labels))
     elif room_visit_labels:
         computed_room_count = len(room_visit_labels)
     else:
@@ -17104,7 +17158,7 @@ def _magicfit_property_room_visit_plan(
             tour_scene_count = max(tour_scene_count, int(float(str(raw_scene_count).strip())))
         except Exception:
             continue
-    if computed_room_count <= 2 and tour_scene_count >= 4:
+    if not explicit_route_labels and computed_room_count <= 2 and tour_scene_count >= 4:
         derived_stop_count = max(5, min(6, tour_scene_count))
         if derived_stop_count > computed_room_count:
             computed_room_count = derived_stop_count
@@ -18070,22 +18124,25 @@ def _render_onemin_property_flythrough_into_hosted_tour(
             if item.strip()
         ]
         primary_segment_model = model_order[0] if model_order else "pika"
-        model_segment_seconds = {
-            "pika": 5,
-            "skyreels": 5,
-            "veo3": 8,
-            "veo3-video": 8,
-            "veo3-video-fast": 8,
-            "hailuo": 6,
-            "kling": 5,
-            "luma": 5,
-        }
-        segment_duration_target = int(
-            os.getenv("PROPERTYQUARRY_ONEMIN_SEGMENT_DURATION_SECONDS")
-            or model_segment_seconds.get(primary_segment_model, 5)
+        try:
+            default_seconds_per_stop = float(
+                os.getenv("PROPERTYQUARRY_FLYTHROUGH_SECONDS_PER_ROUTE_STOP")
+                or "15"
+            )
+        except Exception:
+            default_seconds_per_stop = 15.0
+        configured_segment_target = str(os.getenv("PROPERTYQUARRY_ONEMIN_SEGMENT_DURATION_SECONDS") or "").strip()
+        explicit_segment_duration_target = 0
+        if configured_segment_target:
+            with contextlib.suppress(Exception):
+                explicit_segment_duration_target = int(float(configured_segment_target))
+        segment_plan = _property_walkthrough_onemin_segment_plan(
+            route_labels=route_labels,
+            seconds_per_stop=default_seconds_per_stop,
+            primary_model=primary_segment_model,
+            max_segment_duration_override=explicit_segment_duration_target,
         )
-        segment_duration_target = max(5, min(10, segment_duration_target))
-        planned_segments = max(1, int(math.ceil(required_duration_seconds / float(segment_duration_target))))
+        planned_segments = max(1, len(segment_plan))
         max_segments = max(planned_segments + 2, int(os.getenv("PROPERTYQUARRY_ONEMIN_MAX_SEGMENTS") or "14"))
         segment_paths: list[Path] = []
         segment_sidecars: list[dict[str, object]] = []
@@ -18108,7 +18165,9 @@ def _render_onemin_property_flythrough_into_hosted_tour(
                 step_index=segment_index,
                 step_total=effective_total_segments,
             )
-            focus = route_labels[(segment_index - 1) % len(route_labels)]
+            plan_entry = segment_plan[min(segment_index - 1, len(segment_plan) - 1)]
+            focus = str(plan_entry.get("focus") or route_labels[(segment_index - 1) % len(route_labels)]).strip()
+            segment_duration_target = max(5, min(15, int(plan_entry.get("duration_seconds") or 5)))
             segment_prompt = (
                 f"{prompt} Segment {segment_index} of one continuous first-person walkthrough. "
                 f"Focus on {focus}. "
@@ -18135,7 +18194,7 @@ def _render_onemin_property_flythrough_into_hosted_tour(
                 "--model-order",
                 model_order_text,
                 "--feature-timeout",
-                str(int(os.getenv("PROPERTYQUARRY_ONEMIN_FEATURE_TIMEOUT_SECONDS") or "180")),
+                str(_property_walkthrough_onemin_feature_timeout_seconds()),
             ]
             max_keys = int(os.getenv("PROPERTYQUARRY_ONEMIN_MAX_KEYS_PER_SEGMENT") or "0")
             if max_keys > 0:
@@ -18146,7 +18205,7 @@ def _render_onemin_property_flythrough_into_hosted_tour(
                     cwd=str(_repo_root()),
                     capture_output=True,
                     text=True,
-                    timeout=max(120, int(os.getenv("PROPERTYQUARRY_ONEMIN_SEGMENT_SUBPROCESS_TIMEOUT_SECONDS") or "480")),
+                    timeout=_property_walkthrough_onemin_segment_subprocess_timeout_seconds(),
                     check=False,
                 )
             except subprocess.TimeoutExpired as exc:
@@ -18163,10 +18222,7 @@ def _render_onemin_property_flythrough_into_hosted_tour(
                                 "duration_seconds": 0.0,
                                 "stdout_tail": compact_text(str(exc.stdout or "").strip(), fallback="", limit=1200),
                                 "stderr_tail": compact_text(str(exc.stderr or "").strip(), fallback="", limit=1200),
-                                "timeout_seconds": max(
-                                    120,
-                                    int(os.getenv("PROPERTYQUARRY_ONEMIN_SEGMENT_SUBPROCESS_TIMEOUT_SECONDS") or "480"),
-                                ),
+                                "timeout_seconds": _property_walkthrough_onemin_segment_subprocess_timeout_seconds(),
                             },
                         ],
                     }
@@ -18998,6 +19054,19 @@ def _render_property_flythrough_into_hosted_tour(
     tour_context_json: dict[str, object] | None = None,
 ) -> dict[str, object]:
     normalized_preferred_provider = _normalize_provider_preference(preferred_provider_key)
+    auto_selected_provider_key = ""
+    if not normalized_preferred_provider:
+        with contextlib.suppress(Exception):
+            from app.services.scene_video_contract import resolve_property_walkthrough_runtime_provider
+
+            provider_resolution = resolve_property_walkthrough_runtime_provider("")
+            auto_selected_provider_key = str(
+                provider_resolution.get("provider_backend_key")
+                or provider_resolution.get("provider_key")
+                or ""
+            ).strip()
+            if auto_selected_provider_key:
+                normalized_preferred_provider = _normalize_provider_preference(auto_selected_provider_key)
     _write_hosted_property_visual_progress(
         tour_url=tour_url,
         request_kind="flythrough",
@@ -19022,6 +19091,8 @@ def _render_property_flythrough_into_hosted_tour(
         "media_route_reason": route.reason,
         "media_route_candidates": list(route.candidates),
     }
+    if auto_selected_provider_key:
+        route_payload["media_route_auto_selected_provider_key"] = auto_selected_provider_key
     if not route.ok:
         _write_hosted_property_visual_progress(
             tour_url=tour_url,
@@ -20192,11 +20263,88 @@ def _magicfit_flythrough_minimum_duration_seconds(*, title: str, property_facts:
         property_facts=dict(property_facts or {}),
     )
     try:
-        seconds_per_stop = float(os.getenv("PROPERTYQUARRY_FLYTHROUGH_SECONDS_PER_ROUTE_STOP") or "10")
+        seconds_per_stop = float(os.getenv("PROPERTYQUARRY_FLYTHROUGH_SECONDS_PER_ROUTE_STOP") or "15")
     except Exception:
-        seconds_per_stop = 10.0
+        seconds_per_stop = 15.0
     seconds_per_stop = max(5.0, min(30.0, seconds_per_stop))
     return float(max(1, min(25, int(room_count or 1))) * seconds_per_stop)
+
+
+def _property_walkthrough_onemin_feature_timeout_seconds() -> int:
+    raw_value = str(
+        os.getenv("PROPERTYQUARRY_ONEMIN_WALKTHROUGH_FEATURE_TIMEOUT_SECONDS")
+        or os.getenv("PROPERTYQUARRY_ONEMIN_FEATURE_TIMEOUT_SECONDS")
+        or "180"
+    ).strip()
+    try:
+        parsed = int(float(raw_value))
+    except Exception:
+        parsed = 180
+    return max(120, min(900, parsed))
+
+
+def _property_walkthrough_onemin_segment_subprocess_timeout_seconds() -> int:
+    feature_timeout = _property_walkthrough_onemin_feature_timeout_seconds()
+    raw_value = str(
+        os.getenv("PROPERTYQUARRY_ONEMIN_WALKTHROUGH_SEGMENT_SUBPROCESS_TIMEOUT_SECONDS")
+        or os.getenv("PROPERTYQUARRY_ONEMIN_SEGMENT_SUBPROCESS_TIMEOUT_SECONDS")
+        or ""
+    ).strip()
+    parsed = 0
+    if raw_value:
+        with contextlib.suppress(Exception):
+            parsed = int(float(raw_value))
+    derived_timeout = max(420, feature_timeout + 150, (feature_timeout * 2) + 60)
+    if parsed > 0:
+        derived_timeout = max(parsed, derived_timeout)
+    return max(180, min(1800, derived_timeout))
+
+
+def _property_walkthrough_onemin_model_max_segment_seconds(model_key: str) -> int:
+    normalized = str(model_key or "").strip().lower()
+    return {
+        "pika": 10,
+        "skyreels": 5,
+        "veo3": 8,
+        "veo3-video": 8,
+        "veo3-video-fast": 8,
+        "hailuo": 10,
+        "kling": 10,
+        "luma": 10,
+    }.get(normalized, 10)
+
+
+def _property_walkthrough_onemin_segment_plan(
+    *,
+    route_labels: list[str],
+    seconds_per_stop: float,
+    primary_model: str,
+    max_segment_duration_override: int = 0,
+) -> list[dict[str, object]]:
+    normalized_route_labels = [str(item or "").strip() for item in route_labels if str(item or "").strip()]
+    if not normalized_route_labels:
+        normalized_route_labels = ["entry/hall"]
+    remaining_seconds_per_stop = max(5.0, min(30.0, float(seconds_per_stop or 15.0)))
+    provider_segment_max = max(5, min(15, _property_walkthrough_onemin_model_max_segment_seconds(primary_model)))
+    if max_segment_duration_override > 0:
+        provider_segment_max = min(provider_segment_max, max(5, min(15, int(max_segment_duration_override))))
+    plan: list[dict[str, object]] = []
+    for label in normalized_route_labels:
+        remaining = remaining_seconds_per_stop
+        while remaining > 0.01:
+            requested_duration = min(float(provider_segment_max), remaining)
+            if remaining > float(provider_segment_max):
+                segment_duration = provider_segment_max
+            else:
+                segment_duration = max(5, int(math.ceil(requested_duration)))
+            plan.append(
+                {
+                    "focus": label,
+                    "duration_seconds": segment_duration,
+                }
+            )
+            remaining -= float(segment_duration)
+    return plan or [{"focus": "entry/hall", "duration_seconds": max(5, min(15, provider_segment_max))}]
 
 
 def _magicfit_normalized_route_label(value: object) -> str:
@@ -20206,6 +20354,8 @@ def _magicfit_normalized_route_label(value: object) -> str:
     text = re.sub(r"[^a-z0-9äöüß]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     aliases = {
+        "entry": "hall",
+        "entrance": "hall",
         "entry hall": "hall",
         "vorraum": "hall",
         "flur": "hall",
@@ -20215,6 +20365,7 @@ def _magicfit_normalized_route_label(value: object) -> str:
         "bad wc": "bath toilet",
         "separate toilet": "toilet",
         "wc": "toilet",
+        "kitchen living": "living kitchen",
         "wohnkuche": "living kitchen",
         "wohnküche": "living kitchen",
         "zimmer schlafzimmer": "bedroom",
@@ -20866,6 +21017,60 @@ def _crezlo_property_tour_bootstrap_metadata() -> dict[str, object]:
             }
             if _merge_workspace_metadata(merged):
                 break
+    login_email = _first_non_empty_text(
+        metadata.get("crezlo_login_email"),
+        os.getenv("EA_CREZLO_LOGIN_EMAIL"),
+        os.getenv("CREZLO_LOGIN_EMAIL"),
+    )
+    if login_email:
+        metadata["crezlo_login_email"] = login_email
+    login_password = _first_non_empty_text(
+        metadata.get("crezlo_login_password"),
+        os.getenv("EA_CREZLO_LOGIN_PASSWORD"),
+        os.getenv("CREZLO_LOGIN_PASSWORD"),
+    )
+    if login_password:
+        metadata["crezlo_login_password"] = login_password
+    workspace_id = _first_non_empty_text(
+        metadata.get("crezlo_workspace_id"),
+        metadata.get("browseract_crezlo_workspace_id"),
+        os.getenv("EA_CREZLO_WORKSPACE_ID"),
+        os.getenv("CREZLO_WORKSPACE_ID"),
+        "019d0cff-3282-70a9-9c5a-20dfdce7f3fe",
+    )
+    workspace_domain = _first_non_empty_text(
+        metadata.get("crezlo_workspace_domain"),
+        metadata.get("browseract_crezlo_workspace_domain"),
+        os.getenv("EA_CREZLO_WORKSPACE_DOMAIN"),
+        os.getenv("CREZLO_WORKSPACE_DOMAIN"),
+        "ea-property-tours-20260320.crezlotours.com",
+    )
+    workspace_base_url = _first_non_empty_text(
+        metadata.get("crezlo_workspace_base_url"),
+        metadata.get("browseract_crezlo_workspace_base_url"),
+        os.getenv("EA_CREZLO_WORKSPACE_BASE_URL"),
+        os.getenv("CREZLO_WORKSPACE_BASE_URL"),
+        f"https://{workspace_domain}" if workspace_domain else "",
+    )
+    workspace_tours_url = _first_non_empty_text(
+        metadata.get("crezlo_workspace_tours_url"),
+        metadata.get("browseract_crezlo_workspace_tours_url"),
+        os.getenv("EA_CREZLO_WORKSPACE_TOURS_URL"),
+        os.getenv("CREZLO_WORKSPACE_TOURS_URL"),
+        f"{workspace_base_url}/admin/tours" if workspace_base_url else "",
+    )
+    if workspace_id:
+        metadata["crezlo_workspace_id"] = workspace_id
+        metadata["browseract_crezlo_workspace_id"] = workspace_id
+    if workspace_domain:
+        metadata["crezlo_workspace_domain"] = workspace_domain
+        metadata["browseract_crezlo_workspace_domain"] = workspace_domain
+    if workspace_base_url:
+        metadata["crezlo_workspace_base_url"] = workspace_base_url
+        metadata["browseract_crezlo_workspace_base_url"] = workspace_base_url
+    if workspace_tours_url:
+        metadata["crezlo_workspace_tours_url"] = workspace_tours_url
+        metadata["browseract_crezlo_workspace_tours_url"] = workspace_tours_url
     return metadata
 
 
@@ -28105,6 +28310,12 @@ class ProductService:
             source_ref=source_ref or first_candidate.get("source_ref") or "",
             external_id=external_id or first_candidate.get("external_id") or candidate_property_url or property_url,
         )
+        if not normalized_tour_url:
+            normalized_tour_url = _existing_generated_reconstruction_tour_url_for_identity(
+                property_url=candidate_property_url or property_url,
+                source_ref=source_ref or first_candidate.get("source_ref") or "",
+                external_id=external_id or first_candidate.get("external_id") or candidate_property_url or property_url,
+            )
         if existing is not None:
             existing_input = dict(getattr(existing, "input_json", {}) or {})
             payload = {
@@ -29471,27 +29682,232 @@ class ProductService:
         if explicit:
             return explicit
         bindings = self._container.tool_runtime.list_connector_bindings(principal_id, limit=100)
+        connector_bindings = self._container.tool_runtime.list_connector_bindings_for_connector("browseract", limit=500)
+        crezlo_candidates: list[tuple[int, object]] = []
+        generic_candidates: list[object] = []
+        crezlo_shared_metadata_keys = {
+            "service_name",
+            "service_accounts_json",
+            "crezlo_login_email",
+            "crezlo_login_password",
+            "crezlo_workspace_id",
+            "browseract_crezlo_workspace_id",
+            "crezlo_workspace_domain",
+            "browseract_crezlo_workspace_domain",
+            "crezlo_workspace_base_url",
+            "browseract_crezlo_workspace_base_url",
+            "crezlo_workspace_tours_url",
+            "browseract_crezlo_workspace_tours_url",
+            "crezlo_property_tour_workflow_id",
+            "browseract_crezlo_property_tour_workflow_id",
+        }
+
+        def _binding_markers(row: object) -> tuple[set[str], bool]:
+            markers: set[str] = set()
+            specialized = False
+            external_account_ref = str(getattr(row, "external_account_ref", "") or "").strip().lower()
+            if external_account_ref:
+                markers.add(external_account_ref)
+                if "crezlo" in external_account_ref:
+                    markers.add("crezlo")
+            scope_json = dict(getattr(row, "scope_json", {}) or {})
+            scope_services = scope_json.get("services")
+            if isinstance(scope_services, (list, tuple, set)):
+                for raw_service in scope_services:
+                    lowered = str(raw_service or "").strip().lower()
+                    if not lowered:
+                        continue
+                    markers.add(lowered)
+                    if lowered not in {"browseract", "browseract_api"}:
+                        specialized = True
+            auth_metadata = dict(getattr(row, "auth_metadata_json", {}) or {})
+            for key in ("service_name", "service_key", "browseract_service_key", "capability_key", "tool_name"):
+                lowered = str(auth_metadata.get(key) or "").strip().lower()
+                if not lowered:
+                    continue
+                markers.add(lowered)
+                if lowered not in {"browseract", "browseract_api"}:
+                    specialized = True
+            service_accounts = auth_metadata.get("service_accounts_json")
+            if isinstance(service_accounts, dict):
+                for raw_service in service_accounts.keys():
+                    lowered = str(raw_service or "").strip().lower()
+                    if not lowered:
+                        continue
+                    markers.add(lowered)
+                    specialized = True
+            for key, value in auth_metadata.items():
+                key_lowered = str(key or "").strip().lower()
+                if "crezlo" in key_lowered and value not in {None, ""}:
+                    markers.add("crezlo")
+                    specialized = True
+            return markers, specialized
+
+        def _normalize_crezlo_metadata(auth_metadata: dict[str, object] | None) -> dict[str, object]:
+            metadata = dict(auth_metadata or {})
+            normalized = dict(metadata)
+            login_email = _first_non_empty_text(metadata.get("crezlo_login_email"))
+            login_password = _first_non_empty_text(metadata.get("crezlo_login_password"))
+            workspace_id = _first_non_empty_text(
+                metadata.get("crezlo_workspace_id"),
+                metadata.get("browseract_crezlo_workspace_id"),
+            )
+            workspace_domain = _first_non_empty_text(
+                metadata.get("crezlo_workspace_domain"),
+                metadata.get("browseract_crezlo_workspace_domain"),
+            )
+            workspace_base_url = _first_non_empty_text(
+                metadata.get("crezlo_workspace_base_url"),
+                metadata.get("browseract_crezlo_workspace_base_url"),
+                f"https://{workspace_domain}" if workspace_domain else "",
+            )
+            workspace_tours_url = _first_non_empty_text(
+                metadata.get("crezlo_workspace_tours_url"),
+                metadata.get("browseract_crezlo_workspace_tours_url"),
+                f"{workspace_base_url}/admin/tours" if workspace_base_url else "",
+            )
+            workflow_id = _first_non_empty_text(
+                metadata.get("crezlo_property_tour_workflow_id"),
+                metadata.get("browseract_crezlo_property_tour_workflow_id"),
+            )
+            if login_email:
+                normalized["crezlo_login_email"] = login_email
+            if login_password:
+                normalized["crezlo_login_password"] = login_password
+            if workspace_id:
+                normalized["crezlo_workspace_id"] = workspace_id
+                normalized["browseract_crezlo_workspace_id"] = workspace_id
+            if workspace_domain:
+                normalized["crezlo_workspace_domain"] = workspace_domain
+                normalized["browseract_crezlo_workspace_domain"] = workspace_domain
+            if workspace_base_url:
+                normalized["crezlo_workspace_base_url"] = workspace_base_url
+                normalized["browseract_crezlo_workspace_base_url"] = workspace_base_url
+            if workspace_tours_url:
+                normalized["crezlo_workspace_tours_url"] = workspace_tours_url
+                normalized["browseract_crezlo_workspace_tours_url"] = workspace_tours_url
+            if workflow_id:
+                normalized["crezlo_property_tour_workflow_id"] = workflow_id
+                normalized["browseract_crezlo_property_tour_workflow_id"] = workflow_id
+            return normalized
+
+        def _crezlo_metadata_completeness(auth_metadata: dict[str, object] | None) -> int:
+            metadata = _normalize_crezlo_metadata(auth_metadata)
+            score = 0
+            if str(metadata.get("crezlo_login_email") or "").strip():
+                score += 2
+            if str(metadata.get("crezlo_login_password") or "").strip():
+                score += 2
+            if str(metadata.get("crezlo_workspace_id") or "").strip():
+                score += 3
+            if str(metadata.get("crezlo_workspace_domain") or "").strip():
+                score += 2
+            if str(metadata.get("crezlo_workspace_base_url") or "").strip():
+                score += 1
+            if str(metadata.get("crezlo_workspace_tours_url") or "").strip():
+                score += 1
+            if str(metadata.get("crezlo_property_tour_workflow_id") or "").strip():
+                score += 4
+            return score
+
+        def _merge_missing_metadata(base: dict[str, object], fallback: dict[str, object]) -> dict[str, object]:
+            merged = dict(base)
+            for key, value in dict(fallback or {}).items():
+                if not str(merged.get(key) or "").strip() and value not in {None, ""}:
+                    merged[key] = value
+            return merged
+
+        def _merge_shared_crezlo_metadata(base: dict[str, object], template: dict[str, object]) -> dict[str, object]:
+            merged = dict(base)
+            for key, value in dict(template or {}).items():
+                if key not in crezlo_shared_metadata_keys and "crezlo" not in str(key or "").strip().lower():
+                    continue
+                if value is None or value == "":
+                    continue
+                merged[key] = value
+            return _normalize_crezlo_metadata(merged)
+
+        def _binding_score(row: object) -> int:
+            external_account_ref = str(getattr(row, "external_account_ref", "") or "").strip().lower()
+            auth_metadata = _normalize_crezlo_metadata(dict(getattr(row, "auth_metadata_json", {}) or {}))
+            score = 100
+            if external_account_ref == "crezlo-auto":
+                score += 50
+            score += _crezlo_metadata_completeness(auth_metadata) * 10
+            return score
+
+        best_global_crezlo_metadata: dict[str, object] = {}
+        best_global_crezlo_score = -1
+        for row in connector_bindings:
+            if str(getattr(row, "connector_name", "") or "").strip().lower() != "browseract":
+                continue
+            if str(getattr(row, "status", "") or "").strip().lower() != "enabled":
+                continue
+            markers, _ = _binding_markers(row)
+            if not any("crezlo" in marker for marker in markers):
+                continue
+            auth_metadata = _normalize_crezlo_metadata(dict(getattr(row, "auth_metadata_json", {}) or {}))
+            candidate_score = _binding_score(row)
+            if candidate_score <= best_global_crezlo_score:
+                continue
+            best_global_crezlo_score = candidate_score
+            best_global_crezlo_metadata = auth_metadata
+
         for row in bindings:
             if str(getattr(row, "connector_name", "") or "").strip().lower() != "browseract":
                 continue
             if str(getattr(row, "status", "") or "").strip().lower() != "enabled":
                 continue
-            current_metadata = dict(getattr(row, "auth_metadata_json", {}) or {})
-            merged_metadata = dict(current_metadata)
-            for key, value in bootstrap_metadata.items():
-                if not str(merged_metadata.get(key) or "").strip() and value not in {None, ""}:
-                    merged_metadata[key] = value
+            markers, specialized = _binding_markers(row)
+            if any("crezlo" in marker for marker in markers):
+                crezlo_candidates.append((_binding_score(row), row))
+                continue
+            if not specialized:
+                generic_candidates.append(row)
+
+        selected_row = None
+        selected_row_is_crezlo = False
+        if crezlo_candidates:
+            crezlo_candidates.sort(key=lambda item: item[0], reverse=True)
+            selected_row = crezlo_candidates[0][1]
+            selected_row_is_crezlo = True
+        elif best_global_crezlo_metadata:
+            auth_metadata = _merge_missing_metadata({}, bootstrap_metadata)
+            auth_metadata = _merge_shared_crezlo_metadata(auth_metadata, best_global_crezlo_metadata)
+            created = self._container.tool_runtime.upsert_connector_binding(
+                principal_id=principal_id,
+                connector_name="browseract",
+                external_account_ref="crezlo-auto",
+                scope_json={"services": ["Crezlo Tours", "Crezlo"], "scopes": ["browseract", "crezlo"]},
+                auth_metadata_json=auth_metadata,
+                status="enabled",
+            )
+            return str(created.binding_id or "").strip()
+        elif generic_candidates:
+            selected_row = generic_candidates[0]
+
+        if selected_row is not None:
+            if not selected_row_is_crezlo:
+                return str(getattr(selected_row, "binding_id", "") or "").strip()
+            current_metadata = _normalize_crezlo_metadata(dict(getattr(selected_row, "auth_metadata_json", {}) or {}))
+            merged_metadata = _merge_missing_metadata(current_metadata, bootstrap_metadata)
+            selected_external_account_ref = str(getattr(selected_row, "external_account_ref", "") or "").strip().lower()
+            if best_global_crezlo_metadata and (
+                selected_external_account_ref == "crezlo-auto"
+                or _crezlo_metadata_completeness(current_metadata) < _crezlo_metadata_completeness(best_global_crezlo_metadata)
+            ):
+                merged_metadata = _merge_shared_crezlo_metadata(merged_metadata, best_global_crezlo_metadata)
             if merged_metadata != current_metadata:
                 updated = self._container.tool_runtime.upsert_connector_binding(
                     principal_id=principal_id,
                     connector_name="browseract",
-                    external_account_ref=str(getattr(row, "external_account_ref", "") or "").strip() or "crezlo-auto",
-                    scope_json=dict(getattr(row, "scope_json", {}) or {}),
+                    external_account_ref=str(getattr(selected_row, "external_account_ref", "") or "").strip() or "crezlo-auto",
+                    scope_json=dict(getattr(selected_row, "scope_json", {}) or {}),
                     auth_metadata_json=merged_metadata,
-                    status=str(getattr(row, "status", "") or "enabled"),
+                    status=str(getattr(selected_row, "status", "") or "enabled"),
                 )
                 return str(updated.binding_id or "").strip()
-            return str(getattr(row, "binding_id", "") or "").strip()
+            return str(getattr(selected_row, "binding_id", "") or "").strip()
         if not str(os.getenv("BROWSERACT_API_KEY") or "").strip():
             return ""
         auth_metadata = {
@@ -29536,6 +29952,109 @@ class ProductService:
         if "crezlo_media_missing" in detail:
             return "listing_media_missing"
         return "property_tour_execution_failed"
+
+    def _materialize_property_generated_reconstruction_url(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        source_ref: str = "",
+        external_id: str = "",
+        variant_key: str = "layout_first",
+        diorama_style_hint: str = "",
+    ) -> str:
+        normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
+            return ""
+        resolved_variant_key = str(variant_key or "layout_first").strip() or "layout_first"
+        resolved_source_ref = str(source_ref or normalized_url).strip()
+        resolved_external_id = str(external_id or normalized_url).strip()
+        resolved_recipient_email = str(_principal_email_hint(principal_id)).strip().lower()
+        source_host = urllib.parse.urlparse(normalized_url).netloc.lower()
+        title = normalized_url
+        listing_id = _saved_link_fallback_id(normalized_url)
+        property_facts_json: dict[str, object] = {}
+        source_media_urls: list[str] = []
+        source_floorplan_urls: list[str] = []
+        try:
+            if _is_willhaben_property_url(normalized_url):
+                packet = _load_willhaben_property_packet(normalized_url)
+                title = str(packet.get("title") or normalized_url).strip() or normalized_url
+                listing_id = str(packet.get("listing_id") or "").strip() or _saved_link_fallback_id(normalized_url)
+                property_facts_json = dict(packet.get("property_facts_json") or {})
+                source_media_urls = [
+                    str(value or "").strip()
+                    for value in list(packet.get("media_urls_json") or [])
+                    if str(value or "").strip()
+                ]
+                source_floorplan_urls = [
+                    str(value or "").strip()
+                    for value in list(packet.get("floorplan_urls_json") or [])
+                    if str(value or "").strip()
+                ]
+            else:
+                preview = _property_scout_page_preview(normalized_url)
+                title = compact_text(str(preview.get("title") or normalized_url).strip(), fallback=normalized_url, limit=220)
+                listing_id = str(preview.get("listing_id") or "").strip() or _saved_link_fallback_id(normalized_url)
+                property_facts_json = _property_scout_candidate_payload_from_preview(
+                    property_url=normalized_url,
+                    preview=preview,
+                )
+                source_media_urls = [
+                    str(value or "").strip()
+                    for value in list(preview.get("media_urls_json") or [])
+                    if str(value or "").strip()
+                ]
+                source_floorplan_urls = [
+                    str(value or "").strip()
+                    for value in list(preview.get("floorplan_urls_json") or [])
+                    if str(value or "").strip()
+                ]
+        except Exception:
+            return ""
+        if not source_media_urls and not source_floorplan_urls:
+            return ""
+        property_facts_json.update(
+            {
+                "tour_media_mode": "generated_reconstruction",
+                "source": source_host,
+                "has_floorplan": bool(property_facts_json.get("has_floorplan") or source_floorplan_urls),
+                "floorplan_count": max(int(property_facts_json.get("floorplan_count") or 0), len(source_floorplan_urls)),
+                "floorplan_urls_json": list(source_floorplan_urls),
+                "source_media_count": len(source_media_urls),
+            }
+        )
+        property_facts_json = _merge_property_facts_with_source_research(
+            property_url=normalized_url,
+            property_facts=property_facts_json,
+            image_urls=tuple(source_media_urls),
+        )
+        try:
+            structured_output = _write_generated_reconstruction_property_tour_bundle(
+                principal_id=principal_id,
+                title=title,
+                listing_id=listing_id,
+                property_url=normalized_url,
+                variant_key=resolved_variant_key,
+                media_urls=source_media_urls,
+                floorplan_urls=source_floorplan_urls,
+                property_facts_json=property_facts_json,
+                source_host=source_host,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                recipient_email=resolved_recipient_email,
+                diorama_style_hint=diorama_style_hint,
+            )
+        except Exception:
+            return ""
+        tour_url, _vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+        resolved_tour_url = str(
+            tour_url
+            or structured_output.get("hosted_url")
+            or structured_output.get("public_url")
+            or ""
+        ).strip()
+        return resolved_tour_url if _hosted_property_tour_generated_reconstruction_bundle_ready(resolved_tour_url) else ""
 
     def _existing_property_tour_followup(
         self,
@@ -31143,6 +31662,7 @@ class ProductService:
             and not has_live_360
             and not (allow_floorplan_only and has_floorplan_material)
         ):
+            blocked_reason = "property_tour_fallback_disabled" if (source_media_urls or source_floorplan_urls) else "listing_360_media_missing"
             followup_task_id = ""
             if not suppress_human_followup:
                 followup = self._open_property_tour_followup(
@@ -31150,7 +31670,7 @@ class ProductService:
                     property_url=normalized_url,
                     title=title,
                     variant_key=resolved_variant_key,
-                    blocked_reason="listing_360_media_missing",
+                    blocked_reason=blocked_reason,
                     recipient_email=resolved_recipient_email,
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
@@ -31173,7 +31693,7 @@ class ProductService:
                 "editor_url": "",
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
-                "blocked_reason": "listing_360_media_missing",
+                "blocked_reason": blocked_reason,
                 "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
@@ -31185,7 +31705,7 @@ class ProductService:
                 event_type="willhaben_property_tour_blocked",
                 payload=payload,
                 source_id=resolved_source_ref,
-                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:listing_360_media_missing",
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:{blocked_reason}",
             )
             return payload
         if not resolved_binding_id:
@@ -31434,11 +31954,9 @@ class ProductService:
                 except Exception:
                     blocked_reason = "pure_360_assets_unavailable"
             if (source_floorplan_urls or source_media_urls) and blocked_reason in {
-                "crezlo_property_tour_not_configured",
-                "browseract_connector_unconfigured",
                 "listing_media_missing",
-                "property_tour_execution_failed",
                 "pure_360_assets_unavailable",
+                "property_tour_execution_failed",
             }:
                 blocked_reason = "listing_360_media_missing"
             followup_task_id = ""
@@ -32612,6 +33130,39 @@ class ProductService:
                 operator_id=operator_id,
                 actor=actor,
                 resolution=resolution,
+                returned_payload_json={
+                    "task_type": "property_tour_followup",
+                    "request_kind": request_kind,
+                    "status": str(result.get("status") or resolution).strip().lower() or resolution,
+                    "resolution": resolution,
+                    "property_url": str(input_json.get("property_url") or "").strip(),
+                    "source_ref": str(input_json.get("source_ref") or "").strip(),
+                    "external_id": str(input_json.get("external_id") or "").strip(),
+                    "run_id": str(input_json.get("run_id") or "").strip(),
+                    "candidate_ref": str(input_json.get("candidate_ref") or "").strip(),
+                    "title": str(result.get("title") or input_json.get("title") or "").strip(),
+                    "diorama_style_hint": _compact_diorama_style_hint(
+                        str(result.get("diorama_style_hint") or input_json.get("diorama_style_hint") or ""),
+                        max_length=180,
+                    ),
+                    "status_label": str(result.get("status_label") or "").strip(),
+                    "status_detail": str(result.get("status_detail") or "").strip(),
+                    "eta_label": str(result.get("eta_label") or "").strip(),
+                    "progress_pct": result.get("progress_pct") or "",
+                    "tour_url": str(result.get("tour_url") or "").strip(),
+                    "vendor_tour_url": str(result.get("vendor_tour_url") or "").strip(),
+                    "flythrough_url": str(result.get("flythrough_url") or "").strip(),
+                    "tour_status": str(result.get("tour_status") or result.get("status") or "").strip().lower(),
+                    "flythrough_status": str(result.get("flythrough_status") or "").strip().lower(),
+                    "blocked_reason": str(result.get("blocked_reason") or "").strip(),
+                    "flythrough_reason": str(result.get("flythrough_reason") or "").strip(),
+                    "reason": str(
+                        result.get("flythrough_reason")
+                        or result.get("blocked_reason")
+                        or result.get("reason")
+                        or ""
+                    ).strip(),
+                },
             )
             if completed is not None:
                 return completed
@@ -34928,6 +35479,10 @@ class ProductService:
                             candidate_row["tour_status_updated_at"] = str(visual_state.get("tour_status_updated_at") or "").strip()
                         if str(visual_state.get("tour_progress_pct") or "").strip():
                             candidate_row["tour_progress_pct"] = str(visual_state.get("tour_progress_pct") or "").strip()
+                        if "generated_reconstruction_url" in visual_state:
+                            candidate_row["generated_reconstruction_url"] = str(
+                                visual_state.get("generated_reconstruction_url") or ""
+                            ).strip()
                         if "blocked_reason" in visual_state:
                             candidate_row["blocked_reason"] = str(visual_state.get("blocked_reason") or "").strip()
                         if str(visual_state.get("flythrough_url") or "").strip():
@@ -35052,6 +35607,7 @@ class ProductService:
                 "tour_status_updated_at": str(candidate_row.get("tour_status_updated_at") or "").strip(),
                 "tour_eta_minutes": str(candidate_row.get("tour_eta_minutes") or "").strip(),
                 "tour_progress_pct": str(candidate_row.get("tour_progress_pct") or "").strip(),
+                "generated_reconstruction_url": str(candidate_row.get("generated_reconstruction_url") or "").strip(),
                 "tour_repair_queued_at": str(candidate_row.get("tour_repair_queued_at") or "").strip(),
                 "tour_repair_started_at": str(candidate_row.get("tour_repair_started_at") or "").strip(),
                 "flythrough_url": str(candidate_row.get("flythrough_url") or "").strip(),
@@ -35325,6 +35881,71 @@ class ProductService:
         failed_total = 0
         attempted_total = 0
         followup_operator_id = self._ensure_property_tour_followup_operator(principal_id=normalized_principal)
+
+        def _visual_return_payload(
+            *,
+            task: HumanTask,
+            request_kind: str,
+            resolution: str,
+            property_url: str,
+            source_ref: str,
+            external_id: str,
+            run_id: str,
+            candidate_ref: str,
+            diorama_style_hint: str,
+            result: dict[str, object] | None = None,
+            blocked_reason: str = "",
+            title: str = "",
+        ) -> dict[str, object]:
+            normalized_kind = _normalize_property_visual_request_kind(request_kind)
+            task_input = dict(getattr(task, "input_json", {}) or {})
+            result_payload = dict(result or {})
+            resolved_reason = str(blocked_reason or "").strip()
+            if not resolved_reason:
+                if normalized_kind == "flythrough":
+                    resolved_reason = str(result_payload.get("flythrough_reason") or result_payload.get("reason") or "").strip()
+                else:
+                    resolved_reason = str(result_payload.get("blocked_reason") or result_payload.get("reason") or "").strip()
+            payload = {
+                "task_type": "property_tour_followup",
+                "request_kind": normalized_kind,
+                "status": str(result_payload.get("status") or resolution).strip().lower() or str(resolution or "").strip().lower(),
+                "resolution": str(resolution or "").strip().lower(),
+                "property_url": str(property_url or task_input.get("property_url") or "").strip(),
+                "source_ref": str(source_ref or task_input.get("source_ref") or "").strip(),
+                "external_id": str(external_id or task_input.get("external_id") or "").strip(),
+                "run_id": str(run_id or task_input.get("run_id") or "").strip(),
+                "candidate_ref": str(candidate_ref or task_input.get("candidate_ref") or "").strip(),
+                "title": str(result_payload.get("title") or title or task_input.get("title") or "").strip(),
+                "diorama_style_hint": _compact_diorama_style_hint(
+                    str(diorama_style_hint or task_input.get("diorama_style_hint") or ""),
+                    max_length=180,
+                ),
+                "status_label": str(result_payload.get("status_label") or "").strip(),
+                "status_detail": str(result_payload.get("status_detail") or "").strip(),
+                "eta_label": str(result_payload.get("eta_label") or "").strip(),
+                "progress_pct": result_payload.get("progress_pct") or "",
+                "tour_url": str(result_payload.get("tour_url") or "").strip(),
+                "open_tour_url": str(result_payload.get("open_tour_url") or "").strip(),
+                "generated_reconstruction_url": str(result_payload.get("generated_reconstruction_url") or "").strip(),
+                "vendor_tour_url": str(result_payload.get("vendor_tour_url") or "").strip(),
+                "flythrough_url": str(result_payload.get("flythrough_url") or "").strip(),
+            }
+            if normalized_kind == "flythrough":
+                payload["flythrough_status"] = str(
+                    result_payload.get("flythrough_status") or result_payload.get("status") or resolution or ""
+                ).strip().lower()
+                if resolved_reason:
+                    payload["flythrough_reason"] = resolved_reason
+                    payload["reason"] = resolved_reason
+            else:
+                payload["tour_status"] = str(
+                    result_payload.get("tour_status") or result_payload.get("status") or resolution or ""
+                ).strip().lower()
+                if resolved_reason:
+                    payload["blocked_reason"] = resolved_reason
+                    payload["reason"] = resolved_reason
+            return payload
         for task in self._container.orchestrator.list_human_tasks(
             principal_id=normalized_principal,
             status="pending",
@@ -35382,7 +36003,7 @@ class ProductService:
             existing_ready_url = (
                 str(existing_visual_state.get("flythrough_url") or "").strip()
                 if request_kind == "flythrough"
-                else _hosted_property_tour_verified_open_url(existing_visual_state.get("tour_url"))
+                else _hosted_property_tour_first_party_open_url(existing_visual_state.get("tour_url"))
             )
             existing_requested_at = (
                 str(existing_visual_state.get("flythrough_requested_at") or "").strip()
@@ -35401,6 +36022,26 @@ class ProductService:
                     operator_id=str(task.assigned_operator_id or followup_operator_id).strip() or followup_operator_id,
                     actor=actor,
                     resolution="ready",
+                    returned_payload_json=_visual_return_payload(
+                        task=task,
+                        request_kind=request_kind,
+                        resolution="ready",
+                        property_url=property_url,
+                        source_ref=source_ref,
+                        external_id=external_id,
+                        run_id=run_id,
+                        candidate_ref=candidate_ref,
+                        diorama_style_hint=diorama_style_hint,
+                        result={
+                            "status": "ready",
+                            "status_label": "Open walkthrough" if request_kind == "flythrough" else "Open 3D tour",
+                            "tour_url": str(existing_visual_state.get("tour_url") or "").strip() if request_kind != "flythrough" else "",
+                            "open_tour_url": existing_ready_url if request_kind != "flythrough" else "",
+                            "flythrough_url": existing_ready_url if request_kind == "flythrough" else "",
+                            "tour_status": "ready" if request_kind != "flythrough" else "",
+                            "flythrough_status": "ready" if request_kind == "flythrough" else "",
+                        },
+                    ),
                 )
                 resolved.append(
                     {
@@ -35420,12 +36061,29 @@ class ProductService:
             if _property_tour_status_is_terminal(existing_status) and existing_status not in {"created", "existing", "ready"}:
                 if existing_status in {"blocked", "failed", "skipped", "not_applicable"}:
                     blocked_total += 1
+                existing_reason = (
+                    str(existing_visual_state.get("flythrough_reason") or "").strip()
+                    if request_kind == "flythrough"
+                    else str(existing_visual_state.get("blocked_reason") or "").strip()
+                )
                 completed = self.complete_handoff(
                     principal_id=normalized_principal,
                     handoff_ref=f"human_task:{task.human_task_id}",
                     operator_id=str(task.assigned_operator_id or followup_operator_id).strip() or followup_operator_id,
                     actor=actor,
                     resolution=existing_status,
+                    returned_payload_json=_visual_return_payload(
+                        task=task,
+                        request_kind=request_kind,
+                        resolution=existing_status,
+                        property_url=property_url,
+                        source_ref=source_ref,
+                        external_id=external_id,
+                        run_id=run_id,
+                        candidate_ref=candidate_ref,
+                        diorama_style_hint=diorama_style_hint,
+                        blocked_reason=existing_reason,
+                    ),
                 )
                 resolved.append(
                     {
@@ -35575,6 +36233,18 @@ class ProductService:
                     operator_id=str(task.assigned_operator_id or followup_operator_id).strip() or followup_operator_id,
                     actor=actor,
                     resolution="blocked",
+                    returned_payload_json=_visual_return_payload(
+                        task=task,
+                        request_kind=request_kind,
+                        resolution="blocked",
+                        property_url=property_url,
+                        source_ref=source_ref,
+                        external_id=external_id,
+                        run_id=run_id,
+                        candidate_ref=candidate_ref,
+                        diorama_style_hint=diorama_style_hint,
+                        blocked_reason=blocked_reason,
+                    ),
                 )
                 resolved.append(
                     {
@@ -35598,7 +36268,10 @@ class ProductService:
             raw_requested_url = str(
                 result.get("flythrough_url") if request_kind == "flythrough" else result.get("tour_url") or ""
             ).strip()
-            requested_url = raw_requested_url if request_kind == "flythrough" else _hosted_property_tour_verified_open_url(raw_requested_url)
+            requested_open_tour_url = str(
+                result.get("open_tour_url") or (_hosted_property_tour_first_party_open_url(raw_requested_url) if request_kind != "flythrough" else "")
+            ).strip()
+            requested_url = raw_requested_url if request_kind == "flythrough" else requested_open_tour_url
             requested_reason = str(
                 result.get("flythrough_reason") if request_kind == "flythrough" else result.get("blocked_reason") or ""
             ).strip()
@@ -35639,6 +36312,24 @@ class ProductService:
                 operator_id=str(task.assigned_operator_id or followup_operator_id).strip() or followup_operator_id,
                 actor=actor,
                 resolution=resolution,
+                returned_payload_json=_visual_return_payload(
+                    task=task,
+                    request_kind=request_kind,
+                    resolution=resolution,
+                    property_url=property_url,
+                    source_ref=source_ref,
+                    external_id=external_id,
+                    run_id=run_id,
+                    candidate_ref=candidate_ref,
+                    diorama_style_hint=diorama_style_hint,
+                    result={
+                        **dict(result or {}),
+                        "tour_url": resolved_tour_url,
+                        "open_tour_url": requested_open_tour_url if request_kind != "flythrough" else "",
+                        "flythrough_url": resolved_flythrough_url,
+                    },
+                    blocked_reason=requested_reason,
+                ),
             )
             self._record_product_event(
                 principal_id=normalized_principal,
@@ -35651,6 +36342,7 @@ class ProductService:
                     "resolution": resolution,
                     "status_label": str(result.get("status_label") or "").strip(),
                     "tour_url": resolved_tour_url,
+                    "open_tour_url": requested_open_tour_url if request_kind != "flythrough" else "",
                     "flythrough_url": resolved_flythrough_url,
                 },
                 source_id=source_ref or property_url,
@@ -35711,13 +36403,22 @@ class ProductService:
             source_ref=normalized_source_ref,
             property_url=normalized_property_url,
         )
-        existing_hosted_tour_url = str(existing_visual_state.get("tour_url") or "").strip() or _existing_hosted_property_tour_url_for_identity(
+        existing_visual_tour_url = str(existing_visual_state.get("tour_url") or "").strip()
+        existing_identity_tour_url = _existing_hosted_property_tour_url_for_identity(
             property_url=normalized_property_url,
             source_ref=normalized_source_ref,
             external_id=str(external_id or normalized_property_url).strip(),
         )
-        existing_verified_tour_url = _hosted_property_tour_verified_open_url(existing_hosted_tour_url)
-        existing_open_tour_url = _hosted_property_tour_first_party_open_url(existing_hosted_tour_url) if existing_verified_tour_url else ""
+        existing_hosted_tour_url = existing_visual_tour_url or existing_identity_tour_url
+        existing_verified_tour_url = (
+            _hosted_property_tour_verified_open_url(existing_visual_tour_url)
+            or _hosted_property_tour_verified_open_url(existing_identity_tour_url)
+        )
+        existing_open_tour_url = str(existing_verified_tour_url or "").strip()
+        if not existing_open_tour_url and existing_identity_tour_url:
+            existing_open_tour_url = _hosted_property_tour_first_party_open_url(existing_identity_tour_url)
+            if existing_open_tour_url:
+                existing_hosted_tour_url = existing_identity_tour_url
         existing_walkthrough_url = str(existing_visual_state.get("flythrough_url") or "").strip() or _hosted_property_tour_walkthrough_asset_url(existing_hosted_tour_url)
         if normalized_kind == "tour" and existing_open_tour_url:
             status_timestamp = _now_iso()
@@ -35737,6 +36438,7 @@ class ProductService:
                     "tour_progress_pct": "100",
                     "flythrough_url": str(existing_walkthrough_url or "").strip(),
                     "blocked_reason": "",
+                    "generated_reconstruction_url": str(existing_visual_state.get("generated_reconstruction_url") or "").strip(),
                     "diorama_style_hint": resolved_style_hint,
                 },
             )
@@ -35752,7 +36454,7 @@ class ProductService:
                 "connector_binding_id": str(binding_id or "").strip(),
                 "tour_url": str(existing_hosted_tour_url or existing_open_tour_url).strip(),
                 "verified_tour_url": str(existing_verified_tour_url or "").strip(),
-                "generated_reconstruction_url": "",
+                "generated_reconstruction_url": str(existing_visual_state.get("generated_reconstruction_url") or "").strip(),
                 "open_tour_url": str(existing_open_tour_url).strip(),
                 "vendor_tour_url": str(existing_verified_tour_url or "").strip(),
                 "editor_url": "",
@@ -35847,7 +36549,12 @@ class ProductService:
                 candidate_ref,
             )
         )
+        # Explicit user-requested visuals should use floorplan-backed generation
+        # whenever the listing has usable material, instead of requiring an
+        # existing provider 360 lane up front.
         effective_allow_floorplan_only = bool(allow_floorplan_only)
+        if normalized_kind in {"tour", "flythrough"}:
+            effective_allow_floorplan_only = True
         effective_enforce_360_media = True
         if (
             has_workbench_context
@@ -35918,6 +36625,7 @@ class ProductService:
                 "flythrough_status_updated_at": request_opened_at if normalized_kind == "flythrough" else "",
                 "flythrough_progress_pct": str(_property_visual_progress_pct(request_kind="flythrough", status="queued", requested_at=(persisted_requested_at if normalized_kind == "flythrough" else str(existing_visual_state.get("flythrough_requested_at") or "").strip()), status_updated_at=request_opened_at)) if normalized_kind == "flythrough" else "",
                 "blocked_reason": "",
+                "generated_reconstruction_url": str(existing_visual_state.get("generated_reconstruction_url") or "").strip(),
                 "diorama_style_hint": resolved_style_hint,
             }
             self._persist_property_search_visual_state(
@@ -35944,6 +36652,7 @@ class ProductService:
                 "delivery_email": str(recipient_email or "").strip().lower(),
                 "delivery_status": "queued",
                 "blocked_reason": "",
+                "generated_reconstruction_url": str(existing_visual_state.get("generated_reconstruction_url") or "").strip(),
                 "human_task_id": human_task_id,
                 "source_ref": normalized_source_ref,
                 "external_id": str(external_id or normalized_property_url).strip(),
@@ -36002,6 +36711,14 @@ class ProductService:
         verified_tour_url = _hosted_property_tour_verified_open_url(payload.get("tour_url"))
         if verified_tour_url:
             payload["verified_tour_url"] = verified_tour_url
+        original_tour_url = str(payload.get("tour_url") or "").strip()
+        generated_reconstruction_url = str(payload.get("generated_reconstruction_url") or "").strip()
+        if (
+            not generated_reconstruction_url
+            and str(payload.get("tour_media_mode") or "").strip().lower() == "generated_reconstruction"
+            and original_tour_url
+        ):
+            generated_reconstruction_url = original_tour_url
         created_disabled_fallback = (
             str(payload.get("status") or "").strip().lower() == "created"
             and not verified_tour_url
@@ -36029,7 +36746,6 @@ class ProductService:
             payload["tour_url"] = ""
             payload["vendor_tour_url"] = ""
             payload["verified_tour_url"] = ""
-            payload.pop("generated_reconstruction_url", None)
             payload.pop("open_tour_url", None)
         created_without_verified_open = (
             str(payload.get("status") or "").strip().lower() == "created"
@@ -36047,6 +36763,29 @@ class ProductService:
             payload["tour_status"] = "blocked"
             payload["blocked_reason"] = "provider_export_missing"
             payload["tour_url"] = ""
+        if (
+            normalized_kind == "tour"
+            and str(payload.get("status") or "").strip().lower() in {"blocked", "failed", "skipped"}
+            and not generated_reconstruction_url
+        ):
+            generated_reconstruction_url = self._materialize_property_generated_reconstruction_url(
+                principal_id=principal_id,
+                property_url=normalized_property_url,
+                source_ref=normalized_source_ref,
+                external_id=str(external_id or normalized_property_url).strip(),
+                variant_key=str(payload.get("variant_key") or variant_key or "layout_first").strip() or "layout_first",
+                diorama_style_hint=resolved_style_hint,
+            )
+        if generated_reconstruction_url:
+            payload["generated_reconstruction_url"] = generated_reconstruction_url
+        generated_reconstruction_open_url = ""
+        if normalized_kind == "tour" and effective_allow_floorplan_only:
+            generated_reconstruction_open_url = _hosted_property_tour_first_party_open_url(
+                generated_reconstruction_url or payload.get("tour_url")
+            )
+            if generated_reconstruction_open_url:
+                payload["tour_url"] = str(generated_reconstruction_url or payload.get("tour_url") or "").strip()
+                payload["open_tour_url"] = generated_reconstruction_open_url
         title = str(payload.get("title") or normalized_property_url or "Property").strip()
         tour_status = str(payload.get("status") or "").strip().lower()
         flythrough_status = ""
@@ -36122,7 +36861,13 @@ class ProductService:
             verified_tour_url = _hosted_property_tour_verified_open_url(payload.get("tour_url"))
             if verified_tour_url:
                 payload["verified_tour_url"] = verified_tour_url
-            if verified_tour_url:
+            open_tour_url = str(payload.get("open_tour_url") or verified_tour_url or "").strip()
+            if open_tour_url:
+                payload["open_tour_url"] = open_tour_url
+            if open_tour_url:
+                payload["status"] = "ready"
+                payload["tour_status"] = "ready"
+                payload["blocked_reason"] = ""
                 status_label = "3D tour available"
                 status_detail = "Available on this page."
             elif str(payload.get("tour_url") or "").strip():
@@ -36236,6 +36981,7 @@ class ProductService:
                 ),
                 "flythrough_reason": str(payload.get("flythrough_reason") or "").strip(),
                 "blocked_reason": str(payload.get("blocked_reason") or "").strip(),
+                "generated_reconstruction_url": str(payload.get("generated_reconstruction_url") or "").strip(),
                 "diorama_style_hint": resolved_style_hint,
             },
         )
@@ -36264,17 +37010,21 @@ class ProductService:
         commercial_snapshot = property_commercial_snapshot(property_preferences)
         plan_key = normalize_property_plan_key(commercial_snapshot.get("current_plan_key") or "free")
         priority_queue_active = plan_key in {"plus", "agent"}
-        if not normalized_principal or not normalized_run_id:
+        if not normalized_principal:
             raise ValueError("property_visual_status_run_missing")
-        snapshot = self._snapshot_property_search_run(
-            run_id=normalized_run_id,
-            principal_id=normalized_principal,
-            allow_finalization_notifications=False,
-        )
-        if not isinstance(snapshot, dict):
-            raise ValueError("property_visual_status_run_missing")
-        summary = dict(snapshot.get("summary") or {})
-        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+        snapshot: dict[str, object] = {}
+        summary: dict[str, object] = {}
+        sources: list[dict[str, object]] = []
+        if normalized_run_id:
+            snapshot = self._snapshot_property_search_run(
+                run_id=normalized_run_id,
+                principal_id=normalized_principal,
+                allow_finalization_notifications=False,
+            )
+            if not isinstance(snapshot, dict):
+                raise ValueError("property_visual_status_run_missing")
+            summary = dict(snapshot.get("summary") or {})
+            sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
         matched_candidates: list[dict[str, object]] = []
 
         def _candidate_identity(candidate_row: dict[str, object], source_label: str) -> str:
@@ -36377,6 +37127,7 @@ class ProductService:
                 "property_url": normalized_property_url,
                 "source_ref": normalized_source_ref,
                 "tour_url": str(followup_payload.get("tour_url") or "").strip(),
+                "generated_reconstruction_url": str(followup_payload.get("generated_reconstruction_url") or "").strip(),
                 "vendor_tour_url": str(followup_payload.get("vendor_tour_url") or "").strip(),
                 "tour_status": str(
                     followup_payload.get("tour_status")
@@ -36418,6 +37169,7 @@ class ProductService:
             }
 
         tour_url = str(matched_candidate.get("tour_url") or "").strip()
+        generated_reconstruction_url = str(matched_candidate.get("generated_reconstruction_url") or "").strip()
         flythrough_url = str(matched_candidate.get("flythrough_url") or "").strip()
         tour_status = str(matched_candidate.get("tour_status") or "").strip().lower()
         flythrough_status = str(matched_candidate.get("flythrough_status") or "").strip().lower()
@@ -36425,9 +37177,14 @@ class ProductService:
         title = str(matched_candidate.get("title") or "Selected property").strip() or "Selected property"
         source_ref_value = str(matched_candidate.get("source_ref") or normalized_source_ref or normalized_property_url).strip()
         status_value = flythrough_status if normalized_kind == "flythrough" else tour_status
+        generated_reconstruction_allowed = False
         def _resolved_ready_url() -> str:
             if normalized_kind == "tour":
-                return _hosted_property_tour_verified_open_url(tour_url)
+                verified_tour_url = _hosted_property_tour_verified_open_url(tour_url)
+                if verified_tour_url:
+                    return verified_tour_url
+                if generated_reconstruction_allowed:
+                    return _hosted_property_tour_first_party_open_url(generated_reconstruction_url or tour_url)
             if normalized_kind == "flythrough":
                 return _hosted_property_tour_walkthrough_asset_url(tour_url) or _published_walkthrough_asset_url(flythrough_url)
             return ""
@@ -36504,6 +37261,9 @@ class ProductService:
                 if isinstance(getattr(latest_followup, "input_json", None), dict)
                 else {}
             )
+            if normalized_kind == "tour" and bool(followup_input.get("allow_floorplan_only")):
+                generated_reconstruction_allowed = True
+                ready_url = _resolved_ready_url()
             if not visual_style_hint:
                 visual_style_hint = _compact_diorama_style_hint(
                     str(followup_payload.get("diorama_style_hint") or followup_input.get("diorama_style_hint") or ""),
@@ -36526,9 +37286,14 @@ class ProductService:
                     eta_minutes = ""
                 elif followup_resolution in {"ready", "sent"}:
                     followup_tour_url = str(followup_payload.get("tour_url") or "").strip()
+                    followup_generated_reconstruction_url = str(followup_payload.get("generated_reconstruction_url") or "").strip()
                     followup_flythrough_url = str(followup_payload.get("flythrough_url") or "").strip()
                     if normalized_kind == "tour" and followup_tour_url:
                         tour_url = followup_tour_url
+                    if followup_generated_reconstruction_url:
+                        generated_reconstruction_url = followup_generated_reconstruction_url
+                        if generated_reconstruction_allowed:
+                            ready_url = _resolved_ready_url()
                     if normalized_kind == "flythrough" and followup_flythrough_url:
                         flythrough_url = followup_flythrough_url
                     ready_url = _resolved_ready_url()
@@ -36536,6 +37301,8 @@ class ProductService:
                     eta_minutes = ""
                 elif followup_resolution in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
                     status_value = followup_resolution
+            elif str(followup_payload.get("generated_reconstruction_url") or "").strip():
+                generated_reconstruction_url = str(followup_payload.get("generated_reconstruction_url") or "").strip()
             elif followup_status == "pending":
                 status_value = "processing" if normalized_kind == "tour" else "queued"
         if status_value == "ready" and not ready_url:
@@ -36613,7 +37380,8 @@ class ProductService:
                 }
             else:
                 persisted_ready_state = {
-                    "tour_url": str(tour_url or ready_url).strip(),
+                    "tour_url": str(tour_url or generated_reconstruction_url or "").strip(),
+                    "open_tour_url": str(ready_url).strip(),
                     "vendor_tour_url": str(_hosted_property_tour_verified_open_url(tour_url) or "").strip(),
                     "tour_status": "ready",
                     "tour_eta_minutes": "",
@@ -36644,6 +37412,8 @@ class ProductService:
                     )
         if ready_url:
             status_value = "ready"
+            blocked_reason = ""
+            reason = ""
             status_label = "Open walkthrough" if normalized_kind == "flythrough" else "Open 3D tour"
             status_detail = "Walkthrough is available on this page." if normalized_kind == "flythrough" else "3D tour is available. Open it here."
         elif status_value in {"queued", "pending"}:
@@ -36740,6 +37510,7 @@ class ProductService:
                 f"{state_prefix}_status_updated_at": terminal_updated_at,
                 f"{state_prefix}_repair_queued_at": "",
                 f"{state_prefix}_repair_started_at": "",
+                "generated_reconstruction_url": generated_reconstruction_url,
             }
             if normalized_kind == "flythrough":
                 visual_state["flythrough_reason"] = reason
@@ -36767,7 +37538,9 @@ class ProductService:
             "request_kind": normalized_kind,
             "run_id": normalized_run_id,
             "candidate_ref": normalized_candidate_ref,
-            "tour_url": ready_url if normalized_kind == "tour" else tour_url,
+            "tour_url": str(tour_url or generated_reconstruction_url or "").strip() if normalized_kind == "tour" else tour_url,
+            "open_tour_url": ready_url if normalized_kind == "tour" else "",
+            "generated_reconstruction_url": generated_reconstruction_url,
             "flythrough_url": ready_url if normalized_kind == "flythrough" else _published_walkthrough_asset_url(flythrough_url),
             "tour_status": status_value if normalized_kind == "tour" else tour_status,
             "flythrough_status": status_value if normalized_kind == "flythrough" else flythrough_status,
@@ -52957,6 +53730,7 @@ class ProductService:
         operator_id: str,
         actor: str,
         resolution: str,
+        returned_payload_json: dict[str, object] | None = None,
     ) -> HandoffNote | None:
         handoff_ref = self._normalize_handoff_ref(handoff_ref)
         if not handoff_ref.startswith("human_task:"):
@@ -52970,21 +53744,26 @@ class ProductService:
             if str(current.task_type or "").strip() == "delivery_followup"
             else str(resolution or "").strip() or "completed"
         )
+        base_returned_payload = {
+            "source": "product_handoffs",
+            "actor": actor,
+            "task_type": str(current.task_type or "").strip(),
+            "draft_ref": str(dict(current.input_json or {}).get("draft_ref") or "").strip(),
+            "recipient_email": str(dict(current.input_json or {}).get("recipient_email") or "").strip(),
+            "subject": str(dict(current.input_json or {}).get("subject") or "").strip(),
+            "reason": str(dict(current.input_json or {}).get("reason") or "").strip(),
+            "resolution": normalized_resolution,
+        }
+        merged_returned_payload = dict(base_returned_payload)
+        if isinstance(returned_payload_json, dict):
+            for key, value in returned_payload_json.items():
+                merged_returned_payload[str(key)] = value
         updated = self._container.orchestrator.return_human_task(
             task_id,
             principal_id=principal_id,
             operator_id=operator_id,
             resolution=normalized_resolution,
-            returned_payload_json={
-                "source": "product_handoffs",
-                "actor": actor,
-                "task_type": str(current.task_type or "").strip(),
-                "draft_ref": str(dict(current.input_json or {}).get("draft_ref") or "").strip(),
-                "recipient_email": str(dict(current.input_json or {}).get("recipient_email") or "").strip(),
-                "subject": str(dict(current.input_json or {}).get("subject") or "").strip(),
-                "reason": str(dict(current.input_json or {}).get("reason") or "").strip(),
-                "resolution": normalized_resolution,
-            },
+            returned_payload_json=merged_returned_payload,
             provenance_json={"source": "product_handoffs"},
         )
         if updated is None:

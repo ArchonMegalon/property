@@ -3504,6 +3504,173 @@ def test_gold_status_does_not_require_operator_drop_prep_when_all_tour_modes_are
     assert not any(row["area"] == "tour_operator_import_manifest" for row in receipt["blockers"])
 
 
+def test_gold_status_treats_blocked_export_discovery_as_ok_when_no_imports_are_needed(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(
+        tmp_path / "discovery.json",
+        {"status": "blocked_no_verified_exports", "import_count": 0, "rejected_count": 0},
+    )
+    import_manifest = _write_json(
+        tmp_path / "import-manifest.json",
+        {
+            "status": "pass",
+            "import_count": 0,
+            "providers": [],
+            "drop_status_summary": {"ready_for_import": 0, "waiting_for_assets": 0, "other": 0},
+            "prepared_drop_dirs": [],
+            "next_command": "",
+        },
+    )
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        import_manifest_receipt_path=import_manifest,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["operator_import_manifest"]["ready_for_exports"] is True
+    assert receipt["export_discovery"]["status"] == "blocked_no_verified_exports"
+    assert not any(row["area"] == "tour_operator_import_manifest" for row in receipt["blockers"])
+    assert not any(row["area"] == "export_discovery" for row in receipt["blockers"])
+
+
+def test_gold_status_accepts_optional_fail_closed_id_austria(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 2, "3dvista": 1, "pano2vr": 0, "krpano": 0, "magicfit": 1},
+            "provider_blockers": {provider: {"blocked_count": 0, "reasons": []} for provider in ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")},
+            "ready_provider_modes": ["matterport", "3dvista", "magicfit"],
+            "required_provider_modes": ["matterport", "3dvista", "magicfit"],
+            "optional_provider_modes": ["pano2vr", "krpano"],
+            "missing_provider_modes": [],
+            "magicfit_playback": {"playback_ok": True, "playable_count": 1, "ready_count": 1},
+            "delivery_contracts": {},
+            "next_required_actions": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "pass"})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    id_austria = _write_json(
+        tmp_path / "id-austria.json",
+        {
+            "provider": "id_austria",
+            "status": "disabled",
+            "required": False,
+            "configured": False,
+            "missing_env": [],
+            "error": "id_austria_client_id_missing",
+            "redirect_uri": "https://propertyquarry.com/id-austria/callback",
+        },
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        id_austria_receipt_path=id_austria,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["id_austria"]["status"] == "disabled"
+    assert receipt["id_austria"]["ready"] is True
+    assert not any(row["area"] == "id_austria_sign_in" for row in receipt["blockers"])
+
+
+def test_gold_status_blocks_when_required_id_austria_is_not_configured(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 2, "3dvista": 1, "pano2vr": 0, "krpano": 0, "magicfit": 1},
+            "provider_blockers": {provider: {"blocked_count": 0, "reasons": []} for provider in ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")},
+            "ready_provider_modes": ["matterport", "3dvista", "magicfit"],
+            "required_provider_modes": ["matterport", "3dvista", "magicfit"],
+            "optional_provider_modes": ["pano2vr", "krpano"],
+            "missing_provider_modes": [],
+            "magicfit_playback": {"playback_ok": True, "playable_count": 1, "ready_count": 1},
+            "delivery_contracts": {},
+            "next_required_actions": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "pass"})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    id_austria = _write_json(
+        tmp_path / "id-austria.json",
+        {
+            "provider": "id_austria",
+            "status": "disabled",
+            "required": True,
+            "configured": False,
+            "missing_env": ["PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID"],
+            "error": "id_austria_client_id_missing",
+            "redirect_uri": "https://propertyquarry.com/id-austria/callback",
+        },
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        id_austria_receipt_path=id_austria,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["id_austria"]["status"] == "disabled"
+    assert receipt["id_austria"]["ready"] is False
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "id_austria_sign_in")
+    assert blocker["required"] is True
+    assert "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID" in blocker["missing_env"]
+
+
 def test_gold_status_uses_import_rows_as_operator_drop_fallback_for_missing_magicfit_only(tmp_path: Path) -> None:
     performance = _write_json(tmp_path / "performance.json", _performance_payload())
     tour_controls = _write_json(

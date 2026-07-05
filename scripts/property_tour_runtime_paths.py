@@ -83,7 +83,10 @@ def running_container_public_tour_dir(container_name: str = "") -> Path | None:
     if not rows:
         return None
     candidate = Path(rows[0]).expanduser()
-    return candidate if candidate.exists() else None
+    try:
+        return candidate if candidate.exists() else None
+    except OSError:
+        return None
 
 
 def preferred_public_tour_root(

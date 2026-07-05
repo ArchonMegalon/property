@@ -265,7 +265,19 @@ def _resolve_action_for_request(
 
     inferred_media_feature_type = infer_onemin_media_feature_type(goal=goal, input_json=input_json)
     image_input_present = _image_input_present(input_json)
-    if str(input_json.get("property_json") or "").strip() and "create_property_tour" in available:
+    if (
+        "create_property_tour" in available
+        and any(
+            str(input_json.get(key) or "").strip()
+            for key in (
+                "property_json",
+                "tour_title",
+                "property_url",
+                "source_virtual_tour_url",
+                "scene_strategy",
+            )
+        )
+    ):
         return available["create_property_tour"]
     if any(str(input_json.get(key) or "").strip() for key in ("page_url", "result_title", "survey_url")):
         for preferred in ("inspect_workspace", "read_results", "read_queue"):

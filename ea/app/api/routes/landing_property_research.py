@@ -139,6 +139,7 @@ def _render_console_object_detail(
     object_summary: str,
     object_meta: list[dict[str, str]],
     object_media: dict[str, object] | None = None,
+    object_ooda_kicker: str = "",
     object_ooda_title: str = "",
     object_ooda_copy: str = "",
     object_ooda_rows: list[dict[str, str]] | None = None,
@@ -179,6 +180,7 @@ def _render_console_object_detail(
             "object_summary": object_summary,
             "object_meta": object_meta,
             "object_media": object_media or {},
+            "object_ooda_kicker": object_ooda_kicker,
             "object_ooda_title": object_ooda_title,
             "object_ooda_copy": object_ooda_copy,
             "object_ooda_rows": object_ooda_rows or [],
@@ -608,7 +610,7 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
 
 
 def _property_hosted_tour_ready(tour_url: str) -> bool:
-    return bool(property_tour_hosting._hosted_property_tour_verified_open_url(tour_url))
+    return bool(property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url))
 
 
 def _property_hosted_tour_disabled_fallback(tour_url: object) -> bool:
@@ -618,6 +620,10 @@ def _property_hosted_tour_disabled_fallback(tour_url: object) -> bool:
 
 def _hosted_tour_rebuild_detail() -> str:
     return "A real 3D tour is not available for this listing yet."
+
+
+def _generated_reconstruction_preview_detail() -> str:
+    return "A layout preview is ready below. A real 3D tour is not available for this listing yet."
 
 
 def _property_visual_provider_label(value: object) -> str:
@@ -647,6 +653,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     tour_url = str(candidate.get("tour_url") or "").strip()
     if tour_url and _property_hosted_tour_disabled_fallback(tour_url):
         tour_url = ""
+    generated_reconstruction_tour_url = str(candidate.get("generated_reconstruction_url") or "").strip()
     vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
     review_url = str(candidate.get("review_url") or "").strip()
     status = str(candidate.get("tour_status") or "").strip().lower()
@@ -673,10 +680,26 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         status_updated_at=status_updated_at,
     )
     hosted_tour_ready = _property_hosted_tour_ready(tour_url)
-    verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) if hosted_tour_ready else ""
+    verified_tour_href = property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url) if hosted_tour_ready else ""
     verified_tour_provider = property_tour_hosting._hosted_property_tour_verified_provider(tour_url) if hosted_tour_ready else ""
     generated_reconstruction_href = ""
     generated_reconstruction_ready = False
+    generated_reconstruction_photo_hrefs: tuple[str, ...] = ()
+    generated_reconstruction_floorplan_href = ""
+    if generated_reconstruction_tour_url:
+        generated_reconstruction_photo_hrefs = property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_urls(
+            generated_reconstruction_tour_url
+        )
+        generated_reconstruction_floorplan_href = property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
+            generated_reconstruction_tour_url,
+            asset_key="floorplan_relpath",
+        )
+        generated_reconstruction_ready = bool(generated_reconstruction_photo_hrefs or generated_reconstruction_floorplan_href)
+        generated_reconstruction_href = (
+            str(generated_reconstruction_photo_hrefs[0]).strip()
+            if generated_reconstruction_photo_hrefs
+            else str(generated_reconstruction_floorplan_href).strip()
+        )
     open_tour_href = verified_tour_href
     embed_href = verified_tour_href if hosted_tour_ready else ""
     verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(tour_url) or property_tour_hosting._published_walkthrough_asset_url(
@@ -733,10 +756,18 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         )
     elif status in {"blocked", "failed", "skipped", "not_applicable"}:
         status_label = "3D tour unavailable"
-        status_detail = _property_tour_source_gap_detail(candidate)
+        status_detail = (
+            _generated_reconstruction_preview_detail()
+            if generated_reconstruction_ready
+            else _property_tour_source_gap_detail(candidate)
+        )
     else:
         status_label = "3D tour unavailable"
-        status_detail = _property_tour_source_gap_detail(candidate)
+        status_detail = (
+            _generated_reconstruction_preview_detail()
+            if generated_reconstruction_ready
+            else _property_tour_source_gap_detail(candidate)
+        )
     return {
         "status_label": status_label,
         "status_detail": status_detail,
@@ -745,7 +776,13 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "hosted_ready": hosted_tour_ready,
         "generated_reconstruction_ready": generated_reconstruction_ready,
         "generated_reconstruction_href": generated_reconstruction_href,
-        "show_status_line": bool(hosted_tour_ready or tour_url or vendor_tour_url or status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}),
+        "show_status_line": bool(
+            hosted_tour_ready
+            or tour_url
+            or generated_reconstruction_ready
+            or vendor_tour_url
+            or status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
+        ),
         "primary_href": open_tour_href or (vendor_tour_url or review_url),
         "primary_label": (
             "Open 3D tour"

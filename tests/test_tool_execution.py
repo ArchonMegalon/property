@@ -5526,6 +5526,15 @@ def test_crezlo_public_tour_bundle_writer_falls_back_to_requested_media_urls(
     assert private_payload["panorama_source"] == "feelestate_kalandra"
 
 
+def test_crezlo_public_tour_base_url_defaults_to_propertyquarry_public_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_PUBLIC_TOUR_BASE_URL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", raising=False)
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.com")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+
+    assert BrowserActToolAdapter._crezlo_public_tour_base_url() == "https://propertyquarry.com/tours"
+
+
 def test_crezlo_public_tour_bundle_writer_replaces_stale_bundle_atomically(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -6081,6 +6090,184 @@ def test_tool_execution_property_walkthrough_returns_cached_video_when_provider_
     assert result.output_json["video_url"] == "https://cdn.example/property/cached-walkthrough.mp4"
     assert result.receipt_json["cached_video_used"] is True
     assert result.receipt_json["runtime_readiness_json"]["status"] == "blocked"
+
+
+def test_tool_execution_property_walkthrough_blank_provider_auto_selects_runtime_ready_magicfit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    captured_render_kwargs: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
+        lambda value, allow_non_final_fallback=True: {
+            "provider_key": "magicfit",
+            "provider_backend_key": "magicfit",
+            "runtime_readiness_json": {
+                "provider_key": "magicfit",
+                "provider_backend_key": "magicfit",
+                "ready": True,
+                "status": "ready",
+                "blockers": [],
+                "checks": {},
+            },
+            "checked": [
+                {"provider_key": "omagic", "ready": False, "status": "blocked", "blockers": ["omagic_model_upload_adapter_missing"]},
+                {"provider_key": "magicfit", "ready": True, "status": "ready", "blockers": []},
+            ],
+            "selected_via": "auto_final_ready",
+            "explicit_requested": False,
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "magicfit",
+            "provider_backend_key": "magicfit",
+            "ready": True,
+            "status": "ready",
+            "blockers": [],
+            "checks": {},
+        },
+    )
+    monkeypatch.setattr(
+        "app.product.service._render_property_flythrough_into_hosted_tour",
+        lambda **kwargs: captured_render_kwargs.update(kwargs)
+        or {
+            "status": "rendered",
+            "provider_key": "magicfit",
+            "media_route_provider_key": "magicfit",
+            "video_url": "https://cdn.example/property/runtime-selected.mp4",
+            "flythrough_url": "https://viewer.example/property/runtime-selected",
+            "reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        "app.product.service._hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://cdn.example/property/runtime-selected.mp4",
+            "flythrough_url": "https://viewer.example/property/runtime-selected",
+            "provider_key": "magicfit",
+        },
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-property-walkthrough-default-1",
+            step_id="step-property-walkthrough-default-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "context_kind": "property_walkthrough",
+                "title": "Runtime-selected Walkthrough",
+                "tour_url": "https://property.example/tours/runtime-selected",
+                "tour_context_json": {"verified_provider": "3dvista"},
+            },
+            context_json={"principal_id": "exec-property-walkthrough-default"},
+        )
+    )
+
+    assert captured_render_kwargs["preferred_provider_key"] == "magicfit"
+    assert result.output_json["provider_key"] == "magicfit"
+    assert result.output_json["video_url"] == "https://cdn.example/property/runtime-selected.mp4"
+    assert result.receipt_json["runtime_provider_resolution_json"]["selected_via"] == "auto_final_ready"
+
+
+def test_tool_execution_property_walkthrough_blank_provider_can_publish_with_runtime_selected_onemin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    captured_render_kwargs: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
+        lambda value, allow_non_final_fallback=False: {
+            "provider_key": "onemin_i2v",
+            "provider_backend_key": "onemin_i2v",
+            "runtime_readiness_json": {
+                "provider_key": "onemin_i2v",
+                "provider_backend_key": "onemin_i2v",
+                "ready": True,
+                "status": "ready",
+                "blockers": [],
+                "checks": {},
+            },
+            "checked": [
+                {"provider_key": "omagic", "ready": False, "status": "blocked", "blockers": ["omagic_model_upload_adapter_missing"]},
+                {"provider_key": "magicfit", "ready": False, "status": "blocked", "blockers": ["magicfit_insufficient_credits"]},
+                {"provider_key": "onemin_i2v", "ready": True, "status": "ready", "blockers": []},
+            ],
+            "selected_via": "auto_final_ready",
+            "explicit_requested": False,
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "onemin_i2v",
+            "provider_backend_key": "onemin_i2v",
+            "ready": True,
+            "status": "ready",
+            "blockers": [],
+            "checks": {},
+        },
+    )
+    monkeypatch.setattr(
+        "app.product.service._render_property_flythrough_into_hosted_tour",
+        lambda **kwargs: captured_render_kwargs.update(kwargs)
+        or {
+            "status": "rendered",
+            "provider_key": "onemin_i2v",
+            "media_route_provider_key": "onemin_i2v",
+            "video_url": "https://cdn.example/property/runtime-selected-onemin.mp4",
+            "flythrough_url": "https://viewer.example/property/runtime-selected-onemin",
+            "reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        "app.product.service._hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://cdn.example/property/runtime-selected-onemin.mp4",
+            "flythrough_url": "https://viewer.example/property/runtime-selected-onemin",
+            "provider_key": "onemin_i2v",
+        },
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-property-walkthrough-default-onemin-1",
+            step_id="step-property-walkthrough-default-onemin-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "context_kind": "property_walkthrough",
+                "title": "Runtime-selected Onemin Walkthrough",
+                "tour_url": "https://property.example/tours/runtime-selected-onemin",
+                "tour_context_json": {"verified_provider": "3dvista"},
+            },
+            context_json={"principal_id": "exec-property-walkthrough-default-onemin"},
+        )
+    )
+
+    assert captured_render_kwargs["preferred_provider_key"] == "onemin_i2v"
+    assert result.output_json["provider_key"] == "onemin_i2v"
+    assert result.output_json["video_url"] == "https://cdn.example/property/runtime-selected-onemin.mp4"
 
 
 def test_tool_execution_scene_video_forwards_onemin_model_order_to_delegate(

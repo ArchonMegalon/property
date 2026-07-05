@@ -853,26 +853,42 @@ class ToolExecutionService:
 
         def handler(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
             payload = dict(request.payload_json or {})
-            provider_key = _normalize_provider(payload.get("provider_key") or payload.get("walkthrough_provider_key") or "")
+            raw_provider_key = payload.get("provider_key") or payload.get("walkthrough_provider_key") or ""
+            provider_key = _normalize_provider(raw_provider_key) if str(raw_provider_key or "").strip() else ""
             context_kind = str(
                 payload.get("context_kind")
                 or ("property_walkthrough" if str(payload.get("tour_url") or "").strip() else "scene_briefing")
             ).strip().lower() or "scene_briefing"
             title = str(payload.get("title") or "Scene video").strip() or "Scene video"
-            if provider_key == "mootion":
+            from app.services.scene_video_contract import (
+                resolve_property_walkthrough_runtime_provider,
+                scene_video_provider_runtime_readiness,
+            )
+
+            runtime_provider_resolution = None
+            effective_provider_key = provider_key
+            runtime_readiness = {}
+            if context_kind == "property_walkthrough":
+                runtime_provider_resolution = resolve_property_walkthrough_runtime_provider(provider_key)
+                effective_provider_key = str(
+                    runtime_provider_resolution.get("provider_backend_key")
+                    or runtime_provider_resolution.get("provider_key")
+                    or provider_key
+                ).strip()
+                runtime_readiness = dict(runtime_provider_resolution.get("runtime_readiness_json") or {})
+            else:
+                runtime_readiness = scene_video_provider_runtime_readiness(provider_key)
+            if effective_provider_key == "mootion":
                 payload = _with_default_mootion_browseract_bridge(payload, request)
             delivery_probe_video_url = str(payload.get("delivery_probe_video_url") or "").strip()
             if delivery_probe_video_url:
                 if not bool(payload.get("telegram_delivery_requested") or payload.get("telegram_delivery")):
                     raise ToolExecutionError("scene_video_delivery_probe_requires_telegram_delivery_requested")
-                from app.services.scene_video_contract import scene_video_provider_runtime_readiness
-
-                runtime_readiness = scene_video_provider_runtime_readiness(provider_key)
                 normalized = {
                     "deliverable_type": "scene_video_packet",
                     "result_title": title,
-                    "provider_key": str(runtime_readiness.get("provider_key") or _contract_provider_key(provider_key)),
-                    "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or provider_key),
+                    "provider_key": str(runtime_readiness.get("provider_key") or _contract_provider_key(effective_provider_key)),
+                    "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or effective_provider_key),
                     "render_status": "completed",
                     "video_url": delivery_probe_video_url,
                     "asset_url": delivery_probe_video_url,
@@ -882,7 +898,7 @@ class ToolExecutionService:
                     "reason": "delivery_probe_existing_video",
                     "runtime_readiness_json": runtime_readiness,
                     "structured_output_json": {
-                        "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or provider_key),
+                        "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or effective_provider_key),
                         "delivery_probe": True,
                         "runtime_readiness_json": runtime_readiness,
                     },
@@ -915,9 +931,7 @@ class ToolExecutionService:
                     },
                 )
             if bool(payload.get("readiness_only")):
-                from app.services.scene_video_contract import scene_video_provider_runtime_readiness
-
-                runtime_readiness = _maybe_allow_mootion_remote_browseract(scene_video_provider_runtime_readiness(provider_key), payload)
+                runtime_readiness = _maybe_allow_mootion_remote_browseract(dict(runtime_readiness or {}), payload)
                 telegram_delivery_requested = bool(payload.get("telegram_delivery_requested") or payload.get("telegram_delivery"))
                 principal_id = str(dict(request.context_json or {}).get("principal_id") or payload.get("principal_id") or "").strip()
                 telegram_readiness = {
@@ -943,22 +957,24 @@ class ToolExecutionService:
                 normalized = {
                     "deliverable_type": "scene_video_packet",
                     "result_title": title,
-                    "provider_key": str(runtime_readiness.get("provider_key") or _contract_provider_key(provider_key)),
-                    "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or provider_key),
+                    "provider_key": str(runtime_readiness.get("provider_key") or _contract_provider_key(effective_provider_key)),
+                    "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or effective_provider_key),
                     "render_status": render_status,
                     "asset_url": "",
                     "download_url": "",
                     "video_url": "",
-                    "flythrough_url": "",
-                    "editor_url": "",
-                    "reason": ",".join(blockers),
-                    "runtime_readiness_json": runtime_readiness,
-                    "telegram_delivery_readiness_json": telegram_readiness,
-                    "structured_output_json": {
+                        "flythrough_url": "",
+                        "editor_url": "",
+                        "reason": ",".join(blockers),
                         "runtime_readiness_json": runtime_readiness,
                         "telegram_delivery_readiness_json": telegram_readiness,
-                    },
-                }
+                        "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
+                        "structured_output_json": {
+                            "runtime_readiness_json": runtime_readiness,
+                            "telegram_delivery_readiness_json": telegram_readiness,
+                            "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
+                        },
+                    }
                 normalized_text = json.dumps(normalized, ensure_ascii=False)
                 return ToolInvocationResult(
                     tool_name=definition.tool_name,
@@ -971,19 +987,21 @@ class ToolExecutionService:
                         "structured_output_json": normalized,
                         "provider_key": normalized["provider_key"],
                         "provider_backend_key": normalized["provider_backend_key"],
-                        "result_title": normalized["result_title"],
-                        "render_status": normalized["render_status"],
-                        "runtime_readiness_json": runtime_readiness,
-                        "telegram_delivery_readiness_json": telegram_readiness,
-                    },
-                    receipt_json={
-                        "provider_key": normalized["provider_key"],
-                        "provider_backend_key": normalized["provider_backend_key"],
-                        "context_kind": context_kind,
-                        "runtime_readiness_json": runtime_readiness,
-                        "telegram_delivery_readiness_json": telegram_readiness,
-                    },
-                )
+                            "result_title": normalized["result_title"],
+                            "render_status": normalized["render_status"],
+                            "runtime_readiness_json": runtime_readiness,
+                            "telegram_delivery_readiness_json": telegram_readiness,
+                            "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
+                        },
+                        receipt_json={
+                            "provider_key": normalized["provider_key"],
+                            "provider_backend_key": normalized["provider_backend_key"],
+                            "context_kind": context_kind,
+                            "runtime_readiness_json": runtime_readiness,
+                            "telegram_delivery_readiness_json": telegram_readiness,
+                            "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
+                        },
+                    )
             if context_kind == "property_walkthrough":
                 from app.product.service import _hosted_property_tour_video_delivery, _render_property_flythrough_into_hosted_tour
 
@@ -995,9 +1013,6 @@ class ToolExecutionService:
                     if isinstance(payload.get("tour_context_json"), dict)
                     else {}
                 )
-                from app.services.scene_video_contract import scene_video_provider_runtime_readiness
-
-                runtime_readiness = scene_video_provider_runtime_readiness(provider_key)
                 if not bool(runtime_readiness.get("ready")):
                     delivery = _hosted_property_tour_video_delivery(tour_url)
                     cached_video_url = str(delivery.get("video_url") or "").strip()
@@ -1019,11 +1034,13 @@ class ToolExecutionService:
                             "tour_url": tour_url,
                             "tour_context_json": tour_context_json,
                             "runtime_readiness_json": runtime_readiness,
+                            "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                             "structured_output_json": {
                                 **dict(delivery or {}),
                                 "provider_backend_key": provider_backend_key,
                                 "tour_context_json": tour_context_json,
                                 "runtime_readiness_json": runtime_readiness,
+                                "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                             },
                         }
                         normalized_text = json.dumps(normalized, ensure_ascii=False)
@@ -1047,6 +1064,7 @@ class ToolExecutionService:
                                 "editor_url": "",
                                 "tour_context_json": tour_context_json,
                                 "runtime_readiness_json": runtime_readiness,
+                                "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                             },
                             receipt_json={
                                 "provider_key": normalized["provider_key"],
@@ -1055,6 +1073,7 @@ class ToolExecutionService:
                                 "reason": normalized["reason"],
                                 "tour_context_present": bool(tour_context_json),
                                 "runtime_readiness_json": runtime_readiness,
+                                "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                                 "cached_video_used": True,
                             },
                         )
@@ -1082,8 +1101,8 @@ class ToolExecutionService:
                     normalized = {
                         "deliverable_type": "scene_video_packet",
                         "result_title": title,
-                        "provider_key": str(runtime_readiness.get("provider_key") or _contract_provider_key(provider_key)),
-                        "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or provider_key),
+                        "provider_key": str(runtime_readiness.get("provider_key") or _contract_provider_key(effective_provider_key)),
+                        "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or effective_provider_key),
                         "render_status": "blocked",
                         "asset_url": "",
                         "download_url": "",
@@ -1095,11 +1114,13 @@ class ToolExecutionService:
                         "tour_context_json": tour_context_json,
                         "runtime_readiness_json": runtime_readiness,
                         "telegram_delivery_readiness_json": telegram_readiness,
+                        "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                         "structured_output_json": {
-                            "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or provider_key),
+                            "provider_backend_key": str(runtime_readiness.get("provider_backend_key") or effective_provider_key),
                             "tour_context_json": tour_context_json,
                             "runtime_readiness_json": runtime_readiness,
                             "telegram_delivery_readiness_json": telegram_readiness,
+                            "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                         },
                     }
                     normalized_text = json.dumps(normalized, ensure_ascii=False)
@@ -1119,6 +1140,7 @@ class ToolExecutionService:
                             "runtime_readiness_json": runtime_readiness,
                             "telegram_delivery_readiness_json": telegram_readiness,
                             "tour_context_json": tour_context_json,
+                            "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                         },
                         receipt_json={
                             "provider_key": normalized["provider_key"],
@@ -1127,6 +1149,7 @@ class ToolExecutionService:
                             "runtime_readiness_json": runtime_readiness,
                             "telegram_delivery_readiness_json": telegram_readiness,
                             "tour_context_present": bool(tour_context_json),
+                            "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                         },
                     )
                 rendered = _render_property_flythrough_into_hosted_tour(
@@ -1137,7 +1160,7 @@ class ToolExecutionService:
                     birthday_party_request=bool(payload.get("birthday_party_request")),
                     person_motion_hint=str(payload.get("person_motion_hint") or "").strip(),
                     diorama_style_hint=str(payload.get("diorama_style_hint") or "").strip(),
-                    preferred_provider_key=provider_key,
+                    preferred_provider_key=effective_provider_key,
                     tour_context_json=tour_context_json,
                 )
                 delivery = _hosted_property_tour_video_delivery(tour_url)
@@ -1163,10 +1186,14 @@ class ToolExecutionService:
                     "reason": str(rendered.get("reason") or "").strip(),
                     "tour_url": tour_url,
                     "tour_context_json": tour_context_json,
+                    "runtime_readiness_json": runtime_readiness,
+                    "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                     "structured_output_json": {
                         **dict(rendered or {}),
                         "provider_backend_key": provider_backend_key,
                         "tour_context_json": tour_context_json,
+                        "runtime_readiness_json": runtime_readiness,
+                        "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                     },
                 }
                 normalized_text = json.dumps(normalized, ensure_ascii=False)
@@ -1189,6 +1216,8 @@ class ToolExecutionService:
                         "flythrough_url": flythrough_url,
                         "editor_url": normalized["editor_url"],
                         "tour_context_json": tour_context_json,
+                        "runtime_readiness_json": runtime_readiness,
+                        "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                     },
                     receipt_json={
                         "provider_key": normalized["provider_key"],
@@ -1196,14 +1225,13 @@ class ToolExecutionService:
                         "context_kind": context_kind,
                         "reason": normalized["reason"],
                         "tour_context_present": bool(tour_context_json),
+                        "runtime_readiness_json": runtime_readiness,
+                        "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                     },
                 )
             nested_context = dict(request.context_json or {})
             nested_context.pop("telegram_delivery", None)
             nested_context["suppress_telegram_delivery"] = True
-            from app.services.scene_video_contract import scene_video_provider_runtime_readiness
-
-            runtime_readiness = scene_video_provider_runtime_readiness(provider_key)
             runtime_readiness = _maybe_allow_mootion_remote_browseract(runtime_readiness, payload)
             if not bool(runtime_readiness.get("ready")):
                 telegram_delivery_requested = bool(payload.get("telegram_delivery_requested") or payload.get("telegram_delivery"))

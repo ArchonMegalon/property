@@ -126,8 +126,25 @@ def _effective_search_run_timeout_seconds(
     if normalized_timeout <= 0:
         return 0.0
     if enabled and not dry_run:
-        return max(normalized_timeout, 25.0)
+        return max(normalized_timeout, _default_live_search_run_timeout_seconds())
     return normalized_timeout
+
+
+def _default_live_search_run_timeout_seconds() -> float:
+    for key in (
+        "PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_RUN_TIMEOUT_SECONDS",
+        "PROPERTYQUARRY_DEPLOY_PROVIDER_SEARCH_RUN_TIMEOUT_SECONDS",
+    ):
+        raw_value = str(os.getenv(key) or "").strip()
+        if not raw_value:
+            continue
+        try:
+            parsed = float(raw_value)
+        except Exception:
+            continue
+        if parsed > 0:
+            return parsed
+    return 60.0
 
 
 def _all_search_ready_country_codes() -> tuple[str, ...]:
@@ -1180,7 +1197,7 @@ def main() -> int:
         "--search-run-timeout-seconds",
         type=float,
         default=None,
-        help="Optional timeout for search-run dispatch and status readback. Defaults to max(--timeout-seconds, 25) in live mode.",
+        help="Optional timeout for search-run dispatch and status readback. Defaults to max(--timeout-seconds, PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_RUN_TIMEOUT_SECONDS / PROPERTYQUARRY_DEPLOY_PROVIDER_SEARCH_RUN_TIMEOUT_SECONDS / 60) in live mode.",
     )
     parser.add_argument("--provider", action="append", default=[], help="Provider key to include in the targeted matrix. Repeatable.")
     parser.add_argument("--max-providers", type=int, default=0, help="Optional global cap for how many search-ready providers to include in the targeted matrix scope.")

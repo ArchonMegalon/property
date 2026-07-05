@@ -1248,6 +1248,8 @@ def _property_scout_extract_source_virtual_tour_url(*, source_url: str, html: st
             continue
         host = parsed.netloc.lower()
         path = parsed.path.lower()
+        if host == "api.willhaben.at" and ("/logevent/" in path or path.endswith("/virtual-tour-link-clicked")):
+            continue
         combined = f"{host}{path}"
         if any(marker in combined for marker in _PROPERTY_SCOUT_360_HOST_MARKERS):
             return normalized

@@ -186,6 +186,7 @@ DEFAULT_RECEIPT_PATTERNS = {
         "_completion/scene_video_readiness/provider-refresh-packet-verifier.json",
         "_completion/scene_video_readiness/*provider-refresh-packet-verifier*.json",
     ),
+    "id_austria": ("_completion/id_austria/ID_AUSTRIA_PROVIDER_VERIFICATION*.json",),
 }
 DEFAULT_RECEIPT_FALLBACKS = {
     "performance": "_completion/smoke/property-auth-performance-latest.json",
@@ -215,6 +216,7 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "scene_video_readiness_verifier": "_completion/scene_video_readiness/release-gate-verifier.json",
     "scene_video_provider_refresh_packet": "_completion/scene_video_readiness/provider-refresh-packet.json",
     "scene_video_provider_refresh_packet_verifier": "_completion/scene_video_readiness/provider-refresh-packet-verifier.json",
+    "id_austria": "_completion/id_austria/ID_AUSTRIA_PROVIDER_VERIFICATION.generated.json",
 }
 
 _CANONICAL_GOLD_STATUS_LATEST_PATHS = (
@@ -1072,6 +1074,26 @@ def _billing_handoff_readiness_details(
     }
 
 
+def _id_austria_gate_details(id_austria_receipt: dict[str, Any]) -> dict[str, Any]:
+    status = str(id_austria_receipt.get("status") or "").strip().lower()
+    required = bool(id_austria_receipt.get("required"))
+    configured = bool(id_austria_receipt.get("configured"))
+    ready = (
+        status in {"dry_verified_configured", "live_verified_configured", "production_verified_configured"}
+        or (status == "disabled" and not required and not configured)
+    )
+    return {
+        "ready": ready,
+        "status": status or "missing",
+        "required": required,
+        "configured": configured,
+        "error": str(id_austria_receipt.get("error") or "").strip(),
+        "missing_env": list(id_austria_receipt.get("missing_env") or []),
+        "redirect_uri": str(id_austria_receipt.get("redirect_uri") or "").strip(),
+        "issuer": str(id_austria_receipt.get("issuer") or "").strip(),
+    }
+
+
 def _operator_drop_readme_status(
     import_manifest: dict[str, Any],
     *,
@@ -1156,6 +1178,7 @@ def build_gold_status_receipt(
     scene_video_readiness_verifier_receipt_path: Path | None = None,
     scene_video_provider_refresh_packet_path: Path | None = None,
     scene_video_provider_refresh_packet_verifier_receipt_path: Path | None = None,
+    id_austria_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
     provider_catalog_receipt_path: Path | None = None,
     now: datetime | None = None,
@@ -1192,6 +1215,7 @@ def build_gold_status_receipt(
         if scene_video_provider_refresh_packet_verifier_receipt_path is not None
         else {}
     )
+    id_austria_receipt = _load_json(id_austria_receipt_path) if id_austria_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_catalog = _load_json(provider_catalog_receipt_path) if provider_catalog_receipt_path is not None else {}
     provider_matrix = _load_json(provider_matrix_receipt_path)
@@ -1201,6 +1225,7 @@ def build_gold_status_receipt(
             "tour_controls": tour_controls,
             "export_discovery": export_discovery,
             **({"billing_handoff": billing_receipt} if billing_receipt_path is not None else {}),
+            **({"id_austria": id_austria_receipt} if id_austria_receipt_path is not None else {}),
             "repair_canary": repair_canary,
             **({"provider_catalog_smoke": provider_catalog} if provider_catalog_receipt_path is not None else {}),
             "provider_matrix": provider_matrix,
@@ -1352,12 +1377,13 @@ def build_gold_status_receipt(
             and not list(scene_video_provider_refresh_packet_verifier.get("blockers") or [])
         )
     )
-    export_discovery_ok = export_discovery.get("status") in {"ready", "pass"}
     billing_readiness = _billing_handoff_readiness_details(
         billing_receipt,
         authenticated_smoke=authenticated_smoke if authenticated_smoke_receipt_path is not None else None,
     )
     billing_ok = billing_receipt_path is None or bool(billing_readiness.get("ready"))
+    id_austria_details = _id_austria_gate_details(id_austria_receipt)
+    id_austria_ok = id_austria_receipt_path is None or bool(id_austria_details.get("ready"))
     manifest_providers = {
         str(provider or "").strip().lower()
         for provider in list(import_manifest.get("providers") or [])
@@ -1369,6 +1395,10 @@ def build_gold_status_receipt(
         and import_manifest_status == "pass"
         and int(import_manifest.get("import_count") or 0) == 0
         and not missing_provider_modes
+    )
+    export_discovery_ok = (
+        export_discovery.get("status") in {"ready", "pass"}
+        or import_manifest_not_needed
     )
     expected_import_providers = (
         set()
@@ -1508,6 +1538,19 @@ def build_gold_status_receipt(
                 "missing_sign_in_checks": missing_public_sign_in_checks,
                 "failed_sign_in_checks": failed_public_sign_in_checks,
                 "action": "run propertyquarry_live_public_smoke.py against the deployed stack and fix provider sign-in account-creation copy, unavailable-copy, or provider-opening regressions",
+            }
+        )
+    if not id_austria_ok:
+        blockers.append(
+            {
+                "area": "id_austria_sign_in",
+                "status": id_austria_details.get("status") or "missing",
+                "required": bool(id_austria_details.get("required")),
+                "configured": bool(id_austria_details.get("configured")),
+                "error": str(id_austria_details.get("error") or ""),
+                "missing_env": list(id_austria_details.get("missing_env") or []),
+                "redirect_uri": str(id_austria_details.get("redirect_uri") or ""),
+                "action": "either configure the production ID Austria OIDC contract or keep PROPERTYQUARRY_ID_AUSTRIA_REQUIRED unset so the sign-in lane stays explicitly fail-closed",
             }
         )
     if not authenticated_customer_ok:
@@ -2015,6 +2058,7 @@ def build_gold_status_receipt(
             and analytics_ok
             and live_mobile_ok
             and public_auth_ok
+            and id_austria_ok
             and authenticated_customer_ok
             and tour_controls_ok
             and export_discovery_ok
@@ -2306,6 +2350,17 @@ def build_gold_status_receipt(
             "ready": billing_ok,
             "receipt_path": str(billing_receipt_path) if billing_receipt_path is not None else "",
         },
+        "id_austria": {
+            "status": id_austria_details.get("status") if id_austria_receipt_path is not None else "not_checked",
+            "required": bool(id_austria_details.get("required")) if id_austria_receipt_path is not None else False,
+            "configured": bool(id_austria_details.get("configured")) if id_austria_receipt_path is not None else False,
+            "error": str(id_austria_details.get("error") or "") if id_austria_receipt_path is not None else "",
+            "missing_env": list(id_austria_details.get("missing_env") or []) if id_austria_receipt_path is not None else [],
+            "redirect_uri": str(id_austria_details.get("redirect_uri") or "") if id_austria_receipt_path is not None else "",
+            "issuer": str(id_austria_details.get("issuer") or "") if id_austria_receipt_path is not None else "",
+            "ready": bool(id_austria_details.get("ready")) if id_austria_receipt_path is not None else True,
+            "receipt_path": str(id_austria_receipt_path) if id_austria_receipt_path is not None else "",
+        },
         "vendor_tooling": {
             "status": vendor_tooling.get("status") or ("not_configured" if vendor_tooling_receipt_path is None else "missing"),
             "mode": str(vendor_tooling.get("mode") or "") if vendor_tooling_receipt_path is not None else "",
@@ -2469,6 +2524,7 @@ def main() -> int:
     parser.add_argument("--scene-video-readiness-verifier-receipt", default="")
     parser.add_argument("--scene-video-provider-refresh-packet", default="")
     parser.add_argument("--scene-video-provider-refresh-packet-verifier-receipt", default="")
+    parser.add_argument("--id-austria-receipt", default="")
     parser.add_argument("--repair-canary-receipt", default="")
     parser.add_argument("--provider-catalog-receipt", default="")
     parser.add_argument("--provider-matrix-receipt", default="")
@@ -2522,6 +2578,7 @@ def main() -> int:
             if args.scene_video_provider_refresh_packet_verifier_receipt
             else _default_receipt_path("scene_video_provider_refresh_packet_verifier")
         ),
+        id_austria_receipt_path=Path(args.id_austria_receipt) if args.id_austria_receipt else _default_receipt_path("id_austria"),
         repair_canary_receipt_path=Path(args.repair_canary_receipt) if args.repair_canary_receipt else _default_receipt_path("repair_canary"),
         provider_catalog_receipt_path=(
             Path(args.provider_catalog_receipt)

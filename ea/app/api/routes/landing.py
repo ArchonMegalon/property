@@ -51,7 +51,10 @@ from app.api.routes.landing_content import (
     TRUST_CARDS,
 )
 from app.api.routes.landing_property_surface_contracts import PropertySurfaceScope
-from app.api.routes.landing_property_workspace_helpers import _compact_provider_label
+from app.api.routes.landing_property_workspace_helpers import (
+    _compact_provider_label,
+    _property_candidate_source_virtual_tour_url,
+)
 from app.api.routes.landing_view_models import (
     PROPERTY_FURNITURE_STYLE_CATALOG,
     app_section_payload as _app_section_payload,
@@ -867,6 +870,14 @@ def _propertyquarry_backfill_candidate_from_cached_preview(
         if _property_fact_value_is_weak(candidate_row.get(key)) and not _property_fact_value_is_weak(value):
             candidate_row[key] = list(value) if isinstance(value, tuple) else dict(value) if isinstance(value, dict) else value
             changed = True
+
+    safe_source_virtual_tour_url = _property_candidate_source_virtual_tour_url(candidate_row, facts=merged_facts)
+    if str(merged_facts.get("source_virtual_tour_url") or "").strip() != safe_source_virtual_tour_url:
+        merged_facts["source_virtual_tour_url"] = safe_source_virtual_tour_url
+        changed = True
+    if str(candidate_row.get("source_virtual_tour_url") or "").strip() != safe_source_virtual_tour_url:
+        candidate_row["source_virtual_tour_url"] = safe_source_virtual_tour_url
+        changed = True
 
     if merged_facts:
         if changed or not isinstance(candidate_row.get("property_facts"), dict):

@@ -10499,7 +10499,7 @@ def test_property_candidate_supports_live_tour_detects_360() -> None:
     ) is True
     assert product_service._property_candidate_supports_live_tour(
         {"property_facts": {"has_floorplan": True}}
-    ) is False
+    ) is True
     assert product_service._property_candidate_supports_live_tour(
         {"property_facts": {"has_360": False}}
     ) is False
@@ -10513,10 +10513,28 @@ def test_property_candidate_supports_live_tour_rejects_willhaben_tracking_endpoi
                 "source_virtual_tour_url": "https://api.willhaben.at/restapi/v2/logevent/atz/1134225012/virtual-tour-link-clicked",
             }
         }
-    ) is True
+    ) is False
     assert product_service._safe_provider_live_360_url(
         "https://api.willhaben.at/restapi/v2/logevent/atz/1134225012/virtual-tour-link-clicked"
     ) == ""
+
+
+def test_property_scout_extract_source_virtual_tour_url_rejects_willhaben_tracking_link() -> None:
+    html = """
+    <html>
+      <body>
+        <a href="https://api.willhaben.at/restapi/v2/logevent/atz/1134225012/virtual-tour-link-clicked">Tour</a>
+      </body>
+    </html>
+    """
+
+    assert (
+        product_service._property_scout_extract_source_virtual_tour_url(
+            source_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-1134225012/",
+            html=html,
+        )
+        == ""
+    )
 
 
 def test_willhaben_packet_source_virtual_tour_url_falls_back_to_attribute_map_links() -> None:

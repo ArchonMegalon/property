@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import re
 import urllib.parse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -13,9 +15,13 @@ from app.api.routes.landing import (
 )
 from app.api.routes.landing_property_research import (
     _evidence_detail_rows,
+    _generated_reconstruction_preview_detail,
     _object_detail_row,
     _property_candidate_ref,
     _property_distance_ooda_rows,
+    _property_hosted_tour_disabled_fallback,
+    _property_research_money_display,
+    _property_rooms_display,
     _property_tour_media_payload,
     _render_console_object_detail,
 )
@@ -26,6 +32,8 @@ from app.product import property_tour_hosting
 from app.product.service import (
     _hosted_property_visual_progress_snapshot,
     _hosted_property_visual_progress_stage_label,
+    _property_currency_code_from_facts,
+    _safe_provider_live_360_url,
     _property_visual_eta_label,
     _property_visual_progress_pct,
     _property_visual_unavailable_detail,
@@ -71,6 +79,100 @@ def _property_fit_label(assessment: dict[str, object]) -> str:
     return score_text
 
 
+def _propertyquarry_clean_listing_copy(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    if " - " in text:
+        head, tail = text.rsplit(" - ", 1)
+        tail_normalized = tail.strip().lower()
+        if tail_normalized and (
+            "." in tail_normalized
+            or any(
+                marker in tail_normalized
+                for marker in (
+                    "willhaben",
+                    "immoscout",
+                    "immobilienscout",
+                    "immowelt",
+                    "idealista",
+                    "remax",
+                    "immobilien",
+                )
+            )
+        ):
+            text = head.strip()
+    text = re.sub(r"\.?\s*Wählen Sie aus .*?$", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"\.?\s*Immobilien suchen und finden auf .*?$", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"\s+\|\s+", " · ", text)
+    text = re.sub(r"\s+I\s+", " · ", text)
+    return text.strip(" -·|")
+
+
+def _propertyquarry_layout_summary(facts: dict[str, object]) -> str:
+    rooms_text = _property_rooms_display(facts)
+    raw_area = facts.get("area_m2") or facts.get("living_area_m2") or facts.get("area_sqm")
+    area_text = ""
+    try:
+        area_value = float(str(raw_area).replace(",", ".").strip()) if raw_area not in (None, "", []) else 0.0
+        if area_value > 0:
+            area_text = f"{area_value:.0f} m2" if float(area_value).is_integer() else f"{area_value:.1f} m2"
+    except Exception:
+        area_text = str(raw_area or "").strip()
+    return " · ".join(part for part in (rooms_text, area_text) if part)
+
+
+def _propertyquarry_price_summary(facts: dict[str, object]) -> str:
+    currency_code = _property_currency_code_from_facts(facts)
+    for key in (
+        "price_display",
+        "rent_display",
+        "price",
+        "price_eur",
+        "total_rent_eur",
+        "rent_eur",
+        "monthly_rent_eur",
+        "purchase_price_eur",
+    ):
+        value = _property_research_money_display(facts.get(key), currency_code=currency_code)
+        if value:
+            return value
+    return ""
+
+
+def _propertyquarry_meta_rows(facts: dict[str, object]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    price_text = _propertyquarry_price_summary(facts)
+    if price_text:
+        rows.append({"label": "Price", "value": price_text})
+    layout_text = _propertyquarry_layout_summary(facts)
+    if layout_text:
+        rows.append({"label": "Size", "value": layout_text})
+    area_text = str(
+        facts.get("address")
+        or facts.get("postal_name")
+        or facts.get("location_label")
+        or facts.get("district")
+        or ""
+    ).strip()
+    if area_text:
+        rows.append({"label": "Where", "value": area_text})
+    return rows
+
+
+def _propertyquarry_summary_line(facts: dict[str, object]) -> str:
+    address_text = str(
+        facts.get("address")
+        or facts.get("postal_name")
+        or facts.get("location_label")
+        or facts.get("district")
+        or ""
+    ).strip()
+    layout_text = _propertyquarry_layout_summary(facts)
+    price_text = _propertyquarry_price_summary(facts)
+    return " · ".join(part for part in (address_text, layout_text, price_text) if part)
+
+
 def _handoff_customer_status(
     *,
     handoff,
@@ -104,6 +206,8 @@ def _handoff_property_visual_actions(
     *,
     candidate: dict[str, object],
     media_payload: dict[str, object],
+    tour_request_enabled: bool = True,
+    flythrough_request_enabled: bool = True,
 ) -> list[dict[str, object]]:
     property_url = str(candidate.get("property_url") or candidate.get("listing_url") or "").strip()
     if not property_url:
@@ -121,6 +225,10 @@ def _handoff_property_visual_actions(
     running_states = {"processing", "running", "in_progress", "started", "rendering", "repairing"}
     terminal_states = {"blocked", "failed", "skipped", "not_applicable"}
     actions: list[dict[str, object]] = []
+    generated_preview_ready = bool(
+        media_payload.get("generated_reconstruction_ready")
+        or list(media_payload.get("carousel_items") or [])
+    )
 
     tour_url = str(candidate.get("tour_url") or "").strip()
     hosted_tour_ready = bool(media_payload.get("hosted_ready"))
@@ -151,18 +259,23 @@ def _handoff_property_visual_actions(
     )
     if not hosted_tour_ready:
         if tour_url:
-            actions.append(
-                {
-                    **base,
-                    "kind": "tour",
-                    "label": "Request 3D tour",
-                    "state": "idle",
-                    "progress_pct": 0,
-                    "eta_label": "",
-                    "status_detail": "A real 3D tour is not available yet.",
-                    "poll_after_seconds": 0,
-                }
-            )
+            if tour_request_enabled:
+                actions.append(
+                    {
+                        **base,
+                        "kind": "tour",
+                        "label": "Request 3D tour",
+                        "state": "idle",
+                        "progress_pct": 0,
+                        "eta_label": "",
+                        "status_detail": (
+                            _generated_reconstruction_preview_detail()
+                            if generated_preview_ready
+                            else "A real 3D tour is not available yet."
+                        ),
+                        "poll_after_seconds": 0,
+                    }
+                )
         elif tour_status in pending_states:
             actions.append(
                 {
@@ -198,19 +311,24 @@ def _handoff_property_visual_actions(
                 }
             )
         elif tour_status in terminal_states:
-            actions.append(
-                {
-                    **base,
-                    "kind": "tour",
-                    "label": "Retry 3D tour" if tour_status in {"blocked", "failed"} else "Request 3D tour",
-                    "state": "idle",
-                    "progress_pct": 0,
-                    "eta_label": "",
-                    "status_detail": _property_visual_unavailable_detail(request_kind="tour", reason=tour_reason),
-                    "poll_after_seconds": 0,
-                }
-            )
-        else:
+            if tour_request_enabled:
+                actions.append(
+                    {
+                        **base,
+                        "kind": "tour",
+                        "label": "Retry 3D tour" if tour_status in {"blocked", "failed"} else "Request 3D tour",
+                        "state": "idle",
+                        "progress_pct": 0,
+                        "eta_label": "",
+                        "status_detail": (
+                            _generated_reconstruction_preview_detail()
+                            if generated_preview_ready
+                            else _property_visual_unavailable_detail(request_kind="tour", reason=tour_reason)
+                        ),
+                        "poll_after_seconds": 0,
+                    }
+                )
+        elif tour_request_enabled:
             actions.append(
                 {
                     **base,
@@ -219,7 +337,11 @@ def _handoff_property_visual_actions(
                     "state": "idle",
                     "progress_pct": 0,
                     "eta_label": "",
-                    "status_detail": "Build from source material.",
+                    "status_detail": (
+                        _generated_reconstruction_preview_detail()
+                        if generated_preview_ready
+                        else "Build from source material."
+                    ),
                     "poll_after_seconds": 0,
                 }
             )
@@ -295,20 +417,21 @@ def _handoff_property_visual_actions(
                 }
             )
         elif flythrough_status in terminal_states:
-            actions.append(
-                {
-                    **base,
-                    "kind": "flythrough",
-                    "label": "Retry walkthrough" if flythrough_status in {"blocked", "failed"} else "Request walkthrough",
-                    "state": "idle",
-                    "progress_pct": 0,
-                    "eta_label": "",
-                    "status_detail": live_walkthrough_detail or _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason),
-                    "poll_after_seconds": 0,
-                    "walkthrough_provider": "magicfit",
-                }
-            )
-        else:
+            if flythrough_request_enabled:
+                actions.append(
+                    {
+                        **base,
+                        "kind": "flythrough",
+                        "label": "Retry walkthrough" if flythrough_status in {"blocked", "failed"} else "Request walkthrough",
+                        "state": "idle",
+                        "progress_pct": 0,
+                        "eta_label": "",
+                        "status_detail": live_walkthrough_detail or _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason),
+                        "poll_after_seconds": 0,
+                        "walkthrough_provider": "magicfit",
+                    }
+                )
+        elif flythrough_request_enabled:
             actions.append(
                 {
                     **base,
@@ -323,6 +446,78 @@ def _handoff_property_visual_actions(
                 }
             )
     return actions
+
+
+def _propertyquarry_candidate_visual_request_enabled(candidate: dict[str, object]) -> bool:
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    safe_live_360_url = _safe_provider_live_360_url(
+        candidate.get("source_virtual_tour_url") or facts.get("source_virtual_tour_url")
+    )
+    has_floorplan = bool(
+        candidate.get("floorplan_url")
+        or facts.get("has_floorplan")
+        or int(facts.get("floorplan_count") or 0) > 0
+        or list(candidate.get("floorplan_urls_json") or [])
+        or list(facts.get("floorplan_urls_json") or [])
+    )
+    return bool(
+        str(candidate.get("tour_url") or "").strip()
+        or str(candidate.get("generated_reconstruction_url") or "").strip()
+        or str(candidate.get("vendor_tour_url") or "").strip()
+        or safe_live_360_url
+        or has_floorplan
+    )
+
+
+def _merge_propertyquarry_live_visual_status(
+    *,
+    product,
+    principal_id: str,
+    candidate: dict[str, object],
+) -> dict[str, object]:
+    merged = dict(candidate or {})
+    property_url = str(merged.get("property_url") or merged.get("listing_url") or "").strip()
+    if not product or not str(principal_id or "").strip() or not property_url:
+        return merged
+    request_args = {
+        "principal_id": str(principal_id or "").strip(),
+        "run_id": str(merged.get("run_id") or "").strip(),
+        "candidate_ref": str(merged.get("candidate_ref") or "").strip(),
+        "source_ref": str(merged.get("source_ref") or "").strip(),
+        "property_url": property_url,
+    }
+    with contextlib.suppress(Exception):
+        tour_status = product.get_property_visual_request_status(request_kind="tour", **request_args)
+        if isinstance(tour_status, dict):
+            tour_url = str(tour_status.get("tour_url") or "").strip()
+            if tour_url:
+                merged["tour_url"] = tour_url
+            generated_reconstruction_url = str(tour_status.get("generated_reconstruction_url") or "").strip()
+            if generated_reconstruction_url:
+                merged["generated_reconstruction_url"] = generated_reconstruction_url
+            merged["tour_status"] = str(tour_status.get("tour_status") or tour_status.get("status") or merged.get("tour_status") or "").strip()
+            merged["blocked_reason"] = str(tour_status.get("blocked_reason") or merged.get("blocked_reason") or "").strip()
+            merged["tour_progress_pct"] = str(tour_status.get("progress_pct") or merged.get("tour_progress_pct") or "").strip()
+            merged["tour_status_updated_at"] = str(tour_status.get("generated_at") or merged.get("tour_status_updated_at") or "").strip()
+    with contextlib.suppress(Exception):
+        flythrough_status = product.get_property_visual_request_status(request_kind="flythrough", **request_args)
+        if isinstance(flythrough_status, dict):
+            flythrough_url = str(flythrough_status.get("flythrough_url") or "").strip()
+            if flythrough_url:
+                merged["flythrough_url"] = flythrough_url
+            merged["flythrough_status"] = str(
+                flythrough_status.get("flythrough_status") or flythrough_status.get("status") or merged.get("flythrough_status") or ""
+            ).strip()
+            merged["flythrough_reason"] = str(
+                flythrough_status.get("blocked_reason") or flythrough_status.get("flythrough_reason") or merged.get("flythrough_reason") or ""
+            ).strip()
+            merged["flythrough_progress_pct"] = str(
+                flythrough_status.get("progress_pct") or merged.get("flythrough_progress_pct") or ""
+            ).strip()
+            merged["flythrough_status_updated_at"] = str(
+                flythrough_status.get("generated_at") or merged.get("flythrough_status_updated_at") or ""
+            ).strip()
+    return merged
 
 
 def _propertyquarry_handoff_identity_value(
@@ -368,8 +563,16 @@ def _propertyquarry_handoff_tour_url(
         or ""
     ).strip()
     if direct_url:
-        return direct_url
-    return property_tour_hosting._existing_hosted_property_tour_url_for_identity(
+        if not property_tour_hosting._is_branded_public_tour_url(direct_url):
+            return direct_url
+        if property_tour_hosting._hosted_property_tour_first_party_open_url(direct_url):
+            return direct_url
+        direct_payload = property_tour_hosting._hosted_property_tour_payload_for_url(direct_url)
+        if direct_payload:
+            if property_tour_hosting._property_tour_payload_is_disabled_fallback(direct_payload):
+                return ""
+        return ""
+    existing_url = property_tour_hosting._existing_hosted_property_tour_url_for_identity(
         property_url=_propertyquarry_handoff_property_url(
             handoff=handoff,
             input_json=input_json,
@@ -388,6 +591,64 @@ def _propertyquarry_handoff_tour_url(
             key="external_id",
         ),
     )
+    if not existing_url:
+        return ""
+    if property_tour_hosting._hosted_property_tour_first_party_open_url(existing_url):
+        return existing_url
+    existing_payload = property_tour_hosting._hosted_property_tour_payload_for_url(existing_url)
+    if existing_payload:
+        if property_tour_hosting._property_tour_payload_is_disabled_fallback(existing_payload):
+            return ""
+    return ""
+
+
+def _propertyquarry_handoff_generated_reconstruction_url(
+    *,
+    handoff,
+    input_json: dict[str, object],
+    primary_candidate: dict[str, object],
+) -> str:
+    direct_url = str(
+        getattr(handoff, "tour_url", "")
+        or input_json.get("tour_url")
+        or primary_candidate.get("tour_url")
+        or ""
+    ).strip()
+    candidate_urls = [direct_url] if direct_url else []
+    existing_url = property_tour_hosting._existing_hosted_property_tour_url_for_identity(
+        property_url=_propertyquarry_handoff_property_url(
+            handoff=handoff,
+            input_json=input_json,
+            primary_candidate=primary_candidate,
+        ),
+        source_ref=_propertyquarry_handoff_identity_value(
+            handoff=handoff,
+            input_json=input_json,
+            primary_candidate=primary_candidate,
+            key="source_ref",
+        ),
+        external_id=_propertyquarry_handoff_identity_value(
+            handoff=handoff,
+            input_json=input_json,
+            primary_candidate=primary_candidate,
+            key="external_id",
+        ),
+    )
+    if existing_url and existing_url not in candidate_urls:
+        candidate_urls.append(existing_url)
+    for candidate_url in candidate_urls:
+        if not candidate_url or not property_tour_hosting._is_branded_public_tour_url(candidate_url):
+            continue
+        payload = property_tour_hosting._hosted_property_tour_payload_for_url(candidate_url)
+        if not payload or not isinstance(payload, dict):
+            continue
+        generated_reconstruction = payload.get("generated_reconstruction")
+        if not isinstance(generated_reconstruction, dict):
+            continue
+        provider = str(generated_reconstruction.get("provider") or "").strip().lower()
+        if provider == "propertyquarry_generated_reconstruction":
+            return candidate_url
+    return ""
 
 
 def _append_propertyquarry_media_item(
@@ -467,7 +728,7 @@ def _propertyquarry_generated_reconstruction_carousel_items(
                 label="Photo",
                 kind="photo",
             )
-    return items[:8]
+    return items
 
 
 def _propertyquarry_handoff_media_payload(
@@ -476,6 +737,8 @@ def _propertyquarry_handoff_media_payload(
     handoff,
     input_json: dict[str, object],
     primary_candidate: dict[str, object],
+    product=None,
+    principal_id: str = "",
 ) -> dict[str, object]:
     property_url = _propertyquarry_handoff_property_url(
         handoff=handoff,
@@ -487,6 +750,9 @@ def _propertyquarry_handoff_media_payload(
         input_json=input_json,
         primary_candidate=primary_candidate,
     )
+    property_facts = dict(input_json.get("property_facts_json") or {}) if isinstance(input_json.get("property_facts_json"), dict) else {}
+    if isinstance(primary_candidate.get("property_facts"), dict):
+        property_facts = {**dict(primary_candidate.get("property_facts") or {}), **property_facts}
     media_candidate = {
         **primary_candidate,
         "title": str(input_json.get("title") or handoff.summary or primary_candidate.get("title") or "").strip(),
@@ -494,15 +760,43 @@ def _propertyquarry_handoff_media_payload(
         "listing_url": property_url or str(primary_candidate.get("listing_url") or "").strip(),
         "review_url": f"/app/handoffs/{handoff_ref}",
         "tour_url": tour_url,
+        "generated_reconstruction_url": str(
+            input_json.get("generated_reconstruction_url")
+            or primary_candidate.get("generated_reconstruction_url")
+            or _propertyquarry_handoff_generated_reconstruction_url(
+                handoff=handoff,
+                input_json=input_json,
+                primary_candidate=primary_candidate,
+            )
+            or ""
+        ).strip(),
         "vendor_tour_url": str(input_json.get("vendor_tour_url") or primary_candidate.get("vendor_tour_url") or "").strip(),
         "tour_status": str(input_json.get("tour_status") or primary_candidate.get("tour_status") or ("ready" if tour_url else "")).strip(),
-        "blocked_reason": str(input_json.get("blocked_reason") or primary_candidate.get("blocked_reason") or handoff.delivery_reason or "").strip(),
+        "blocked_reason": str(
+            input_json.get("blocked_reason")
+            or primary_candidate.get("blocked_reason")
+            or getattr(handoff, "delivery_reason", "")
+            or ""
+        ).strip(),
         "flythrough_url": str(input_json.get("flythrough_url") or primary_candidate.get("flythrough_url") or "").strip(),
         "flythrough_status": str(input_json.get("flythrough_status") or primary_candidate.get("flythrough_status") or "").strip(),
         "flythrough_reason": str(input_json.get("flythrough_reason") or primary_candidate.get("flythrough_reason") or "").strip(),
         "source_ref": str(input_json.get("source_ref") or primary_candidate.get("source_ref") or "").strip(),
         "run_id": str(input_json.get("run_id") or primary_candidate.get("run_id") or "").strip(),
         "candidate_ref": str(input_json.get("candidate_ref") or primary_candidate.get("candidate_ref") or "").strip(),
+        "property_facts": property_facts,
+        "source_virtual_tour_url": str(
+            input_json.get("source_virtual_tour_url")
+            or primary_candidate.get("source_virtual_tour_url")
+            or property_facts.get("source_virtual_tour_url")
+            or ""
+        ).strip(),
+        "floorplan_urls_json": list(
+            input_json.get("floorplan_urls_json")
+            or primary_candidate.get("floorplan_urls_json")
+            or property_facts.get("floorplan_urls_json")
+            or []
+        ),
         "tour_eta_minutes": input_json.get("tour_eta_minutes") or primary_candidate.get("tour_eta_minutes") or "",
         "tour_requested_at": input_json.get("tour_requested_at") or primary_candidate.get("tour_requested_at") or "",
         "tour_status_updated_at": input_json.get("tour_status_updated_at") or primary_candidate.get("tour_status_updated_at") or "",
@@ -512,12 +806,48 @@ def _propertyquarry_handoff_media_payload(
         "flythrough_status_updated_at": input_json.get("flythrough_status_updated_at") or primary_candidate.get("flythrough_status_updated_at") or "",
         "flythrough_progress_pct": input_json.get("flythrough_progress_pct") or primary_candidate.get("flythrough_progress_pct") or "",
     }
-    media_payload = dict(_property_tour_media_payload(media_candidate))
-    media_payload["carousel_items"] = _propertyquarry_generated_reconstruction_carousel_items(
-        tour_url=tour_url,
+    media_candidate = _merge_propertyquarry_live_visual_status(
+        product=product,
+        principal_id=principal_id,
         candidate=media_candidate,
     )
-    request_actions = _handoff_property_visual_actions(candidate=media_candidate, media_payload=media_payload)
+    if _property_hosted_tour_disabled_fallback(media_candidate.get("tour_url")):
+        media_candidate["generated_reconstruction_url"] = str(
+            media_candidate.get("generated_reconstruction_url") or media_candidate.get("tour_url") or ""
+        ).strip()
+        media_candidate["tour_url"] = ""
+        if str(media_candidate.get("tour_status") or "").strip().lower() in {
+            "",
+            "ready",
+            "created",
+            "existing",
+            "completed",
+            "published",
+        }:
+            media_candidate["tour_status"] = "blocked"
+    media_payload = dict(_property_tour_media_payload(media_candidate))
+    resolved_tour_url = str(media_candidate.get("tour_url") or "").strip()
+    if resolved_tour_url:
+        media_payload["primary_href"] = str(
+            property_tour_hosting._hosted_property_tour_first_party_open_url(resolved_tour_url) or resolved_tour_url
+        ).strip()
+        media_payload["primary_label"] = "Open 3D tour"
+        media_payload["status_label"] = "3D tour available"
+    elif property_url and str(media_payload.get("primary_href") or "").strip() == f"/app/handoffs/{handoff_ref}":
+        media_payload["primary_href"] = property_url
+        media_payload["primary_label"] = "Open listing"
+    media_payload["carousel_items"] = _propertyquarry_generated_reconstruction_carousel_items(
+        tour_url=str(media_candidate.get("generated_reconstruction_url") or media_candidate.get("tour_url") or tour_url).strip(),
+        candidate=media_candidate,
+    )
+    tour_request_enabled = _propertyquarry_candidate_visual_request_enabled(media_candidate)
+    flythrough_request_enabled = bool(str(media_candidate.get("tour_url") or "").strip()) or tour_request_enabled
+    request_actions = _handoff_property_visual_actions(
+        candidate=media_candidate,
+        media_payload=media_payload,
+        tour_request_enabled=tour_request_enabled,
+        flythrough_request_enabled=flythrough_request_enabled,
+    )
     active_action = next(
         (
             action
@@ -1055,64 +1385,7 @@ def handoff_detail(
         }
         match_reasons = [str(item).strip() for item in list(assessment.get("match_reasons_json") or []) if str(item).strip()]
         mismatch_reasons = [str(item).strip() for item in list(assessment.get("mismatch_reasons_json") or []) if str(item).strip()]
-        ooda_rows = [
-            _object_detail_row(
-                "Main match",
-                match_reasons[0]
-                if match_reasons
-                else str(input_json.get("summary") or handoff.summary or "This home matches the current brief.").strip(),
-                "Match",
-            ),
-            _object_detail_row(
-                "Next action",
-                "Open the tour or listing, then decide whether this home deserves follow-up.",
-                "Action",
-                href=primary_tour_url or review_path,
-                secondary_action_href=primary_tour_url or "",
-                secondary_action_label="Open 3D tour" if primary_tour_url else "",
-                secondary_action_method="get" if primary_tour_url else "",
-            ),
-            _object_detail_row(
-                "Main concern",
-                mismatch_reasons[0]
-                if mismatch_reasons
-                else "No explicit issue was projected yet; verify missing facts before committing.",
-                "Risk",
-            ),
-            _object_detail_row(
-                "Next step",
-                str(assessment.get("recommendation") or primary_candidate.get("recommendation") or "Home").replace("_", " "),
-                "Decision",
-            ),
-        ]
-        ooda_rows.extend(_property_distance_ooda_rows(property_facts))
-        fit_details = [
-            _object_detail_row("Fit score", _property_fit_label(assessment), "Fit"),
-            _object_detail_row(
-                "Match reasons",
-                " | ".join(str(item).strip() for item in list(assessment.get("match_reasons_json") or []) if str(item).strip())
-                or "No explicit match reasons were projected.",
-                "Why",
-            ),
-            _object_detail_row(
-                "Mismatches",
-                " | ".join(str(item).strip() for item in list(assessment.get("mismatch_reasons_json") or []) if str(item).strip())
-                or "No explicit mismatches were projected.",
-                "Risk",
-            ),
-            _object_detail_row(
-                "Unknowns",
-                " | ".join(str(item).strip() for item in list(assessment.get("unknowns_json") or []) if str(item).strip())
-                or "No explicit unknowns were projected.",
-                "Unknown",
-            ),
-            _object_detail_row(
-                "Blocking constraints",
-                " | ".join(str(item).strip() for item in list(assessment.get("blocking_constraints_json") or []) if str(item).strip())
-                or "No hard rule was projected.",
-                "Blockers",
-            ),
-        ]
+        unknowns = [str(item).strip() for item in list(assessment.get("unknowns_json") or []) if str(item).strip()]
         review_page_neuronwriter = (
             dict(input_json.get("review_page_neuronwriter") or {})
             if isinstance(input_json.get("review_page_neuronwriter"), dict)
@@ -1128,99 +1401,80 @@ def handoff_detail(
             if review_questions
             else "Confirm the missing facts before this property moves forward."
         )
-        candidate_rows = []
-        for item in candidate_properties[:4]:
-            candidate_url = str(item.get("property_url") or "").strip()
-            candidate_title = (
-                str(item.get("listing_title") or "").strip()
-                or str(item.get("title") or "").strip()
-                or candidate_url
-                or "Candidate property"
-            )
-            candidate_detail_parts = [
-                str(item.get("fit_summary") or "").strip(),
-                _property_fit_label(dict(item.get("assessment") or {})) if isinstance(item.get("assessment"), dict) else "",
-                str(item.get("summary") or "").strip(),
-            ]
-            candidate_rows.append(
-                _object_detail_row(
-                    candidate_title,
-                    " | ".join(part for part in candidate_detail_parts if part) or "Home projected from the property alert.",
-                    "Home",
-                    href=candidate_url,
-                    secondary_action_href=candidate_url,
-                    secondary_action_label="Open listing" if candidate_url else "",
-                    secondary_action_method="get" if candidate_url else "",
-                )
-            )
+        clean_title = _propertyquarry_clean_listing_copy(
+            primary_candidate.get("listing_title")
+            or input_json.get("title")
+            or handoff.summary
+            or "Property review"
+        ) or "Property review"
+        clean_summary = _propertyquarry_clean_listing_copy(
+            input_json.get("summary")
+            or primary_candidate.get("summary")
+            or handoff.summary
+            or ""
+        )
+        object_summary = _propertyquarry_summary_line(property_facts)
+        object_meta = _propertyquarry_meta_rows(property_facts)
+        why_consider_detail = match_reasons[0] if match_reasons else (
+            clean_summary or "This home lines up well enough with the current brief for a closer look."
+        )
+        check_details: list[str] = []
+        for detail in (mismatch_reasons[:1] + unknowns[:1]):
+            if detail and detail not in check_details:
+                check_details.append(detail)
+        if not check_details and next_review_question:
+            check_details.append(next_review_question)
+        next_step_detail = (
+            "Open the 3D tour or the listing, then decide whether this deserves a viewing."
+            if primary_tour_url
+            else "Open the listing and photos, then decide whether this deserves a viewing."
+        )
+        ooda_rows = [
+            _object_detail_row("Why it may suit you", why_consider_detail, ""),
+            _object_detail_row(
+                "Check before deciding",
+                " ".join(check_details) if check_details else "No clear blocker is standing out yet.",
+                "",
+            ),
+            _object_detail_row(
+                "Next step",
+                next_step_detail,
+                "",
+                href=property_url or review_path,
+                secondary_action_href=primary_tour_url or "",
+                secondary_action_label="Open 3D tour" if primary_tour_url else "",
+                secondary_action_method="get" if primary_tour_url else "",
+            ),
+        ]
+        ooda_rows.extend(_property_distance_ooda_rows(property_facts))
         return _render_console_object_detail(
             request=request,
             context=context,
             workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
-            page_title=f"PropertyQuarry {handoff.summary}",
+            page_title=f"PropertyQuarry {clean_title}",
             current_nav="research",
-            console_title=input_json.get("title") or handoff.summary,
+            console_title=clean_title,
             console_summary="",
-            object_kind="Property",
-            object_title=str(input_json.get("title") or handoff.summary or "Property review"),
-            object_summary=f"{_property_fit_label(assessment)} · {str(input_json.get('counterparty') or handoff.owner or 'Property scout').strip()}",
+            object_kind="Home",
+            object_title=clean_title,
+            object_summary=object_summary or (clean_summary if clean_summary != clean_title else ""),
             object_media=_propertyquarry_handoff_media_payload(
                 handoff_ref=handoff_ref,
                 handoff=handoff,
                 input_json=input_json,
                 primary_candidate=primary_candidate,
+                product=product,
+                principal_id=context.principal_id,
             ),
-            object_meta=[
-                {"label": "Fit", "value": _property_fit_label(assessment)},
-                {"label": "Source", "value": str(input_json.get('counterparty') or "Property scout").strip() or "Property scout"},
-                {"label": "Candidates", "value": str(len(candidate_properties))},
-            ],
-            object_ooda_title="Decision summary",
+            object_meta=object_meta,
+            object_ooda_kicker="At a glance",
+            object_ooda_title="Why it may suit you",
             object_ooda_copy="",
             object_ooda_rows=ooda_rows,
-            object_sidebar_title="Actions",
+            object_sidebar_title="",
             object_sidebar_copy="",
-            object_sidebar_rows=[
-                _object_detail_row("Summary", str(input_json.get("summary") or handoff.summary or "No summary was captured.").strip(), "Summary"),
-                _object_detail_row(
-                    "Hosted tour",
-                    primary_tour_url or "No 3D tour exists yet.",
-                    "Tour",
-                    href=primary_tour_url,
-                    secondary_action_href=primary_tour_url,
-                    secondary_action_label="Open 3D tour" if primary_tour_url else "",
-                    secondary_action_method="get" if primary_tour_url else "",
-                ),
-                _object_detail_row(
-                    "Original listing",
-                    property_url or "No source listing URL was stored.",
-                    "Listing",
-                    href=property_url,
-                    secondary_action_href=property_url,
-                    secondary_action_label="Open listing" if property_url else "",
-                    secondary_action_method="get" if property_url else "",
-                ),
-                _object_detail_row("Recommendation", str(assessment.get("recommendation") or "No recommendation projected.").replace("_", " "), "Decision"),
-                _object_detail_row("Ask next", next_review_question, "Review"),
-            ],
-            object_sections=[
-                {
-                    "eyebrow": "Fit reasoning",
-                    "title": "Why this property matched",
-                    "items": fit_details,
-                },
-                *(
-                    [
-                        {
-                            "eyebrow": "Evidence",
-                            "title": "Supporting evidence",
-                            "items": _evidence_detail_rows(handoff.evidence_refs),
-                        }
-                    ]
-                    if handoff.evidence_refs
-                    else []
-                ),
-            ],
+            object_sidebar_rows=[],
+            object_sections=[],
         )
     if not str(context.operator_id or "").strip():
         input_json = dict(getattr(task, "input_json", {}) or {}) if task is not None else {}
@@ -1296,6 +1550,8 @@ def handoff_detail(
                 handoff=handoff,
                 input_json=input_json,
                 primary_candidate=media_candidate,
+                product=product,
+                principal_id=context.principal_id,
             ) if property_url else {},
             object_meta=[
                 {"label": "Status", "value": customer_status_label},

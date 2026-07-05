@@ -564,6 +564,86 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
     return readiness
 
 
+def resolve_property_walkthrough_runtime_provider(
+    value: object,
+    *,
+    allow_non_final_fallback: bool = False,
+) -> dict[str, object]:
+    explicit_token = _normalized_provider_token(value)
+    explicit_requested = bool(explicit_token)
+    checked: list[dict[str, object]] = []
+
+    def _record(provider_key: str) -> dict[str, object]:
+        readiness = scene_video_provider_runtime_readiness(provider_key)
+        checked.append(
+            {
+                "provider_key": provider_key,
+                "ready": bool(readiness.get("ready")),
+                "status": str(readiness.get("status") or ""),
+                "blockers": list(readiness.get("blockers") or []),
+            }
+        )
+        return readiness
+
+    if explicit_requested:
+        resolved_provider = normalize_scene_video_backend_provider(value, default="mootion")
+        readiness = _record(resolved_provider)
+        return {
+            "provider_key": str(readiness.get("provider_key") or normalize_scene_video_contract_provider(resolved_provider)),
+            "provider_backend_key": str(readiness.get("provider_backend_key") or resolved_provider),
+            "runtime_readiness_json": readiness,
+            "checked": checked,
+            "selected_via": "explicit_request",
+            "explicit_requested": True,
+        }
+
+    final_candidates = ("omagic", "magicfit", "onemin_i2v")
+    for candidate in final_candidates:
+        readiness = _record(candidate)
+        if bool(readiness.get("ready")):
+            return {
+                "provider_key": str(readiness.get("provider_key") or normalize_scene_video_contract_provider(candidate)),
+                "provider_backend_key": str(readiness.get("provider_backend_key") or candidate),
+                "runtime_readiness_json": readiness,
+                "checked": checked,
+                "selected_via": "auto_final_ready",
+                "explicit_requested": False,
+            }
+
+    if allow_non_final_fallback:
+        for candidate in ("onemin_i2v", "mootion"):
+            readiness = _record(candidate)
+            if bool(readiness.get("ready")):
+                return {
+                    "provider_key": str(readiness.get("provider_key") or normalize_scene_video_contract_provider(candidate)),
+                    "provider_backend_key": str(readiness.get("provider_backend_key") or candidate),
+                    "runtime_readiness_json": readiness,
+                    "checked": checked,
+                    "selected_via": "auto_fallback_ready",
+                    "explicit_requested": False,
+                }
+
+    fallback_provider = "magicfit"
+    fallback_readiness = next(
+        (
+            scene_video_provider_runtime_readiness(entry.get("provider_key") or "")
+            for entry in checked
+            if str(entry.get("provider_key") or "").strip() == fallback_provider
+        ),
+        None,
+    )
+    if not isinstance(fallback_readiness, dict):
+        fallback_readiness = scene_video_provider_runtime_readiness(fallback_provider)
+    return {
+        "provider_key": str(fallback_readiness.get("provider_key") or normalize_scene_video_contract_provider(fallback_provider)),
+        "provider_backend_key": str(fallback_readiness.get("provider_backend_key") or fallback_provider),
+        "runtime_readiness_json": fallback_readiness,
+        "checked": checked,
+        "selected_via": "auto_no_ready_provider",
+        "explicit_requested": False,
+    }
+
+
 def normalize_scene_video_contract_provider(value: object, *, default: str = "mootion") -> str:
     normalized = _normalized_provider_token(value)
     if normalized in {"magic", "omagic"}:
