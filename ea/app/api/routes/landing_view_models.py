@@ -17,7 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
-from app.services.property_customer_copy import normalize_property_fit_note
+from app.services.property_customer_copy import (
+    normalize_property_fit_note,
+    sanitize_property_marketing_copy,
+    summarize_property_description_copy,
+)
 from app.product.property_location_research import (
     _property_research_boundary_record,
     _property_research_geojson_outer_rings,
@@ -184,8 +188,151 @@ def _normalize_property_type_values(value: object) -> list[str]:
     return values
 
 
-def _clean_property_candidate_copy(value: object) -> str:
+_PROPERTY_PROVIDER_SUFFIX_MARKERS = (
+    "willhaben",
+    "immoscout",
+    "immobilienscout",
+    "immowelt",
+    "idealista",
+    "remax",
+    "immobilien",
+)
+
+_PROPERTY_PROVIDER_MARKETING_PATTERNS = (
+    r"\.?\s*Wählen Sie aus\s+\d[\d.,\s]*(?:Angeboten|Immobilien|Wohnungen|Häusern|Objekten).*?$",
+    r"\.?\s*Immobilien suchen und finden auf\s+.*?$",
+    r"\.?\s*Choose from\s+\d[\d.,\s]*(?:listings|properties|homes|offers).*?$",
+    r"\.?\s*(?:Search|Find)\s+(?:homes|properties|real estate)\s+(?:on|at)\s+.*?$",
+)
+
+_PROPERTY_SENTENCE_CASE_STOPWORDS = {
+    "am",
+    "an",
+    "and",
+    "at",
+    "auf",
+    "bei",
+    "by",
+    "das",
+    "de",
+    "der",
+    "des",
+    "die",
+    "for",
+    "from",
+    "im",
+    "in",
+    "mit",
+    "of",
+    "on",
+    "oder",
+    "the",
+    "to",
+    "und",
+    "von",
+}
+
+
+def _property_candidate_copy_capitalize_first_alpha(value: str) -> str:
+    for index, char in enumerate(value):
+        if char.isalpha():
+            return f"{value[:index]}{char.upper()}{value[index + 1:]}"
+    return value
+
+
+def _property_candidate_copy_sentence_case_fragment(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    raw_letters = [char for char in raw if char.isalpha()]
+    raw_upper_ratio = (sum(1 for char in raw_letters if char.isupper()) / len(raw_letters)) if raw_letters else 0.0
+    if raw_upper_ratio >= 0.8:
+        tokens = re.split(r"(\s+)", raw)
+        normalized_tokens: list[str] = []
+        alpha_token_index = 0
+        for token in tokens:
+            if not token or token.isspace():
+                normalized_tokens.append(token)
+                continue
+            leading_match = re.match(r"^[^A-Za-zÄÖÜäöüß]*", token)
+            trailing_match = re.search(r"[^A-Za-zÄÖÜäöüß]*$", token)
+            leading = leading_match.group(0) if leading_match else ""
+            trailing = trailing_match.group(0) if trailing_match else ""
+            end_index = len(token) - len(trailing) if trailing else len(token)
+            core = token[len(leading):end_index]
+            letters = [char for char in core if char.isalpha()]
+            if not letters:
+                normalized_tokens.append(token)
+                continue
+            lowered = core.lower()
+            lowered_key = lowered.casefold()
+            if len(letters) <= 2 and core.upper() == core and lowered_key not in _PROPERTY_SENTENCE_CASE_STOPWORDS:
+                normalized_core = core
+            else:
+                normalized_core = lowered
+                if alpha_token_index == 0 or lowered_key not in _PROPERTY_SENTENCE_CASE_STOPWORDS:
+                    normalized_core = _property_candidate_copy_capitalize_first_alpha(normalized_core)
+            normalized_tokens.append(f"{leading}{normalized_core}{trailing}")
+            alpha_token_index += 1
+        return "".join(normalized_tokens).strip()
+
+    tokens = re.split(r"(\s+)", raw)
+    normalized_tokens: list[str] = []
+    for token in tokens:
+        if not token or token.isspace():
+            normalized_tokens.append(token)
+            continue
+        leading_match = re.match(r"^[^A-Za-zÄÖÜäöüß]*", token)
+        trailing_match = re.search(r"[^A-Za-zÄÖÜäöüß]*$", token)
+        leading = leading_match.group(0) if leading_match else ""
+        trailing = trailing_match.group(0) if trailing_match else ""
+        end_index = len(token) - len(trailing) if trailing else len(token)
+        core = token[len(leading):end_index]
+        letters = [char for char in core if char.isalpha()]
+        if not letters:
+            normalized_tokens.append(token)
+            continue
+        upper_ratio = (sum(1 for char in letters if char.isupper()) / len(letters)) if letters else 0.0
+        if len(letters) >= 3 and upper_ratio >= 0.8:
+            core = core.lower()
+        normalized_tokens.append(f"{leading}{core}{trailing}")
+    normalized = "".join(normalized_tokens).strip()
+    return _property_candidate_copy_capitalize_first_alpha(normalized)
+
+
+def _property_candidate_copy_strip_provider_marketing(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    if " - " in text:
+        head, tail = text.rsplit(" - ", 1)
+        tail_normalized = tail.strip().lower()
+        if tail_normalized and (
+            "." in tail_normalized or any(marker in tail_normalized for marker in _PROPERTY_PROVIDER_SUFFIX_MARKERS)
+        ):
+            text = head.strip()
+    for pattern in _PROPERTY_PROVIDER_MARKETING_PATTERNS:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+    had_promo_separators = bool(re.search(r"\s+\|\s+|\s+I\s+", text))
+    text = re.sub(r"\s+\|\s+", " · ", text)
+    text = re.sub(r"\s+I\s+", " · ", text)
+    if " · " in text:
+        text = " · ".join(
+            fragment
+            for fragment in (
+                _property_candidate_copy_sentence_case_fragment(part)
+                for part in re.split(r"\s*·\s*", text)
+            )
+            if fragment
+        )
+    text = text.strip(" -·|")
+    if had_promo_separators and text and not re.search(r"[.!?]$", text):
+        text = f"{text}."
+    return text
+
+
+def _clean_property_candidate_copy(value: object) -> str:
+    text = _property_candidate_copy_strip_provider_marketing(value)
     if not text:
         return ""
     if re.match(r"^Personal fit \d+/100(?:\s*·.*)?$", text, flags=re.IGNORECASE):
@@ -235,6 +382,14 @@ def _clean_property_candidate_copy(value: object) -> str:
     text = re.sub(r"([.?!]){2,}", r"\1", text)
     text = " ".join(text.split()).strip(" ,;:-")
     return text.strip()
+
+
+def _clean_property_candidate_detail_copy(value: object) -> str:
+    cleaned = _clean_property_candidate_copy(value)
+    if not cleaned:
+        return ""
+    summarized = summarize_property_description_copy(cleaned)
+    return summarized or cleaned
 
 
 def _property_type_selection_allows_land(property_types: list[str]) -> bool:
@@ -301,12 +456,37 @@ def _property_customer_candidate_summary(
 ) -> dict[str, object]:
     row = dict(candidate or {})
     facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
-    for key in ("fit_summary", "score_demotion_reason", "compare_reason", "summary"):
-        cleaned_copy = _clean_property_candidate_copy(row.get(key))
-        if cleaned_copy:
-            row[key] = cleaned_copy
-        else:
-            row.pop(key, None)
+    cleaned_title = _property_result_title_display(row.get("title") or row.get("property_url") or "Property")
+    if cleaned_title:
+        row["title"] = cleaned_title
+    else:
+        row.pop("title", None)
+    cleaned_fit_summary = _clean_property_candidate_detail_copy(row.get("fit_summary"))
+    if cleaned_fit_summary:
+        row["fit_summary"] = cleaned_fit_summary
+    else:
+        row.pop("fit_summary", None)
+    cleaned_compare_reason = _clean_property_candidate_detail_copy(row.get("compare_reason"))
+    if cleaned_compare_reason:
+        row["compare_reason"] = cleaned_compare_reason
+    else:
+        row.pop("compare_reason", None)
+    cleaned_score_demotion_reason = _clean_property_candidate_copy(row.get("score_demotion_reason"))
+    if cleaned_score_demotion_reason:
+        row["score_demotion_reason"] = cleaned_score_demotion_reason
+    else:
+        row.pop("score_demotion_reason", None)
+    raw_summary = str(row.get("summary") or "").strip()
+    cleaned_summary = _clean_property_candidate_copy(raw_summary)
+    if cleaned_summary:
+        if cleaned_summary != raw_summary and (
+            "|" in raw_summary
+            or re.search(r"(?i)\b(?:wählen sie aus|immobilien suchen und finden|choose from|search homes|find homes)\b", raw_summary)
+        ):
+            cleaned_summary = summarize_property_description_copy(cleaned_summary)
+        row["summary"] = cleaned_summary
+    else:
+        row.pop("summary", None)
     normalized_mismatch_reasons = _property_visible_mismatch_reasons(
         {"mismatch_reasons_json": list(row.get("mismatch_reasons") or [])},
         facts=facts,
@@ -557,6 +737,7 @@ def _property_result_title_display(title: object) -> str:
         if readable and not re.fullmatch(r"\d+", readable):
             return readable.title()
         return "Property listing"
+    text = sanitize_property_marketing_copy(text)
     text = re.sub(r"\s+-\s+(willhaben|immobilienscout24|immoscout|immowelt|idealista|kleinanzeigen)\b.*$", "", text, flags=re.IGNORECASE).strip()
     trailing_patterns = (
         r",\s*\d+(?:[.,]\d+)?\s*m².*$",
@@ -571,6 +752,7 @@ def _property_result_title_display(title: object) -> str:
             if updated != text:
                 text = updated
                 changed = True
+    text = text.strip(" \t\r\n\"'`.,;")
     return text or "Property"
 
 
@@ -4077,7 +4259,7 @@ def app_section_payload(
         "variant": "property_search",
         "title": "Start a premium market search",
         "eyebrow": "Property search",
-        "copy": "Set the market, shape the shortlist, choose the listing sites, then launch one visible search with ranking, review pages, and client-ready alerts.",
+        "copy": "Set the market, shape the shortlist, choose the listing sites, then launch one visible search with ranking, property pages, and client-ready alerts.",
         "submit_label": "Launch search",
         "fields": [
             {
@@ -5536,8 +5718,8 @@ def app_section_payload(
                 },
                 {
                     "key": "providers",
-                    "label": "Sites",
-                    "detail": "Choose listing sites.",
+                    "label": "Providers",
+                    "detail": "Choose providers.",
                 },
             ],
         },
@@ -5578,7 +5760,7 @@ def app_section_payload(
                 {
                     "eyebrow": "Search signal",
                     "title": "What is shaping the search",
-                    "body": "The current brief stays visible and tied to real results.",
+                    "body": "The current search stays visible and tied to real results.",
                     "items": string_rows(first_brief, ("No search items yet.",), tag="Search", detail="Use this to decide what to review first."),
                 },
                 {
@@ -5811,7 +5993,7 @@ def app_section_payload(
             ],
             "stats": [
                 {"label": "Country", "value": property_country_label},
-                {"label": "Sites", "value": str(len(property_selected_platform_labels) or 0)},
+                {"label": "Providers", "value": str(len(property_selected_platform_labels) or 0)},
                 {
                     "label": "Lists used",
                     "value": str(int(property_summary.get("source_variant_total") or property_summary.get("sources_total") or 0)),

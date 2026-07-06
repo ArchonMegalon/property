@@ -28,10 +28,17 @@ def test_workspace_and_packet_dashboard_show_commercial_and_page_idea_language(m
         json={"views": 8, "unique_visitors": 2, "average_time_seconds": 55},
     )
     seed_property_search_preferences(client)
+    empty_workspace = client.get("/app/properties")
+    assert empty_workspace.status_code == 200
+    assert "Premium next step" not in empty_workspace.text
+    assert "Open checkout" not in empty_workspace.text
+
     install_property_run(monkeypatch, property_url="https://example.com/listing-phase6")
     workspace = client.get("/app/properties", params={"run_id": "run-phase6"})
     assert workspace.status_code == 200
-    assert "Quick take" in workspace.text
+    assert "At a glance" in workspace.text
+    assert "Premium next step" in workspace.text
+    assert "Open checkout" in workspace.text
     assert "Account" in workspace.text
 
     packets = client.get("/app/properties/packets")
@@ -77,7 +84,15 @@ def test_packet_dashboard_acknowledges_page_ideas_in_real_browser(
         response = page.goto(f"{base_url}/app/properties?run_id=run-phase6", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator("body", has_text="Upgrade").is_visible()
+        checkout_link = page.get_by_role("link", name="Open checkout").first
+        assert checkout_link.is_visible()
+        checkout_href = checkout_link.get_attribute("href")
+        assert checkout_href and "/pricing?offer_id=" in checkout_href
         assert page.locator("body", has_text="Account").is_visible()
+
+        response = page.goto(f"{base_url}{checkout_href}", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator("body", has_text="Free").is_visible()
 
         response = page.goto(f"{base_url}/app/properties/packets", wait_until="networkidle")
         assert response is not None and response.ok

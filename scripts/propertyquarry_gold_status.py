@@ -327,7 +327,10 @@ def _provider_matrix_scope_rank(payload: dict[str, Any]) -> int:
         return 0
     if tuple(sorted(country_codes)) != tuple(sorted(ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES)):
         return 0
-    return 2 if str(payload.get("country_scope") or "").strip().lower() == "explicit" else 1
+    country_scope = str(payload.get("country_scope") or "").strip().lower()
+    if country_scope in {"explicit", "all_search_ready"}:
+        return 2
+    return 1
 
 
 def _provider_catalog_smoke_summary(payload: dict[str, Any], receipt_path: Path | None) -> dict[str, Any]:
@@ -646,6 +649,28 @@ def _magicfit_renderer_summary(vendor_tooling: dict[str, Any], *, receipt_presen
         "ready": bool(renderer.get("ready")) if receipt_present and "ready" in renderer else None,
         "next_action": str(renderer.get("next_action") or "") if receipt_present else "",
         "note": str(renderer.get("note") or "") if receipt_present else "",
+    }
+
+
+def _omagic_adapter_summary(vendor_tooling: dict[str, Any], *, receipt_present: bool) -> dict[str, Any]:
+    adapter = dict(vendor_tooling.get("omagic_adapter") or {}) if receipt_present else {}
+    runtime_script = dict(adapter.get("runtime_script") or {})
+    return {
+        "status": str(adapter.get("status") or ("not_configured" if not receipt_present else "missing")),
+        "ready": bool(adapter.get("ready")) if receipt_present and "ready" in adapter else None,
+        "script_path": str(adapter.get("script_path") or "") if receipt_present else "",
+        "script_ready": bool(adapter.get("script_ready")) if receipt_present and "script_ready" in adapter else None,
+        "runtime_checked": bool(adapter.get("runtime_checked")) if receipt_present and "runtime_checked" in adapter else False,
+        "runtime_script_ready": adapter.get("runtime_script_ready") if receipt_present else None,
+        "runtime_script": runtime_script,
+        "model_upload_enable_env": str(adapter.get("model_upload_enable_env") or "") if receipt_present else "",
+        "model_upload_adapter_enabled": bool(adapter.get("model_upload_adapter_enabled")) if receipt_present and "model_upload_adapter_enabled" in adapter else None,
+        "render_endpoint_env_names": list(adapter.get("render_endpoint_env_names") or []) if receipt_present else [],
+        "render_command_env_names": list(adapter.get("render_command_env_names") or []) if receipt_present else [],
+        "render_target_configured": bool(adapter.get("render_target_configured")) if receipt_present and "render_target_configured" in adapter else None,
+        "credential_env_names": list(adapter.get("credential_env_names") or []) if receipt_present else [],
+        "next_action": str(adapter.get("next_action") or "") if receipt_present else "",
+        "note": str(adapter.get("note") or "") if receipt_present else "",
     }
 
 
@@ -1197,6 +1222,10 @@ def build_gold_status_receipt(
         vendor_tooling,
         receipt_present=vendor_tooling_receipt_path is not None,
     )
+    omagic_adapter = _omagic_adapter_summary(
+        vendor_tooling,
+        receipt_present=vendor_tooling_receipt_path is not None,
+    )
     whole_project_scope = _load_json(whole_project_scope_receipt_path) if whole_project_scope_receipt_path is not None else {}
     security_posture = _load_json(security_posture_receipt_path) if security_posture_receipt_path is not None else {}
     release_hygiene = _load_json(release_hygiene_receipt_path) if release_hygiene_receipt_path is not None else {}
@@ -1377,6 +1406,38 @@ def build_gold_status_receipt(
             and not list(scene_video_provider_refresh_packet_verifier.get("blockers") or [])
         )
     )
+    scene_video_provider_summary = (
+        dict(scene_video_readiness.get("summary") or {})
+        if isinstance(scene_video_readiness.get("summary"), dict)
+        else {}
+    )
+    scene_video_blocked_provider_count = int(scene_video_provider_summary.get("blocked_count") or 0)
+    scene_video_blocked_providers = [
+        str(provider or "").strip()
+        for provider in list(scene_video_provider_summary.get("blocked_providers") or [])
+        if str(provider or "").strip()
+    ]
+    scene_video_next_actions = [
+        dict(action)
+        for action in list(scene_video_readiness.get("next_actions") or [])
+        if isinstance(action, dict)
+    ]
+    scene_video_action_providers = [
+        str(action.get("provider") or "").strip()
+        for action in scene_video_next_actions
+        if str(action.get("provider") or "").strip()
+    ]
+    if not scene_video_blocked_providers:
+        scene_video_blocked_providers = sorted(set(scene_video_action_providers))
+    scene_video_provider_runtime_ready = (
+        scene_video_readiness_receipt_path is not None
+        and scene_video_blocked_provider_count == 0
+        and not scene_video_next_actions
+    )
+    scene_video_provider_action_required = (
+        scene_video_readiness_receipt_path is not None
+        and (scene_video_blocked_provider_count > 0 or bool(scene_video_next_actions))
+    )
     billing_readiness = _billing_handoff_readiness_details(
         billing_receipt,
         authenticated_smoke=authenticated_smoke if authenticated_smoke_receipt_path is not None else None,
@@ -1392,9 +1453,9 @@ def build_gold_status_receipt(
     import_manifest_status = str(import_manifest.get("status") or "").strip()
     import_manifest_not_needed = (
         import_manifest_receipt_path is not None
-        and import_manifest_status == "pass"
-        and int(import_manifest.get("import_count") or 0) == 0
+        and import_manifest_status not in {"missing", "invalid"}
         and not missing_provider_modes
+        and int(import_manifest.get("import_count") or 0) == 0
     )
     export_discovery_ok = (
         export_discovery.get("status") in {"ready", "pass"}
@@ -1666,6 +1727,31 @@ def build_gold_status_receipt(
                 "action": "rerun materialize_scene_video_provider_refresh_packet.py and verify_scene_video_provider_refresh_packet.py; do not modify ONEMIN_* credentials while refreshing MagicFit or OMagic/Magic accounts",
             }
         )
+    if bool(omagic_adapter.get("runtime_checked")) and not bool(omagic_adapter.get("ready")):
+        blockers.append(
+            {
+                "area": "omagic_model_upload_adapter_deploy",
+                "status": omagic_adapter.get("status") or "missing",
+                "script_ready": omagic_adapter.get("script_ready"),
+                "runtime_script_ready": omagic_adapter.get("runtime_script_ready"),
+                "runtime_script": omagic_adapter.get("runtime_script") or {},
+                "action": str(omagic_adapter.get("next_action") or "")
+                or "rebuild/redeploy the PropertyQuarry runtime so the OMagic model-upload adapter exists before claiming provider parity",
+            }
+        )
+    if scene_video_provider_action_required:
+        blockers.append(
+            {
+                "area": "scene_video_provider_runtime",
+                "status": "action_required",
+                "provider_runtime_ready": False,
+                "provider_blocked_count": scene_video_blocked_provider_count,
+                "blocked_providers": scene_video_blocked_providers,
+                "provider_summary": scene_video_provider_summary,
+                "next_actions": scene_video_next_actions[:12],
+                "action": "clear MagicFit credit/account visibility plus Magic/OMagic credential and upload-adapter gaps, rerun property_scene_video_readiness_report.py, then refresh the gold receipt before claiming Crezlo-level video/provider parity",
+            }
+        )
     if not export_discovery_ok:
         blockers.append(
             {
@@ -1869,7 +1955,7 @@ def build_gold_status_receipt(
         for row in export_rejection_sample
         if str(row.get("provider") or "").strip().lower() in set(missing_provider_modes)
     ]
-    if export_discovery.get("status") == "blocked_no_verified_exports":
+    if export_discovery.get("status") == "blocked_no_verified_exports" and not import_manifest_not_needed:
         next_required_actions.append(
             {
                 "provider": "_".join(missing_provider_modes) if missing_provider_modes else "verified_tour_exports",
@@ -1881,6 +1967,26 @@ def build_gold_status_receipt(
                 "rejected_sample": missing_export_rejection_sample,
             }
         )
+    if scene_video_provider_action_required:
+        if scene_video_next_actions:
+            next_required_actions.extend(
+                {
+                    "area": "scene_video_provider_runtime",
+                    **action,
+                    "action": str(action.get("action") or "").strip()
+                    or "clear the scene-video provider runtime gap and rerun the scene-video readiness report",
+                }
+                for action in scene_video_next_actions
+            )
+        else:
+            next_required_actions.append(
+                {
+                    "area": "scene_video_provider_runtime",
+                    "provider": "_".join(scene_video_blocked_providers) if scene_video_blocked_providers else "scene_video",
+                    "reason": "provider_runtime_not_ready",
+                    "action": "clear the blocked scene-video providers and rerun property_scene_video_readiness_report.py",
+                }
+            )
     if "magicfit" in missing_provider_modes and vendor_tooling_receipt_path is not None and not bool(magicfit_renderer.get("ready")):
         next_required_actions.append(
             {
@@ -1893,6 +1999,20 @@ def build_gold_status_receipt(
                 "action": (
                     str(magicfit_renderer.get("next_action") or "")
                     or "configure the MagicFit render lane before expecting a receipt-backed walkthrough"
+                ),
+            }
+        )
+    if bool(omagic_adapter.get("runtime_checked")) and not bool(omagic_adapter.get("ready")):
+        next_required_actions.append(
+            {
+                "provider": "omagic",
+                "area": "omagic_model_upload_adapter_deploy",
+                "adapter_status": omagic_adapter.get("status"),
+                "script_ready": omagic_adapter.get("script_ready"),
+                "runtime_script_ready": omagic_adapter.get("runtime_script_ready"),
+                "action": (
+                    str(omagic_adapter.get("next_action") or "")
+                    or "deploy the OMagic model-upload adapter before expecting model-backed walkthrough renders"
                 ),
             }
         )
@@ -2030,9 +2150,12 @@ def build_gold_status_receipt(
             "status": "pass",
             "checked_providers": scene_video_readiness_verifier.get("checked_providers") or [],
             "provider_count": scene_video_readiness_verifier.get("provider_count"),
+            "provider_runtime_ready": scene_video_provider_runtime_ready,
+            "provider_blocked_count": scene_video_blocked_provider_count,
+            "provider_action_required": bool(scene_video_blocked_provider_count or scene_video_next_actions),
             "receipt_path": str(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else "",
             "verifier_receipt_path": str(scene_video_readiness_verifier_receipt_path),
-            "note": "Verifier pass means scene-video routing and actionability invariants hold; provider-specific MagicFit/OMagic gaps remain in the readiness receipt until refreshed.",
+            "note": "Verifier pass means scene-video routing and actionability invariants hold; provider_runtime_ready shows whether MagicFit/OMagic provider capacity is actually clear.",
         }
         if scene_video_readiness_verifier_receipt_path is not None and scene_video_readiness_verifier_ok
         else None,
@@ -2054,7 +2177,8 @@ def build_gold_status_receipt(
     status = (
         "pass"
         if (
-            performance_ok
+            not blockers
+            and performance_ok
             and analytics_ok
             and live_mobile_ok
             and public_auth_ok
@@ -2129,6 +2253,10 @@ def build_gold_status_receipt(
             notes.append("Walkthrough readiness is blocked until room coverage and frame-continuity proof pass.")
         if not scene_video_readiness_verifier_ok:
             notes.append("Scene-video readiness is blocked until the verifier proves Mootion BrowserAct, Telegram, 1min isolation, and MagicFit/OMagic actionability invariants.")
+        if scene_video_provider_action_required:
+            notes.append("Scene-video provider runtime is blocked until MagicFit/Magic/OMagic account, credit, credential, and adapter gaps are cleared in the readiness receipt.")
+        if bool(omagic_adapter.get("runtime_checked")) and not bool(omagic_adapter.get("ready")):
+            notes.append("OMagic model-upload adapter deployment is blocked until the checked runtime contains the packaged adapter script.")
     notes.append(_tour_provider_missing_note(missing_provider_modes))
     ready_for_notification = status == "pass" and not blockers and not next_required_actions
 
@@ -2256,9 +2384,20 @@ def build_gold_status_receipt(
                 if scene_video_readiness_verifier_receipt_path is not None
                 else None
             ),
-            "provider_summary": scene_video_readiness.get("summary") or {},
+            "actionability_ready": (
+                scene_video_readiness_verifier_ok and scene_video_provider_refresh_packet_verifier_ok
+                if scene_video_readiness_verifier_receipt_path is not None
+                else None
+            ),
+            "provider_runtime_ready": scene_video_provider_runtime_ready if scene_video_readiness_receipt_path is not None else None,
+            "provider_action_required": bool(scene_video_blocked_provider_count or scene_video_next_actions)
+            if scene_video_readiness_receipt_path is not None
+            else None,
+            "provider_blocked_count": scene_video_blocked_provider_count if scene_video_readiness_receipt_path is not None else None,
+            "blocked_providers": scene_video_blocked_providers,
+            "provider_summary": scene_video_provider_summary,
             "telegram_delivery_readiness": scene_video_readiness.get("telegram_delivery_readiness") or {},
-            "next_actions": scene_video_readiness.get("next_actions") or [],
+            "next_actions": scene_video_next_actions,
             "verifier_blockers": list(scene_video_readiness_verifier.get("blockers") or []) if scene_video_readiness_verifier_receipt_path is not None else [],
             "checked_providers": scene_video_readiness_verifier.get("checked_providers") or [],
             "receipt_path": str(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else "",
@@ -2378,6 +2517,7 @@ def build_gold_status_receipt(
             "verified_export_ready_counts": vendor_tooling.get("verified_export_ready_counts") or {},
             "missing_verified_exports": vendor_tooling.get("missing_verified_exports") or [],
             "magicfit_renderer": magicfit_renderer,
+            "omagic_adapter": omagic_adapter,
             "next_actions": vendor_tooling.get("next_actions") or [],
             "receipt_path": str(vendor_tooling_receipt_path) if vendor_tooling_receipt_path is not None else "",
             "note": "Host tooling readiness is tracked separately from verified 3D-tour export evidence and walkthrough render-lane configuration.",

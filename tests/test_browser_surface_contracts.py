@@ -128,9 +128,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         '<a class="btn" href="/register" data-analytics-event="home_email_setup"'
         in landing.text
     )
-    assert landing.text.index(">Open search</a>") < landing.text.index(">Use email instead</a>")
+    assert landing.text.index(">Open search</a>") < landing.text.index(">Email sign-in</a>")
     assert "Must-haves stay clear" in landing.text
     assert "Preferences shape fit" in landing.text
+    assert "Details stay together" in landing.text
+    assert "Research is attached" not in landing.text
     assert "Hard filters stay hard" not in landing.text
     assert "Preferences score" not in landing.text
     assert "sample-memo" not in landing.text
@@ -198,7 +200,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "those providers' own account settings" not in deletion.text.lower() and "from preferences" not in deletion.text.lower()
 
     sign_in = client.get("/sign-in")
-    assert "Use a saved session, email link, or connected identity." in sign_in.text
+    assert "Use email or one of the sign-in options below." in sign_in.text
     assert "Identity only" not in sign_in.text
     assert "Choose the narrowest sign-in path" not in sign_in.text
     assert (
@@ -231,8 +233,8 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
 
     product = anonymous_client.get("/product", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert '<a class="btn primary" href="/sign-in?signing_in=1">Open search</a>' in product.text
-    assert f'<a class="btn ghost" href="/register">{"Use email instead"}</a>' in product.text
-    assert product.text.index(">Open search</a>") < product.text.index(">Use email instead</a>")
+    assert f'<a class="btn ghost" href="/register">{"Email sign-in"}</a>' in product.text
+    assert product.text.index(">Open search</a>") < product.text.index(">Email sign-in</a>")
 
 
 def test_propertyquarry_public_templates_do_not_keep_memo_anchors() -> None:
@@ -374,7 +376,7 @@ def test_app_surface_routes_render_without_product_drift() -> None:
     properties_followed = client.get("/app/properties")
     assert str(properties_followed.url).endswith("/app/search")
     assert "Search flow" in properties_followed.text
-    assert "Search history" in properties_followed.text
+    assert "Recent searches" in properties_followed.text
 
     settings = client.get("/app/settings")
     assert str(settings.url).endswith("/app/account")
@@ -486,9 +488,9 @@ def test_propertyquarry_core_surface_internal_links_resolve() -> None:
     for path in paths:
         response = client.get(path, headers={"host": "propertyquarry.com", "accept": "text/html"}, follow_redirects=True)
         if path == "/app/billing":
-            assert response.status_code == 503, path
-            assert "Billing portal unavailable" in response.text
-            assert "Your PropertyQuarry access stays active from the account page." in response.text
+            assert response.status_code == 200, path
+            assert "Account" in response.text
+            assert "Billing portal unavailable" not in response.text
             continue
         assert response.status_code == 200, path
         _assert_internal_links_resolve(client, source_path=path, html=response.text)

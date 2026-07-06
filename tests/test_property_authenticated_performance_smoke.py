@@ -51,6 +51,7 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
         assert check_names["no_visible_internal_proof_copy"]
         if route_path == "/app/billing" and (
             check_names.get("billing_external_handoff_redirect") or check_names.get("billing_fail_closed_recovery")
+            or check_names.get("billing_internal_account_fallback")
         ):
             continue
         assert check_names["mobile_viewport_meta"]
@@ -97,7 +98,7 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert any(check["name"] == "connected_identity_implicit_account_creation" and check["ok"] for check in routes["/sign-in"]["checks"])
     assert any(check["name"] == "connected_identity_copy_is_customer_safe" and check["ok"] for check in routes["/sign-in"]["checks"])
     assert any(
-        check["name"] in {"billing_external_handoff_redirect", "billing_fail_closed_recovery"} and check["ok"]
+        check["name"] in {"billing_external_handoff_redirect", "billing_fail_closed_recovery", "billing_internal_account_fallback"} and check["ok"]
         for check in routes["/app/billing"]["checks"]
     )
     assert any(check["name"] == "notification_destination_controls" and check["ok"] for check in routes["/app/account"]["checks"])
@@ -145,7 +146,11 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"mobile_content_first_surface"' in result.stdout
     assert '"mobile_static_switch_suppressed"' in result.stdout
     assert '"mobile_settings_surface"' in result.stdout
-    assert '"billing_external_handoff_redirect"' in result.stdout or '"billing_fail_closed_recovery"' in result.stdout
+    assert (
+        '"billing_external_handoff_redirect"' in result.stdout
+        or '"billing_fail_closed_recovery"' in result.stdout
+        or '"billing_internal_account_fallback"' in result.stdout
+    )
     assert '"research_mobile_open_property_compact_layout"' in result.stdout
     assert '"research_mobile_visual_frame_compact"' in result.stdout
     assert '"connected_identity_implicit_account_creation"' in result.stdout

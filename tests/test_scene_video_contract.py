@@ -63,7 +63,46 @@ def test_scene_video_omagic_readiness_counts_magic_accounts_json(monkeypatch, tm
     assert readiness["runtime_account_count"] == 8
     assert readiness["checks"]["runtime_account_email_env_names"][0] == "MAGIC_ACCOUNTS_JSON[1].email"
     assert readiness["checks"]["model_upload_adapter_enabled"] is False
-    assert readiness["blockers"] == ["omagic_model_upload_adapter_disabled"]
+    assert readiness["blockers"] == [
+        "omagic_model_upload_adapter_disabled",
+        "omagic_model_upload_endpoint_missing",
+    ]
+
+
+def test_scene_video_omagic_readiness_requires_adapter_target_when_enabled(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "render_omagic_property_model_walkthrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_API_KEY", "secret")
+
+    readiness = service.scene_video_provider_runtime_readiness("omagic")
+
+    assert readiness["ready"] is False
+    assert readiness["checks"]["model_upload_adapter_target_configured"] is False
+    assert readiness["checks"]["model_upload_supported"] is False
+    assert readiness["blockers"] == ["omagic_model_upload_endpoint_missing"]
+
+
+def test_scene_video_omagic_readiness_passes_with_enabled_adapter_target_and_credentials(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "render_omagic_property_model_walkthrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_API_KEY", "secret")
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT", "https://omagic.example/render")
+
+    readiness = service.scene_video_provider_runtime_readiness("magic")
+
+    assert readiness["ready"] is True
+    assert readiness["checks"]["model_upload_adapter_target_configured"] is True
+    assert readiness["checks"]["model_upload_endpoint_env_names"] == ["PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT"]
+    assert readiness["checks"]["model_upload_supported"] is True
+    assert readiness["blockers"] == []
 
 
 def test_scene_video_magicfit_readiness_counts_three_accounts_json(monkeypatch, tmp_path: Path) -> None:

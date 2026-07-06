@@ -18,10 +18,23 @@
 {% set plan_items = plan_card.value.get('items') or [] %}
 {% set plan_item = plan_items[0] if plan_items else {} %}
 {% set plan_value = (plan_item.get('detail') or '').split('|')[0].strip() or 'Free' %}
-{% set plan_detail = (plan_item.get('detail') or '').split('|', 1)[1].strip() if '|' in (plan_item.get('detail') or '') else 'Billing access.' %}
-{% set billing_action_label = account_nav.billing_label if account_nav and account_nav.billing_label else 'Billing account' %}
-{% set billing_action_detail = account_nav.billing_detail if account_nav and account_nav.billing_detail else 'Open billing in your billing account.' %}
-{% set billing_action_href = account_nav.billing_href if account_nav and account_nav.billing_href else '/app/account?billing=1#delivery' %}
+{% set plan_detail = (plan_item.get('detail') or '').split('|', 1)[1].strip() if '|' in (plan_item.get('detail') or '') else 'Plan, payments, and invoices.' %}
+{% set billing_action_label = account_nav.billing_label if account_nav and account_nav.billing_label else 'Open billing' %}
+{% if billing_action_label in ['Billing', 'Billing account'] %}
+  {% set billing_action_label = 'Open billing' %}
+{% endif %}
+{% set billing_action_detail = account_nav.billing_detail if account_nav and account_nav.billing_detail else 'Open billing.' %}
+{% if billing_action_detail == 'Opens here when ready.' %}
+  {% set billing_action_detail = 'Manage plan and billing.' %}
+{% endif %}
+{% set billing_action_href = account_nav.billing_href if account_nav and account_nav.billing_href else '/app/billing' %}
+{% if query_suffix and billing_action_href.startswith('/app/billing') and 'run_id=' not in billing_action_href %}
+  {% if '#' in billing_action_href %}
+    {% set billing_action_href = billing_action_href.split('#', 1)[0] ~ query_suffix ~ '#' ~ billing_action_href.split('#', 1)[1] %}
+  {% else %}
+    {% set billing_action_href = billing_action_href ~ query_suffix %}
+  {% endif %}
+{% endif %}
 {% set rendered_account_status = account_status if account_status is defined and account_status else (status if status is defined and status else {}) %}
 {% set delivery_preferences = rendered_account_status.get('delivery_preferences') or {} %}
 {% set property_notifications = delivery_preferences.get('property_notifications') or {} %}
@@ -83,16 +96,16 @@
     <div>
       <div class="pqx-small">Account</div>
       <h2>Account</h2>
-      <div class="pqx-note">Saved defaults, notifications, billing, and access.</div>
+      <div class="pqx-note">Search, notifications, plan, and access.</div>
     </div>
   </div>
 
   {% if account_nav %}
-  <section class="pqx-account-logout-strip" aria-label="Current session">
+  <section class="pqx-account-logout-strip" aria-label="Signed-in session">
     <div>
-      <span class="pqx-small">Session · Signed in</span>
+      <span class="pqx-small">Current session</span>
       <strong>{{ session_label }}</strong>
-      <small>Sign out on this device.</small>
+      <small>Use the button to leave this account.</small>
     </div>
     <form class="pqx-account-logout-strip-form" method="post" action="{{ account_nav.sign_out_action }}" data-account-page-sign-out>
       <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
@@ -101,13 +114,13 @@
   </section>
   {% endif %}
 
-  <div class="pqx-account-action-grid">
+  <div class="pqx-account-action-grid" style="min-width:0;">
     <span id="profile" hidden aria-hidden="true"></span>
-    <section class="pqx-account-action-card primary" id="search-defaults">
+    <section class="pqx-account-action-card primary" id="search-defaults" style="display:grid; grid-template-columns:minmax(0, 1fr); width:100%; max-width:100%; min-width:0;">
       <div>
         <span class="pqx-small">Saved defaults</span>
         <h2>{{ profile_card.value.get('title') or 'Search defaults' }}</h2>
-        <p>Keep the next search ready.</p>
+        <p>Reuse these next time.</p>
         {% if profile_items %}
         <div class="pqx-pref-list" style="margin-top:10px; gap:6px;">
           {% for item in profile_items[:3] %}
@@ -125,13 +138,13 @@
       <a class="pqx-link-button primary" href="{{ profile_action_href }}">{{ profile_item.get('action_label') or 'Edit search' }}</a>
     </section>
 
-    <details class="pqx-account-action-card notification pqx-mobile-fold" id="delivery">
+    <details class="pqx-account-action-card notification pqx-mobile-fold" id="delivery" style="display:grid; grid-template-columns:minmax(0, 1fr); width:100%; max-width:100%; min-width:0;">
       <summary>
-        <span class="pqx-mobile-fold-copy">
-          <span class="pqx-small">Alerts</span>
-          <h2>Notifications</h2>
-          <span class="pqx-note">Pick where matches arrive.</span>
-        </span>
+            <span class="pqx-mobile-fold-copy">
+            <span class="pqx-small">Alerts</span>
+            <h2>Notifications</h2>
+            <span class="pqx-note">Choose how updates arrive.</span>
+          </span>
         <span class="pqx-mobile-fold-meta">
           <span class="pqx-pill">{{ (selected_notification_channels|length) if selected_notification_channels else 1 }} active</span>
           <span class="pqx-pill">{{ preferred_notification_channel|title if preferred_notification_channel else 'Choose primary' }}</span>
@@ -147,7 +160,7 @@
           <div class="pqx-account-channel-detail">
             <strong>Where matches arrive</strong>
             <span>Strong matches go to every selected channel.</span>
-            <span>Near-miss follow-up stays Telegram-only when Telegram is primary.</span>
+            <span>Near-miss follow-up prompts use the primary route.</span>
           </div>
           <div class="pqx-account-channel-options" role="group" aria-label="Property alert destinations">
             <label class="pqx-account-channel-option">
@@ -165,7 +178,7 @@
           </div>
           <div class="pqx-account-channel-detail">
             <strong>Primary route</strong>
-            <span>Used first for follow-up.</span>
+            <span>Used first when follow-up matters.</span>
           </div>
           <div class="pqx-account-channel-options" role="radiogroup" aria-label="Primary PropertyQuarry alert channel">
             <label class="pqx-account-channel-option">
@@ -197,27 +210,27 @@
             <input id="whatsappAiSupportPhone" type="tel" inputmode="tel" autocomplete="tel" name="whatsapp_ai_support_phone" value="{{ whatsapp_ai_support_phone }}" placeholder="+436641234567" aria-describedby="whatsappAiSupportCopy">
             <span id="whatsappAiSupportCopy">Used for WhatsApp alerts and support replies.</span>
           </div>
-          <button class="pqx-link-button primary" type="submit">Save notification routing</button>
+          <button class="pqx-link-button primary" type="submit">Save notifications</button>
         </form>
       </div>
     </details>
 
-    <section class="pqx-account-action-card" id="plans">
+    <section class="pqx-account-action-card" id="plans" style="display:grid; grid-template-columns:minmax(0, 1fr); width:100%; max-width:100%; min-width:0;">
       <div>
         <span class="pqx-small">Plan</span>
         <h2>{{ plan_value }}</h2>
-        <p>{{ plan_detail or 'Billing access.' }}</p>
+        <p>{{ plan_detail or 'Plan, payments, and invoices.' }}</p>
         <div class="pqx-note">{{ billing_action_detail }}</div>
       </div>
       <a class="pqx-link-button" href="{{ billing_action_href }}">{{ billing_action_label }}</a>
     </section>
 
-    <details class="pqx-account-action-card pqx-mobile-fold" id="connected-services"{% if connected_services_open %} open{% endif %}>
+    <details class="pqx-account-action-card pqx-mobile-fold" id="connected-services"{% if connected_services_open %} open{% endif %} style="display:grid; grid-template-columns:minmax(0, 1fr); width:100%; max-width:100%; min-width:0;">
       <span id="settings" hidden aria-hidden="true"></span>
       <summary>
         <span class="pqx-mobile-fold-copy">
           <span class="pqx-small">Access</span>
-          <h2>Sign-in and sharing</h2>
+          <h2>Access</h2>
           <span class="pqx-note">Sign-in, sharing, and privacy.</span>
         </span>
         <span class="pqx-mobile-fold-meta">
@@ -231,7 +244,7 @@
           <div>
             <strong>Google sign-in</strong>
             <small>{{ google_account.get('primary_email') or 'Sign in with the same Google account on this device.' }}</small>
-            <small>{{ google_account.get('detail') or 'First-time Google sign-in still creates the same PropertyQuarry account automatically.' }}</small>
+            <small>{{ google_account.get('detail') or 'Google opens the same account and creates it if needed.' }}</small>
             {% if google_status_note %}<small>{{ google_status_note }}</small>{% endif %}
             {% for row in google_account.get('accounts') or [] %}
             <small>{{ row.get('email') }} · {{ row.get('status_label') }}{% if row.get('detail') %} · {{ row.get('detail') }}{% endif %}</small>
@@ -246,7 +259,7 @@
           <div>
             <strong>Access links</strong>
             <small>{{ (access_links.get('active_total') or 0) }} active · {{ (access_links.get('revoked_total') or 0) }} revoked.</small>
-            <small>Send access or collaborator links without leaving this page.</small>
+            <small>Create or revoke access links.</small>
             {% if access_status_note %}<small>{{ access_status_note }}</small>{% endif %}
             {% for row in access_links.get('rows') or [] %}
             <small>{{ row.get('email') }} · {{ row.get('role_label') }}{% if row.get('expires_at') %} · expires {{ row.get('expires_at')[:19] }}{% endif %}</small>
@@ -254,7 +267,7 @@
           </div>
           <div class="pqx-actions">
             {% if (access_links.get('active_total') or 0) > 0 %}<span class="pqx-pill">{{ access_links.get('active_total') }} active</span>{% endif %}
-            <a class="pqx-link-button" href="{{ access_return_to }}">Manage here</a>
+            <a class="pqx-link-button" href="{{ access_return_to }}">Manage</a>
             <a class="pqx-link-button" href="/app/properties/packets{{ query_suffix }}">Shared pages</a>
           </div>
         </div>
@@ -266,7 +279,7 @@
               <div class="pqx-account-channel-detail">
                 <strong>Google sign-in</strong>
                 <span>{{ google_account.get('primary_email') or 'Not connected yet.' }}</span>
-                <span>{{ google_account.get('detail') or 'First-time Google sign-in still creates the same PropertyQuarry account automatically.' }}</span>
+                <span>{{ google_account.get('detail') or 'Google opens the same account and creates it if needed.' }}</span>
               </div>
               <button class="pqx-link-button primary" type="submit">{{ google_account.get('action_label') or 'Connect Google' }}</button>
             </form>
@@ -313,9 +326,6 @@
             {% if facebook_sign_in_enabled is defined and facebook_sign_in_enabled %}
             <a class="pqx-link-button" href="/app/actions/facebook/connect?return_to={{ google_return_to|urlencode }}">Facebook</a>
             {% endif %}
-            {% if id_austria_sign_in_enabled is defined and id_austria_sign_in_enabled %}
-            <a class="pqx-link-button" href="/app/actions/id-austria/connect?return_to={{ google_return_to|urlencode }}">ID Austria</a>
-            {% endif %}
             <a class="pqx-link-button" href="/cookies">Privacy</a>
             <a class="pqx-link-button" href="/how-it-works">How it works</a>
           </div>
@@ -325,12 +335,12 @@
       </div>
     </details>
 
-    <details class="pqx-account-action-card pqx-mobile-fold" id="data-export">
+    <details class="pqx-account-action-card pqx-mobile-fold" id="data-export" style="display:grid; grid-template-columns:minmax(0, 1fr); width:100%; max-width:100%; min-width:0;">
       <summary>
         <span class="pqx-mobile-fold-copy">
           <span class="pqx-small">Data</span>
-          <h2>Data and history</h2>
-          <span class="pqx-note">Export, clear, or remove account data.</span>
+          <h2>Data</h2>
+          <span class="pqx-note">Export or remove account data.</span>
         </span>
         <span class="pqx-mobile-fold-meta">
           <span class="pqx-pill">Export</span>
@@ -351,7 +361,7 @@
         <div class="pqx-pref-row">
           <div>
             <strong>Clear search history</strong>
-            <small>Remove saved search history. Shortlists stay.</small>
+            <small>Remove saved searches. Shortlists stay.</small>
           </div>
           <div class="pqx-actions">
             <form action="/app/api/property/search-runs/clear" method="post" onsubmit="return confirm('Clear saved search history for this account?');">
@@ -362,7 +372,7 @@
         <div class="pqx-pref-row">
           <div>
             <strong>Delete account data</strong>
-            <small>Delete account records and research output.</small>
+            <small>Delete account data and research output.</small>
           </div>
           <div class="pqx-actions">
             <a class="pqx-link-button danger" href="/data-deletion">Request deletion</a>

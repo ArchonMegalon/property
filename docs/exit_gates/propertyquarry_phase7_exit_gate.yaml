@@ -34,6 +34,12 @@ required_browser_workflows:
       - video currentTime advances after play
       - decoded frame is not visually black
       - mobile viewport also decodes a visible frame
+  - name: request_driven_visual_generation_stays_honest
+    checks:
+      - requesting a 3D tour or walkthrough requires a style choice before queueing
+      - queued visual state stays honest and does not invent readiness
+      - retryable blocked 3D tour state remains actionable after reload
+      - ready 3D tour opens the hosted tour directly with no fake intermediate viewer step
   - name: dossier_carries_context_beyond_object_facts
     checks:
       - dossier includes family and school route context
@@ -45,12 +51,20 @@ required_persistence_assertions:
 required_ui_affordances:
   - Open floor plan
   - Play flythrough
+  - Request 3D tour
+  - Request walkthrough
+  - Choose style
+  - Retry 3D tour
+  - Open 3D tour
   - Familienroute und schulische Selbstständigkeit section
   - Sicherheit, Kriminalität und Klimarisiko section
   - Gebietsausblick und künftige Infrastruktur section
 fail_closed_conditions:
   - hosted tour opens to a broken or non-white-label surface
   - flythrough renders as audio-only or black video
+  - 3D tour or walkthrough requests can queue without the required style choice
+  - retryable visual request state disappears after reload
+  - ready hosted tour inserts an extra fake viewer or provider interstitial
   - dossier remains a thin fact sheet with no neighbourhood or risk context
 exit_criteria:
   - all required test modules pass
@@ -60,4 +74,5 @@ exit_criteria:
   - no fail_closed_conditions are true
 evidence_artifacts:
   - browser output proving hosted tour and walkthrough playback passed
+  - browser output proving style-gated 3D request, retry, and direct-open flows passed
   - PDF output proving family, risk, and future-area context is present

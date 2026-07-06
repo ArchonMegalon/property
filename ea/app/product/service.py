@@ -1244,7 +1244,7 @@ def _property_search_mark_stale_brief_snapshot(
             "counts_snapshot_status": "old_run",
             "counts_snapshot_detail": (
                 "These ranked and filtered counts belong to the earlier run. "
-                "They are kept as history until a new search checks the current brief."
+                "They are kept as history until a new search checks the current search settings."
             ),
             "previous_ranked_total": previous_ranked_total,
             "previous_filtered_total": previous_filtered_total,
@@ -3850,6 +3850,65 @@ def _normalize_property_visual_request_kind(request_kind: object) -> str:
     if normalized_kind in {"walkthrough", "generated_reconstruction_walkthrough"}:
         return "flythrough"
     return normalized_kind if normalized_kind in {"tour", "flythrough"} else "tour"
+
+
+def _property_visual_ready_tour_url(
+    *,
+    tour_url: object = "",
+    open_tour_url: object = "",
+) -> str:
+    normalized_tour_url = str(tour_url or "").strip()
+    normalized_open_tour_url = str(open_tour_url or "").strip()
+    if normalized_tour_url:
+        if _is_branded_public_tour_url(normalized_tour_url):
+            resolved_open_tour_url = str(_hosted_property_tour_first_party_open_url(normalized_tour_url) or "").strip()
+            if resolved_open_tour_url:
+                return resolved_open_tour_url
+        elif (
+            normalized_tour_url.startswith(("http://", "https://", "/"))
+            and not _property_visual_generated_reconstruction_bundle_url(normalized_tour_url)
+        ):
+            return normalized_tour_url
+    if normalized_open_tour_url.startswith(("http://", "https://", "/")):
+        generated_reconstruction_bundle_url = _property_visual_generated_reconstruction_bundle_url(normalized_open_tour_url)
+        if generated_reconstruction_bundle_url:
+            resolved_open_tour_url = str(_hosted_property_tour_first_party_open_url(generated_reconstruction_bundle_url) or "").strip()
+            if resolved_open_tour_url:
+                return resolved_open_tour_url
+            return ""
+        if not _is_branded_public_tour_url(normalized_open_tour_url):
+            return normalized_open_tour_url
+    return ""
+
+
+def _property_visual_generated_reconstruction_bundle_url(url: object) -> str:
+    normalized_url = str(url or "").strip()
+    if not normalized_url:
+        return ""
+    parsed = urllib.parse.urlparse(normalized_url)
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 4 or path_parts[0] != "tours" or path_parts[1] != "files":
+        return ""
+    slug = str(path_parts[2] or "").strip()
+    if not slug or path_parts[3] != "generated-reconstruction":
+        return ""
+    if normalized_url.startswith("/"):
+        return f"/tours/{slug}"
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}/tours/{slug}"
+    return f"/tours/{slug}"
+
+
+def _property_visual_sanitize_tour_url(
+    tour_url: object,
+    *,
+    generated_reconstruction_url: object = "",
+) -> str:
+    generated_bundle_url = _property_visual_generated_reconstruction_bundle_url(tour_url)
+    if generated_bundle_url:
+        preferred = str(generated_reconstruction_url or "").strip()
+        return preferred or generated_bundle_url
+    return str(tour_url or "").strip()
 
 
 def _property_visual_initial_eta_minutes(*, status: object, eta_minutes: object = "") -> int:
@@ -8331,7 +8390,7 @@ def _property_review_page_neuronwriter_payload(
         sections=[
             DossierSectionDraft(
                 section_key="review_page",
-                title="Property review page",
+                title="Property page",
                 claims_used=[],
                 body_markdown=safe_topic,
                 confidence="medium",
@@ -12426,7 +12485,7 @@ def _property_candidate_choice_reason(
     if comparison_peer is None:
         if top_choice and score is not None:
             return normalize_property_fit_note(
-                f"Chosen because it stayed closest to the current brief with a {int(round(score))}/100 personal fit."
+                f"Chosen because it stayed closest to your search with a {int(round(score))}/100 personal fit."
             )
         return ""
 
@@ -12440,7 +12499,7 @@ def _property_candidate_choice_reason(
     if score is not None and peer_score is not None:
         score_gap = score - peer_score
         if score_gap >= 3.0:
-            reasons.append(f"it scored {int(round(score_gap))} points higher on the current brief")
+            reasons.append(f"it scored {int(round(score_gap))} points higher for your search")
 
     has_floorplan = bool(facts.get("has_floorplan")) or int(facts.get("floorplan_count") or 0) > 0
     peer_has_floorplan = bool(peer_facts.get("has_floorplan")) or int(peer_facts.get("floorplan_count") or 0) > 0
@@ -12481,7 +12540,7 @@ def _property_candidate_choice_reason(
 
     if not reasons:
         if top_choice:
-            return normalize_property_fit_note("Chosen because it stayed closest to the current brief on the available facts.")
+            return normalize_property_fit_note("Chosen because it stayed closest to your search on the available facts.")
         return ""
     lead = "Chosen ahead of the next option because" if top_choice else "Ranked ahead of the next option because"
     return normalize_property_fit_note(f"{lead} {compact_text('; '.join(reasons[:3]), fallback='', limit=220)}.")
@@ -13623,7 +13682,7 @@ def _property_decision_copilot_answer(
                     "source": "packet",
                 }
             )
-        actions.append({"label": "Open property page", "action": "open_packet", "href": compact_text(property_url, fallback="", limit=2000)})
+        actions.append({"label": "Open property", "action": "open_packet", "href": compact_text(property_url, fallback="", limit=2000)})
     elif mode == "ask_agent":
         primary = agent_questions[:3]
         answer = "The next strongest agent brief is driven by your blockers and the missing facts still open on this property."
@@ -13776,7 +13835,7 @@ def _property_decision_copilot_answer(
             )
 
     if property_url:
-        actions.append({"label": "Open property page", "action": "open_packet", "href": property_url, "detail": "Open the property page or continue the decision flow."})
+        actions.append({"label": "Open property", "action": "open_packet", "href": property_url, "detail": "Open the property or continue the decision flow."})
     deduped_actions: list[dict[str, str]] = []
     seen_actions: set[tuple[str, str, str]] = set()
     for row in actions:
@@ -14808,6 +14867,7 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
         "gallery_assets_unavailable",
         "property_tour_execution_failed",
         "crezlo_property_tour_not_configured",
+        "property_tour_rebuild_required",
     }:
         if normalized_kind == "flythrough":
             return "Walkthrough not available yet."
@@ -14817,6 +14877,10 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
             return "Walkthrough rendering is paused until render credits are available."
         if normalized_reason == "omagic_model_upload_adapter_missing":
             return "Walkthrough rendering is not configured for model upload yet."
+        if normalized_reason == "omagic_model_upload_adapter_disabled":
+            return "Walkthrough rendering is waiting for the OMagic upload lane to be enabled."
+        if normalized_reason == "omagic_model_upload_endpoint_missing":
+            return "Walkthrough rendering is waiting for the OMagic upload endpoint."
         if normalized_reason == "omagic_model_input_missing":
             return "Walkthrough needs a generated model first."
         if normalized_reason.endswith(("_credentials_missing", "_not_configured", "_unconfigured")):
@@ -16496,10 +16560,7 @@ def _write_generated_reconstruction_property_tour_bundle(
     )
     if (
         existing_payload
-        and (
-            _hosted_property_tour_generated_reconstruction_asset_url(tour_url, asset_key="model_relpath")
-            or _hosted_property_tour_generated_reconstruction_asset_url(tour_url, asset_key="floorplan_relpath")
-        )
+        and _hosted_property_tour_generated_reconstruction_bundle_ready(tour_url)
         and str(existing_reconstruction.get("viewer_version") or "").strip() == _PROPERTY_RECONSTRUCTION_VIEWER_VERSION
     ):
         return existing_payload
@@ -16516,6 +16577,25 @@ def _write_generated_reconstruction_property_tour_bundle(
         }
     )
     display_title = compact_text(title, fallback="Property layout preview", limit=180)
+    reconstruction_room_count = 0
+    reconstruction_route_labels: list[str] = []
+    with contextlib.suppress(Exception):
+        reconstruction_room_count, reconstruction_route_labels = _magicfit_property_room_visit_plan(
+            title=display_title,
+            property_facts=facts,
+        )
+    normalized_reconstruction_route_labels = [
+        compact_text(str(label or "").strip(), fallback="", limit=80)
+        for label in reconstruction_route_labels
+        if compact_text(str(label or "").strip(), fallback="", limit=80)
+    ]
+    if normalized_reconstruction_route_labels:
+        facts["magicfit_route_labels"] = list(normalized_reconstruction_route_labels)
+        facts["room_visit_plan"] = list(normalized_reconstruction_route_labels)
+        existing_scene_count = 0
+        with contextlib.suppress(Exception):
+            existing_scene_count = int(float(str(facts.get("tour_scene_count") or 0).strip()))
+        facts["tour_scene_count"] = max(existing_scene_count, len(normalized_reconstruction_route_labels))
     payload = dict(existing_payload or {})
     payload.update(
         {
@@ -16586,6 +16666,10 @@ def _write_generated_reconstruction_property_tour_bundle(
         style_label = compact_text(str(diorama_style_hint or "").strip(), fallback="", limit=80)
         if style_label:
             command.extend(["--style-label", style_label])
+        if reconstruction_room_count > 0:
+            command.extend(["--room-count", str(int(reconstruction_room_count))])
+        for route_label in normalized_reconstruction_route_labels:
+            command.extend(["--room-label", route_label])
         completed = subprocess.run(
             command,
             cwd=str(script_path.parent.parent if script_path.parent.name == "scripts" else _repo_root()),
@@ -17490,6 +17574,14 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         if tour_payload_path.is_file():
             tour_payload = json.loads(tour_payload_path.read_text(encoding="utf-8"))
             walkable_scene = dict(tour_payload.get("walkable_scene") or {}) if isinstance(tour_payload.get("walkable_scene"), dict) else {}
+            if not walkable_scene:
+                generated_reconstruction_payload = (
+                    dict(tour_payload.get("generated_reconstruction") or {})
+                    if isinstance(tour_payload.get("generated_reconstruction"), dict)
+                    else {}
+                )
+                if isinstance(generated_reconstruction_payload.get("walkable_scene"), dict):
+                    walkable_scene = dict(generated_reconstruction_payload.get("walkable_scene") or {})
             route_labels: list[str] = []
             for stop in list(walkable_scene.get("route") or []):
                 if not isinstance(stop, dict):
@@ -18019,7 +18111,7 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         request_kind="flythrough",
         status="ready",
         progress_pct=100,
-        detail="Walkthrough is available on this page.",
+        detail="Walkthrough is ready.",
         provider_key="magicfit",
         step_index=max(planned_segments, len(segment_paths)),
         step_total=max(planned_segments, len(segment_paths)),
@@ -18482,7 +18574,7 @@ def _render_onemin_property_flythrough_into_hosted_tour(
         request_kind="flythrough",
         status="ready",
         progress_pct=100,
-        detail="Walkthrough is available on this page.",
+        detail="Walkthrough is ready.",
         provider_key="onemin_i2v",
         step_index=max(planned_segments, len(segment_paths)),
         step_total=max(planned_segments, len(segment_paths)),
@@ -18881,7 +18973,7 @@ def _render_mootion_property_flythrough_into_hosted_tour(
         request_kind="flythrough",
         status="ready",
         progress_pct=100,
-        detail="Walkthrough is available on this page.",
+        detail="Walkthrough is ready.",
         provider_key="mootion",
     )
     return render_log
@@ -19020,7 +19112,9 @@ def _render_omagic_property_flythrough_into_hosted_tour(
             provider_key="omagic",
         )
         return render_log
-    script_path = (_repo_root() / "scripts" / "render_omagic_property_model_walkthrough.py").resolve()
+    from app.services.scene_video_contract import resolve_scene_video_script_path
+
+    script_path = resolve_scene_video_script_path("render_omagic_property_model_walkthrough.py")
     render_log["script_path"] = str(script_path)
     if not script_path.exists():
         render_log.update({"status": "failed", "reason": "omagic_model_upload_adapter_missing"})
@@ -19037,7 +19131,170 @@ def _render_omagic_property_flythrough_into_hosted_tour(
             provider_key="omagic",
         )
         return render_log
-    render_log.update({"status": "failed", "reason": "omagic_model_upload_adapter_missing"})
+    render_token = f"{int(time.time())}-{uuid4().hex[:10]}"
+    video_relpath = f"tour-omagic-{render_token}.mp4"
+    sidecar_relpath = "tour.omagic.json"
+    bundle_video_path = (bundle_dir / video_relpath).resolve()
+    bundle_sidecar_path = (bundle_dir / sidecar_relpath).resolve()
+    if bundle_dir.resolve() not in bundle_video_path.parents or bundle_dir.resolve() not in bundle_sidecar_path.parents:
+        render_log.update({"status": "failed", "reason": "hosted_tour_bundle_invalid"})
+        return render_log
+    resolved_tour_context = (
+        dict(tour_context_json or {})
+        if isinstance(tour_context_json, dict) and tour_context_json
+        else _property_walkthrough_scene_video_context(tour_url)
+    )
+    enriched_property_facts = _property_walkthrough_enrich_facts_with_context(
+        property_facts,
+        tour_context_json=resolved_tour_context,
+    )
+    scene_reference_text = _property_walkthrough_context_reference_text(resolved_tour_context)
+    room_count = 1
+    room_visit_plan: list[str] = []
+    if enriched_property_facts:
+        room_count, room_visit_plan = _magicfit_property_room_visit_plan(title=title, property_facts=enriched_property_facts)
+    prompt = _default_magicfit_property_flythrough_prompt(
+        title=title,
+        property_facts=enriched_property_facts,
+        room_count=max(1, min(25, int(room_count or 1))),
+        room_visit_plan=room_visit_plan,
+        birthday_party_request=bool(birthday_party_request),
+        person_motion_hint=person_motion_hint,
+        diorama_style_hint=diorama_style_hint,
+        include_final_turn_directive=True,
+    )
+    if scene_reference_text:
+        prompt = f"{prompt} {scene_reference_text}"
+    render_log.update(
+        {
+            "video_relpath": video_relpath,
+            "sidecar_relpath": sidecar_relpath,
+        }
+    )
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="processing",
+        progress_pct=18,
+        detail="Uploading model for OMagic walkthrough.",
+        provider_key="omagic",
+    )
+    with tempfile.TemporaryDirectory(prefix="omagic-property-tour-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        tmp_video = tmp_path / "omagic-walkthrough.mp4"
+        tmp_sidecar = tmp_path / "omagic-walkthrough.json"
+        command = [
+            _runtime_python_executable(),
+            str(script_path),
+            "--prompt",
+            prompt,
+            "--out",
+            str(tmp_video),
+            "--state-json",
+            str(tmp_sidecar),
+            "--duration",
+            str(max(10, int(os.getenv("PROPERTYQUARRY_OMAGIC_WALKTHROUGH_DURATION_SECONDS") or "15"))),
+            "--title",
+            str(title or "").strip(),
+            "--tour-url",
+            str(tour_url or "").strip(),
+            "--model-asset-kind",
+            str(model_input.get("model_asset_kind") or "model"),
+        ]
+        if model_input.get("model_path"):
+            command.extend(["--model-path", str(model_input.get("model_path") or "")])
+        if model_input.get("model_url"):
+            command.extend(["--model-url", str(model_input.get("model_url") or "")])
+        timeout_seconds = max(60, int(os.getenv("PROPERTYQUARRY_OMAGIC_WALKTHROUGH_TIMEOUT_SECONDS") or "1800"))
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=str(_repo_root()),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+            returncode = int(completed.returncode or 0)
+            stdout_tail = compact_text(str(completed.stdout or "").strip(), fallback="", limit=1200)
+            stderr_tail = compact_text(str(completed.stderr or "").strip(), fallback="", limit=1200)
+        except subprocess.TimeoutExpired as exc:
+            returncode = 124
+            stdout_tail = compact_text(str(exc.stdout or "").strip(), fallback="", limit=1200)
+            stderr_tail = compact_text(str(exc.stderr or "").strip(), fallback="omagic_adapter_timeout", limit=1200)
+        adapter_state: dict[str, object] = {}
+        with contextlib.suppress(Exception):
+            if tmp_sidecar.exists():
+                loaded_state = json.loads(tmp_sidecar.read_text(encoding="utf-8"))
+                if isinstance(loaded_state, dict):
+                    adapter_state = dict(loaded_state)
+        failure_reason = str(adapter_state.get("reason") or "").strip()
+        if returncode != 0 or not tmp_video.exists():
+            if not failure_reason:
+                combined = f"{stdout_tail}\n{stderr_tail}".lower()
+                if "omagic_model_upload_adapter_disabled" in combined:
+                    failure_reason = "omagic_model_upload_adapter_disabled"
+                elif "omagic_model_upload_endpoint_missing" in combined:
+                    failure_reason = "omagic_model_upload_endpoint_missing"
+                elif "omagic_model_input_missing" in combined:
+                    failure_reason = "omagic_model_input_missing"
+                else:
+                    failure_reason = "omagic_model_upload_adapter_failed"
+            render_log.update(
+                {
+                    "status": "failed",
+                    "reason": failure_reason,
+                    "adapter_returncode": returncode,
+                    "stdout_tail": stdout_tail,
+                    "stderr_tail": stderr_tail,
+                    "adapter_state": adapter_state,
+                }
+            )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason=failure_reason,
+                ),
+                reason=failure_reason,
+                provider_key="omagic",
+            )
+            return render_log
+        shutil.copy2(tmp_video, bundle_video_path)
+        sidecar_payload = {
+            **adapter_state,
+            **render_log,
+            "status": "rendered",
+            "reason": "",
+            "provider_key": "omagic",
+            "video_relpath": video_relpath,
+            "video_file_path": str(bundle_video_path),
+            "model_input_consumed": bool(adapter_state.get("model_input_consumed") is not False),
+        }
+        bundle_sidecar_path.write_text(json.dumps(sidecar_payload, sort_keys=True), encoding="utf-8")
+    render_log.update(
+        {
+            "status": "rendered",
+            "reason": "",
+            "provider_key": "omagic",
+            "video_relpath": video_relpath,
+            "video_file_path": str(bundle_video_path),
+            "sidecar_relpath": sidecar_relpath,
+            "sidecar_path": str(bundle_sidecar_path),
+            "model_input_consumed": bool(sidecar_payload.get("model_input_consumed") is not False),
+        }
+    )
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="ready",
+        progress_pct=100,
+        detail="Walkthrough is ready.",
+        provider_key="omagic",
+    )
     return render_log
 
 
@@ -19919,8 +20176,15 @@ def _property_walkthrough_scene_video_context(
         return {}
     manifest = _hosted_property_tour_manifest(normalized_tour_url)
     compare_links = dict(_property_tour_compare_links(normalized_tour_url))
+    generated_reconstruction_payload = (
+        dict(manifest.get("generated_reconstruction") or {})
+        if isinstance(manifest.get("generated_reconstruction"), dict)
+        else {}
+    )
     route_labels: list[str] = []
     walkable_scene = dict(manifest.get("walkable_scene") or {}) if isinstance(manifest.get("walkable_scene"), dict) else {}
+    if not walkable_scene and isinstance(generated_reconstruction_payload.get("walkable_scene"), dict):
+        walkable_scene = dict(generated_reconstruction_payload.get("walkable_scene") or {})
     for collection_key in ("route", "rooms"):
         for raw_item in list(walkable_scene.get(collection_key) or []):
             if not isinstance(raw_item, dict):
@@ -19934,6 +20198,21 @@ def _property_walkthrough_scene_video_context(
                 route_labels.append(label)
     if not route_labels:
         for raw_label in list(manifest.get("covered_route_labels") or manifest.get("room_visit_plan") or []):
+            label = compact_text(str(raw_label or "").strip(), fallback="", limit=80)
+            if label and label.lower() not in {item.lower() for item in route_labels}:
+                route_labels.append(label)
+    if not route_labels:
+        for raw_label in list(generated_reconstruction_payload.get("route_labels") or []):
+            label = compact_text(str(raw_label or "").strip(), fallback="", limit=80)
+            if label and label.lower() not in {item.lower() for item in route_labels}:
+                route_labels.append(label)
+    if not route_labels:
+        generated_coverage = (
+            dict(generated_reconstruction_payload.get("walkthrough_coverage_proof") or {})
+            if isinstance(generated_reconstruction_payload.get("walkthrough_coverage_proof"), dict)
+            else {}
+        )
+        for raw_label in list(generated_coverage.get("segments_expected") or []):
             label = compact_text(str(raw_label or "").strip(), fallback="", limit=80)
             if label and label.lower() not in {item.lower() for item in route_labels}:
                 route_labels.append(label)
@@ -35731,6 +36010,10 @@ class ProductService:
         normalized_source_ref = str(source_ref or normalized_property_url).strip()
         if not normalized_principal or not normalized_property_url:
             return False
+        resolved_binding_id = self._resolve_browseract_property_tour_binding_id(
+            principal_id=normalized_principal,
+            binding_id="",
+        )
         try:
             existing_followup = self._existing_property_tour_followup(
                 principal_id=normalized_principal,
@@ -35751,7 +36034,7 @@ class ProductService:
                     recipient_email="",
                     source_ref=normalized_source_ref,
                     external_id=normalized_property_url,
-                    connector_binding_id="",
+                    connector_binding_id=resolved_binding_id,
                     request_kind=normalized_request_kind,
                     run_id=str(run_id or "").strip(),
                     candidate_ref=str(candidate_ref or "").strip(),
@@ -36268,9 +36551,33 @@ class ProductService:
             raw_requested_url = str(
                 result.get("flythrough_url") if request_kind == "flythrough" else result.get("tour_url") or ""
             ).strip()
-            requested_open_tour_url = str(
-                result.get("open_tour_url") or (_hosted_property_tour_first_party_open_url(raw_requested_url) if request_kind != "flythrough" else "")
-            ).strip()
+            requested_generated_reconstruction_url = (
+                _property_visual_sanitize_tour_url(
+                    raw_requested_url,
+                    generated_reconstruction_url=str(result.get("generated_reconstruction_url") or "").strip(),
+                )
+                if request_kind != "flythrough"
+                else ""
+            )
+            raw_requested_is_generated_reconstruction = bool(
+                request_kind != "flythrough"
+                and _property_visual_generated_reconstruction_bundle_url(raw_requested_url)
+            )
+            if raw_requested_is_generated_reconstruction:
+                result = {
+                    **dict(result or {}),
+                    "tour_url": requested_generated_reconstruction_url,
+                    "generated_reconstruction_url": requested_generated_reconstruction_url,
+                }
+                raw_requested_url = str(result.get("tour_url") or "").strip()
+            requested_open_tour_url = (
+                _property_visual_ready_tour_url(
+                    tour_url=raw_requested_url,
+                    open_tour_url=result.get("open_tour_url"),
+                )
+                if request_kind != "flythrough"
+                else ""
+            )
             requested_url = raw_requested_url if request_kind == "flythrough" else requested_open_tour_url
             requested_reason = str(
                 result.get("flythrough_reason") if request_kind == "flythrough" else result.get("blocked_reason") or ""
@@ -36292,6 +36599,13 @@ class ProductService:
                 resolution = terminal_requested_status
             elif _property_tour_status_is_pending(resolution) and terminal_requested_status and not requested_url:
                 resolution = terminal_requested_status
+            if request_kind != "flythrough" and resolution in {"ready", "sent"} and not requested_open_tour_url:
+                resolution = "blocked"
+                requested_reason = requested_reason or (
+                    "listing_360_media_missing"
+                    if _is_branded_public_tour_url(raw_requested_url)
+                    else "property_tour_rebuild_required"
+                )
             if resolution in {"blocked", "failed", "skipped", "not_applicable"}:
                 blocked_total += 1
             if _property_tour_status_is_pending(resolution):
@@ -36414,11 +36728,14 @@ class ProductService:
             _hosted_property_tour_verified_open_url(existing_visual_tour_url)
             or _hosted_property_tour_verified_open_url(existing_identity_tour_url)
         )
-        existing_open_tour_url = str(existing_verified_tour_url or "").strip()
+        existing_open_tour_url = _property_visual_ready_tour_url(
+            tour_url=existing_visual_tour_url,
+            open_tour_url=existing_visual_state.get("open_tour_url"),
+        )
         if not existing_open_tour_url and existing_identity_tour_url:
-            existing_open_tour_url = _hosted_property_tour_first_party_open_url(existing_identity_tour_url)
-            if existing_open_tour_url:
-                existing_hosted_tour_url = existing_identity_tour_url
+            existing_open_tour_url = _property_visual_ready_tour_url(tour_url=existing_identity_tour_url)
+        if existing_open_tour_url and not existing_hosted_tour_url and existing_identity_tour_url:
+            existing_hosted_tour_url = existing_identity_tour_url
         existing_walkthrough_url = str(existing_visual_state.get("flythrough_url") or "").strip() or _hosted_property_tour_walkthrough_asset_url(existing_hosted_tour_url)
         if normalized_kind == "tour" and existing_open_tour_url:
             status_timestamp = _now_iso()
@@ -36471,7 +36788,7 @@ class ProductService:
                 "flythrough_status": "ready" if str(existing_walkthrough_url or "").strip() else "",
                 "tour_status": "ready",
                 "status_label": "Open 3D tour",
-                "status_detail": "3D tour is available. Open it here.",
+                "status_detail": "3D tour is ready.",
                 "eta_label": "",
                 "progress_pct": 100,
                 "poll_after_seconds": 0,
@@ -36525,7 +36842,7 @@ class ProductService:
                 "flythrough_status": "ready",
                 "tour_status": "ready" if str(existing_hosted_tour_url or "").strip() else "",
                 "status_label": "Open walkthrough",
-                "status_detail": "Walkthrough is available on this page.",
+                "status_detail": "Walkthrough is ready.",
                 "eta_label": "",
                 "progress_pct": 100,
                 "poll_after_seconds": 0,
@@ -36556,6 +36873,10 @@ class ProductService:
         if normalized_kind in {"tour", "flythrough"}:
             effective_allow_floorplan_only = True
         effective_enforce_360_media = True
+        resolved_binding_id = self._resolve_browseract_property_tour_binding_id(
+            principal_id=principal_id,
+            binding_id=binding_id,
+        ) if normalized_kind in {"tour", "flythrough"} else str(binding_id or "").strip()
         if (
             has_workbench_context
             and queue_async_request
@@ -36582,7 +36903,7 @@ class ProductService:
                     recipient_email=recipient_email,
                     source_ref=normalized_source_ref,
                     external_id=external_id or normalized_property_url,
-                    connector_binding_id=str(binding_id or "").strip(),
+                    connector_binding_id=resolved_binding_id,
                     request_kind=normalized_kind,
                     run_id=str(run_id or "").strip(),
                     candidate_ref=str(candidate_ref or "").strip(),
@@ -36595,9 +36916,9 @@ class ProductService:
                 human_task_id = ""
             status_label = "Walkthrough queued" if normalized_kind == "flythrough" else "3D tour queued"
             status_detail = (
-                "Priority queue active. This page updates automatically."
+                "Priority queue active. Queued."
                 if priority_queue_active
-                else "Queued. This page updates automatically."
+                else "Queued."
             )
             eta_label = _property_visual_eta_label(request_kind=normalized_kind, status="queued")
             progress_pct = _property_visual_progress_pct(request_kind=normalized_kind, status="queued")
@@ -36645,7 +36966,7 @@ class ProductService:
                 "variant_key": str(variant_key or "layout_first").strip() or "layout_first",
                 "artifact_id": "",
                 "execution_session_id": "",
-                "connector_binding_id": str(binding_id or "").strip(),
+                "connector_binding_id": resolved_binding_id,
                 "tour_url": "",
                 "vendor_tour_url": "",
                 "editor_url": "",
@@ -36713,6 +37034,27 @@ class ProductService:
             payload["verified_tour_url"] = verified_tour_url
         original_tour_url = str(payload.get("tour_url") or "").strip()
         generated_reconstruction_url = str(payload.get("generated_reconstruction_url") or "").strip()
+        normalized_generated_reconstruction_tour_url = _property_visual_sanitize_tour_url(
+            original_tour_url,
+            generated_reconstruction_url=generated_reconstruction_url,
+        )
+        raw_generated_reconstruction_bundle_url = _property_visual_generated_reconstruction_bundle_url(original_tour_url)
+        if raw_generated_reconstruction_bundle_url:
+            generated_reconstruction_url = normalized_generated_reconstruction_tour_url or raw_generated_reconstruction_bundle_url
+            payload["generated_reconstruction_url"] = generated_reconstruction_url
+            payload["tour_url"] = ""
+            payload["vendor_tour_url"] = ""
+            payload.pop("open_tour_url", None)
+            if str(payload.get("status") or "").strip().lower() in {
+                "ready",
+                "sent",
+                "created",
+                "completed",
+                "published",
+            }:
+                payload["status"] = "blocked"
+                payload["tour_status"] = "blocked"
+                payload["blocked_reason"] = str(payload.get("blocked_reason") or "property_tour_rebuild_required").strip()
         if (
             not generated_reconstruction_url
             and str(payload.get("tour_media_mode") or "").strip().lower() == "generated_reconstruction"
@@ -36822,7 +37164,7 @@ class ProductService:
                 )
                 if flythrough_url:
                     status_label = "Walkthrough available"
-                    status_detail = "Walkthrough is available on this page."
+                    status_detail = "Walkthrough is ready."
                 elif flythrough_status in {"rendered", "existing"}:
                     payload["flythrough_status"] = "blocked"
                     flythrough_status = "blocked"
@@ -36830,10 +37172,10 @@ class ProductService:
                     status_detail = "The render finished, but the walkthrough is not published yet."
                 elif flythrough_status in {"queued", "pending"}:
                     status_label = "Walkthrough queued"
-                    status_detail = "Queued. Opens here when ready."
+                    status_detail = "Queued."
                 elif flythrough_status in {"processing", "running", "in_progress", "started"}:
                     status_label = "Walkthrough rendering"
-                    status_detail = "Rendering now. Opens here when ready."
+                    status_detail = "Rendering."
                 elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable", "suppressed", "missing"} or terminal_flythrough_status:
                     payload["flythrough_status"] = terminal_flythrough_status or (
                         "skipped" if flythrough_status in {"skipped", "not_applicable", "suppressed"} else "blocked"
@@ -36847,7 +37189,7 @@ class ProductService:
                 else:
                     payload["flythrough_status"] = "pending"
                     status_label = "Walkthrough queued"
-                    status_detail = "Queued. It starts after the 3D tour is ready."
+                    status_detail = "Queued after the 3D tour."
             elif tour_status in {"blocked", "failed", "skipped"}:
                 payload["flythrough_status"] = "blocked"
                 status_label = "Walkthrough not ready"
@@ -36855,13 +37197,16 @@ class ProductService:
             else:
                 payload["flythrough_status"] = "pending"
                 status_label = "Walkthrough queued"
-                status_detail = "Queued. It starts after the 3D tour is ready."
+                status_detail = "Queued after the 3D tour."
         else:
             payload["tour_status"] = tour_status or str(payload.get("tour_status") or "").strip().lower()
             verified_tour_url = _hosted_property_tour_verified_open_url(payload.get("tour_url"))
             if verified_tour_url:
                 payload["verified_tour_url"] = verified_tour_url
-            open_tour_url = str(payload.get("open_tour_url") or verified_tour_url or "").strip()
+            open_tour_url = _property_visual_ready_tour_url(
+                tour_url=payload.get("tour_url"),
+                open_tour_url=payload.get("open_tour_url") or verified_tour_url,
+            )
             if open_tour_url:
                 payload["open_tour_url"] = open_tour_url
             if open_tour_url:
@@ -36869,24 +37214,24 @@ class ProductService:
                 payload["tour_status"] = "ready"
                 payload["blocked_reason"] = ""
                 status_label = "3D tour available"
-                status_detail = "Available on this page."
+                status_detail = "3D tour is ready."
             elif str(payload.get("tour_url") or "").strip():
                 payload["tour_status"] = "repairing"
                 status_label = "3D tour unavailable"
                 status_detail = "A real 3D tour is not available yet."
             elif payload["tour_status"] in {"queued", "pending"}:
                 status_label = "3D tour queued"
-                status_detail = "Queued. Opens here when ready."
+                status_detail = "Queued."
             elif payload["tour_status"] in {"processing", "running", "in_progress", "started"}:
                 status_label = "3D tour rendering"
-                status_detail = "Rendering now. Opens here when ready."
+                status_detail = "Rendering."
             elif payload["tour_status"] in {"blocked", "failed", "skipped"}:
                 status_label = "3D tour not ready"
                 status_detail = "Tour not available yet."
             else:
                 payload["tour_status"] = "pending"
                 status_label = "3D tour queued"
-                status_detail = "3D tour request recorded."
+                status_detail = "Queued."
         payload["status_label"] = status_label
         payload["status_detail"] = status_detail
         status_timestamp = _now_iso()
@@ -37127,6 +37472,7 @@ class ProductService:
                 "property_url": normalized_property_url,
                 "source_ref": normalized_source_ref,
                 "tour_url": str(followup_payload.get("tour_url") or "").strip(),
+                "open_tour_url": str(followup_payload.get("open_tour_url") or "").strip(),
                 "generated_reconstruction_url": str(followup_payload.get("generated_reconstruction_url") or "").strip(),
                 "vendor_tour_url": str(followup_payload.get("vendor_tour_url") or "").strip(),
                 "tour_status": str(
@@ -37170,6 +37516,14 @@ class ProductService:
 
         tour_url = str(matched_candidate.get("tour_url") or "").strip()
         generated_reconstruction_url = str(matched_candidate.get("generated_reconstruction_url") or "").strip()
+        normalized_generated_reconstruction_tour_url = _property_visual_sanitize_tour_url(
+            tour_url,
+            generated_reconstruction_url=generated_reconstruction_url,
+        )
+        if normalized_generated_reconstruction_tour_url != tour_url and normalized_generated_reconstruction_tour_url:
+            generated_reconstruction_url = normalized_generated_reconstruction_tour_url
+            tour_url = normalized_generated_reconstruction_tour_url
+        open_tour_url = str(matched_candidate.get("open_tour_url") or "").strip()
         flythrough_url = str(matched_candidate.get("flythrough_url") or "").strip()
         tour_status = str(matched_candidate.get("tour_status") or "").strip().lower()
         flythrough_status = str(matched_candidate.get("flythrough_status") or "").strip().lower()
@@ -37177,14 +37531,14 @@ class ProductService:
         title = str(matched_candidate.get("title") or "Selected property").strip() or "Selected property"
         source_ref_value = str(matched_candidate.get("source_ref") or normalized_source_ref or normalized_property_url).strip()
         status_value = flythrough_status if normalized_kind == "flythrough" else tour_status
-        generated_reconstruction_allowed = False
         def _resolved_ready_url() -> str:
             if normalized_kind == "tour":
-                verified_tour_url = _hosted_property_tour_verified_open_url(tour_url)
-                if verified_tour_url:
-                    return verified_tour_url
-                if generated_reconstruction_allowed:
-                    return _hosted_property_tour_first_party_open_url(generated_reconstruction_url or tour_url)
+                ready_tour_url = _property_visual_ready_tour_url(
+                    tour_url=tour_url,
+                    open_tour_url=open_tour_url,
+                )
+                if ready_tour_url:
+                    return ready_tour_url
             if normalized_kind == "flythrough":
                 return _hosted_property_tour_walkthrough_asset_url(tour_url) or _published_walkthrough_asset_url(flythrough_url)
             return ""
@@ -37261,9 +37615,6 @@ class ProductService:
                 if isinstance(getattr(latest_followup, "input_json", None), dict)
                 else {}
             )
-            if normalized_kind == "tour" and bool(followup_input.get("allow_floorplan_only")):
-                generated_reconstruction_allowed = True
-                ready_url = _resolved_ready_url()
             if not visual_style_hint:
                 visual_style_hint = _compact_diorama_style_hint(
                     str(followup_payload.get("diorama_style_hint") or followup_input.get("diorama_style_hint") or ""),
@@ -37286,14 +37637,19 @@ class ProductService:
                     eta_minutes = ""
                 elif followup_resolution in {"ready", "sent"}:
                     followup_tour_url = str(followup_payload.get("tour_url") or "").strip()
+                    followup_open_tour_url = str(followup_payload.get("open_tour_url") or "").strip()
                     followup_generated_reconstruction_url = str(followup_payload.get("generated_reconstruction_url") or "").strip()
+                    followup_tour_url = _property_visual_sanitize_tour_url(
+                        followup_tour_url,
+                        generated_reconstruction_url=followup_generated_reconstruction_url or generated_reconstruction_url,
+                    )
                     followup_flythrough_url = str(followup_payload.get("flythrough_url") or "").strip()
                     if normalized_kind == "tour" and followup_tour_url:
                         tour_url = followup_tour_url
+                    if normalized_kind == "tour" and followup_open_tour_url:
+                        open_tour_url = followup_open_tour_url
                     if followup_generated_reconstruction_url:
                         generated_reconstruction_url = followup_generated_reconstruction_url
-                        if generated_reconstruction_allowed:
-                            ready_url = _resolved_ready_url()
                     if normalized_kind == "flythrough" and followup_flythrough_url:
                         flythrough_url = followup_flythrough_url
                     ready_url = _resolved_ready_url()
@@ -37415,27 +37771,19 @@ class ProductService:
             blocked_reason = ""
             reason = ""
             status_label = "Open walkthrough" if normalized_kind == "flythrough" else "Open 3D tour"
-            status_detail = "Walkthrough is available on this page." if normalized_kind == "flythrough" else "3D tour is available. Open it here."
+            status_detail = "Walkthrough is ready." if normalized_kind == "flythrough" else "3D tour is ready."
         elif status_value in {"queued", "pending"}:
             status_label = "Walkthrough queued" if normalized_kind == "flythrough" else "3D tour queued"
-            status_detail = (
-                "Walkthrough request is queued and will appear here when it is ready."
-                if normalized_kind == "flythrough"
-                else "3D tour request is queued and will appear here when it is ready."
-            )
+            status_detail = "Queued."
         elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
             status_label = "Walkthrough rendering" if normalized_kind == "flythrough" else "3D tour rendering"
-            status_detail = (
-                "Walkthrough is rendering now and will appear here when it is ready."
-                if normalized_kind == "flythrough"
-                else "3D tour is rendering now and will appear here when it is ready."
-            )
+            status_detail = "Rendering."
         elif status_value in {"blocked", "failed", "skipped", "not_applicable"}:
             status_label = "Walkthrough not ready" if normalized_kind == "flythrough" else "3D tour not ready"
             status_detail = _property_visual_unavailable_detail(request_kind=normalized_kind, reason=reason)
         else:
             status_label = "Request walkthrough" if normalized_kind == "flythrough" else "Request 3D tour"
-            status_detail = "No media request is open for this home yet."
+            status_detail = "Choose a style first."
             status_value = "idle"
         eta_label = _property_visual_eta_label(
             request_kind=normalized_kind,
@@ -37462,14 +37810,14 @@ class ProductService:
         if live_progress_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"} and not ready_url:
             eta_label = live_stage_label or ""
         if priority_queue_active and not ready_url and status_value in {"queued", "pending"}:
-            status_detail = "Priority queue active. This render stays ahead of the free queue and appears here when it is ready."
+            status_detail = "Priority queue active. Queued."
         elif priority_queue_active and not ready_url and status_value in {"processing", "running", "in_progress", "started", "rendering"}:
-            status_detail = "Priority queue active. Rendering is under way and this request stays ahead of the free queue."
+            status_detail = "Priority queue active. Rendering."
         if eta_label.startswith("delayed") and not priority_queue_active:
             if status_value in {"queued", "pending"}:
-                status_detail = "Still queued. Taking longer than usual."
+                status_detail = "Still queued."
             elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
-                status_detail = "Still rendering. Taking longer than usual."
+                status_detail = "Still rendering."
         elif eta_label.startswith("delayed") and priority_queue_active:
             eta_label = "priority queue"
         if repair_active and not ready_url and status_value not in {"blocked", "failed", "skipped", "not_applicable"}:
@@ -37478,9 +37826,9 @@ class ProductService:
             if not repair_started_at:
                 status_label = "Walkthrough in progress" if normalized_kind == "flythrough" else "3D tour in progress"
             status_detail = (
-                "Walkthrough is being refreshed."
+                "Refreshing walkthrough."
                 if normalized_kind == "flythrough"
-                else "Tour is being refreshed."
+                else "Refreshing 3D tour."
             )
             eta_label = "refreshing"
             progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
@@ -37488,11 +37836,11 @@ class ProductService:
             if status_value in {"queued", "pending"}:
                 status_value = "repairing"
                 status_label = "Walkthrough in progress" if normalized_kind == "flythrough" else "3D tour in progress"
-                status_detail = "Walkthrough is being refreshed." if normalized_kind == "flythrough" else "Tour is being refreshed."
+                status_detail = "Refreshing walkthrough." if normalized_kind == "flythrough" else "Refreshing 3D tour."
             elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
                 status_value = "repairing"
                 status_label = "Walkthrough in progress" if normalized_kind == "flythrough" else "3D tour in progress"
-                status_detail = "Walkthrough is being refreshed." if normalized_kind == "flythrough" else "Tour is being refreshed."
+                status_detail = "Refreshing walkthrough." if normalized_kind == "flythrough" else "Refreshing 3D tour."
             eta_label = "refreshing"
             progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
         if live_progress_detail and not ready_url and status_value in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:

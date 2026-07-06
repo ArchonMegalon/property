@@ -2493,12 +2493,28 @@ def build_brilliant_directories_verification_receipt(
             "verify the custom PropertyQuarry billing bridge against the live Brilliant Directories account lane "
             "before redirecting signed-in users there"
         )
+    direct_account_handoff_usable = billing_handoff.get("account_handoff_usable") is True
+    member_login_token_ready = member_login_token_handoff.get("ready") is True
+    billing_sso_bridge_ready = billing_sso_bridge.get("ready") is True
+    signed_handoff_usable = bool(member_login_token_ready or billing_sso_bridge_ready)
+    ready_via = ""
+    if direct_account_handoff_usable:
+        ready_via = "direct_account"
+    elif member_login_token_ready:
+        ready_via = "member_login_token"
+    elif billing_sso_bridge_ready:
+        ready_via = "sso_bridge"
     return {
         "contract_name": BRILLIANT_DIRECTORIES_VERIFICATION_CONTRACT_NAME,
         "generated_at": _utc_now_iso(),
         "provider": BRILLIANT_DIRECTORIES_PROVIDER_KEY,
         "status": status,
         "error": error,
+        "ready": bool(ready_via),
+        "ready_via": ready_via,
+        "account_handoff_usable": bool(direct_account_handoff_usable or signed_handoff_usable),
+        "direct_account_handoff_usable": direct_account_handoff_usable,
+        "signed_handoff_usable": signed_handoff_usable,
         "config": config.as_receipt(),
         "billing_handoff": billing_handoff,
         "billing_sso_bridge": billing_sso_bridge,

@@ -377,8 +377,12 @@ def run() -> int:
             print("magicfit: download clip", flush=True)
             download(video_url, out_path)
             payload = {
-                "provider": "MagicFit",
+                "provider": "magicfit",
+                "provider_key": "magicfit",
+                "provider_backend_key": "magicfit",
+                "render_status": "completed",
                 "video_output_url": video_url,
+                "hosted_walkthrough_video_url": video_url,
                 "output_file": str(out_path),
                 "target_slug": str(args.property_slug or "").strip(),
                 "property_slug": str(args.property_slug or "").strip(),

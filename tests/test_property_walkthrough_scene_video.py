@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 from app.product import service as product_service
@@ -99,12 +101,26 @@ def test_property_walkthrough_scene_video_context_uses_generated_reconstruction_
                 "display_title": "Generated Flat",
                 "scene_strategy": "generated_reconstruction",
                 "creation_mode": "generated_reconstruction_tour",
-                "covered_route_labels": ["Entry", "Living room", "Balcony"],
                 "generated_reconstruction": {
                     "provider": "propertyquarry_generated_reconstruction",
                     "viewer_version": "propertyquarry_3d_tour_viewer_v3",
                     "viewer_relpath": "generated-reconstruction/viewer.html",
                     "glb_model_relpath": "generated-reconstruction/model.glb",
+                    "route_labels": ["Entry", "Living room", "Balcony"],
+                    "walkable_scene": {
+                        "kind": "generated_reconstruction_layout",
+                        "route": [
+                            {"label": "Entry", "kind": "entry"},
+                            {"label": "Living room", "kind": "living"},
+                            {"label": "Balcony", "kind": "outdoor"},
+                        ],
+                        "rooms": [
+                            {"label": "Entry", "kind": "entry"},
+                            {"label": "Living room", "kind": "living"},
+                            {"label": "Balcony", "kind": "outdoor"},
+                        ],
+                    },
+                    "room_stop_count": 3,
                     "verified_provider_capture": False,
                 },
             },
@@ -188,6 +204,9 @@ def test_render_property_flythrough_routes_omagic_without_onemin_or_magicfit_fal
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_dir))
     monkeypatch.setenv("OMAGIC_API_KEY", "test-key")
+    monkeypatch.delenv("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_OMAGIC_RENDER_COMMAND", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT", raising=False)
     monkeypatch.setattr(
         product_service,
         "_render_onemin_property_flythrough_into_hosted_tour",
@@ -206,12 +225,90 @@ def test_render_property_flythrough_routes_omagic_without_onemin_or_magicfit_fal
     )
 
     assert result["status"] == "failed"
-    assert result["reason"] == "omagic_model_upload_adapter_missing"
+    assert result["reason"] == "omagic_model_upload_adapter_disabled"
     assert result["provider_key"] == "omagic"
     assert result["media_route_provider_key"] == "omagic"
     assert result["model_input_required"] is True
     assert result["model_asset_kind"] == "glb"
     assert result["model_path"].endswith("generated-reconstruction/model.glb")
+
+
+def test_render_property_flythrough_omagic_command_adapter_writes_hosted_video(tmp_path, monkeypatch) -> None:
+    public_dir = tmp_path / "public_tours"
+    bundle_dir = public_dir / "sample-flat"
+    model_dir = bundle_dir / "generated-reconstruction"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.glb").write_bytes(b"glTF")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "sample-flat",
+                "generated_reconstruction": {
+                    "glb_model_relpath": "generated-reconstruction/model.glb",
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    fake_adapter = tmp_path / "fake_omagic_adapter.py"
+    fake_adapter.write_text(
+        """
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--request-json", required=True)
+parser.add_argument("--out", required=True)
+parser.add_argument("--state-json", required=True)
+args = parser.parse_args()
+request = json.loads(Path(args.request_json).read_text(encoding="utf-8"))
+assert request["provider_key"] == "omagic"
+assert request["model_path"].endswith("generated-reconstruction/model.glb")
+Path(args.out).write_bytes(b"fake-omagic-video")
+state = {
+    "render_status": "completed",
+    "video_path": args.out,
+    "model_input_consumed": True,
+    "model_input_consumption_proof": "fake-product-command-adapter",
+}
+Path(args.state_json).write_text(json.dumps(state), encoding="utf-8")
+print(json.dumps(state))
+""".lstrip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_dir))
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_API_KEY", "test-key")
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_RENDER_COMMAND", f"{sys.executable} {fake_adapter}")
+    monkeypatch.setattr(
+        product_service,
+        "_render_onemin_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_onemin_fallback")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_magicfit_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_magicfit_fallback")),
+    )
+
+    result = product_service._render_property_flythrough_into_hosted_tour(
+        tour_url="/tours/sample-flat",
+        title="Sample Flat",
+        preferred_provider_key="omagic",
+    )
+
+    assert result["status"] == "rendered"
+    assert result["provider_key"] == "omagic"
+    assert result["media_route_provider_key"] == "omagic"
+    assert result["model_input_consumed"] is True
+    video_path = Path(str(result["video_file_path"]))
+    assert video_path.read_bytes() == b"fake-omagic-video"
+    sidecar = json.loads((bundle_dir / "tour.omagic.json").read_text(encoding="utf-8"))
+    assert sidecar["model_input_consumption_proof"] == "fake-product-command-adapter"
 
 
 def test_render_property_flythrough_blank_provider_uses_runtime_selected_magicfit(monkeypatch) -> None:

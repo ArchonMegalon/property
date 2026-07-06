@@ -71,13 +71,27 @@ def test_scene_video_provider_refresh_packet_names_env_contracts_without_secrets
     assert providers["magicfit"]["credential_contract"]["preferred_accounts_json_env"] == "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"
     assert providers["magicfit"]["credential_contract"]["account_selector_env"] == "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX"
     assert providers["magicfit"]["credit_refresh_required"] is True
+    assert providers["magicfit"]["proof_contract"]["proof_render_required"] is True
+    assert providers["magicfit"]["proof_contract"]["credit_marker"] == "magicfit_insufficient_credits"
+    assert providers["magicfit"]["proof_contract"]["account_selector_env"] == "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX"
     assert providers["omagic"]["visible_account_gap"] == 8
     assert providers["omagic"]["credential_contract"]["preferred_accounts_json_env"] == "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON"
     assert providers["omagic"]["adapter_contract"]["enable_flag"] == "PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED"
+    assert "PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT" in providers["omagic"]["adapter_contract"]["render_endpoint_envs"]
+    assert "OMAGIC_RENDER_ENDPOINT" in providers["omagic"]["adapter_contract"]["render_endpoint_envs"]
+    assert "PROPERTYQUARRY_OMAGIC_RENDER_COMMAND" in providers["omagic"]["adapter_contract"]["render_command_envs"]
+    assert "OMAGIC_RENDER_COMMAND" in providers["omagic"]["adapter_contract"]["render_command_envs"]
+    assert providers["omagic"]["adapter_contract"]["proof_render_required"] is True
     assert "set provider account JSON file mode to 0o600 before merge" in rendered
     assert "merge_scene_video_provider_accounts_env.py" in rendered
     assert "--magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write" in rendered
     assert "--omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count 8 --write" in rendered
+    assert "provider_backend_key=magicfit" in rendered
+    assert "playable hosted walkthrough video" in rendered
+    assert "clear MagicFit credit marker only after" in rendered
+    assert "model_input_consumed=true" in rendered
+    assert "provider_backend_key=omagic" in rendered
+    assert "PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED=1 only after" in rendered
     assert "ONEMIN_*" in rendered
     assert "ONEMIN_AI_API_KEY" in rendered
     assert "forbidden-password" not in rendered.lower()
@@ -183,6 +197,63 @@ def test_scene_video_provider_refresh_packet_verifier_rejects_missing_magicfit_a
 
     assert receipt["status"] == "fail"
     assert "magicfit_account_selector_env_missing" in receipt["blockers"]
+
+
+def test_scene_video_provider_refresh_packet_verifier_rejects_magicfit_proof_gaps(tmp_path: Path) -> None:
+    materializer = _load_script()
+    verifier = _load_verifier()
+
+    packet = materializer.build_packet(_receipt(), receipt_path=tmp_path / "receipt.json")
+    providers = {row["provider"]: row for row in packet["providers"]}
+    proof = providers["magicfit"]["proof_contract"]
+    proof["proof_render_required"] = False
+    proof["credit_marker"] = ""
+    proof["account_selector_env"] = ""
+    proof["credit_marker_policy"] = "clear marker manually"
+    proof["proof_render_checks"] = []
+    providers["magicfit"]["post_refresh_checks"] = [
+        "set provider account JSON file mode to 0o600 before merge",
+        "merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write",
+    ]
+
+    receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
+
+    assert receipt["status"] == "fail"
+    assert "magicfit_proof_render_required_missing" in receipt["blockers"]
+    assert "magicfit_credit_marker_contract_missing" in receipt["blockers"]
+    assert "magicfit_proof_account_selector_env_missing" in receipt["blockers"]
+    assert "magicfit_credit_marker_policy_proof_missing" in receipt["blockers"]
+    assert "magicfit_selected_account_proof_check_missing" in receipt["blockers"]
+    assert "magicfit_backend_proof_check_missing" in receipt["blockers"]
+    assert "magicfit_account_selection_guidance_missing" in receipt["blockers"]
+    assert "magicfit_credit_marker_after_proof_guidance_missing" in receipt["blockers"]
+
+
+def test_scene_video_provider_refresh_packet_verifier_rejects_omagic_adapter_proof_gaps(tmp_path: Path) -> None:
+    materializer = _load_script()
+    verifier = _load_verifier()
+
+    packet = materializer.build_packet(_receipt(), receipt_path=tmp_path / "receipt.json")
+    providers = {row["provider"]: row for row in packet["providers"]}
+    adapter = providers["omagic"]["adapter_contract"]
+    adapter["render_endpoint_envs"] = []
+    adapter["render_command_envs"] = []
+    adapter["proof_render_required"] = False
+    adapter["proof_render_checks"] = []
+    providers["omagic"]["post_refresh_checks"] = [
+        "set provider account JSON file mode to 0o600 before merge",
+        "merge provider-only OMagic/Magic account JSON with merge_scene_video_provider_accounts_env.py --omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count 8 --write",
+    ]
+
+    receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
+
+    assert receipt["status"] == "fail"
+    assert "omagic_primary_render_endpoint_env_missing" in receipt["blockers"]
+    assert "omagic_primary_render_command_env_missing" in receipt["blockers"]
+    assert "omagic_proof_render_required_missing" in receipt["blockers"]
+    assert "omagic_model_input_consumption_check_missing" in receipt["blockers"]
+    assert "omagic_endpoint_config_guidance_missing" in receipt["blockers"]
+    assert "omagic_enable_after_proof_guidance_missing" in receipt["blockers"]
 
 
 def test_scene_video_provider_refresh_packet_verifier_rejects_weakened_expected_account_counts(tmp_path: Path) -> None:

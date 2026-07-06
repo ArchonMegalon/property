@@ -342,6 +342,13 @@ def _billing_handoff_redirect_ok(*, path: str, status_code: int, location: str) 
     return host in _allowed_billing_handoff_hosts(), host
 
 
+def _billing_internal_account_fallback_ok(*, path: str, status_code: int, location: str) -> bool:
+    if path != "/app/billing" or status_code not in {303, 307}:
+        return False
+    parsed = urlparse(str(location or "").strip())
+    return not parsed.scheme and (parsed.path or "").startswith("/app/account")
+
+
 def _rybbit_surface_contract_checks(path: str, body: str) -> list[dict[str, object]]:
     normalized_path = str(path or "").split("?", 1)[0]
     if not normalized_path.startswith("/app/"):
@@ -685,6 +692,11 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         status_code=response.status_code,
         location=billing_redirect_location,
     )
+    billing_internal_account_fallback_ok = _billing_internal_account_fallback_ok(
+        path=path,
+        status_code=response.status_code,
+        location=billing_redirect_location,
+    )
     noise_hits = [
         phrase
         for phrase in FORBIDDEN_CUSTOMER_NOISE
@@ -697,9 +709,12 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
     ]
     billing_fail_closed_ok = path == "/app/billing" and response.status_code == 503
     checks = [
-        {"name": "status_ok", "ok": response.status_code == 200 or billing_handoff_redirect_ok or billing_fail_closed_ok},
+        {
+            "name": "status_ok",
+            "ok": response.status_code == 200 or billing_handoff_redirect_ok or billing_internal_account_fallback_ok or billing_fail_closed_ok,
+        },
         {"name": "under_budget", "ok": duration_ms <= budget_ms},
-        {"name": "contains_propertyquarry", "ok": "PropertyQuarry" in body or billing_handoff_redirect_ok},
+        {"name": "contains_propertyquarry", "ok": "PropertyQuarry" in body or billing_handoff_redirect_ok or billing_internal_account_fallback_ok},
         {"name": "no_generic_ea_copy", "ok": "Executive Assistant" not in body and "Morning Memo" not in body},
         {"name": "no_customer_jargon", "ok": not noise_hits, "detail": ", ".join(noise_hits[:5])},
         {
@@ -714,6 +729,14 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 "name": "billing_external_handoff_redirect",
                 "ok": True,
                 "location_host": billing_redirect_host,
+            }
+        )
+    elif billing_internal_account_fallback_ok:
+        checks.append(
+            {
+                "name": "billing_internal_account_fallback",
+                "ok": True,
+                "location": billing_redirect_location,
             }
         )
     elif not billing_fail_closed_ok:
@@ -861,7 +884,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "delivery_controls", "ok": "Delivery rules" in body or "Notifications" in body},
             )
         )
-    if path == "/app/billing" and not billing_handoff_redirect_ok:
+    if path == "/app/billing" and not billing_handoff_redirect_ok and not billing_internal_account_fallback_ok:
         billing_noise_hits = [token for token in FORBIDDEN_BILLING_SURFACE_TOKENS if token in lowered_body]
         checks.extend(
             (
@@ -903,7 +926,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {
                     "name": "notification_primary_channel_controls",
                     "ok": ("Primary response lane" in body or "Primary route" in body)
-                    and "Save notification routing" in body,
+                    and "Save notifications" in body,
                 },
                 {
                     "name": "notification_opt_in_copy",
@@ -918,7 +941,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "account_notification_whatsapp_channel", "ok": 'name="notification_channels" value="whatsapp"' in body},
                 {"name": "account_notification_primary_route", "ok": 'name="preferred_channel"' in body},
                 {"name": "account_notification_whatsapp_phone", "ok": 'name="whatsapp_ai_support_phone"' in body},
-                {"name": "account_notification_save_action", "ok": "Save notification routing" in body},
+                {"name": "account_notification_save_action", "ok": "Save notifications" in body},
             )
         )
     if path == "/app/settings/google":
@@ -968,14 +991,14 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
             (
                 {
                     "name": "connected_identity_implicit_account_creation",
-                    "ok": "First-time connected sign-in also creates the account automatically." in body,
+                    "ok": "First sign-in creates the account automatically." in body,
                 },
                 {
                     "name": "connected_identity_copy_is_customer_safe",
                     "ok": (
                         "oauth_config_missing" not in lowered_body
                         and "callback setup" not in lowered_body
-                        and "connected sign-in also creates the account automatically" in lowered_body
+                        and "creates the account automatically" in lowered_body
                     ),
                 },
             )

@@ -1392,6 +1392,14 @@ class ToolExecutionService:
             prompt = str(payload.get("script_text") or payload.get("prompt") or payload.get("source_text") or "").strip()
             if not prompt:
                 raise ToolExecutionError(f"scene_video_prompt_missing:{provider_key or 'scene'}")
+            if provider_key == "omagic" and not str(
+                payload.get("model_url")
+                or payload.get("modelUrl")
+                or payload.get("model_path")
+                or payload.get("modelPath")
+                or ""
+            ).strip():
+                raise ToolExecutionError("scene_video_omagic_model_input_missing")
             scene_reference = _ensure_scene_reference(
                 request=request,
                 payload=payload,
@@ -1537,7 +1545,143 @@ class ToolExecutionService:
                     cost_usd=float(scene_reference.get("seed_cost_usd") or 0.0),
                 )
             if provider_key == "omagic":
-                raise ToolExecutionError("scene_video_omagic_model_upload_adapter_missing")
+                import subprocess
+                import sys
+                import tempfile
+                from pathlib import Path
+
+                from app.services.scene_video_contract import resolve_scene_video_script_path
+
+                script_path = resolve_scene_video_script_path("render_omagic_property_model_walkthrough.py")
+                if not script_path.exists():
+                    raise ToolExecutionError("scene_video_omagic_model_upload_adapter_missing")
+                timeout_seconds = int(payload.get("timeout_seconds") or 900)
+                work_dir = Path(tempfile.mkdtemp(prefix="ea-scene-video-omagic-")).resolve()
+                out_path = (work_dir / "scene-video.mp4").resolve()
+                state_path = (work_dir / "scene-video.json").resolve()
+                command = [
+                    str(sys.executable or "python3"),
+                    str(script_path),
+                    "--prompt",
+                    prompt,
+                    "--out",
+                    str(out_path),
+                    "--duration",
+                    str(int(payload.get("duration_seconds") or 15)),
+                    "--timeout-seconds",
+                    str(max(30, timeout_seconds)),
+                    "--state-json",
+                    str(state_path),
+                    "--model-asset-kind",
+                    str(payload.get("model_asset_kind") or payload.get("modelAssetKind") or "model").strip() or "model",
+                    "--title",
+                    title,
+                ]
+                model_path = str(payload.get("model_path") or payload.get("modelPath") or "").strip()
+                model_url = str(payload.get("model_url") or payload.get("modelUrl") or "").strip()
+                if model_path:
+                    command.extend(["--model-path", model_path])
+                if model_url:
+                    command.extend(["--model-url", model_url])
+                try:
+                    completed = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        timeout=max(timeout_seconds + 90, 300),
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise ToolExecutionError("scene_video_omagic_timeout") from exc
+                omagic_state: dict[str, object] = {}
+                try:
+                    if state_path.exists():
+                        loaded_state = json.loads(state_path.read_text(encoding="utf-8"))
+                        if isinstance(loaded_state, dict):
+                            omagic_state = dict(loaded_state)
+                except Exception:
+                    omagic_state = {}
+                if not omagic_state:
+                    for raw_line in reversed(str(completed.stdout or "").splitlines()):
+                        candidate_line = raw_line.strip()
+                        if not candidate_line.startswith("{"):
+                            continue
+                        try:
+                            loaded_state = json.loads(candidate_line)
+                        except Exception:
+                            continue
+                        if isinstance(loaded_state, dict):
+                            omagic_state = dict(loaded_state)
+                            break
+                if completed.returncode != 0:
+                    reason = str(omagic_state.get("reason") or "").strip()
+                    tail = str(completed.stderr or completed.stdout or "").strip().replace("\n", " ")
+                    raise ToolExecutionError(f"scene_video_omagic_failed:{reason or tail[-400:] or 'subprocess_failed'}")
+                asset_url = str(
+                    omagic_state.get("video_output_url")
+                    or omagic_state.get("video_url")
+                    or omagic_state.get("asset_url")
+                    or ""
+                ).strip() or str(out_path)
+                omagic_structured = {
+                    **omagic_state,
+                    "provider_key": "omagic",
+                    "provider_backend_key": "omagic",
+                    "seed_image_generated": bool(scene_reference.get("seed_image_generated")),
+                    "seed_image_url": str(scene_reference.get("seed_image_url") or "").strip(),
+                    "seed_tool_name": str(scene_reference.get("seed_tool_name") or "").strip(),
+                    "model_url": model_url,
+                    "model_path": model_path,
+                    "model_asset_kind": str(payload.get("model_asset_kind") or payload.get("modelAssetKind") or "model").strip() or "model",
+                    "model_input_consumed": bool(omagic_state.get("model_input_consumed") is not False),
+                }
+                normalized = {
+                    "deliverable_type": "scene_video_packet",
+                    "result_title": title,
+                    "provider_key": "omagic",
+                    "provider_backend_key": "omagic",
+                    "render_status": str(omagic_state.get("render_status") or "completed").strip().lower() or "completed",
+                    "video_url": asset_url,
+                    "asset_url": asset_url,
+                    "download_url": asset_url,
+                    "flythrough_url": "",
+                    "editor_url": str(omagic_state.get("page_url") or omagic_state.get("editor_url") or "").strip(),
+                    "reason": "",
+                    "structured_output_json": omagic_structured,
+                }
+                normalized_text = json.dumps(normalized, ensure_ascii=False)
+                return ToolInvocationResult(
+                    tool_name=definition.tool_name,
+                    action_kind="video.generate",
+                    target_ref=asset_url,
+                    output_json={
+                        "normalized_text": normalized_text,
+                        "preview_text": normalized_text[:280],
+                        "mime_type": "application/json",
+                        "structured_output_json": normalized,
+                        "provider_key": normalized["provider_key"],
+                        "provider_backend_key": normalized["provider_backend_key"],
+                        "result_title": normalized["result_title"],
+                        "render_status": normalized["render_status"],
+                        "video_url": asset_url,
+                        "asset_url": asset_url,
+                        "download_url": asset_url,
+                        "editor_url": normalized["editor_url"],
+                    },
+                    receipt_json={
+                        "provider_key": "omagic",
+                        "provider_backend_key": "omagic",
+                        "context_kind": context_kind,
+                        "seed_image_generated": bool(scene_reference.get("seed_image_generated")),
+                        "seed_tool_name": str(scene_reference.get("seed_tool_name") or "").strip(),
+                        "model_input_consumed": bool(omagic_state.get("model_input_consumed") is not False),
+                    },
+                    artifacts=tuple(scene_reference.get("seed_artifacts") or ()),
+                    model_name=str(scene_reference.get("seed_model_name") or "").strip() or None,
+                    tokens_in=int(scene_reference.get("seed_tokens_in") or 0),
+                    tokens_out=int(scene_reference.get("seed_tokens_out") or 0),
+                    cost_usd=float(scene_reference.get("seed_cost_usd") or 0.0),
+                )
             if provider_key != "onemin_i2v":
                 raise ToolExecutionError(f"scene_video_provider_not_implemented:{provider_key or 'missing'}")
             nested = self.execute_invocation(

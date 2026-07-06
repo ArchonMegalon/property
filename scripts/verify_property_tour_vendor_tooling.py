@@ -46,11 +46,36 @@ OFFICIAL_INSTALLER_SOURCES = {
     },
 }
 MAGICFIT_RENDER_SCRIPT = "scripts/render_magicfit_property_flythrough.py"
+OMAGIC_ADAPTER_SCRIPT = "scripts/render_omagic_property_model_walkthrough.py"
+OMAGIC_ADAPTER_RUNTIME_SCRIPT = "/app/scripts/render_omagic_property_model_walkthrough.py"
 MAGICFIT_CREDENTIAL_ENV_PAIRS = (
     ("PROPERTYQUARRY_MAGICFIT_EMAIL", "PROPERTYQUARRY_MAGICFIT_PASSWORD"),
     ("MAGICFIT_EMAIL", "MAGICFIT_PASSWORD"),
 )
 MAGICFIT_RENDER_PYTHON_MODULES = ("playwright", "requests")
+OMAGIC_MODEL_UPLOAD_ENABLE_ENV = "PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED"
+OMAGIC_RENDER_ENDPOINT_ENV_NAMES = (
+    "PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT",
+    "OMAGIC_RENDER_ENDPOINT",
+    "PROPERTYQUARRY_MAGIC_RENDER_ENDPOINT",
+    "MAGIC_RENDER_ENDPOINT",
+)
+OMAGIC_RENDER_COMMAND_ENV_NAMES = (
+    "PROPERTYQUARRY_OMAGIC_RENDER_COMMAND",
+    "OMAGIC_RENDER_COMMAND",
+    "PROPERTYQUARRY_MAGIC_RENDER_COMMAND",
+    "MAGIC_RENDER_COMMAND",
+)
+OMAGIC_CREDENTIAL_ENV_NAMES = (
+    "OMAGIC_API_KEY",
+    "PROPERTYQUARRY_OMAGIC_API_KEY",
+    "MAGIC_API_KEY",
+    "PROPERTYQUARRY_MAGIC_API_KEY",
+    "OMAGIC_ACCOUNTS_JSON",
+    "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
+    "MAGIC_ACCOUNTS_JSON",
+    "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+)
 
 
 def _repo_root() -> Path:
@@ -152,6 +177,30 @@ def _container_python_import_available(container: str, module: str) -> dict[str,
     }
 
 
+def _container_file_available(container: str, path: str) -> dict[str, object]:
+    if not container:
+        return {"available": False, "container": "", "path": path}
+    docker = shutil.which("docker")
+    if not docker:
+        return {"available": False, "container": container, "path": path, "reason": "docker_missing"}
+    try:
+        completed = subprocess.run(
+            [docker, "exec", container, "test", "-f", path],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception as exc:
+        return {"available": False, "container": container, "path": path, "reason": type(exc).__name__}
+    return {
+        "available": completed.returncode == 0,
+        "container": container,
+        "path": path,
+        "returncode": int(completed.returncode),
+    }
+
+
 def _python_module_status(module: str) -> dict[str, object]:
     try:
         completed = subprocess.run(
@@ -243,6 +292,83 @@ def _magicfit_renderer_receipt(repo_root: Path) -> dict[str, object]:
         "ready": ready,
         "next_action": next_action,
         "note": "Only readiness signals are recorded here; MagicFit credentials and session secrets are intentionally omitted.",
+    }
+
+
+def _configured_env_names(names: tuple[str, ...]) -> list[str]:
+    return [name for name in names if str(os.getenv(name) or "").strip()]
+
+
+def _truthy_env(name: str) -> bool:
+    return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _omagic_adapter_receipt(
+    repo_root: Path,
+    *,
+    runtime_container: str = "",
+    runtime_only: bool = False,
+) -> dict[str, object]:
+    script_path = (repo_root / OMAGIC_ADAPTER_SCRIPT).resolve()
+    script_ready = script_path.is_file()
+    runtime_checked = bool(runtime_only or str(runtime_container or "").strip())
+    if runtime_container:
+        runtime_script = _container_file_available(runtime_container, OMAGIC_ADAPTER_RUNTIME_SCRIPT)
+        runtime_script["checked_via"] = "docker_exec"
+    elif runtime_only:
+        runtime_script = {
+            "available": script_ready,
+            "container": "current_runtime",
+            "path": str(script_path),
+            "checked_via": "local_runtime_filesystem",
+        }
+    else:
+        runtime_script = {
+            "available": None,
+            "container": "",
+            "path": OMAGIC_ADAPTER_RUNTIME_SCRIPT,
+            "checked_via": "not_checked",
+        }
+    endpoint_env_names = _configured_env_names(OMAGIC_RENDER_ENDPOINT_ENV_NAMES)
+    command_env_names = _configured_env_names(OMAGIC_RENDER_COMMAND_ENV_NAMES)
+    credential_env_names = _configured_env_names(OMAGIC_CREDENTIAL_ENV_NAMES)
+    target_configured = bool(endpoint_env_names or command_env_names)
+    adapter_enabled = _truthy_env(OMAGIC_MODEL_UPLOAD_ENABLE_ENV)
+    runtime_script_ready = runtime_script.get("available")
+    source_ready = script_ready
+    deployed_ready = (not runtime_checked) or runtime_script_ready is True
+    ready = bool(source_ready and deployed_ready)
+    if not source_ready:
+        status = "blocked_source_script_missing"
+        next_action = f"restore {OMAGIC_ADAPTER_SCRIPT} before claiming OMagic model-upload adapter packaging"
+    elif runtime_checked and runtime_script_ready is not True:
+        status = "blocked_runtime_script_missing"
+        next_action = (
+            "rebuild/redeploy the PropertyQuarry runtime image so "
+            f"{OMAGIC_ADAPTER_RUNTIME_SCRIPT} exists before claiming OMagic adapter availability"
+        )
+    elif not runtime_checked:
+        status = "source_ready_runtime_not_checked"
+        next_action = "run this verifier from the runtime container or pass --runtime-container before claiming deployed OMagic adapter availability"
+    else:
+        status = "pass"
+        next_action = ""
+    return {
+        "status": status,
+        "ready": ready,
+        "script_path": str(script_path),
+        "script_ready": script_ready,
+        "runtime_checked": runtime_checked,
+        "runtime_script_ready": runtime_script_ready,
+        "runtime_script": runtime_script,
+        "model_upload_enable_env": OMAGIC_MODEL_UPLOAD_ENABLE_ENV,
+        "model_upload_adapter_enabled": adapter_enabled,
+        "render_endpoint_env_names": endpoint_env_names,
+        "render_command_env_names": command_env_names,
+        "render_target_configured": target_configured,
+        "credential_env_names": credential_env_names,
+        "next_action": next_action,
+        "note": "This is package/deploy evidence only; scene-video readiness owns credentials, endpoint/command, enablement, and proof-render truth.",
     }
 
 
@@ -542,6 +668,11 @@ def build_vendor_tooling_receipt(
         else None
     )
     magicfit_renderer = _magicfit_renderer_receipt(repo_root)
+    omagic_adapter = _omagic_adapter_receipt(
+        repo_root,
+        runtime_container=runtime_container,
+        runtime_only=runtime_only,
+    )
     missing_exports = [
         provider
         for provider in ("3dvista", "pano2vr")
@@ -583,6 +714,17 @@ def build_vendor_tooling_receipt(
                 "python_modules_ready": bool(magicfit_renderer.get("python_modules_ready")),
                 "credential_sources": list(magicfit_renderer.get("credential_sources") or []),
                 "action": str(magicfit_renderer.get("next_action") or "configure the MagicFit render lane"),
+            }
+        )
+    if bool(omagic_adapter.get("runtime_checked")) and not bool(omagic_adapter.get("ready")):
+        next_actions.append(
+            {
+                "area": "omagic_model_upload_adapter_deploy",
+                "status": str(omagic_adapter.get("status") or ""),
+                "script_ready": bool(omagic_adapter.get("script_ready")),
+                "runtime_script_ready": omagic_adapter.get("runtime_script_ready"),
+                "runtime_script": dict(omagic_adapter.get("runtime_script") or {}),
+                "action": str(omagic_adapter.get("next_action") or "deploy the OMagic model-upload adapter before claiming provider parity"),
             }
         )
     missing_installers = [
@@ -638,6 +780,7 @@ def build_vendor_tooling_receipt(
         "runtime_generated_tour_ready": runtime_generated_tour_ready,
         "runtime_generated_tour_tools": runtime_generated_tour_tools,
         "magicfit_renderer": magicfit_renderer,
+        "omagic_adapter": omagic_adapter,
         "wine_runtime_ready": wine_runtime_ready,
         "wine": wine,
         "wine64": wine64,

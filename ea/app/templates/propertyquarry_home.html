@@ -159,6 +159,9 @@
     gap: 8px;
     align-items: start;
   }
+  .pq-row-main.is-empty {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .pq-row-thumb {
     position: relative;
     overflow: hidden;
@@ -315,6 +318,7 @@
 </style>
 
 <main class="pq-home">
+  {% set shortlist_panel = home_shortlist or {} %}
   <section class="pq-hero">
     <div class="pq-hero-copy">
       <p class="pq-kicker">PropertyQuarry</p>
@@ -337,29 +341,31 @@
         <a class="btn primary" href="/app/search" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
         <a class="btn" href="/app/properties" data-analytics-event="home_open_results" data-rybbit-event="home_open_results" data-rybbit-prop-surface="hero">Open latest results</a>
         {% else %}
-        <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
-        <a class="btn" href="/register" data-analytics-event="home_email_setup" data-rybbit-event="home_email_setup" data-rybbit-prop-surface="hero">Use email instead</a>
+        <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="home_sign_in" data-rybbit-event="home_sign_in" data-rybbit-prop-surface="hero">Sign in</a>
         {% endif %}
       </div>
     </div>
 
-    <aside class="pq-desk" aria-label="Example property decision snapshot">
+    <aside class="pq-desk" aria-label="Property decision snapshot">
       <div class="pq-desk-head">
         <div>
-          <strong>Example shortlist</strong>
-          <span>Tap any row to open the example.</span>
+          <strong>{{ shortlist_panel.get('eyebrow') or 'Example shortlist' }}</strong>
+          <span>{{ shortlist_panel.get('caption') or 'Tap any row to open the example.' }}</span>
         </div>
-        <span class="pq-tag good">Example</span>
+        <span class="pq-tag good">{{ shortlist_panel.get('tag') or 'Example' }}</span>
       </div>
-      <section class="pq-board" aria-label="Example matching homes">
+      <section class="pq-board" aria-label="{{ shortlist_panel.get('heading') or 'Matching homes' }}">
         <div class="pq-board-head">
-          <strong>Sample homes</strong>
-          <span class="pq-tag">3 examples</span>
+          <strong>{{ shortlist_panel.get('heading') or 'Sample homes' }}</strong>
+          <span class="pq-tag">{{ shortlist_panel.get('count_label') or '3 examples' }}</span>
         </div>
-        {% for row in example_shortlist %}
+        {% if shortlist_panel.get('rows') %}
+        {% for row in shortlist_panel.get('rows') %}
         {% set scope_preview = row.get('scope_preview') or {} %}
         {% set row_href = row.get('href') or '/sign-in?signing_in=1' %}
         {% set detail_href = row.get('detail_href') or row_href %}
+        {% set action_href = row.get('action_href') or '' %}
+        {% set action_label = row.get('action_label') or 'Open property' %}
         {% set tour_href = row.get('tour_href') or '' %}
         {% set walkthrough_href = row.get('walkthrough_href') or '' %}
         <article class="pq-row">
@@ -374,8 +380,11 @@
             <div class="pq-row-copy">
               <strong><a class="pq-row-link" href="{{ row_href }}">{{ row.get('title') }}</a></strong>
               <span><a class="pq-row-link" href="{{ detail_href }}">{{ row.get('detail') }}</a></span>
-              {% if tour_href or walkthrough_href %}
+              {% if action_href or tour_href or walkthrough_href %}
               <div class="pq-row-actions" aria-label="Example media status">
+                {% if action_href %}
+                <a class="pq-mini-tag pq-row-link" href="{{ action_href }}">{{ action_label }}</a>
+                {% endif %}
                 {% if tour_href %}
                 <a class="pq-mini-tag pq-row-link" href="{{ tour_href }}">{{ row.get('tour_label') }}</a>
                 {% endif %}
@@ -389,6 +398,21 @@
           <div class="pq-score">{{ row.get('score') }}</div>
         </article>
         {% endfor %}
+        {% else %}
+        <article class="pq-row">
+          <div class="pq-row-main is-empty">
+            <div class="pq-row-copy">
+              <strong>{{ shortlist_panel.get('empty_title') or 'No finished shortlist yet' }}</strong>
+              <span>{{ shortlist_panel.get('empty_detail') or 'Start a search to fill this panel.' }}</span>
+              {% if shortlist_panel.get('empty_action_href') %}
+              <div class="pq-row-actions" aria-label="Latest results action">
+                <a class="pq-mini-tag pq-row-link" href="{{ shortlist_panel.get('empty_action_href') }}">{{ shortlist_panel.get('empty_action_label') or 'Open search' }}</a>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        </article>
+        {% endif %}
       </section>
     </aside>
   </section>
@@ -408,8 +432,8 @@
     </div>
     <div class="pq-home-point">
       <div>
-        <strong>Research is attached</strong>
-        <span>Costs, floorplans, tours, and gaps stay with the home.</span>
+        <strong>Details stay together</strong>
+        <span>Costs, floorplans, tours, and open questions stay with the home.</span>
       </div>
     </div>
   </section>

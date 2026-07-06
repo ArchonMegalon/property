@@ -33,6 +33,16 @@ DEFAULT_ROUTES = (
     "/app/billing",
     "/sign-in",
 )
+AUTHENTICATED_SHARED_FAST_RUN_PATH = "/app/shortlist/run/0a89ead9e0b048288cca22d1aac54fa7"
+PUBLIC_SHORTLIST_ENTRYPOINT_RUN_IDS = {
+    "0a89ead9e0b048288cca22d1aac54fa7",
+    "public-demo-run",
+    "shared-public-run",
+}
+DEFAULT_LIVE_ROUTES = (
+    *DEFAULT_ROUTES,
+    AUTHENTICATED_SHARED_FAST_RUN_PATH,
+)
 MAX_RESPONSE_BODY_BYTES = 900_000
 SENSITIVE_URL_QUERY_KEYS = (
     "access_token",
@@ -152,6 +162,22 @@ def _security_header_checks(*, headers: dict[str, object]) -> list[tuple[str, bo
 def _is_internal_billing_account_fallback(location: str) -> bool:
     parsed = urllib.parse.urlparse(str(location or "").strip())
     return not parsed.scheme and (parsed.path or "").startswith("/app/account")
+
+
+def _is_public_shortlist_entrypoint_path(location: str) -> bool:
+    parsed = urllib.parse.urlparse(str(location or "").strip())
+    parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(parts) < 4 or parts[:3] != ["app", "shortlist", "run"]:
+        return False
+    return parts[3].strip().lower() in PUBLIC_SHORTLIST_ENTRYPOINT_RUN_IDS
+
+
+def _is_non_public_shortlist_run_path(location: str) -> bool:
+    parsed = urllib.parse.urlparse(str(location or "").strip())
+    parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(parts) < 4 or parts[:3] != ["app", "shortlist", "run"]:
+        return False
+    return parts[3].strip().lower() not in PUBLIC_SHORTLIST_ENTRYPOINT_RUN_IDS
 
 
 def _resolve_billing_external_handoff(
@@ -319,9 +345,18 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
                 ("account_notification_whatsapp_channel", 'name="notification_channels" value="whatsapp"' in text),
                 ("account_notification_primary_route", 'name="preferred_channel"' in text),
                 ("account_notification_whatsapp_phone", 'name="whatsapp_ai_support_phone"' in text),
-                ("account_notification_save_action", "Save notification routing" in visible_text),
+                ("account_notification_save_action", "Save notifications" in visible_text),
                 ("account_paid_plan", f"<h2>{expected_plan_label}</h2>" in text if expected_plan_label else True),
-                ("account_logout_strip", "pqx-account-logout-strip" in text and "Current session" in text),
+                (
+                    "account_logout_strip",
+                    "pqx-account-logout-strip" in text
+                    and (
+                        "Current session" in text
+                        or "Signed-in session" in text
+                        or "Session · Signed in" in visible_text
+                        or "Signed in" in visible_text
+                    ),
+                ),
                 ("account_single_logout", account_logout_count == 1),
                 ("account_no_customer_noise", not any(noise in lowered_visible for noise in FORBIDDEN_CUSTOMER_NOISE)),
             )
@@ -351,7 +386,7 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
                 ("sign_in_google_state", "Continue with Google" in visible_text),
                 (
                     "sign_in_connected_identity_creates_account",
-                    "First-time connected sign-in" in visible_text
+                    "First sign-in" in visible_text
                     and "creates the account automatically" in visible_text,
                 ),
                 (
@@ -361,6 +396,19 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
                     and "config_missing" not in lowered_visible,
                 ),
                 ("sign_in_no_double_logout", logout_count <= 1),
+            )
+        )
+    elif path == AUTHENTICATED_SHARED_FAST_RUN_PATH:
+        checks.extend(
+            (
+                ("authenticated_fast_run_heading", "Matching homes" in visible_text),
+                ("authenticated_fast_run_no_sample_copy", "Sample homes" not in visible_text),
+                ("authenticated_fast_run_no_example_shortlist", "/app/example/shortlist" not in text),
+                ("authenticated_fast_run_no_sign_in_copy", "Use email or one of the sign-in options below." not in visible_text),
+                (
+                    "authenticated_fast_run_open_property_or_empty_state",
+                    "Open property" in visible_text or "No matching homes yet" in visible_text,
+                ),
             )
         )
     return checks
@@ -510,11 +558,19 @@ def build_live_authenticated_smoke_receipt(
                 *_security_header_checks(headers=headers),
                 *_route_checks(path=path, text=text, expected_plan_label=expected_plan_label),
             ]
+        elif path == AUTHENTICATED_SHARED_FAST_RUN_PATH and status_code in {303, 307}:
+            location = _header_value(headers, "Location")
+            route_checks = [
+                ("status_ok", True),
+                *_security_header_checks(headers=headers),
+                ("authenticated_fast_run_redirects_to_latest", _is_non_public_shortlist_run_path(location)),
+                ("authenticated_fast_run_not_public_entrypoint_redirect", not _is_public_shortlist_entrypoint_path(location)),
+            ]
         else:
             route_checks = [
                 *(
                     [("status_ok", status_code == 200)]
-                    if path in {"/app/account", "/app/billing", "/sign-in"}
+                    if path in {"/app/account", "/app/billing", "/sign-in", AUTHENTICATED_SHARED_FAST_RUN_PATH}
                     else []
                 ),
                 *_security_header_checks(headers=headers),
@@ -559,7 +615,7 @@ def build_live_authenticated_smoke_receipt(
         "checks": checks,
         "notes": [
             "This smoke is authenticated and read-only.",
-            "It verifies paid customer surfaces: account, billing, and sign-in state.",
+            "It verifies paid customer surfaces: account, billing, sign-in state, and the shared shortlist URL does not leak sample homes to signed-in users.",
         ],
         }
     )
@@ -569,7 +625,7 @@ def main() -> int:
     if len(os.sys.argv) > 1 and os.sys.argv[1] in {"--help", "-h"}:
         print(
             "Usage:\n"
-            "  python3 scripts/propertyquarry_live_authenticated_smoke.py [--base-url <url>] [--principal-id <id>] [--write <path>]\n\n"
+            "  python3 scripts/propertyquarry_live_authenticated_smoke.py [--base-url <url>] [--principal-id <id>] [--route <path>]... [--write <path>]\n\n"
             "Smokes the authenticated PropertyQuarry runtime surfaces using EA_API_TOKEN."
         )
         return 0
@@ -582,6 +638,7 @@ def main() -> int:
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
     parser.add_argument("--retry-count", type=int, default=2)
     parser.add_argument("--retry-backoff-seconds", type=float, default=0.75)
+    parser.add_argument("--route", action="append", default=[], help="Route to smoke. Defaults to customer surfaces plus the shared shortlist URL.")
     parser.add_argument("--write", default="", help="Optional JSON receipt output path.")
     parser.add_argument(
         "--billing-handoff-dns-target",
@@ -601,6 +658,7 @@ def main() -> int:
         timeout_seconds=float(args.timeout_seconds),
         retry_count=int(args.retry_count),
         retry_backoff_seconds=float(args.retry_backoff_seconds),
+        routes=tuple(args.route or DEFAULT_LIVE_ROUTES),
         billing_handoff_dns_target=str(args.billing_handoff_dns_target),
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)

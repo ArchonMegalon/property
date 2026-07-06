@@ -19,7 +19,7 @@ except Exception:  # pragma: no cover - optional image appendix support
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.fliplink.privacy import REDACTION_POLICY_VERSION, redact_property_packet
 from app.product.property_location_research import property_school_context_summary
-from app.services.property_customer_copy import normalize_property_fit_note
+from app.services.property_customer_copy import normalize_property_fit_note, summarize_property_description_copy
 
 
 PDF_RENDERER_VERSION = "v7_agency_comparison_dossier_pdf"
@@ -96,7 +96,7 @@ def _localize_compare_reason(value: object) -> str:
 
 
 def _localize_fit_summary(value: object) -> str:
-    text = " ".join(str(value or "").split()).strip()
+    text = normalize_property_fit_note(value) or summarize_property_description_copy(value)
     if not text:
         return ""
     replacements = {
@@ -1668,7 +1668,7 @@ def _visual_pdf(
         _draw_rect(ops, review_x, cta_y, review_width, review_height, fill=(0.93, 0.96, 0.94))
         _draw_text(
             ops,
-            "Open property page",
+            "Open property",
             x=review_x + 16,
             y=cta_y + 14,
             size=10,
@@ -2006,7 +2006,7 @@ def _visual_pdf(
         media_annotations.append({"url": redacted_flythrough_url, "rect": [MARGIN_X + 386, cta_y - 46, MARGIN_X + 526, cta_y - 12]})
     if redacted_review_url:
         _draw_rect(ops, MARGIN_X + 386, cta_y - 92, 150, 34, fill=(0.93, 0.96, 0.94))
-        _draw_text(ops, "Open property page", x=MARGIN_X + 412, y=183, size=9.2, font="F2", fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, "Open property", x=MARGIN_X + 412, y=183, size=9.2, font="F2", fill=(0.15, 0.38, 0.30))
         media_annotations.append({"url": redacted_review_url, "rect": [MARGIN_X + 386, cta_y - 92, MARGIN_X + 536, cta_y - 58]})
     pages.append({"ops": ops, "images": media_page_images, "annotations": media_annotations})
     page_number += 1

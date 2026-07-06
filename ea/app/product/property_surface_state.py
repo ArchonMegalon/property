@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from app.services.property_billing import normalize_property_plan_key, property_commercial_snapshot, property_plan_has_unlimited_provider_results
+from app.services.property_customer_copy import sanitize_property_marketing_copy, summarize_property_description_copy
 from app.services.property_market_catalog import supported_currency_codes
 
 from app.product.models import (
@@ -66,7 +67,7 @@ _INTERNAL_RUN_STATUS_NOISE_TOKENS = (
 
 _STALE_ZERO_REVIEW_SEARCH_PAGES_RE = re.compile(
     r"\b(?P<found>\d+)\s+homes?\s+found\s*·\s*0\s+to\s+review\s*·\s*"
-    r"(?P<done>\d+)\s*/\s*(?P<total>\d+)\s*(?P<unit>search pages|providers|sources|sites)\b",
+    r"(?P<done>\d+)\s*/\s*(?P<total>\d+)\s*(?P<unit>search pages|checks|providers|sources|sites)\b",
     re.IGNORECASE,
 )
 
@@ -117,6 +118,17 @@ def _clean_property_action_rows(actions: object) -> list[dict[str, object]]:
             continue
         cleaned_actions.append(dict(action))
     return cleaned_actions
+
+
+def _clean_property_shortlist_row(row: dict[str, object]) -> dict[str, object]:
+    cleaned = dict(row)
+    for key in ("description_text", "location_text", "summary", "fit_summary", "compare_reason"):
+        if key in cleaned:
+            if key == "description_text":
+                cleaned[key] = summarize_property_description_copy(cleaned.get(key))
+            else:
+                cleaned[key] = sanitize_property_marketing_copy(cleaned.get(key))
+    return cleaned
 
 
 def _strip_hidden_property_action_slots(row: dict[str, object]) -> dict[str, object]:
@@ -479,7 +491,7 @@ def _property_run_listing_queue_label(found: int, to_review: int) -> str:
         return "checking"
     if to_review > 0:
         return f"{found} homes found · {to_review} to review"
-    return f"{found} homes found · all found homes reviewed"
+    return f"{found} homes found · all found homes are checked"
 
 
 def normalize_property_search_run_snapshot(raw_run: dict[str, object]) -> dict[str, object]:
@@ -514,7 +526,7 @@ def property_run_status_copy(status_value: object, message_value: object = "") -
     if status in {"processed", "completed"}:
         return ("Finished", "")
     if status == "completed_partial":
-        return ("Finished with partial coverage", safe_message or "The shortlist is ready, but one or more sites finished degraded.")
+        return ("Finished with partial coverage", safe_message or "The shortlist is ready, but one or more providers finished degraded.")
     if status == "failed":
         return ("Search interrupted", safe_message or "The search stopped before ranking finished.")
     if status == "cancelled":
@@ -576,16 +588,16 @@ def property_run_customer_safe_status_detail(
     ) or any(token in lowered for token in _RAW_PROVIDER_FAILURE_TOKENS)
 
     if repair_step and raw_failure_like and prefer_repair_step:
-        return customer_status or calm_repair_copy or "Refreshing affected sites."
+        return customer_status or calm_repair_copy or "Refreshing affected providers."
     if customer_status and (status in {"failed", "completed_partial"} or raw_failure_like):
         return customer_status
     if repair_step and raw_failure_like:
         return calm_repair_copy or _join_customer_sentences(
-            "PropertyQuarry is refreshing affected sites",
+            "PropertyQuarry is refreshing affected providers",
             "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
         )
     if raw_failure_like and repair_status:
-        return calm_repair_copy or "PropertyQuarry is refreshing affected sites."
+        return calm_repair_copy or "PropertyQuarry is refreshing affected providers."
     if status == "failed" and raw_failure_like:
         return calm_repair_copy or "The search stopped before the shortlist settled."
     if status == "failed" and repair_flags.get("active"):
@@ -966,7 +978,7 @@ def _property_run_provider_check_label(summary: dict[str, object], *, status: st
         unit = _property_run_source_unit_label(summary, total=total)
         return f"{done} / {total} {unit}"
     if total > 0:
-        return f"{total} sites selected"
+        return f"{total} providers selected"
     return ""
 
 
@@ -993,12 +1005,12 @@ def _property_run_source_unit_label(summary: dict[str, object], *, total: int = 
     source_variant_total = _positive_int(summary.get("source_variant_total") or summary.get("sources_total"))
     provider_total = _positive_int(summary.get("provider_display_total") or summary.get("provider_total"))
     if total > 0 and provider_total > 0 and total <= provider_total:
-        return "sites"
+        return "providers"
     if source_variant_total > 0 and provider_total > 0 and source_variant_total > provider_total:
-        return "search pages"
+        return "checks"
     if total > 0 and provider_total > 0 and total > provider_total:
-        return "search pages"
-    return "sites"
+        return "checks"
+    return "providers"
 
 
 def _property_run_count_label(count: int, singular: str, plural: str | None = None) -> str:
@@ -1032,7 +1044,7 @@ def _property_run_detail_queue_message(
     source_left_label = _property_run_source_work_left_label(summary, status=status)
     parts = [
         _property_run_count_label(found_total, "home") + " found",
-        "property pages are still being prepared",
+        "home details are still loading",
     ]
     if source_work["open"] > 0 and source_label:
         parts.append(source_left_label or source_label)
@@ -1075,7 +1087,7 @@ def _property_run_synthetic_progress_events(
             )
 
     if provider_total > 0:
-        add("sources_resolved", f"{_property_run_count_label(provider_total, 'site')} selected for this search.")
+        add("sources_resolved", f"{_property_run_count_label(provider_total, 'provider')} selected for this search.")
 
     source_work = _property_run_source_work_counts(summary, status=status)
     if counts["rows"] or counts["done"] or counts["active"]:
@@ -1093,7 +1105,7 @@ def _property_run_synthetic_progress_events(
             unit = _property_run_source_unit_label(summary, total=counts["total"]).capitalize()
             add("source_search", f"{unit}: {', '.join(parts)}{total_suffix}.")
     elif provider_total > 0:
-        add("source_started", "Looking for the first listings.")
+        add("source_started", "Looking for the first homes.")
 
     found_total = raw_found
     to_review = listing_work["to_review"]
@@ -1114,7 +1126,7 @@ def _property_run_synthetic_progress_events(
     if ranked > 0:
         add("source_shortlist", f"{_property_run_count_label(ranked, 'matching home')} ready.")
     elif held_back > 0:
-        add("source_area_filter", f"{_property_run_count_label(held_back, 'home')} outside the current brief.")
+        add("source_area_filter", f"{_property_run_count_label(held_back, 'home')} outside this search.")
 
     current_message = _property_run_current_progress_message(payload, summary=summary, status=status)
     add(current_step, current_message)
@@ -1212,9 +1224,10 @@ def _customer_safe_repair_step_label(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
         return ""
+    text = re.sub(r"\bRetrying\s+one\s+provider\b", "Refreshing one provider", text, flags=re.IGNORECASE)
     text = re.sub(
         r"\bRetrying\s+(\d+)\s+provider checks?\b",
-        lambda match: f"Refreshing {match.group(1)} site{'' if match.group(1) == '1' else 's'}",
+        lambda match: f"Refreshing {match.group(1)} provider{'' if match.group(1) == '1' else 's'}",
         text,
         flags=re.IGNORECASE,
     )
@@ -1224,9 +1237,9 @@ def _customer_safe_repair_step_label(value: object) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(r"\bprovider checks?\b", "sites", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bsources\b", "sites", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bsource\b", "site", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bprovider checks?\b", "providers", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsources\b", "providers", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsource\b", "provider", text, flags=re.IGNORECASE)
     return text.rstrip(".")
 
 
@@ -1234,20 +1247,17 @@ def _customer_safe_source_status_text(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
         return ""
-    text = re.sub(r"\bRetrying\s+one\s+provider\b", "Refreshing one site", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bRetrying\s+one\s+provider\b", "Refreshing one provider", text, flags=re.IGNORECASE)
     text = re.sub(
         r"\bRetrying\s+(\d+)\s+providers?\b",
-        lambda match: f"Refreshing {match.group(1)} site{'' if match.group(1) == '1' else 's'}",
+        lambda match: f"Refreshing {match.group(1)} provider{'' if match.group(1) == '1' else 's'}",
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(r"\bSome providers\b", "Some sites", text, flags=re.IGNORECASE)
-    text = re.sub(r"^One provider\b", "One site", text)
-    text = re.sub(r"\bone provider\b", "one site", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bprovider checks?\b", "sites", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bprovider or rule\b", "site or rule", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bsources\b", "sites", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bsource\b", "site", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bprovider checks?\b", "providers", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bprovider or rule\b", "provider or rule", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsources\b", "providers", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsource\b", "provider", text, flags=re.IGNORECASE)
     return text
 
 
@@ -1367,7 +1377,7 @@ def property_run_customer_visible_events(
             {
                 "step": "repair_status",
                 "status": str(summary.get("repair_status") or "repairing").strip() or "repairing",
-                "message": "Refreshing affected sites.",
+                "message": "Refreshing affected providers.",
                 "created_at": str(summary.get("repair_last_updated_at") or payload.get("updated_at") or payload.get("generated_at") or ""),
             }
         )
@@ -1456,7 +1466,7 @@ def build_property_run_repair_snapshot(
             failed_total += 1
     repair_step = str(summary.get("repair_step_label") or "").strip()
     if not repair_step and failed_total:
-        repair_step = f"Refreshing {failed_total} site{'s' if failed_total != 1 else ''}"
+        repair_step = f"Refreshing {failed_total} provider{'s' if failed_total != 1 else ''}"
     next_useful_eta = str(summary.get("next_useful_update_eta_label") or "").strip()
     if not next_useful_eta and timing.get("first_shortlist_ready_at") and results_total > 0:
         next_useful_eta = "new shortlist already ready"
@@ -1512,15 +1522,15 @@ def build_property_run_repair_snapshot(
             if latest_repair_timestamp:
                 repair_outcome_summary = f"{repair_outcome_summary} Last real update: {latest_repair_timestamp}."
         elif status == "completed_partial":
-            repair_outcome_summary = "The shortlist is ready, but one or more sites finished with partial coverage."
+            repair_outcome_summary = "The shortlist is ready, but one or more providers finished with partial coverage."
         elif failed_total and results_total > 0:
             repair_outcome_summary = _join_customer_sentences(
-                "Some sites are retrying, but the current shortlist is still available",
+                "Some providers are retrying, but the current shortlist is still available",
                 latest_repair_reason,
             )
         elif failed_total:
             repair_outcome_summary = _join_customer_sentences(
-                "Some sites are retrying before the shortlist can settle",
+                "Some providers are retrying before the shortlist can settle",
                 latest_repair_reason,
             )
     if repair_flags["failed"] and not repair_step:
@@ -1586,7 +1596,7 @@ def build_property_run_reliability_snapshot(
         if status in {"processed", "completed"}:
             customer_status = "Search finished cleanly."
         elif status == "completed_partial":
-            customer_status = message or "Search finished with partial coverage after one or more sites needed retrying."
+            customer_status = message or "Search finished with partial coverage after one or more providers needed retrying."
         elif status == "failed":
             if str(summary.get("repair_replacement_run_id") or "").strip():
                 customer_status = _join_customer_sentences(
@@ -1601,18 +1611,18 @@ def build_property_run_reliability_snapshot(
                 customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
             customer_status = _join_customer_sentences(
-                "Some sites are retrying, but the current shortlist is still available",
+                "Some providers are retrying, but the current shortlist is still available",
                 "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif failed_total:
             customer_status = _join_customer_sentences(
-                "Some sites are retrying before the shortlist can settle",
+                "Some providers are retrying before the shortlist can settle",
                 "" if _repair_reason_points_to_provider_site_change(repair_reason) else repair_reason,
             )
         elif results_total > 0:
             customer_status = "The strongest matches are already ready while the rest of the search finishes."
         elif source_checked > 0:
-            customer_status = "Search sites are still running and the first shortlist is still building."
+            customer_status = "Search providers are still running and the first shortlist is still building."
         else:
             customer_status = message or "Preparing search."
     customer_status = _customer_safe_source_status_text(customer_status)
@@ -1636,7 +1646,7 @@ def build_property_run_reliability_snapshot(
         health_label = "Starting"
     coverage_label = ""
     if source_total:
-        coverage_label = f"{source_checked}/{source_total} sites"
+        coverage_label = f"{source_checked}/{source_total} providers"
         if pending_total:
             coverage_label += f" · {pending_total} still running"
     result_label = ""
@@ -1646,7 +1656,7 @@ def build_property_run_reliability_snapshot(
         result_label = _property_run_listing_queue_label(listing_total, to_review_total)
     filtered_label = ""
     if filtered_total > 0:
-        filtered_label = f"{filtered_total} outside the current brief"
+        filtered_label = f"{filtered_total} outside this search"
     final_eta_label = property_run_public_eta_label(payload.get("eta_label") or summary.get("eta_label"))
     return PropertyRunReliabilitySnapshot(
         health_label=health_label,
@@ -1666,17 +1676,17 @@ def build_property_run_reliability_snapshot(
 def _compact_run_message(value: object) -> str:
     text = str(value or "").strip()
     if not text:
-        return "Looking for the first listings."
+        return "Looking for the first homes."
     stale_zero_match = _STALE_ZERO_REVIEW_SEARCH_PAGES_RE.search(text)
     if stale_zero_match:
         found = _positive_int(stale_zero_match.group("found"))
         done = _positive_int(stale_zero_match.group("done"))
         total = _positive_int(stale_zero_match.group("total"))
-        unit = " ".join(str(stale_zero_match.group("unit") or "search pages").lower().split())
+        unit = " ".join(str(stale_zero_match.group("unit") or "checks").lower().split())
         left = max(0, total - done)
         if left > 0:
             return f"{found} homes found · {left} {unit} left"
-        return f"{found} homes found · all found homes reviewed"
+        return f"{found} homes found · all found homes are checked"
     text = re.sub(
         r"^Reviewing homes\.\s+(\d+)\s+checked so far\.?$",
         r"\1 homes checked",
@@ -1686,11 +1696,11 @@ def _compact_run_message(value: object) -> str:
     text = re.sub(r"\b(\d+)\s+homes?\s+reviewed\b", r"\1 homes found", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(\d+)\s+reviewed so far\b", r"\1 homes checked", text, flags=re.IGNORECASE)
     text = re.sub(r"\bleft to sort\b", "to review", text, flags=re.IGNORECASE)
-    text = re.sub(r"\blists left\b", "search pages waiting", text, flags=re.IGNORECASE)
-    text = re.sub(r"\blists open\b", "search pages still running", text, flags=re.IGNORECASE)
+    text = re.sub(r"\blists left\b", "checks waiting", text, flags=re.IGNORECASE)
+    text = re.sub(r"\blists open\b", "checks still running", text, flags=re.IGNORECASE)
     text = re.sub(r"\blist update\b", "search update", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bwaiting for the first provider update\.?\b", "Looking for the first listings.", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bwaiting for the first provider\.?\b", "Looking for the first listings.", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bwaiting for the first provider update\.?\b", "Looking for the first homes.", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bwaiting for the first provider\.?\b", "Looking for the first homes.", text, flags=re.IGNORECASE)
     candidate_match = re.search(r"(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
     if candidate_match:
         return f"Checking home details {candidate_match.group(1)} / {candidate_match.group(2)}"
@@ -1718,7 +1728,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
             "raw": "",
             "fraction_label": "",
             "source_label": "",
-            "phase_label": "Looking for the first listings.",
+            "phase_label": "Looking for the first homes.",
         }
     provider_load_match = re.search(r"^Loading provider page for\s+(.+?)\.?$", text, flags=re.IGNORECASE)
     if provider_load_match:
@@ -2136,7 +2146,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     to_review_total = listing_work["to_review"]
     checked_label = _property_run_listing_queue_label(found_total, to_review_total)
     scan_label = checked_label if found_total > 0 else (
-        f"{provider_display_total} sites selected" if provider_display_total > 0 else checked_label
+        f"{provider_display_total} providers selected" if provider_display_total > 0 else checked_label
     )
     if found_total > 0 and source_work["open"] > 0:
         source_label = _property_run_provider_check_label(summary, status=status)
@@ -2197,7 +2207,7 @@ def build_property_run_live_board_snapshot(
     ):
         reviewed_from_fraction = _positive_int(review_fraction.group(1))
         found_from_fraction = _positive_int(review_fraction.group(2))
-        if found_from_fraction > 0:
+        if found_from_fraction > 0 and (found_total <= 0 or found_from_fraction >= found_total):
             found_total = max(found_total, found_from_fraction)
             to_review_total = max(0, found_total - reviewed_from_fraction)
             review_fraction_is_listing_work = True
@@ -2216,9 +2226,9 @@ def build_property_run_live_board_snapshot(
         aggregate_label = _property_run_listing_queue_label(found_total, to_review_total)
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} floorplans pending"
-    phase_label = str(current_info.get("phase_label") or "").strip() or "Looking for the first listings."
+    phase_label = str(current_info.get("phase_label") or "").strip() or "Looking for the first homes."
     if phase_label in {"Waiting for the first provider update.", "Waiting for the first provider.", "Waiting for the first provider check."}:
-        phase_label = "Looking for the first listings."
+        phase_label = "Looking for the first homes."
     active_source_summary = _property_run_source_summary_for_label(source_rows, active_source_label)
     source_near_miss_label = _property_run_source_near_miss_phase_label(active_source_summary)
     candidate_reason_label = _latest_property_run_candidate_reason_label(payload)
@@ -2227,13 +2237,13 @@ def build_property_run_live_board_snapshot(
     elif current_info.get("fraction_label") and candidate_reason_label:
         phase_label = candidate_reason_label
     current_step = str(payload.get("current_step") or "").strip().lower()
-    if phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider.", "Waiting for the first source.", "Looking for the first listings."} and packet_prepared > 0 and current_step == "source_review_packet":
+    if phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider.", "Waiting for the first source.", "Looking for the first homes."} and packet_prepared > 0 and current_step == "source_review_packet":
         phase_label = f"{packet_prepared} property pages prepared"
     elif (
         current_step == "source_shortlist"
         and shortlist_ready > 0
         and (
-            phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider.", "Waiting for the first source.", "Looking for the first listings.", "Shortlist ready"}
+            phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider.", "Waiting for the first source.", "Looking for the first homes.", "Shortlist ready"}
             or phase_label.lower().startswith("shortlist ready")
         )
     ):
@@ -2246,10 +2256,10 @@ def build_property_run_live_board_snapshot(
             "0 to review" in phase_label.lower()
             or phase_label == aggregate_label
             or "details caught up" in phase_label.lower()
-            or "all found homes reviewed" in phase_label.lower()
+            or "all found homes are checked" in phase_label.lower()
         )
     ):
-        phase_label = "Checking remaining search pages"
+        phase_label = "Checking remaining checks"
 
     normalized_rows: list[dict[str, object]] = []
     for source in source_rows:
@@ -2380,9 +2390,9 @@ def build_property_run_live_board_snapshot(
         ):
             provider_total = inferred_provider_total
     scan_total_label = (
-        f"{provider_total} sites"
+        f"{provider_total} providers"
         if provider_total
-        else (f"{source_total} search pages" if source_total else "")
+        else (f"{source_total} checks" if source_total else "")
     )
     provider_label = _compact_property_provider_label(provider_full_label or scan_total_label)
     if not source_rows and source_total and provider_total and source_total > provider_total and source_total > 3:
@@ -2395,7 +2405,7 @@ def build_property_run_live_board_snapshot(
         source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} {unit}"
     else:
         unit = _property_run_source_unit_label(summary, total=source_total)
-        source_count_label = live_info.get("fraction_label") or ("waiting for sites" if source_total == 0 else f"0/{source_total} {unit}")
+        source_count_label = live_info.get("fraction_label") or ("waiting for providers" if source_total == 0 else f"0/{source_total} {unit}")
     summary_label = (
         f"{aggregate_label} · {provider_label} · {live_info.get('fraction_label')}"
         if aggregate_label != "checking" and provider_full_label and live_info.get("fraction_label")
@@ -2816,14 +2826,14 @@ def build_property_empty_outcome_summary(
         if previous_ranked_total:
             history_parts.append(f"{previous_ranked_total} matches")
         if previous_filtered_total:
-            history_parts.append(f"{previous_filtered_total} outside brief")
+            history_parts.append(f"{previous_filtered_total} outside search")
         historical_detail = " · ".join(history_parts) if history_parts else "historical counts are kept with the older search"
         return {
-            "happened": "This search used an earlier brief.",
+            "happened": "This search used older search settings.",
             "still_worked": f"Older snapshot: {historical_detail}.",
-            "next_move": "Start an updated search so the counts use the current saved brief.",
+            "next_move": "Start an updated search so the counts use your current search settings.",
             "active_rule": "Older search",
-            "eta_feedback": str(run_summary.get("brief_stale_message") or "").strip() or "The current brief has changed since this search finished.",
+            "eta_feedback": str(run_summary.get("brief_stale_message") or "").strip() or "The current search settings have changed since this search finished.",
         }
     filtered_total = int(run_summary.get("filtered_total") or run_summary.get("held_back_total") or 0)
     score_demoted_total = int(
@@ -2907,10 +2917,10 @@ def build_property_empty_outcome_summary(
                 stopped_context = (
                     f"Selected sites searched {listing_label}."
                     if listing_total > 0
-                    else "The brief and selected sites were saved, but no site produced results for the brief."
+                    else "The brief and selected providers were saved, but no provider produced results for the brief."
                 )
             else:
-                stopped_context = "The brief and selected sites were saved, but no site produced results for the brief."
+                stopped_context = "The brief and selected providers were saved, but no provider produced results for the brief."
         elif source_total or listing_total:
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if database_pressure:
@@ -2927,7 +2937,7 @@ def build_property_empty_outcome_summary(
                     "the saved brief before retry took over."
                 )
             else:
-                stopped_context = f"Selected sites searched {listing_label}."
+                stopped_context = f"Selected providers searched {listing_label}."
         else:
             if repair_task_open or repair_step_label or repair_status_label:
                 happened = safe_failed_message or calm_repair_copy or "PropertyQuarry is checking the saved search again."
@@ -2959,7 +2969,7 @@ def build_property_empty_outcome_summary(
         )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
-            f"{raw_listing_total or filtered_total} home{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected sites."
+            f"{raw_listing_total or filtered_total} home{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected providers."
         )
     elif legacy_ranking_gate_empty:
         still_worked = (
@@ -2967,9 +2977,9 @@ def build_property_empty_outcome_summary(
         )
     else:
         still_worked = (
-            f"Selected sites searched {listing_total} listing{'s' if listing_total != 1 else ''}."
+            f"Selected providers searched {listing_total} listing{'s' if listing_total != 1 else ''}."
             if listing_total
-            else "The brief and selected sites were still saved."
+            else "The brief and selected providers were still saved."
         )
     if status_value == "failed" and replacement_run_id:
         next_move = (
@@ -3042,7 +3052,11 @@ def build_property_shortlist_snapshot(
     *,
     selected_candidate_ref: str = "",
 ) -> dict[str, object]:
-    ordered_results = [_strip_hidden_property_action_slots(row) for row in list(results or []) if isinstance(row, dict)]
+    ordered_results = [
+        _clean_property_shortlist_row(_strip_hidden_property_action_slots(row))
+        for row in list(results or [])
+        if isinstance(row, dict)
+    ]
     selected = ordered_results[0] if ordered_results else {}
     normalized_selected_ref = str(selected_candidate_ref or "").strip()
     if normalized_selected_ref:

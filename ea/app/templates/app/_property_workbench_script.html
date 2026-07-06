@@ -23,8 +23,104 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
-    const cleanCandidateCopy = (value) => {
+    const capitalizeFirstAlpha = (value) => {
+      const resolved = String(value || '');
+      for (let index = 0; index < resolved.length; index += 1) {
+        const character = resolved[index];
+        if (/[A-Za-zÄÖÜäöüß]/.test(character)) {
+          return `${resolved.slice(0, index)}${character.toUpperCase()}${resolved.slice(index + 1)}`;
+        }
+      }
+      return resolved;
+    };
+    const sentenceCaseStopwords = new Set(['am', 'an', 'and', 'at', 'auf', 'bei', 'by', 'das', 'de', 'der', 'des', 'die', 'for', 'from', 'im', 'in', 'mit', 'of', 'on', 'oder', 'the', 'to', 'und', 'von']);
+    const normalizePromotionalSegment = (value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      const rawLetters = Array.from(raw).filter((character) => /[A-Za-zÄÖÜäöüß]/.test(character));
+      const rawUpperRatio = rawLetters.length
+        ? rawLetters.filter((character) => character === character.toUpperCase()).length / rawLetters.length
+        : 0;
+      const tokens = raw.split(/(\s+)/);
+      if (rawUpperRatio >= 0.8) {
+        let alphaTokenIndex = 0;
+        const rebuilt = tokens.map((token) => {
+          if (!token || /^\s+$/.test(token)) return token;
+          const leading = (token.match(/^[^A-Za-zÄÖÜäöüß]*/) || [''])[0];
+          const trailing = (token.match(/[^A-Za-zÄÖÜäöüß]*$/) || [''])[0];
+          const endIndex = trailing ? token.length - trailing.length : token.length;
+          const core = token.slice(leading.length, endIndex);
+          const letters = Array.from(core).filter((character) => /[A-Za-zÄÖÜäöüß]/.test(character));
+          if (!letters.length) return token;
+          const lowered = core.toLowerCase();
+          const loweredKey = lowered.toLocaleLowerCase();
+          let normalizedCore = lowered;
+          if (letters.length <= 2 && core === core.toUpperCase() && !sentenceCaseStopwords.has(loweredKey)) {
+            normalizedCore = core;
+          } else if (alphaTokenIndex === 0 || !sentenceCaseStopwords.has(loweredKey)) {
+            normalizedCore = capitalizeFirstAlpha(lowered);
+          }
+          alphaTokenIndex += 1;
+          return `${leading}${normalizedCore}${trailing}`;
+        }).join('').trim();
+        return rebuilt;
+      }
+      const rebuilt = tokens.map((token) => {
+        if (!token || /^\s+$/.test(token)) return token;
+        const leading = (token.match(/^[^A-Za-zÄÖÜäöüß]*/) || [''])[0];
+        const trailing = (token.match(/[^A-Za-zÄÖÜäöüß]*$/) || [''])[0];
+        const endIndex = trailing ? token.length - trailing.length : token.length;
+        let core = token.slice(leading.length, endIndex);
+        const letters = Array.from(core).filter((character) => /[A-Za-zÄÖÜäöüß]/.test(character));
+        if (!letters.length) return token;
+        const upperRatio = letters.length
+          ? letters.filter((character) => character === character.toUpperCase()).length / letters.length
+          : 0;
+        if (letters.length >= 3 && upperRatio >= 0.8) core = core.toLowerCase();
+        return `${leading}${core}${trailing}`;
+      }).join('').trim();
+      return capitalizeFirstAlpha(rebuilt);
+    };
+    const stripProviderMarketing = (value) => {
       let resolved = String(value || '').trim();
+      if (!resolved) return '';
+      if (resolved.includes(' - ')) {
+        const splitIndex = resolved.lastIndexOf(' - ');
+        const head = resolved.slice(0, splitIndex).trim();
+        const tail = resolved.slice(splitIndex + 3).trim().toLowerCase();
+        if (
+          tail
+          && (
+            tail.includes('.')
+            || ['willhaben', 'immoscout', 'immobilienscout', 'immowelt', 'idealista', 'remax', 'immobilien'].some((marker) => tail.includes(marker))
+          )
+        ) {
+          resolved = head;
+        }
+      }
+      [
+        /\.?\s*Wählen Sie aus\s+\d[\d.,\s]*(?:Angeboten|Immobilien|Wohnungen|Häusern|Objekten).*?$/i,
+        /\.?\s*Immobilien suchen und finden auf\s+.*?$/i,
+        /\.?\s*Choose from\s+\d[\d.,\s]*(?:listings|properties|homes|offers).*?$/i,
+        /\.?\s*(?:Search|Find)\s+(?:homes|properties|real estate)\s+(?:on|at)\s+.*?$/i,
+      ].forEach((pattern) => {
+        resolved = resolved.replace(pattern, '').trim();
+      });
+      const hadPromoSeparators = /\s+\|\s+|\s+I\s+/.test(resolved);
+      resolved = resolved.replace(/\s+\|\s+/g, ' · ').replace(/\s+I\s+/g, ' · ');
+      if (resolved.includes('·')) {
+        resolved = resolved
+          .split(/\s*·\s*/)
+          .map((part) => normalizePromotionalSegment(part))
+          .filter(Boolean)
+          .join(' · ');
+      }
+      resolved = resolved.trim().replace(/^[\s\-·|]+|[\s\-·|]+$/g, '');
+      if (hadPromoSeparators && resolved && !/[.!?]$/.test(resolved)) resolved = `${resolved}.`;
+      return resolved;
+    };
+    const cleanCandidateCopy = (value) => {
+      let resolved = stripProviderMarketing(value);
       if (!resolved) return '';
       resolved = resolved
         .replace(/^\s*(Chosen|Ranked) ahead of the next option because\s+/i, '')
@@ -45,6 +141,33 @@
       if (/^it\s/i.test(resolved)) resolved = `It ${resolved.slice(3)}`;
       else if (/^[a-z]/.test(resolved)) resolved = `${resolved.charAt(0).toUpperCase()}${resolved.slice(1)}`;
       return /[.!?]$/.test(resolved) ? resolved : `${resolved}.`;
+    };
+    const summarizeCandidateCopy = (value) => {
+      const cleaned = cleanCandidateCopy(value);
+      if (!cleaned) return '';
+      const compact = cleaned.replace(/[.!?]+$/g, '').trim();
+      if (!compact.includes('·')) return cleaned;
+      const fragments = compact
+        .split(/\s*·\s*/)
+        .map((part) => part.trim().replace(/^[,.;:\-\s]+|[,.;:\-\s]+$/g, ''))
+        .filter(Boolean);
+      if (fragments.length < 2 || fragments.length > 5) return cleaned;
+      if (fragments.some((fragment) => fragment.length > 48)) return cleaned;
+      const wordTotal = fragments.reduce(
+        (total, fragment) => total + ((fragment.match(/[A-Za-zÄÖÜäöüß0-9/+-]+/g) || []).length),
+        0,
+      );
+      if (wordTotal > 16) return cleaned;
+      if (fragments.some((fragment) => /[.!?].+\S/.test(fragment))) return cleaned;
+      const summary = fragments.map((fragment, index) => {
+        if (index === 0) return fragment;
+        const match = fragment.match(/^([A-Za-zÄÖÜäöüß]+)/);
+        if (!match) return fragment;
+        const word = match[1];
+        if (word.length <= 1 || word === word.toUpperCase()) return fragment;
+        return `${word.charAt(0).toLowerCase()}${word.slice(1)}${fragment.slice(word.length)}`;
+      }).join(', ');
+      return /[.!?]$/.test(summary) ? summary : `${summary}.`;
     };
     const isDirectHostedTourUrl = (value) => {
       const url = String(value || '').trim();
@@ -91,6 +214,7 @@
       for (const value of values) {
         const url = String(value || '').trim();
         if (!url) continue;
+        if (rawHostedTourControlBase(url)) continue;
         try {
           const parsed = new URL(url, window.location.origin);
           if (!['http:', 'https:'].includes(parsed.protocol)) continue;
@@ -101,6 +225,73 @@
         } catch (_error) {
           if (url.startsWith('/')) return url;
         }
+      }
+      return '';
+    };
+    const rawHostedWalkthroughBase = (value) => {
+      const url = String(value || '').trim();
+      if (!url) return '';
+      try {
+        const parsed = new URL(url, window.location.origin);
+        const match = parsed.pathname.match(/^\/tours\/([^/?#]+)(?:\/walkthrough)?\/?$/i)
+          || parsed.pathname.match(/^\/tours\/files\/([^/?#]+)\/.+$/i);
+        if (!match) return '';
+        const basePath = `/tours/${match[1]}`;
+        return /^[a-z][a-z0-9+.-]*:/i.test(url) ? `${parsed.origin}${basePath}` : basePath;
+      } catch (_error) {
+        const path = url.split(/[?#]/)[0] || '';
+        const match = path.match(/^\/tours\/([^/?#]+)(?:\/walkthrough)?\/?$/i)
+          || path.match(/^\/tours\/files\/([^/?#]+)\/.+$/i);
+        return match ? `/tours/${match[1]}` : '';
+      }
+    };
+    const hostedWalkthroughVideoPattern = /\.(?:mp4|m4v|mov|webm)(?:$|[?#])/i;
+    const directHostedWalkthroughUrl = (...values) => {
+      const explicitWalkthroughHref = (value) => {
+        const url = String(value || '').trim();
+        if (!url) return '';
+        try {
+          const parsed = new URL(url, window.location.origin);
+          const pathname = String(parsed.pathname || '');
+          const pane = String(parsed.searchParams.get('pane') || '').trim().toLowerCase();
+          if (
+            pane === 'flythrough-pane'
+            && /^\/tours\/[^/]+(?:\/control\/[^/]+)?\/?$/i.test(pathname || '')
+          ) {
+            if (!parsed.searchParams.get('autoplay')) parsed.searchParams.set('autoplay', '1');
+            return parsed.href;
+          }
+          if (/^\/tours\/[^/]+\/walkthrough\/?$/i.test(pathname || '')) {
+            const hostedBase = rawHostedWalkthroughBase(parsed.href);
+            if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+          }
+          if (/^\/tours\/files\/[^/?#]+\/.+$/i.test(pathname || '') && hostedWalkthroughVideoPattern.test(pathname || '')) {
+            const hostedBase = rawHostedWalkthroughBase(parsed.href);
+            if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+          }
+          if (hostedWalkthroughVideoPattern.test(pathname || '') && ['http:', 'https:'].includes(parsed.protocol)) {
+            return parsed.href;
+          }
+        } catch (_error) {
+          if (/^\/tours\/[^/?#]+(?:\/control\/[^/?#]+)?(?:\?[^#]*)?$/i.test(url) && /(?:[?&])pane=flythrough-pane(?:[&#]|$)/i.test(url)) {
+            return /(?:[?&])autoplay=1(?:[&#]|$)/i.test(url) ? url : `${url}${url.includes('?') ? '&' : '?'}autoplay=1`;
+          }
+          if (/^\/tours\/[^/?#]+\/walkthrough\/?(?:\?[^#]*)?$/i.test(url)) {
+            const hostedBase = rawHostedWalkthroughBase(url);
+            if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+          }
+          const relpath = url.split(/[?#]/)[0] || '';
+          if (/^\/tours\/files\/[^/?#]+\/.+$/i.test(relpath) && hostedWalkthroughVideoPattern.test(relpath)) {
+            const hostedBase = rawHostedWalkthroughBase(url);
+            if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+          }
+          if (url.startsWith('/') && hostedWalkthroughVideoPattern.test(relpath)) return url;
+        }
+        return '';
+      };
+      for (const value of values) {
+        const resolved = explicitWalkthroughHref(value);
+        if (resolved) return resolved;
       }
       return '';
     };
@@ -329,6 +520,111 @@
         return selectedCandidatePayload;
       }
       return candidates[0] || selectedCandidatePayload || null;
+    };
+    const shortlistPreviewRefreshAttemptedRefs = new Set();
+    const candidateNeedsAsyncPreviewRefresh = (candidate) => {
+      if (!shortlistSurface || !candidate || typeof candidate !== 'object') return false;
+      const propertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
+      if (!propertyUrl) return false;
+      const facts = candidate.property_facts && typeof candidate.property_facts === 'object' ? candidate.property_facts : {};
+      const explicitFloorplanUrls = []
+        .concat(Array.isArray(candidate.floorplan_urls_json) ? candidate.floorplan_urls_json : [])
+        .concat(Array.isArray(facts.floorplan_urls_json) ? facts.floorplan_urls_json : []);
+      if (
+        String(candidate.floorplan_url || '').trim()
+        || String(candidate.source_virtual_tour_url || '').trim()
+        || Boolean(candidate.has_floorplan || facts.has_floorplan || Number(candidate.floorplan_count || facts.floorplan_count || 0) > 0)
+        || explicitFloorplanUrls.some((value) => String(value || '').trim())
+      ) {
+        return false;
+      }
+      const explicitMediaUrls = []
+        .concat(Array.isArray(candidate.media_urls_json) ? candidate.media_urls_json : [])
+        .concat(Array.isArray(facts.media_urls_json) ? facts.media_urls_json : []);
+      if (explicitMediaUrls.some((value) => String(value || '').trim())) return true;
+      return Number(candidate.media_count || facts.media_count || 0) > 0;
+    };
+    const mergeAsyncPreviewCandidate = (candidateRef, nextCandidate) => {
+      const normalizedRef = String(candidateRef || '').trim();
+      if (!normalizedRef || !nextCandidate || typeof nextCandidate !== 'object') return null;
+      let mergedCandidate = null;
+      const mergedRows = candidates.map((candidate) => {
+        if (String(candidate?.candidate_ref || '').trim() !== normalizedRef) return candidate;
+        const merged = {
+          ...candidate,
+          ...nextCandidate,
+          property_facts: {
+            ...(candidate?.property_facts && typeof candidate.property_facts === 'object' ? candidate.property_facts : {}),
+            ...(nextCandidate?.property_facts && typeof nextCandidate.property_facts === 'object' ? nextCandidate.property_facts : {}),
+          },
+          tour: {
+            ...(candidate?.tour && typeof candidate.tour === 'object' ? candidate.tour : {}),
+            ...(nextCandidate?.tour && typeof nextCandidate.tour === 'object' ? nextCandidate.tour : {}),
+          },
+          flythrough: {
+            ...(candidate?.flythrough && typeof candidate.flythrough === 'object' ? candidate.flythrough : {}),
+            ...(nextCandidate?.flythrough && typeof nextCandidate.flythrough === 'object' ? nextCandidate.flythrough : {}),
+          },
+        };
+        mergedCandidate = merged;
+        return merged;
+      });
+      if (mergedCandidate) {
+        replaceCandidates(mergedRows);
+      }
+      if (
+        selectedCandidatePayload
+        && String(selectedCandidatePayload.candidate_ref || '').trim() === normalizedRef
+      ) {
+        Object.assign(selectedCandidatePayload, mergedCandidate || nextCandidate);
+        if (nextCandidate?.property_facts && typeof nextCandidate.property_facts === 'object') {
+          selectedCandidatePayload.property_facts = {
+            ...(selectedCandidatePayload.property_facts && typeof selectedCandidatePayload.property_facts === 'object' ? selectedCandidatePayload.property_facts : {}),
+            ...nextCandidate.property_facts,
+          };
+        }
+        if (nextCandidate?.tour && typeof nextCandidate.tour === 'object') {
+          selectedCandidatePayload.tour = {
+            ...(selectedCandidatePayload.tour && typeof selectedCandidatePayload.tour === 'object' ? selectedCandidatePayload.tour : {}),
+            ...nextCandidate.tour,
+          };
+        }
+        if (nextCandidate?.flythrough && typeof nextCandidate.flythrough === 'object') {
+          selectedCandidatePayload.flythrough = {
+            ...(selectedCandidatePayload.flythrough && typeof selectedCandidatePayload.flythrough === 'object' ? selectedCandidatePayload.flythrough : {}),
+            ...nextCandidate.flythrough,
+          };
+        }
+      }
+      return mergedCandidate || (candidateByRef.get(normalizedRef) || null);
+    };
+    const refreshSelectedCandidatePreview = async (candidateRef = '') => {
+      const normalizedRef = String(candidateRef || '').trim();
+      const runId = String(data.run?.run_id || meta.run_id || '').trim();
+      if (!normalizedRef || !runId || shortlistPreviewRefreshAttemptedRefs.has(normalizedRef)) return null;
+      const candidate = resolveCandidate(normalizedRef);
+      if (!candidateNeedsAsyncPreviewRefresh(candidate)) return null;
+      shortlistPreviewRefreshAttemptedRefs.add(normalizedRef);
+      try {
+        const response = await fetch(
+          `/app/api/property/candidates/${encodeURIComponent(normalizedRef)}/preview-refresh?run_id=${encodeURIComponent(runId)}`,
+          { credentials: 'same-origin', cache: 'no-store' },
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload || typeof payload !== 'object') return null;
+        const mergedCandidate = mergeAsyncPreviewCandidate(normalizedRef, payload.candidate);
+        const selectedRowRef = String(root.querySelector('[data-workbench-row][aria-selected="true"]')?.getAttribute('data-candidate-ref') || '').trim();
+        if (
+          mergedCandidate
+          && typeof selectCandidate === 'function'
+          && (selectedRowRef === normalizedRef || selectedFeedbackCandidateRef === normalizedRef)
+        ) {
+          selectCandidate(normalizedRef, { updateUrl: false });
+        }
+        return mergedCandidate;
+      } catch (_error) {
+        return null;
+      }
     };
     const briefPreferences = (data.brief_preferences && typeof data.brief_preferences === 'object') ? { ...data.brief_preferences } : {};
     const currentPlanKey = () => String(
@@ -584,12 +880,12 @@
       return [
         candidate.packet_url ? `<a class="pqx-link-button primary" href="${escapeHtml(candidate.packet_url)}" data-rybbit-event="pq.property.opened" data-rybbit-prop-surface="shortlist">Open property</a>` : '',
         `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${candidateRef}" data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="shortlist">Share this home</button>`,
-        `<details class="pqx-decision-advanced" style="margin-top:12px;"><summary><strong>More actions</strong></summary><div class="pqx-note" style="margin-top:10px;">Open the listing, share the shortlist, or request remote visuals only when you need them.</div><div class="pqx-actions" style="margin-top:14px;">${[
+        `<details class="pqx-decision-advanced" style="margin-top:12px;"><summary><strong>More</strong></summary><div class="pqx-actions" style="margin-top:12px;">${[
           visualPropertyUrl ? `<a class="pqx-link-button" href="${escapeHtml(visualPropertyUrl)}" target="_blank" rel="noreferrer" data-rybbit-event="pq.property.opened" data-rybbit-prop-cta-key="open_listing" data-rybbit-prop-surface="shortlist">Open listing</a>` : '',
           !tour.url && visualMediaReady && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="shortlist">Request 3D tour</button>` : '',
           !tour.url && visualMediaReady && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="shortlist">Request walkthrough</button>` : '',
           `<button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="shortlist">Share results</button>`,
-        ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${(!tour.url && visualMediaReady) ? 'Request remote visuals only when this home deserves deeper screening.' : ''}</div></details>`,
+        ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status hidden></div></details>`,
       ].filter(Boolean).join('');
     };
     const feedbackPersonId = String(meta.feedback_person_id || 'self').trim() || 'self';
@@ -607,9 +903,9 @@
     const followupStatusNode = root.querySelector('[data-pw-followup-status]');
     const setVisualRequestStatus = (message) => {
       const text = String(message || '').trim();
-      if (!text) return;
       root.querySelectorAll('[data-pw-visual-request-status]').forEach((node) => {
         node.textContent = text;
+        node.hidden = !text;
       });
     };
     const householdNode = root.querySelector('[data-pw-household]');
@@ -717,7 +1013,7 @@
         location_label: String(candidate?.location_label || '').trim(),
         description_text: String(candidate?.description_text || '').trim(),
         fit_score: candidatePersonalFitScore(candidate) ?? 0,
-        fit_summary: cleanCandidateCopy(candidate?.fit_summary || candidate?.summary || candidate?.compare_reason || ''),
+        fit_summary: summarizeCandidateCopy(candidate?.fit_summary || candidate?.summary || candidate?.compare_reason || ''),
         recommendation: String(candidate?.recommendation || '').trim(),
         match_reasons: Array.isArray(candidate?.match_reasons) ? candidate.match_reasons.slice(0, 8) : [],
         mismatch_reasons: Array.isArray(candidate?.mismatch_reasons) ? candidate.mismatch_reasons.slice(0, 6) : [],
@@ -753,8 +1049,8 @@
         rooms: candidate.rooms_value || '',
         area_sqm: candidate.area_value || '',
         recommendation: String(candidate.recommendation || '').trim(),
-        compare_reason: cleanCandidateCopy(candidate.fit_summary || candidate.summary || candidate.compare_reason || (Array.isArray(candidate.match_reasons) ? candidate.match_reasons[0] : '') || ''),
-        fit_summary: cleanCandidateCopy(candidate.fit_summary || candidate.summary || candidate.compare_reason || ''),
+        compare_reason: summarizeCandidateCopy(candidate.fit_summary || candidate.summary || candidate.compare_reason || (Array.isArray(candidate.match_reasons) ? candidate.match_reasons[0] : '') || ''),
+        fit_summary: summarizeCandidateCopy(candidate.fit_summary || candidate.summary || candidate.compare_reason || ''),
         property_url: absoluteUrl(candidate.source_url || candidate.property_url || candidate.listing_url || ''),
         source_url: absoluteUrl(candidate.source_url || candidate.property_url || candidate.listing_url || ''),
         review_url: absoluteUrl(candidate.packet_url || candidate.review_url || ''),
@@ -770,7 +1066,12 @@
         title,
         property_title: title,
         summary: `Shareable shortlist from PropertyQuarry with ${shareRows.length} matching homes.`,
-      fit_summary: cleanCandidateCopy(selectedCandidate.fit_summary || selectedCandidate.summary || selectedCandidate.compare_reason || `${shareRows.length} matching homes ready.`),
+        fit_summary: summarizeCandidateCopy(
+          selectedCandidate.fit_summary
+          || selectedCandidate.summary
+          || selectedCandidate.compare_reason
+          || `${shareRows.length} matching homes ready.`
+        ),
         comparison_candidates: shareRows,
         comparison_rows: shareRows,
         review_url: absoluteUrl(window.location.href),
@@ -1139,12 +1440,17 @@
     const visualStateFromPayload = (requestKind, payload, fallbackLabel = '') => {
       const kind = String(requestKind || 'tour').trim().toLowerCase();
       if (isWalkthroughRequestKind(kind)) {
-        const resolvedUrl = String(payload?.flythrough_url || '').trim();
+        const resolvedUrl = directHostedWalkthroughUrl(
+          payload?.flythrough_url,
+          payload?.tour_url,
+          payload?.verified_tour_url,
+          payload?.open_tour_url,
+        );
         const rawFlythroughState = String(payload?.flythrough_status || payload?.status || '').trim().toLowerCase();
         const state = String(resolvedUrl ? 'ready' : rawFlythroughState || 'pending').trim().toLowerCase();
         const retryableTerminal = visualTerminalStates.includes(state) && !resolvedUrl;
         return {
-          state: retryableTerminal ? 'idle' : state,
+          state,
           label: String(
             resolvedUrl
               ? 'Open walkthrough'
@@ -1171,7 +1477,7 @@
       const state = String(resolvedTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();
       const retryableTerminal = visualTerminalStates.includes(state) && !resolvedTourUrl;
       return {
-        state: retryableTerminal ? 'idle' : state,
+        state,
         label: String(
           resolvedTourUrl
             ? 'Open 3D tour'
@@ -1230,7 +1536,7 @@
       }
       if (nextDetail) setVisualRequestStatus(nextDetail);
     };
-    const updateVisualButtonFromStatus = async (button) => {
+    const updateVisualButtonFromStatus = async (button, options = {}) => {
       if (!button) return;
       const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
       const runId = String(button.getAttribute('data-run-id') || '').trim();
@@ -1242,7 +1548,10 @@
         0,
         Number(button.getAttribute('data-pw-visual-poll-seconds') || '10') || 10,
       );
-      const firstPollDelaySeconds = Math.max(0.5, Math.min(pollSeconds, 1));
+      const requestedFirstPollDelaySeconds = Math.max(0, Number(options.firstPollDelaySeconds || 0) || 0);
+      const firstPollDelaySeconds = requestedFirstPollDelaySeconds > 0
+        ? requestedFirstPollDelaySeconds
+        : Math.max(0.5, Math.min(pollSeconds, 1));
       if (button._pqxVisualPollTimer) {
         window.clearTimeout(button._pqxVisualPollTimer);
       }
@@ -1356,7 +1665,16 @@
           candidate.vendor_tour_url,
           candidate.source_virtual_tour_url
         );
-        const nextFlythroughUrl = String(payload.flythrough_url || candidate.flythrough_url || '').trim();
+        const nextFlythroughUrl = directHostedWalkthroughUrl(
+          payload.flythrough_url,
+          payload.tour_url,
+          payload.verified_tour_url,
+          payload.open_tour_url,
+          candidate.flythrough_url,
+          candidate.tour_url,
+          candidate.tour?.url,
+          candidate.tour?.embed_url
+        );
         const nextTourStatus = String(payload.tour_status || payload.status || candidate.tour?.status || '').trim().toLowerCase();
         const nextFlythroughStatus = String(payload.flythrough_status || candidate.flythrough_status || '').trim().toLowerCase();
         if (!candidate.tour || typeof candidate.tour !== 'object') candidate.tour = {};
@@ -1456,7 +1774,7 @@
             keepButtonDisabled = true;
             button.classList.add('is-processing');
             button.setAttribute('aria-disabled', 'true');
-            updateVisualButtonFromStatus(button);
+            updateVisualButtonFromStatus(button, { firstPollDelaySeconds: requestKind === 'tour' ? 0.2 : 0 });
           }
         }
         if (selectedFeedbackCandidateRef === String(candidate.candidate_ref || '').trim()) {
@@ -1513,23 +1831,23 @@
     ]);
     const compactRunMessage = (value) => {
       let text = String(value || '').trim();
-      if (!text) return 'Looking for the first listings.';
-      const staleZeroReviewMatch = text.match(/\b(\d+)\s+homes?\s+found\s*·\s*0\s+to\s+review\s*·\s*(\d+)\s*\/\s*(\d+)\s*(search pages|providers|sources)\b/i);
+      if (!text) return 'Looking for the first homes.';
+      const staleZeroReviewMatch = text.match(/\b(\d+)\s+homes?\s+found\s*·\s*0\s+to\s+review\s*·\s*(\d+)\s*\/\s*(\d+)\s*(search pages|checks|providers|sources)\b/i);
       if (staleZeroReviewMatch) {
         const found = Number(staleZeroReviewMatch[1] || 0);
         const done = Number(staleZeroReviewMatch[2] || 0);
         const total = Number(staleZeroReviewMatch[3] || 0);
-        const unit = String(staleZeroReviewMatch[4] || 'search pages').toLowerCase();
+        const unit = String(staleZeroReviewMatch[4] || 'checks').toLowerCase();
         const left = Math.max(0, total - done);
-        return left > 0 ? `${found} homes found · ${left} ${unit} left` : `${found} homes found · all found homes reviewed`;
+        return left > 0 ? `${found} homes found · ${left} ${unit} left` : `${found} homes found · all found homes are checked`;
       }
       text = text
         .replace(/^Reviewing homes\.\s+(\d+)\s+checked so far\.?$/i, '$1 homes checked')
         .replace(/\b(\d+)\s+homes?\s+reviewed\b/ig, '$1 homes found')
         .replace(/\b(\d+)\s+reviewed so far\b/ig, '$1 homes checked')
         .replace(/\bleft to sort\b/ig, 'to review')
-        .replace(/\blists left\b/ig, 'search pages waiting')
-        .replace(/\blists open\b/ig, 'search pages still running')
+        .replace(/\blists left\b/ig, 'checks waiting')
+        .replace(/\blists open\b/ig, 'checks still running')
         .replace(/\bprovider update\b/ig, 'search update')
         .replace(/\blist update\b/ig, 'search update');
       const candidateMatch = text.match(/(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
@@ -1548,7 +1866,7 @@
       .trim();
     const parseRunMessageInfo = (value) => {
       const text = String(value || '').trim();
-      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Looking for the first listings.' };
+      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Looking for the first homes.' };
       const providerLoadMatch = text.match(/^Loading provider page for\s+(.+?)\.?$/i);
       if (providerLoadMatch) {
         const sourceLabel = canonicalSourceLabel(providerLoadMatch[1] || '');
@@ -2108,9 +2426,9 @@
     const runSourceUnitLabel = (summary = {}, total = 0, providerDisplayTotal = 0) => {
       const sourceVariantTotal = Math.max(0, Number(summary.source_variant_total || summary.sources_total || 0));
       const providerTotal = Math.max(0, Number(providerDisplayTotal || summary.provider_display_total || summary.provider_total || 0));
-      if (sourceVariantTotal > 0 && providerTotal > 0 && sourceVariantTotal > providerTotal) return 'search pages';
-      if (Number(total || 0) > 0 && providerTotal > 0 && Number(total || 0) > providerTotal) return 'search pages';
-      return 'sites';
+      if (sourceVariantTotal > 0 && providerTotal > 0 && sourceVariantTotal > providerTotal) return 'checks';
+      if (Number(total || 0) > 0 && providerTotal > 0 && Number(total || 0) > providerTotal) return 'checks';
+      return 'providers';
     };
     const runSourceWorkLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
       const countTotal = Math.max(0, Number(counts?.total || 0));
@@ -2119,7 +2437,7 @@
         const done = Math.min(total, Math.max(0, Number(counts?.done || 0)));
         return `${done} / ${total} ${runSourceUnitLabel(summary, total, providerDisplayTotal)}`;
       }
-      if (total > 0) return `${total} sites selected`;
+      if (total > 0) return `${total} providers selected`;
       return 'Preparing search';
     };
     const runSourceWorkLeftLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
@@ -2161,7 +2479,7 @@
     const runListingQueueMessage = (found, toReview) => {
       if (!(found > 0)) return 'checking';
       if (toReview > 0) return `${found} homes found · ${toReview} to review`;
-      return `${found} homes found · all found homes reviewed`;
+      return `${found} homes found · all found homes are checked`;
     };
 	    const runSourceMetaLabel = (counts, found = 0, toReview = 0, fallback = '', providerDisplayTotal = 0, summary = {}) => {
 	      if (found > 0 && toReview > 0) return `${toReview} to review`;
@@ -2169,13 +2487,13 @@
         const unit = runSourceUnitLabel(summary, Number(counts?.total || 0), providerDisplayTotal);
         return `${Number(counts.open)} ${unit} left`;
       }
-	      if (found > 0) return 'all found homes reviewed';
-	      return fallback || 'Looking for listings';
+	      if (found > 0) return 'all found homes are checked';
+	      return fallback || 'Looking for homes';
     };
     const runFoundQueueMessage = (found, toReview, sourceWork, providerDisplayTotal = 0, summary = {}) => {
 	      if (!(found > 0)) return '';
       const sourceLeftLabel = sourceWork?.open > 0 ? runSourceWorkLeftLabel(sourceWork, providerDisplayTotal, summary) : '';
-      const queueLabel = toReview > 0 ? `${toReview} to review` : (sourceLeftLabel || 'all found homes reviewed');
+      const queueLabel = toReview > 0 ? `${toReview} to review` : (sourceLeftLabel || 'all found homes are checked');
       const queueMessage = `${found} homes found · ${queueLabel}`;
       if (toReview > 0 && sourceLeftLabel) {
         return `${queueMessage} · ${sourceLeftLabel}`;
@@ -2197,7 +2515,7 @@
 	      if (!waitingOnPages) return '';
 	      const sourceWork = runSourceWorkCounts(summary, status);
       const sourceLeftLabel = runSourceWorkLeftLabel(sourceWork, providerDisplayTotal, summary);
-      return `${found} homes found · property pages are still being prepared${sourceWork.open > 0 ? ` · ${sourceLeftLabel || runSourceWorkLabel(sourceWork, providerDisplayTotal, summary)}` : ''}`;
+      return `${found} homes found · home details are still loading${sourceWork.open > 0 ? ` · ${sourceLeftLabel || runSourceWorkLabel(sourceWork, providerDisplayTotal, summary)}` : ''}`;
 	    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
@@ -2229,7 +2547,7 @@
 	      const checkedLabel = runListingQueueMessage(found, toReview);
       const scanLabel = found > 0
         ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary) : checkedLabel)
-        : (providerDisplayTotal ? `${providerDisplayTotal} sites selected` : checkedLabel);
+        : (providerDisplayTotal ? `${providerDisplayTotal} providers selected` : checkedLabel);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -2247,24 +2565,24 @@
       const labelRunEvent = (event) => {
         const step = String(event?.step || '').trim().toLowerCase();
         if (['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'].includes(step)) {
-          return 'Preparing search';
+          return 'Preparing';
         }
         if (['source_search', 'provider_search', 'search'].includes(step)) {
-          return 'Checking sites';
+          return 'Providers';
         }
         if (['source_detail_check', 'listing_detail_check', 'source_fetch', 'source_fetch_page'].includes(step)) {
-          return 'Checking details';
+          return 'Details';
         }
         if (['source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'].includes(step)) {
-          return 'Checking listings';
+          return 'Checks';
         }
-        if (['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'].includes(step)) return 'Matching homes';
-        if (step === 'shortlist_ready') return 'First shortlist';
-        if (['source_review_packet', 'source_review_packet_failed'].includes(step)) return 'Property page ready';
-        if (['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'].includes(step)) return 'Checking requirements';
-        if (['source_completed', 'completed'].includes(step)) return 'List finished';
-        if (step === 'source_notify') return 'Sending update';
-        if (step.startsWith('repair') || ['source_repair_reuse', 'source_failed'].includes(step)) return 'Recovery';
+        if (['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'].includes(step)) return 'Reviewing';
+        if (step === 'shortlist_ready') return 'Shortlist';
+        if (['source_review_packet', 'source_review_packet_failed'].includes(step)) return 'Property page';
+        if (['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'].includes(step)) return 'Search rules';
+        if (['source_completed', 'completed'].includes(step)) return 'Done';
+        if (step === 'source_notify') return 'Sending';
+        if (step.startsWith('repair') || ['source_repair_reuse', 'source_failed'].includes(step)) return 'Checking again';
         return 'Update';
       };
       const isUsefulRunEvent = (event) => {
@@ -2282,7 +2600,7 @@
       const rows = rawRows.filter(isUsefulRunEvent).reverse().slice(0, 10);
 	      return rows.map((event) => {
 	        const label = labelRunEvent(event);
-	        const message = ['Matching homes', 'Checking requirements'].includes(label)
+	        const message = ['Reviewing', 'Search rules'].includes(label)
 	          ? `${label}.`
 	          : compactRunMessage(event?.message || 'Search is still running.');
 	        return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(message)}</span></div>`;
@@ -2493,7 +2811,7 @@
       wrap.hidden = false;
       list.innerHTML = rows.slice(0, 8).map((row) => `
         <article class="pqx-source-card">
-          <strong>${escapeHtml(row?.label || 'Official data')}</strong>
+          <strong>${escapeHtml(row?.label || 'Local data')}</strong>
           <span class="pqx-note">${escapeHtml(row?.description || 'Public data layer')}</span>
           <div class="pqx-source-metrics">
             <span>Layer <b>${escapeHtml(String(row?.evidence_family || '').replaceAll('_', ' ') || 'data')}</b></span>
@@ -2755,7 +3073,7 @@
         sourceWork,
         found,
         toReview,
-        providerDisplayTotal > 0 ? `${providerDisplayTotal} sites selected` : 'Looking for listings',
+        providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Looking for homes',
         providerDisplayTotal,
         summary,
       );
@@ -2765,7 +3083,7 @@
       const providerCheckPct = providerCheckTotal > 0 && providerCheckDone > 0 ? Math.round((providerCheckDone / providerCheckTotal) * 100) : 0;
       const sourceLeft = Math.max(0, Number(sourceWork.open || 0));
       const detailQueueIsSourceBacklog = !(toReview > 0) && Number(sourceWork.total || 0) > 0 && sourceLeft > 0;
-      const detailQueueLabel = detailQueueIsSourceBacklog ? 'Pages left' : 'To review';
+      const detailQueueLabel = detailQueueIsSourceBacklog ? 'Checks left' : 'To review';
       const detailQueueValue = detailQueueIsSourceBacklog ? String(sourceLeft) : (toReview > 0 ? String(toReview) : '0');
       const detailQueuePct = detailQueueIsSourceBacklog
         ? (providerCheckTotal > 0 ? Math.round((sourceLeft / providerCheckTotal) * 100) : 0)
@@ -2786,7 +3104,7 @@
 			          <span class="pqx-note">${escapeHtml(detailQueueMessage || runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary) || 'Waiting for homes.')}</span>
 	          <div class="pqx-live-review-bars" aria-label="Search totals">
 		            <span>
-		              <b>Found</b>
+		              <b>Homes</b>
 		              <i>${escapeHtml(found || 0)}</i>
 		              <em><u style="--progress: ${escapeHtml(foundBarPct)}"></u></em>
 		            </span>
@@ -2796,7 +3114,7 @@
 		              <em><u style="--progress: ${escapeHtml(detailQueuePct)}"></u></em>
 		            </span>
 		            <span>
-				              <b>Sites</b>
+				              <b>Providers</b>
 			              <i>${escapeHtml(providerCheckValue)}</i>
 			              <em><u style="--progress: ${escapeHtml(providerCheckPct)}"></u></em>
 		            </span>
@@ -2847,11 +3165,11 @@
         : (investmentSearch ? 'matching opportunities' : 'matching homes');
       const filteredLabel = !shortlistSurface && filteredTotal > 0 ? (
         `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
-        `aria-label="${escapeHtml(filteredTotal)} homes need a wider brief">${escapeHtml(filteredTotal)} ${locationMismatchTotal ? 'outside area' : 'outside brief'}</a>`
+        `aria-label="${escapeHtml(filteredTotal)} homes are not shown yet">${escapeHtml(filteredTotal)} not shown yet</a>`
       ) : '';
       const filteredBreakdown = (!shortlistSurface && filteredTotal > 0) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-            <summary><strong>${locationMismatchTotal ? 'Area mismatch' : 'What to widen'}</strong><span class="pqx-note">${locationMismatchTotal ? 'Wrong area returned' : 'Requirements'}</span></summary>
+            <summary><strong>${locationMismatchTotal ? 'Outside area' : 'Not shown yet'}</strong><span class="pqx-note">${escapeHtml(filteredTotal)} homes</span></summary>
             <div class="pqx-note">Change one requirement, then search again.</div>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
@@ -2871,7 +3189,7 @@
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
               ${shortlistSurface
                 ? shortlistEmptyResultsMarkup()
-                : `<div class="pqx-empty">${escapeHtml(filteredTotal > 0 ? 'No homes are ready yet. Widen one requirement to show more homes.' : 'No homes are ready yet.')} ${escapeHtml(locationMismatchTotal ? 'The returned homes were outside the selected area.' : 'No in-brief homes were found in this pass.')}</div>`}
+                : `<div class="pqx-empty">${escapeHtml(filteredTotal > 0 ? 'No homes are ready yet. Widen one requirement to show more homes.' : 'No homes are ready yet.')} ${escapeHtml(locationMismatchTotal ? 'The returned homes were outside the selected area.' : 'Nothing in the current brief showed up yet.')}</div>`}
             </div>
             ${filteredBreakdown}
           </section>
@@ -2932,7 +3250,7 @@
           : String(derivedPrimaryPrice || '').trim() || 'No price published';
         const secondaryPrice = String(candidate?.costs_display || candidate?.price_per_sqm_display || candidate?.rent_display || facts?.price_per_sqm_display || '').trim();
         const layout = String(candidate?.layout_display || '').trim();
-        const fitSummary = cleanCandidateCopy(
+        const fitSummary = summarizeCandidateCopy(
           candidate?.fit_summary
           || candidate?.summary
           || candidate?.compare_reason
@@ -2940,7 +3258,7 @@
           || 'Open the property page for more context.'
         );
 	        const thumb = shortlistSurface
-	          ? `<button class="pqx-result-diorama pqx-result-diorama-button${shortlistPreviewUrl ? '' : ' is-placeholder'}" type="button" data-pqx-shortlist-diorama data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}">${shortlistPreviewUrl ? `<img src="${escapeHtml(shortlistPreviewUrl)}" alt="" loading="lazy" decoding="async" fetchpriority="low">` : '<span class="pqx-result-diorama-room room-main"></span><span class="pqx-result-diorama-room room-side"></span><span class="pqx-result-diorama-room room-terrace"></span>'}<span class="pqx-result-diorama-label">Preview</span></button>`
+	          ? `<button class="pqx-result-diorama pqx-result-diorama-button${shortlistPreviewUrl ? '' : ' is-placeholder'}" type="button" data-pqx-shortlist-diorama data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}">${shortlistPreviewUrl ? `<img src="${escapeHtml(shortlistPreviewUrl)}" alt="" loading="lazy" decoding="async" fetchpriority="low">` : '<span class="pqx-result-diorama-room room-main"></span><span class="pqx-result-diorama-room room-side"></span><span class="pqx-result-diorama-room room-terrace"></span>'}</button>`
 	          : (previewUrl
 	            ? `<span class="pqx-thumb"><button class="pqx-thumb-link pqx-thumb-atlas-button" type="button" data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"><span class="pqx-thumb-atlas-label">Map</span></button></span>`
 	            : '');
@@ -2961,7 +3279,13 @@
           ? Math.max(0, Math.min(100, tourProgressRaw))
           : (tourUrl ? 100 : 0);
         const flythrough = (candidate?.flythrough && typeof candidate.flythrough === 'object') ? candidate.flythrough : {};
-        const flythroughUrl = String(candidate?.flythrough_url || flythrough.url || '').trim();
+        const flythroughUrl = directHostedWalkthroughUrl(
+          candidate?.flythrough_url,
+          flythrough.url,
+          candidate?.tour_url,
+          candidate?.tour?.url,
+          candidate?.tour?.embed_url
+        );
         const flythroughStatus = String(candidate?.flythrough_status || flythrough.status || '').trim().toLowerCase();
         const flythroughPending = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'].includes(flythroughStatus);
         const flythroughLabel = String(
@@ -2990,12 +3314,8 @@
         const actions = [
           packetUrl ? `<a class="pqx-result-open" href="${escapeHtml(packetUrl)}">Open property</a>` : '',
           propertyUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(propertyUrl)}" target="_blank" rel="noopener noreferrer">Open listing</a>` : '',
-          tourUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(tourUrl)}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="results">Open 3D tour</a>` : '',
           tourPending && !shortlistSurface ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(tourProgress)}%;" title="${escapeHtml(tourTooltip)}" aria-label="${escapeHtml(tourTooltip)}">${escapeHtml(tourLabel)}</button>` : '',
-          propertyUrl && visualMediaReady && !shortlistSurface && !tourUrl && !tourPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="results">Request 3D tour</button>` : '',
-          flythroughUrl && !shortlistSurface ? `<a class="pqx-progress-button is-ready" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">Open walkthrough</a>` : '',
           flythroughPending && !shortlistSurface ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(flythroughProgress)}%;" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">${escapeHtml(flythroughLabel)}</button>` : '',
-          propertyUrl && visualMediaReady && !shortlistSurface && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="results" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough">Request walkthrough</button>` : '',
           shortlistSurface ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-decision-state="archived" data-candidate-ref="${escapeHtml(candidateRef)}" data-pw-remove-row>Remove</button>` : '',
         ].filter(Boolean).join('');
         const personalFitScore = candidatePersonalFitScore(candidate);
@@ -3555,7 +3875,7 @@
         research: isInvestment
           ? { label: 'Numbers', detail: 'Return, risk, and external data depth.' }
           : { label: 'Research depth', detail: 'Risk, supply, and how much detail each strong match should carry.' },
-        providers: { label: 'Sites', detail: 'Choose listing sites.' },
+        providers: { label: 'Providers', detail: 'Choose providers.' },
       };
       return map[key] || { label: fallbackLabel, detail: fallbackDetail };
     };
@@ -4546,8 +4866,17 @@
       };
       let whatMattersInteractionRestoreFrame = 0;
       let whatMattersInteractionRestoreFollowupFrame = 0;
+      let whatMattersInteractionRestoreTimeout = 0;
+      let whatMattersInteractionRestoreLateTimeout = 0;
       let suppressWhatMattersInteractionStabilization = false;
       let lastWhatMattersInteractionSnapshot = null;
+      const refreshLastWhatMattersInteractionSnapshot = (snapshot) => {
+        if (!(snapshot?.target instanceof HTMLElement)) return;
+        lastWhatMattersInteractionSnapshot = captureWhatMattersInteractionSnapshot(snapshot.target, {
+          restoreFocus: snapshot.restoreFocus !== false,
+          preserveScroll: snapshot.preserveScroll !== false,
+        });
+      };
       const cancelPendingWhatMattersInteractionRestore = () => {
         if (whatMattersInteractionRestoreFrame) {
           window.cancelAnimationFrame(whatMattersInteractionRestoreFrame);
@@ -4557,6 +4886,14 @@
           window.cancelAnimationFrame(whatMattersInteractionRestoreFollowupFrame);
           whatMattersInteractionRestoreFollowupFrame = 0;
         }
+        if (whatMattersInteractionRestoreTimeout) {
+          window.clearTimeout(whatMattersInteractionRestoreTimeout);
+          whatMattersInteractionRestoreTimeout = 0;
+        }
+        if (whatMattersInteractionRestoreLateTimeout) {
+          window.clearTimeout(whatMattersInteractionRestoreLateTimeout);
+          whatMattersInteractionRestoreLateTimeout = 0;
+        }
       };
       const stabilizeWhatMattersInteraction = (target, callback, { restoreFocus = true, snapshotOverride = null, preserveScroll = true } = {}) => {
         cancelPendingWhatMattersInteractionRestore();
@@ -4565,24 +4902,26 @@
           : captureWhatMattersInteractionSnapshot(target, { restoreFocus, preserveScroll });
         callback();
         if (!snapshot) return;
+        restoreWhatMattersInteractionSnapshot(snapshot);
+        refreshLastWhatMattersInteractionSnapshot(snapshot);
         whatMattersInteractionRestoreFrame = window.requestAnimationFrame(() => {
           whatMattersInteractionRestoreFrame = 0;
           restoreWhatMattersInteractionSnapshot(snapshot);
-          if (snapshot.target instanceof HTMLElement) {
-            lastWhatMattersInteractionSnapshot = captureWhatMattersInteractionSnapshot(snapshot.target, {
-              restoreFocus: snapshot.restoreFocus !== false,
-              preserveScroll: snapshot.preserveScroll !== false,
-            });
-          }
+          refreshLastWhatMattersInteractionSnapshot(snapshot);
           whatMattersInteractionRestoreFollowupFrame = window.requestAnimationFrame(() => {
             whatMattersInteractionRestoreFollowupFrame = 0;
             restoreWhatMattersInteractionSnapshot(snapshot);
-            if (snapshot.target instanceof HTMLElement) {
-              lastWhatMattersInteractionSnapshot = captureWhatMattersInteractionSnapshot(snapshot.target, {
-                restoreFocus: snapshot.restoreFocus !== false,
-                preserveScroll: snapshot.preserveScroll !== false,
-              });
-            }
+            refreshLastWhatMattersInteractionSnapshot(snapshot);
+            whatMattersInteractionRestoreTimeout = window.setTimeout(() => {
+              whatMattersInteractionRestoreTimeout = 0;
+              restoreWhatMattersInteractionSnapshot(snapshot);
+              refreshLastWhatMattersInteractionSnapshot(snapshot);
+            }, 0);
+            whatMattersInteractionRestoreLateTimeout = window.setTimeout(() => {
+              whatMattersInteractionRestoreLateTimeout = 0;
+              restoreWhatMattersInteractionSnapshot(snapshot);
+              refreshLastWhatMattersInteractionSnapshot(snapshot);
+            }, 64);
           });
         });
       };
@@ -6921,18 +7260,23 @@
           window.open(listingUrl, '_blank', 'noopener,noreferrer');
         }
       };
+      const queueRowTargetOpen = () => {
+        window.requestAnimationFrame(() => {
+          openRowTarget();
+        });
+      };
       const shouldOpenRowTarget = () => window.matchMedia('(max-width: 760px)').matches;
       row.addEventListener('click', (event) => {
         if (!shouldOpenRowTarget()) return;
         if (event.target?.closest?.('a,button,input,select,textarea,label,summary,[data-tooltip-trigger]')) return;
-        openRowTarget();
+        queueRowTargetOpen();
       });
       row.addEventListener('keydown', (event) => {
         if (!shouldOpenRowTarget()) return;
         if (event.target !== row) return;
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
-        openRowTarget();
+        queueRowTargetOpen();
       });
     });
     const hydrateTerminalRunOnce = async (statusUrl) => {

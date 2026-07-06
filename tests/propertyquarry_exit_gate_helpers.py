@@ -47,7 +47,12 @@ def assert_test_modules_exist(paths: object) -> list[str]:
 
 def run_pytest_modules(paths: list[str]) -> None:
     assert paths, "expected at least one pytest module"
-    command = [sys.executable, "-m", "pytest", "-q", *paths]
+    run_pytest_args(paths)
+
+
+def run_pytest_args(args: list[str]) -> None:
+    assert args, "expected at least one pytest argument"
+    command = [sys.executable, "-m", "pytest", "-q", *args]
     completed = subprocess.run(
         command,
         cwd=ROOT,

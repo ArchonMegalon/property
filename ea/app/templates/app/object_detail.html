@@ -733,6 +733,8 @@
   }
   .object-feedback {
     margin-top: 18px;
+    display: grid;
+    gap: 14px;
     border-top: 1px solid var(--line);
     padding-top: 18px;
   }
@@ -741,6 +743,32 @@
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+  }
+  .object-feedback-savebar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .object-feedback-savebar .object-copy {
+    margin: 0;
+    flex: 1 1 220px;
+  }
+  .object-feedback-advanced {
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel-2);
+  }
+  .object-feedback-advanced[open] {
+    background: color-mix(in srgb, var(--panel-2) 82%, var(--panel));
+  }
+  .object-feedback-advanced .object-disclosure-body {
+    margin-top: 12px;
+    gap: 12px;
+  }
+  .object-feedback-advanced .object-disclosure-summary {
+    align-items: center;
   }
   .object-feedback-button,
   .object-feedback-chip {
@@ -1080,16 +1108,40 @@
 {% set object_visual_actions = object_media.get('request_actions') or [] %}
 {% set object_visual_style_catalog = object_media.get('style_catalog') or [] %}
 {% set object_media_carousel_items = object_media.get('carousel_items') or [] %}
+{% set object_media_status_display = object_media.get('status_label') or ('3D tour' if object_media.get('embed_href') else 'Preparing 3D tour') %}
+{% set object_media_status_lower = object_media_status_display|lower %}
+{% if object_media_status_lower in ['3d tour available', 'open 3d tour'] %}
+  {% set object_media_status_display = '3D tour' %}
+{% elif object_media_status_lower in ['walkthrough available', 'open walkthrough'] %}
+  {% set object_media_status_display = 'Walkthrough' %}
+{% elif 'original tour available' in object_media_status_lower %}
+  {% set object_media_status_display = 'Original tour' %}
+{% elif ('walkthrough' in object_media_status_lower) and ('queued' in object_media_status_lower or 'rendering' in object_media_status_lower or 'in progress' in object_media_status_lower) %}
+  {% set object_media_status_display = 'Preparing walkthrough' %}
+{% elif ('3d tour' in object_media_status_lower) and ('queued' in object_media_status_lower or 'rendering' in object_media_status_lower or 'in progress' in object_media_status_lower or 'pending' in object_media_status_lower) %}
+  {% set object_media_status_display = 'Preparing 3D tour' %}
+{% endif %}
+{% set object_request_status_label_display = object_media.get('request_status_label') or '' %}
+{% set object_request_status_label_lower = object_request_status_label_display|lower %}
+{% if object_request_status_label_lower in ['3d tour available', 'open 3d tour'] %}
+  {% set object_request_status_label_display = '3D tour' %}
+{% elif object_request_status_label_lower in ['walkthrough available', 'open walkthrough'] %}
+  {% set object_request_status_label_display = 'Walkthrough' %}
+{% elif ('walkthrough' in object_request_status_label_lower) and ('queued' in object_request_status_label_lower or 'rendering' in object_request_status_label_lower or 'in progress' in object_request_status_label_lower) %}
+  {% set object_request_status_label_display = 'Preparing walkthrough' %}
+{% elif ('3d tour' in object_request_status_label_lower) and ('queued' in object_request_status_label_lower or 'rendering' in object_request_status_label_lower or 'in progress' in object_request_status_label_lower or 'pending' in object_request_status_label_lower) %}
+  {% set object_request_status_label_display = 'Preparing 3D tour' %}
+{% endif %}
 <section class="object-media-grid{% if not object_media.get('embed_href') %} is-compact{% endif %}" data-object-media-stage>
   <section class="object-panel object-media-frame">
     <div class="object-media-frame-inner">
       {% if object_media.get('embed_href') %}
       <iframe src="{{ object_media.get('embed_href') }}" title="Property 3D tour" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
       <div class="object-media-toolbar" aria-label="3D tour status and actions">
-        <div class="object-media-status">{{ object_media.get('status_label') or '3D tour available' }}</div>
+        <div class="object-media-status">{{ object_media_status_display }}</div>
         <div class="object-actions">
           {% set primary_media_label = object_media.get('primary_label') or 'Open 3D tour' %}
-          {% set secondary_media_label = object_media.get('secondary_label') or 'Open property page' %}
+          {% set secondary_media_label = object_media.get('secondary_label') or 'Open property' %}
           {% set tertiary_media_label = object_media.get('tertiary_label') or 'Open listing' %}
           {% if object_media.get('primary_href') and primary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ primary_media_label }}</a>{% endif %}
           {% if object_media.get('secondary_href') and secondary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ secondary_media_label }}</a>{% endif %}
@@ -1139,10 +1191,10 @@
           {% endfor %}
         </div>
         <div class="object-media-carousel-actions">
-          <div class="object-media-status">{{ object_media.get('status_label') or '3D tour available' }}</div>
+          <div class="object-media-status">{{ object_media_status_display }}</div>
           <div class="object-actions">
             {% set primary_media_label = object_media.get('primary_label') or 'Open 3D tour' %}
-            {% set secondary_media_label = object_media.get('secondary_label') or 'Open property page' %}
+            {% set secondary_media_label = object_media.get('secondary_label') or 'Open property' %}
             {% set tertiary_media_label = object_media.get('tertiary_label') or 'Open listing' %}
             {% if object_media.get('primary_href') and primary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ primary_media_label }}</a>{% endif %}
             {% if object_media.get('secondary_href') and secondary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ secondary_media_label }}</a>{% endif %}
@@ -1152,14 +1204,14 @@
       </div>
       {% else %}
       <div class="object-media-placeholder">
-        <div class="object-media-status">{{ object_media.get('status_label') or '3D tour pending' }}</div>
+        <div class="object-media-status">{{ object_media_status_display }}</div>
         <div class="object-media-placeholder-copy">
-          <h2>{{ object_media.get('status_label') or '3D tour pending' }}</h2>
-          <p class="object-copy">{{ object_media.get('status_detail') or 'The tour preview is still catching up.' }}</p>
+          <h2>{{ object_media_status_display }}</h2>
+          <p class="object-copy">{{ object_media.get('status_detail') or 'Still getting this ready.' }}</p>
         </div>
         <div class="object-actions">
-          {% set primary_media_label = object_media.get('primary_label') or 'Open property page' %}
-          {% set secondary_media_label = object_media.get('secondary_label') or 'Open property page' %}
+          {% set primary_media_label = object_media.get('primary_label') or 'Open property' %}
+          {% set secondary_media_label = object_media.get('secondary_label') or 'Open property' %}
           {% set tertiary_media_label = object_media.get('tertiary_label') or 'Open listing' %}
           {% if object_media.get('primary_href') and primary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ primary_media_label }}</a>{% endif %}
           {% if object_media.get('secondary_href') and secondary_media_label|lower not in hidden_action_labels %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ secondary_media_label }}</a>{% endif %}
@@ -1171,7 +1223,7 @@
       <div class="object-visual-console" data-object-visual-console>
         <div class="object-visual-rail{% if object_media.get('request_status_detail') %} is-active{% endif %}" data-object-visual-rail>
           <div class="object-visual-meta">
-            <strong data-object-visual-label>{{ object_media.get('request_status_label') or '' }}</strong>
+            <strong data-object-visual-label>{{ object_request_status_label_display }}</strong>
             <span class="object-visual-eta" data-object-visual-eta>{{ object_media.get('request_status_eta') or '' }}</span>
           </div>
           <div class="object-visual-progress{% if object_media.get('request_status_progress_pct') %} is-processing{% endif %}" data-object-visual-progress style="--object-fill: {{ object_media.get('request_status_progress_pct') or 0 }}%;"></div>
@@ -1180,6 +1232,11 @@
         <div class="object-actions object-visual-actions">
           {% for action in object_visual_actions %}
           {% set action_state = (action.get('state') or 'idle')|lower %}
+          {% set is_walkthrough_request = action.get('kind') == 'flythrough' %}
+          {% set action_button_label = action.get('label') or 'Request visual review' %}
+          {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}
+            {% set action_button_label = 'Preparing walkthrough' if is_walkthrough_request else 'Preparing 3D tour' %}
+          {% endif %}
           <button
             class="console-action{% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %} is-processing{% endif %}"
             type="button"
@@ -1189,14 +1246,15 @@
             data-source-ref="{{ action.get('source_ref') or '' }}"
             data-run-id="{{ action.get('run_id') or '' }}"
             data-candidate-ref="{{ action.get('candidate_ref') or '' }}"
+            data-obj-walkthrough-provider="{{ action.get('walkthrough_provider') or '' }}"
             data-obj-visual-progress="{{ action.get('progress_pct') or 0 }}"
             data-obj-visual-eta="{{ action.get('eta_label') or '' }}"
             data-obj-visual-detail="{{ action.get('status_detail') or '' }}"
             data-obj-visual-poll-seconds="{{ action.get('poll_after_seconds') or 0 }}"
             data-obj-visual-style-required="1"
             {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}disabled aria-disabled="true"{% endif %}
-            aria-label="{{ action.get('label') or 'Request visual review' }}"
-          >{{ action.get('label') }}</button>
+            aria-label="{{ action_button_label }}"
+          >{{ action_button_label }}</button>
           {% endfor %}
         </div>
       </div>
@@ -1254,8 +1312,8 @@
     {% if object_summary %}<p class="object-copy">{{ object_summary }}</p>{% endif %}
     {% if object_ooda_rows %}
     <section class="object-section" style="margin-top:14px;">
-      <div class="object-kicker">{{ object_ooda_kicker or 'Overview' }}</div>
-      <h2>{{ object_ooda_title or 'Decision summary' }}</h2>
+      <div class="object-kicker">{{ object_ooda_kicker or 'Quick read' }}</div>
+      <h2>{{ object_ooda_title or 'What stands out' }}</h2>
       {% if object_ooda_copy %}<p class="object-copy">{{ object_ooda_copy }}</p>{% endif %}
       <div class="object-list">
         {% for item in object_ooda_rows %}
@@ -1302,7 +1360,7 @@
     <details class="object-section object-disclosure object-sidebar-disclosure" open data-object-mobile-default="{{ 'open' if object_sidebar_default_open else 'closed' }}">
       <summary class="object-disclosure-summary">
         <span class="object-disclosure-copy">
-          <span class="object-kicker">{{ object_sidebar_kicker or 'Quick actions' }}</span>
+          <span class="object-kicker">{{ object_sidebar_kicker or ('Quick actions' if settings_surface else 'Next step') }}</span>
           <strong>{{ object_sidebar_title }}</strong>
         </span>
         {% if ((object_sidebar_rows or [])|length) > 1 %}
@@ -1313,7 +1371,7 @@
       {% if object_sidebar_copy %}<p class="object-copy object-sidebar-copy">{{ object_sidebar_copy }}</p>{% endif %}
       <div class="object-list">
     {% else %}
-    <div class="object-kicker">{{ object_sidebar_kicker or 'Open this home' }}</div>
+    <div class="object-kicker">{{ object_sidebar_kicker or 'Next step' }}</div>
     <h2>{{ object_sidebar_title }}</h2>
     {% if object_sidebar_copy %}<p class="object-copy object-sidebar-copy">{{ object_sidebar_copy }}</p>{% endif %}
     <div class="object-list">
@@ -1487,16 +1545,16 @@
     {% endif %}
 	    {% if object_feedback %}
 	    <section class="object-feedback" data-object-feedback data-object-feedback-payload='{{ object_feedback|tojson|safe }}'>
-	      <div class="object-kicker">Record the outcome</div>
-	      <h2>Save your decision</h2>
-	      <p class="object-copy">Record the decision here so the next shortlist learns from it and the next real-world step stays explicit.</p>
+      <div class="object-kicker">Record the outcome</div>
+      <h2>Your take</h2>
+      <p class="object-copy">Save the decision here so the next shortlist gets sharper.</p>
 	      <div class="object-feedback-row" aria-label="Property feedback reaction">
 	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
 	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
 	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="dislike">No</button>
 	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="hide">Hide</button>
 	      </div>
-	      <p class="object-copy"><strong>Decision state</strong> Move the property forward when the next concrete action matters more than another shortlist vote.</p>
+	      <p class="object-copy"><strong>Next step</strong> Move the property forward when the next real action matters more than another shortlist vote.</p>
 	      <div class="object-actions">
 	        <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
 	        <button class="console-action" type="button" data-object-decision-state="documents_requested">Documents requested</button>
@@ -1504,100 +1562,108 @@
 	        <button class="console-action" type="button" data-object-decision-state="archived">Archived</button>
 	      </div>
 	      <p class="object-copy" data-object-decision-state-status></p>
-	      <p class="object-copy"><strong>Why?</strong> Select the clearest reasons first. If you reject the property, those reasons become the strongest future filters.</p>
-	      <div class="object-feedback-reasons" data-object-feedback-reasons>
-	        {% for row in (object_feedback.get('suggestions') or {}).get('negative') or [] %}
-	        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
-	        {% endfor %}
-	        {% for row in (object_feedback.get('suggestions') or {}).get('positive') or [] %}
-	        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
-	        {% endfor %}
-	      </div>
-	      {% if (object_feedback.get('suggestions') or {}).get('agent_questions') %}
-	      <div class="object-copy"><strong>Ask next</strong></div>
-	      <div class="object-list">
-	        {% for row in (object_feedback.get('suggestions') or {}).get('agent_questions') or [] %}
-	        <div class="object-row">
-	          <div>
-	            <strong>Question {{ loop.index }}</strong>
-	            <small>{{ row.get('question') }}</small>
-	          </div>
-	          <div class="object-tag">{{ row.get('status') or 'suggested' }}</div>
-	        </div>
-	        {% endfor %}
-	      </div>
-	      {% endif %}
-	      <div class="object-copy"><strong>Follow-up</strong></div>
-	      <div class="object-list" data-object-followups>
-	        {% for row in object_feedback.get('followup_rows') or [] %}
-	        <div class="object-row">
-	          <div>
-	            <strong>{{ row.get('title') }}</strong>
-	            <small>{{ row.get('detail') }}</small>
-	          </div>
-	          <div class="object-tag">{{ row.get('tag') }}</div>
-	        </div>
-	        {% endfor %}
-	      </div>
-	      <p class="object-copy" data-object-followup-status></p>
-	      {% if (object_feedback.get('suggestions') or {}).get('decision_consequences') %}
-	      <p class="object-copy">This will:</p>
-	      <div class="object-list">
-	        {% for line in (object_feedback.get('suggestions') or {}).get('decision_consequences') or [] %}
-	        <div class="object-row">
-	          <div>
-	            <strong>{{ line }}</strong>
-	          </div>
-	          <div class="object-tag">Next</div>
-	        </div>
-	        {% endfor %}
-	      </div>
-	      {% endif %}
-	      <textarea data-object-feedback-note placeholder="What worked, failed, or still feels unclear?"></textarea>
-	      <div class="object-actions">
+	      <div class="object-feedback-savebar">
 	        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save</button>
 	        <a class="console-action" href="{{ object_feedback.get('profile_href') or ('/app/search' ~ object_query_suffix) }}">Edit search</a>
+	        <p class="object-copy" data-object-feedback-status aria-live="polite"></p>
 	      </div>
-	      <p class="object-copy" data-object-feedback-status></p>
-	      <div class="object-actions" style="margin-top: 12px;">
-	        <button class="console-action" type="button" data-object-clippy-toggle>Ask about this home</button>
-	      </div>
-	      <div class="object-list" data-object-clippy-panel hidden>
+	      <details class="object-feedback-advanced object-disclosure" data-object-feedback-advanced>
+	        <summary class="object-disclosure-summary" data-object-feedback-open-advanced>
+	          <span class="object-disclosure-copy">
+	            <strong>Adjust next search</strong>
+	            <span class="object-kicker">Optional</span>
+	          </span>
+	          <span class="object-tag">Open</span>
+	        </summary>
+	        <div class="object-disclosure-body">
+	          <p class="object-copy"><strong>Reasons</strong> Select the clearest reasons first. If you reject the property, those reasons become the strongest future filters.</p>
+	          <div class="object-feedback-reasons" data-object-feedback-reasons>
+	            {% for row in (object_feedback.get('suggestions') or {}).get('negative') or [] %}
+	            <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
+	            {% endfor %}
+	            {% for row in (object_feedback.get('suggestions') or {}).get('positive') or [] %}
+	            <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
+	            {% endfor %}
+	          </div>
+	          {% if (object_feedback.get('suggestions') or {}).get('agent_questions') %}
+	          <div class="object-copy"><strong>Next to check</strong></div>
+	          <div class="object-list">
+	            {% for row in (object_feedback.get('suggestions') or {}).get('agent_questions') or [] %}
+	            <div class="object-row">
+	              <div>
+	                <strong>Question {{ loop.index }}</strong>
+	                <small>{{ row.get('question') }}</small>
+	              </div>
+	              <div class="object-tag">{{ row.get('status') or 'suggested' }}</div>
+	            </div>
+	            {% endfor %}
+	          </div>
+	          {% endif %}
+	          <div class="object-copy"><strong>Follow-up</strong></div>
+	          <div class="object-list" data-object-followups>
+	            {% for row in object_feedback.get('followup_rows') or [] %}
+	            <div class="object-row">
+	              <div>
+	                <strong>{{ row.get('title') }}</strong>
+	                <small>{{ row.get('detail') }}</small>
+	              </div>
+	              <div class="object-tag">{{ row.get('tag') }}</div>
+	            </div>
+	            {% endfor %}
+	          </div>
+	          <p class="object-copy" data-object-followup-status></p>
+	          {% if (object_feedback.get('suggestions') or {}).get('decision_consequences') %}
+	          <p class="object-copy">This will:</p>
+	          <div class="object-list">
+	            {% for line in (object_feedback.get('suggestions') or {}).get('decision_consequences') or [] %}
+	            <div class="object-row">
+	              <div>
+	                <strong>{{ line }}</strong>
+	              </div>
+	              <div class="object-tag">Next</div>
+	            </div>
+	            {% endfor %}
+	          </div>
+	          {% endif %}
+	          <textarea data-object-feedback-note placeholder="What worked, failed, or still feels unclear?"></textarea>
+	          <div class="object-actions" style="margin-top: 12px;">
+	            <button class="console-action" type="button" data-object-clippy-toggle>Ask a question</button>
+	          </div>
+	          <div class="object-list" data-object-clippy-panel hidden>
+	            <div class="object-row">
+	              <div>
+	                <strong>Ask from this page</strong>
+	                <small>Ask one question based only on the facts and notes already shown here.</small>
+	              </div>
+	              <div class="object-tag">Optional</div>
+	            </div>
+	            <div class="object-actions">
+	              <button class="console-action" type="button" data-object-clippy-prompt="Why is this only Maybe?">Why maybe?</button>
+	              <button class="console-action" type="button" data-object-clippy-prompt="What should I check next?">Next question</button>
+	              <button class="console-action" type="button" data-object-clippy-prompt="What should I watch for here?">Watch for</button>
+	            </div>
+	            <textarea data-object-clippy-question rows="3" placeholder="Ask about blockers, disagreements, open costs, or the next follow-up."></textarea>
+	            <div class="object-actions">
+	              <button class="console-action" type="button" data-object-clippy-ask>Ask</button>
+	            </div>
+	            <div class="object-copy" data-object-clippy-status></div>
+	            <div class="object-list" data-object-clippy-answer></div>
+	          </div>
+	          <div class="object-actions" style="margin-top: 12px;">
+	            <button class="console-action" type="button" data-object-lifestyle-toggle>Furnished look</button>
+	          </div>
+	          <div class="object-lifestyle-panel" data-object-lifestyle-panel hidden>
 	        <div class="object-row">
 	          <div>
-	            <strong>Question helper</strong>
-	            <small>Ask one grounded question about this property. It only answers from the facts, timeline, stakeholder feedback, and investment context already on this page.</small>
+	            <strong>Furnished look</strong>
+	            <small>Preview this home furnished with your own photo references or image links.</small>
 	          </div>
-	          <div class="object-tag">Opt-in</div>
-	        </div>
-	        <div class="object-actions">
-	          <button class="console-action" type="button" data-object-clippy-prompt="Why is this only Maybe?">Why is this only Maybe?</button>
-	          <button class="console-action" type="button" data-object-clippy-prompt="What should I ask next?">Ask next</button>
-	          <button class="console-action" type="button" data-object-clippy-prompt="What changed since last time?">What changed?</button>
-	          <button class="console-action" type="button" data-object-clippy-prompt="What is the biggest investment risk here?">Investment risk</button>
-	        </div>
-	        <textarea data-object-clippy-question rows="3" placeholder="Ask about blockers, household disagreement, underwriting risk, or the next agent follow-up."></textarea>
-	        <div class="object-actions">
-	          <button class="console-action" type="button" data-object-clippy-ask>Ask</button>
-	        </div>
-	        <div class="object-copy" data-object-clippy-status></div>
-	        <div class="object-list" data-object-clippy-answer></div>
-	      </div>
-	      <div class="object-actions" style="margin-top: 12px;">
-	        <button class="console-action" type="button" data-object-lifestyle-toggle>Preview furnished living</button>
-	      </div>
-	      <div class="object-lifestyle-panel" data-object-lifestyle-panel hidden>
-	        <div class="object-row">
-	          <div>
-	            <strong>Furnished living preview</strong>
-	            <small>Opt-in only. Choose Google Photos, direct upload, or manual image links. PropertyQuarry uses the selected references as soft likeness guidance for a furnished preview.</small>
-	          </div>
-	          <div class="object-tag">Opt-in</div>
+	          <div class="object-tag">Optional</div>
 	        </div>
 	        <div class="object-row">
 	          <div>
 	            <strong>Choose how to personalize</strong>
-	            <small>Upload 1 to 3 portraits directly if you do not want to connect Google Photos. Child references remain gated behind guardian confirmation.</small>
+	            <small>Upload 1 to 3 photos or use Google Photos. Child photos need guardian approval.</small>
 	          </div>
 	          <div class="object-tag">Private</div>
 	        </div>
@@ -1643,7 +1709,7 @@
 	        <div class="object-copy" data-object-lifestyle-google-status></div>
 	        <label class="object-check">
 	          <input type="checkbox" data-object-lifestyle-consent>
-	          <span>I confirm these personal photos were explicitly selected for this furnished preview.</span>
+	          <span>I confirm these personal photos were explicitly selected for this furnished render.</span>
 	        </label>
 	        <label class="object-check">
 	          <input type="checkbox" data-object-lifestyle-include-child>
@@ -1655,14 +1721,16 @@
 	        </label>
 	        <label class="object-check">
 	          <input type="checkbox" data-object-lifestyle-share checked>
-	          <span>Attach the generated still to the review PDF when rendered.</span>
+	          <span>Include this image in the PDF.</span>
 	        </label>
 	        <div class="object-actions">
-	          <button class="console-action" type="button" data-object-lifestyle-generate>Generate still</button>
+	          <button class="console-action" type="button" data-object-lifestyle-generate>Create image</button>
 	        </div>
 	        <div class="object-copy" data-object-lifestyle-status></div>
 	        <div class="object-lifestyle-preview" data-object-lifestyle-preview></div>
 	      </div>
+	        </div>
+	      </details>
 	    </section>
 	    {% endif %}
 	  </aside>
@@ -1912,12 +1980,35 @@
   const visualButtons = Array.from(document.querySelectorAll('[data-obj-visual-request]'));
   const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];
   const visualTerminalStates = ['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'];
+  const currentVisualSearchParams = (() => {
+    try {
+      return new URLSearchParams(window.location.search || '');
+    } catch (_error) {
+      return new URLSearchParams();
+    }
+  })();
+  const currentVisualRunId = String(currentVisualSearchParams.get('run_id') || '').trim();
+  const currentVisualCandidateRef = (() => {
+    try {
+      const pathMatch = window.location.pathname.match(/\/app\/research\/([^/?#]+)/i);
+      return pathMatch ? decodeURIComponent(pathMatch[1] || '').trim() : '';
+    } catch (_error) {
+      return '';
+    }
+  })();
   const visualStyleDialog = document.querySelector('[data-object-visual-style-dialog]');
   const visualStyleOptions = Array.from(document.querySelectorAll('[data-object-visual-style-option]'));
   const visualStyleCurrent = document.querySelector('[data-object-visual-style-current]');
   const visualStyleConfirm = document.querySelector('[data-object-visual-style-confirm]');
   const visualStyleCancelButtons = Array.from(document.querySelectorAll('[data-object-visual-style-cancel]'));
-  let visualPollTimer = 0;
+  const visualPollTimers = new Map();
+  const clearVisualStatusPoll = (requestKind = '') => {
+    const kind = String(requestKind || '').trim().toLowerCase();
+    if (!kind) return;
+    const existingTimer = visualPollTimers.get(kind);
+    if (existingTimer) window.clearTimeout(existingTimer);
+    visualPollTimers.delete(kind);
+  };
   const readableErrorDetail = (detail, fallback) => {
     if (Array.isArray(detail)) {
       return detail.map((item) => readableErrorDetail(item, '')).filter(Boolean).join(' ');
@@ -2073,6 +2164,7 @@
     for (const value of values) {
       const url = String(value || '').trim();
       if (!url) continue;
+      if (rawHostedTourControlBase(url)) continue;
       try {
         const parsed = new URL(url, window.location.origin);
         if (!['http:', 'https:'].includes(parsed.protocol)) continue;
@@ -2080,6 +2172,73 @@
       } catch (_error) {
         if (url.startsWith('/')) return url;
       }
+    }
+    return '';
+  };
+  const rawHostedWalkthroughBase = (value) => {
+    const url = String(value || '').trim();
+    if (!url) return '';
+    try {
+      const parsed = new URL(url, window.location.origin);
+      const match = parsed.pathname.match(/^\/tours\/([^/?#]+)(?:\/walkthrough)?\/?$/i)
+        || parsed.pathname.match(/^\/tours\/files\/([^/?#]+)\/.+$/i);
+      if (!match) return '';
+      const basePath = `/tours/${match[1]}`;
+      return /^[a-z][a-z0-9+.-]*:/i.test(url) ? `${parsed.origin}${basePath}` : basePath;
+    } catch (_error) {
+      const path = url.split(/[?#]/)[0] || '';
+      const match = path.match(/^\/tours\/([^/?#]+)(?:\/walkthrough)?\/?$/i)
+        || path.match(/^\/tours\/files\/([^/?#]+)\/.+$/i);
+      return match ? `/tours/${match[1]}` : '';
+    }
+  };
+  const hostedWalkthroughVideoPattern = /\.(?:mp4|m4v|mov|webm)(?:$|[?#])/i;
+  const directHostedWalkthroughUrl = (...values) => {
+    const explicitWalkthroughHref = (value) => {
+      const url = String(value || '').trim();
+      if (!url) return '';
+      try {
+        const parsed = new URL(url, window.location.origin);
+        const pathname = String(parsed.pathname || '');
+        const pane = String(parsed.searchParams.get('pane') || '').trim().toLowerCase();
+        if (
+          pane === 'flythrough-pane'
+          && /^\/tours\/[^/]+(?:\/control\/[^/]+)?\/?$/i.test(pathname || '')
+        ) {
+          if (!parsed.searchParams.get('autoplay')) parsed.searchParams.set('autoplay', '1');
+          return parsed.href;
+        }
+        if (/^\/tours\/[^/]+\/walkthrough\/?$/i.test(pathname || '')) {
+          const hostedBase = rawHostedWalkthroughBase(parsed.href);
+          if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+        }
+        if (/^\/tours\/files\/[^/?#]+\/.+$/i.test(pathname || '') && hostedWalkthroughVideoPattern.test(pathname || '')) {
+          const hostedBase = rawHostedWalkthroughBase(parsed.href);
+          if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+        }
+        if (hostedWalkthroughVideoPattern.test(pathname || '') && ['http:', 'https:'].includes(parsed.protocol)) {
+          return parsed.href;
+        }
+      } catch (_error) {
+        if (/^\/tours\/[^/?#]+(?:\/control\/[^/?#]+)?(?:\?[^#]*)?$/i.test(url) && /(?:[?&])pane=flythrough-pane(?:[&#]|$)/i.test(url)) {
+          return /(?:[?&])autoplay=1(?:[&#]|$)/i.test(url) ? url : `${url}${url.includes('?') ? '&' : '?'}autoplay=1`;
+        }
+        if (/^\/tours\/[^/?#]+\/walkthrough\/?(?:\?[^#]*)?$/i.test(url)) {
+          const hostedBase = rawHostedWalkthroughBase(url);
+          if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+        }
+        const relpath = url.split(/[?#]/)[0] || '';
+        if (/^\/tours\/files\/[^/?#]+\/.+$/i.test(relpath) && hostedWalkthroughVideoPattern.test(relpath)) {
+          const hostedBase = rawHostedWalkthroughBase(url);
+          if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+        }
+        if (url.startsWith('/') && hostedWalkthroughVideoPattern.test(relpath)) return url;
+      }
+      return '';
+    };
+    for (const value of values) {
+      const resolved = explicitWalkthroughHref(value);
+      if (resolved) return resolved;
     }
     return '';
   };
@@ -2121,11 +2280,30 @@
       button.removeAttribute('aria-disabled');
     }
   };
+  const calmVisualButtonLabel = ({ kind, state, href = '', fallbackLabel = '', retryableTerminal = false } = {}) => {
+    const normalizedKind = isWalkthroughRequestKind(kind) ? 'flythrough' : 'tour';
+    if (href) return normalizedKind === 'flythrough' ? 'Open walkthrough' : 'Open 3D tour';
+    if (retryableTerminal) {
+      return normalizedKind === 'flythrough'
+        ? (['blocked', 'failed'].includes(state) ? 'Retry walkthrough' : 'Request walkthrough')
+        : (['blocked', 'failed'].includes(state) ? 'Retry 3D tour' : 'Request 3D tour');
+    }
+    if (visualPendingStates.includes(state)) {
+      return normalizedKind === 'flythrough' ? 'Preparing walkthrough' : 'Preparing 3D tour';
+    }
+    return String(fallbackLabel || (normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour')).trim();
+  };
+  const calmVisualRailLabel = (kind, state, fallbackLabel = '') => {
+    const normalizedKind = isWalkthroughRequestKind(kind) ? 'flythrough' : 'tour';
+    if (state === 'ready') return normalizedKind === 'flythrough' ? 'Walkthrough' : '3D tour';
+    if (visualPendingStates.includes(state)) return normalizedKind === 'flythrough' ? 'Preparing walkthrough' : 'Preparing 3D tour';
+    return String(fallbackLabel || '').trim();
+  };
   const syncVisualRail = (requestKind, state) => {
     if (!visualRail) return;
     const normalized = state && typeof state === 'object' ? state : {};
     const nextState = String(normalized.state || 'idle').trim().toLowerCase() || 'idle';
-    const label = String(normalized.label || '').trim();
+    const label = calmVisualRailLabel(requestKind, nextState, String(normalized.label || '').trim());
     const eta = String(normalized.eta || '').trim();
     const detail = String(normalized.detail || '').trim();
     const progress = Math.max(0, Math.min(100, Number(normalized.progress || 0) || 0));
@@ -2145,21 +2323,27 @@
   const visualStateFromPayload = (requestKind, payload, fallbackLabel = '') => {
     const kind = String(requestKind || 'tour').trim().toLowerCase();
     if (isWalkthroughRequestKind(kind)) {
-      const resolvedUrl = String(payload?.flythrough_url || '').trim();
+      const payloadStatusLabel = String(payload?.status_label || fallbackLabel || '').trim();
+      const resolvedUrl = directHostedWalkthroughUrl(
+        payload?.flythrough_url,
+        payload?.tour_url,
+        payload?.verified_tour_url,
+        payload?.open_tour_url,
+      );
       const rawFlythroughState = String(payload?.flythrough_status || payload?.status || '').trim().toLowerCase();
       const state = String(resolvedUrl ? 'ready' : rawFlythroughState || 'pending').trim().toLowerCase();
       const retryableTerminal = visualTerminalStates.includes(state) && !resolvedUrl;
       return {
-        state: retryableTerminal ? 'idle' : state,
-        label: String(
-          resolvedUrl
-            ? 'Open walkthrough'
-            : (
-                retryableTerminal
-                  ? (['blocked', 'failed'].includes(state) ? 'Retry walkthrough' : 'Request walkthrough')
-                  : (payload?.status_label || fallbackLabel || 'Walkthrough queued')
-              )
-        ).trim(),
+        state,
+        label: visualPendingStates.includes(state) && payloadStatusLabel
+          ? payloadStatusLabel
+          : calmVisualButtonLabel({
+            kind,
+            state,
+            href: resolvedUrl,
+            fallbackLabel: payloadStatusLabel,
+            retryableTerminal,
+          }),
         href: resolvedUrl,
         detail: String(payload?.status_detail || '').trim(),
         eta: String(payload?.eta_label || '').trim(),
@@ -2167,6 +2351,7 @@
         pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
       };
     }
+    const payloadStatusLabel = String(payload?.status_label || fallbackLabel || '').trim();
     const resolvedTourUrl = directHostedTourUrl(
       payload?.verified_tour_url,
       payload?.open_tour_url,
@@ -2176,17 +2361,17 @@
     const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
     const state = String(resolvedTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();
     const retryableTerminal = visualTerminalStates.includes(state) && !resolvedTourUrl;
-    return {
-      state: retryableTerminal ? 'idle' : state,
-      label: String(
-        resolvedTourUrl
-          ? 'Open 3D tour'
-          : (
-              retryableTerminal
-                ? (['blocked', 'failed'].includes(state) ? 'Retry 3D tour' : 'Request 3D tour')
-                : (payload?.status_label || fallbackLabel || '3D tour queued')
-            )
-      ).trim(),
+      return {
+        state,
+        label: visualPendingStates.includes(state) && payloadStatusLabel
+          ? payloadStatusLabel
+          : calmVisualButtonLabel({
+            kind,
+            state,
+            href: resolvedTourUrl,
+            fallbackLabel: payloadStatusLabel,
+            retryableTerminal,
+          }),
       href: resolvedTourUrl,
       detail: String(payload?.status_detail || '').trim(),
       eta: String(payload?.eta_label || '').trim(),
@@ -2195,8 +2380,8 @@
     };
   };
   const scheduleVisualStatusPoll = (requestKind, options = {}) => {
-    window.clearTimeout(visualPollTimer);
     const kind = String(requestKind || '').trim().toLowerCase();
+    clearVisualStatusPoll(kind);
     const runId = String(options.runId || '').trim();
     if (!kind || !runId) return;
     const candidateRef = String(options.candidateRef || '').trim();
@@ -2204,8 +2389,12 @@
     const propertyUrl = String(options.propertyUrl || '').trim();
     const pollSeconds = Math.max(0, Number(options.pollSeconds || 0) || 0);
     if (!pollSeconds) return;
-    const firstPollDelaySeconds = Math.max(0.5, Math.min(pollSeconds, 1));
-    visualPollTimer = window.setTimeout(async () => {
+    const requestedFirstPollDelaySeconds = Math.max(0, Number(options.firstPollDelaySeconds || 0) || 0);
+    const firstPollDelaySeconds = requestedFirstPollDelaySeconds > 0
+      ? requestedFirstPollDelaySeconds
+      : Math.max(0.5, Math.min(pollSeconds, 1));
+    visualPollTimers.set(kind, window.setTimeout(async () => {
+      visualPollTimers.delete(kind);
       const query = new URLSearchParams({
         run_id: runId,
         request_kind: kind,
@@ -2240,11 +2429,31 @@
           pollSeconds,
         });
       }
-    }, firstPollDelaySeconds * 1000);
+    }, firstPollDelaySeconds * 1000));
+  };
+  const ensureVisualStatusPoll = (requestKind, payload, state) => {
+    const kind = String(requestKind || '').trim().toLowerCase();
+    const nextState = String(state?.state || '').trim().toLowerCase();
+    if (!kind || !visualPendingStates.includes(nextState) || visualPollTimers.get(kind)) return;
+    const matchingButton = visualButtons.find(
+      (button) => String(button.getAttribute('data-obj-visual-request') || '').trim().toLowerCase() === kind,
+    );
+    const runId = String(payload?.run_id || matchingButton?.getAttribute('data-run-id') || '').trim() || currentVisualRunId;
+    if (!runId) return;
+    scheduleVisualStatusPoll(kind, {
+      runId,
+      candidateRef: String(payload?.candidate_ref || matchingButton?.getAttribute('data-candidate-ref') || '').trim() || currentVisualCandidateRef,
+      sourceRef: String(payload?.source_ref || matchingButton?.getAttribute('data-source-ref') || '').trim(),
+      propertyUrl: String(payload?.property_url || matchingButton?.getAttribute('data-property-url') || '').trim(),
+      pollSeconds: Number(state?.pollSeconds || matchingButton?.getAttribute('data-obj-visual-poll-seconds') || 0) || 0,
+    });
   };
   const syncVisualButtons = (requestKind, payload) => {
     const kind = String(requestKind || '').trim().toLowerCase();
     const state = visualStateFromPayload(kind, payload);
+    if (!visualPendingStates.includes(String(state.state || '').trim().toLowerCase())) {
+      clearVisualStatusPoll(kind);
+    }
     syncVisualRail(kind, state);
     visualButtons.forEach((button) => {
       if (String(button.getAttribute('data-obj-visual-request') || '').trim().toLowerCase() !== kind) return;
@@ -2253,6 +2462,7 @@
         label: state.label || String(button.textContent || '').trim(),
       });
     });
+    ensureVisualStatusPoll(kind, payload, state);
   };
   visualButtons.forEach((button) => {
     applyVisualButtonState(button, {
@@ -2265,19 +2475,19 @@
       href: button.getAttribute('data-obj-visual-href') || '',
     });
   });
-  const pendingButton = visualButtons.find((button) => {
+  const pendingButtons = visualButtons.filter((button) => {
     const state = String(button.getAttribute('data-obj-visual-state') || '').trim().toLowerCase();
     return visualPendingStates.includes(state);
   });
-  if (pendingButton) {
+  pendingButtons.forEach((pendingButton) => {
     scheduleVisualStatusPoll(String(pendingButton.getAttribute('data-obj-visual-request') || '').trim().toLowerCase(), {
-      runId: pendingButton.getAttribute('data-run-id') || '',
-      candidateRef: pendingButton.getAttribute('data-candidate-ref') || '',
+      runId: pendingButton.getAttribute('data-run-id') || currentVisualRunId,
+      candidateRef: pendingButton.getAttribute('data-candidate-ref') || currentVisualCandidateRef,
       sourceRef: pendingButton.getAttribute('data-source-ref') || '',
       propertyUrl: pendingButton.getAttribute('data-property-url') || '',
       pollSeconds: pendingButton.getAttribute('data-obj-visual-poll-seconds') || 10,
     });
-  }
+  });
   visualButtons.forEach((button) => {
     button.addEventListener('click', async () => {
       const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
@@ -2285,8 +2495,8 @@
       const isWalkthroughRequest = isWalkthroughRequestKind(requestKind);
       const walkthroughProvider = isWalkthroughRequest ? getWalkthroughProviderFromButton(button) : '';
       const sourceRef = String(button.getAttribute('data-source-ref') || '').trim();
-      const runId = String(button.getAttribute('data-run-id') || '').trim();
-      const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
+      const runId = String(button.getAttribute('data-run-id') || '').trim() || currentVisualRunId;
+      const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim() || currentVisualCandidateRef;
       const currentState = String(button.getAttribute('data-obj-visual-state') || '').trim().toLowerCase();
       const readyHref = String(button.getAttribute('data-obj-visual-href') || '').trim();
       if (readyHref) {
@@ -2318,7 +2528,7 @@
       button.textContent = isWalkthroughRequest ? 'Requesting walkthrough...' : 'Requesting 3D tour...';
       syncVisualRail(requestKind, {
         state: 'queued',
-        label: isWalkthroughRequest ? 'Walkthrough queued' : '3D tour queued',
+        label: isWalkthroughRequest ? 'Preparing walkthrough' : 'Preparing 3D tour',
         detail: `Requesting${visualStyleLabel ? ` in ${visualStyleLabel}` : ''}.`,
         eta: '',
         progress: 0,
@@ -2354,6 +2564,7 @@
             sourceRef,
             propertyUrl,
             pollSeconds: nextState.pollSeconds || 10,
+            firstPollDelaySeconds: requestKind === 'tour' ? 0.2 : 0,
           });
         }
       } catch (error) {
@@ -2424,7 +2635,7 @@
     if (!lifestylePreview) return;
     const imageUrl = String(scene?.image_url || '').trim();
     const summary = String(scene?.summary || '').trim();
-    const sceneType = String(scene?.scene_type || 'furnished preview').replaceAll('_', ' ');
+    const sceneType = String(scene?.scene_type || 'furnished look').replaceAll('_', ' ');
     if (!imageUrl) {
       clearNode(lifestylePreview);
       return;
@@ -2434,19 +2645,19 @@
     row.className = 'object-row';
     const textWrap = document.createElement('div');
     appendTextNode(textWrap, 'strong', sceneType);
-    appendTextNode(textWrap, 'small', summary || 'Furnished preview ready for the review PDF.');
+    appendTextNode(textWrap, 'small', summary || 'Furnished image ready.');
     row.appendChild(textWrap);
     appendTextNode(row, 'div', 'Ready').className = 'object-tag';
     lifestylePreview.appendChild(row);
     const image = document.createElement('img');
     image.src = imageUrl;
-    image.alt = 'Furnished preview';
+    image.alt = 'Furnished image';
     image.loading = 'lazy';
     lifestylePreview.appendChild(image);
     appendTextNode(
       lifestylePreview,
       'div',
-      'Furnished preview only. This is not listing photography.',
+      'Concept image only. This is not listing photography.',
     ).className = 'object-copy';
   };
   const renderLifestyleReferenceList = () => {
@@ -2459,11 +2670,11 @@
     const rows = [
       ...lifestyleUploadedReferenceUrls.map((url, index) => ({ title: `Uploaded reference ${index + 1}`, detail: url, tag: 'Upload' })),
       ...manualUrls.map((url, index) => ({ title: `Manual reference ${index + 1}`, detail: url, tag: 'URL' })),
-      ...(lifestyleSessionId ? [{ title: 'Google Photos session', detail: lifestyleSessionId, tag: 'Picker' }] : []),
+      ...(lifestyleSessionId ? [{ title: 'Google Photos selection', detail: lifestyleSessionId, tag: 'Picker' }] : []),
     ];
     const rowsToRender = rows.length
       ? rows
-      : [{ title: 'No references selected yet', detail: 'Upload 1 to 3 portraits, start Google Photos Picker, or paste image URLs.', tag: 'Waiting' }];
+      : [{ title: 'No references yet', detail: 'Upload 1 to 3 photos, use Google Photos, or paste image links.', tag: 'Waiting' }];
     rowsToRender.forEach((row) => {
       const container = document.createElement('div');
       container.className = 'object-row';
@@ -2483,7 +2694,7 @@
     const safeRows = Array.isArray(rows) ? rows : [];
     const rowsToRender = safeRows.length
       ? safeRows
-      : [{ title: 'No tracked question yet', detail: 'Use the question helper or the suggested next question to start a tracked follow-up.', tag: 'Waiting' }];
+      : [{ title: 'No follow-up yet', detail: 'Add a question here when you want to keep something open.', tag: 'Waiting' }];
     rowsToRender.forEach((row) => {
       const feedbackId = String(row?.feedback_id || '').trim();
       const container = document.createElement('div');
@@ -2538,7 +2749,7 @@
   renderFollowups(payload.followup_rows || []);
   const recordDecisionState = async (decisionState) => {
     if (!decisionState) return;
-    if (decisionStateStatus) decisionStateStatus.textContent = 'Recording decision state...';
+    if (decisionStateStatus) decisionStateStatus.textContent = 'Saving next step...';
     try {
       const response = await fetch(structuredFeedbackEndpoint, {
         method: 'POST',
@@ -2557,10 +2768,10 @@
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(body.detail || 'Could not record the decision state.'));
-      if (decisionStateStatus) decisionStateStatus.textContent = `Marked as ${String(decisionState || '').replaceAll('_', ' ')}.`;
+      if (!response.ok) throw new Error(String(body.detail || 'Could not save the next step.'));
+      if (decisionStateStatus) decisionStateStatus.textContent = `Saved as ${String(decisionState || '').replaceAll('_', ' ')}.`;
     } catch (error) {
-      if (decisionStateStatus) decisionStateStatus.textContent = error instanceof Error ? error.message : 'Could not record the decision state.';
+      if (decisionStateStatus) decisionStateStatus.textContent = error instanceof Error ? error.message : 'Could not save the next step.';
     }
   };
   root.querySelectorAll('[data-object-decision-state]').forEach((button) => {
@@ -2576,10 +2787,10 @@
     const summaryRow = document.createElement('div');
     summaryRow.className = 'object-row';
     const summaryWrap = document.createElement('div');
-    appendTextNode(summaryWrap, 'strong', body?.name || 'Question helper');
-    appendTextNode(summaryWrap, 'small', body?.answer || 'No answer returned.');
+    appendTextNode(summaryWrap, 'strong', body?.name || 'Answer');
+    appendTextNode(summaryWrap, 'small', body?.answer || 'No answer yet.');
     summaryRow.appendChild(summaryWrap);
-    appendTextNode(summaryRow, 'div', 'Grounded').className = 'object-tag';
+    appendTextNode(summaryRow, 'div', 'Answer').className = 'object-tag';
     clippyAnswer.appendChild(summaryRow);
     evidence.forEach((row) => {
       const evidenceRow = document.createElement('div');
@@ -2624,7 +2835,7 @@
             selectedReasons.add(String(row.reason_key || ''));
             reasonButton.classList.add('active');
           }
-          if (status) status.textContent = `Question helper marked ${String(row.detail || 'a reason').trim()} as the current reason. Save your answer when ready.`;
+          if (status) status.textContent = `${String(row.detail || 'A reason').trim()} is marked for this home. Save when ready.`;
           return;
         }
         if (action === 'ask_agent' && row.question) {
@@ -2647,10 +2858,10 @@
               }),
             });
             const body = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(String(body.detail || 'Could not record the agent question.'));
-            if (clippyStatus) clippyStatus.textContent = 'Agent follow-up recorded in the decision timeline.';
+            if (!response.ok) throw new Error(String(body.detail || 'Could not save the question.'));
+            if (clippyStatus) clippyStatus.textContent = 'Question saved.';
           } catch (error) {
-            if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Could not record the agent question.';
+            if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Could not save the question.';
           }
         }
       });
@@ -2659,12 +2870,12 @@
   clippyToggle?.addEventListener('click', () => {
     const open = Boolean(clippyPanel?.hidden);
     if (clippyPanel) clippyPanel.hidden = !open;
-    clippyToggle.textContent = open ? 'Hide questions' : 'Ask about this home';
+    clippyToggle.textContent = open ? 'Hide questions' : 'Ask a question';
   });
   lifestyleToggle?.addEventListener('click', () => {
     const open = Boolean(lifestylePanel?.hidden);
     if (lifestylePanel) lifestylePanel.hidden = !open;
-    lifestyleToggle.textContent = open ? 'Hide furnished preview' : 'Preview furnished living';
+    lifestyleToggle.textContent = open ? 'Hide furnished look' : 'Furnished look';
   });
   root.querySelectorAll('[data-object-lifestyle-scene]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -2783,7 +2994,7 @@
     const includeChild = Boolean(root.querySelector('[data-object-lifestyle-include-child]')?.checked);
     const childConsent = Boolean(root.querySelector('[data-object-lifestyle-child-consent]')?.checked);
     const shareWithPacket = Boolean(root.querySelector('[data-object-lifestyle-share]')?.checked);
-    if (lifestyleStatus) lifestyleStatus.textContent = 'Creating furnished preview...';
+    if (lifestyleStatus) lifestyleStatus.textContent = 'Creating furnished image...';
     try {
       const response = await fetch(lifestyleCreateEndpoint, {
         method: 'POST',
@@ -2807,13 +3018,13 @@
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(body.detail || 'Could not create the furnished preview.'));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not create the furnished image.'));
       payload[lifestyleScenePayloadKey] = body;
       renderLifestylePreview(body);
       renderLifestyleReferenceList();
-      if (lifestyleStatus) lifestyleStatus.textContent = 'Furnished preview ready. The next review PDF can include this still.';
+      if (lifestyleStatus) lifestyleStatus.textContent = 'Furnished image ready. You can include it in the next PDF.';
     } catch (error) {
-      if (lifestyleStatus) lifestyleStatus.textContent = error instanceof Error ? error.message : 'Could not create the furnished preview.';
+      if (lifestyleStatus) lifestyleStatus.textContent = error instanceof Error ? error.message : 'Could not create the furnished image.';
     }
   });
   root.querySelectorAll('[data-object-clippy-prompt]').forEach((button) => {

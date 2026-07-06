@@ -78,6 +78,9 @@ def test_propertyquarry_magicfit_renderer_receipt_binds_to_property_slug() -> No
     assert "--property-url" in render_script
     assert '"target_slug": str(args.property_slug or "").strip()' in render_script
     assert '"property_slug": str(args.property_slug or "").strip()' in render_script
+    assert '"provider_backend_key": "magicfit"' in render_script
+    assert '"render_status": "completed"' in render_script
+    assert '"hosted_walkthrough_video_url": video_url' in render_script
 
 
 def _load_magicfit_env_helper() -> ModuleType:

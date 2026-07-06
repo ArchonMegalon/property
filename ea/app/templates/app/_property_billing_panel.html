@@ -15,9 +15,9 @@
 <section class="pqx-card pqx-billing-board">
   <div class="pqx-section-head">
     <div>
-      <div class="pqx-small">Billing</div>
-      <h2>Billing</h2>
-      <div class="pqx-note">See current access here. Billing opens in your billing account.</div>
+      <div class="pqx-small">Plan</div>
+      <h2>Plan and payments</h2>
+      <div class="pqx-note">Current access, payments, and invoices.</div>
     </div>
   </div>
 
@@ -32,7 +32,7 @@
   </div>
 
   <div class="pqx-billing-grid">
-    {% for card in [plan_card.value, account_card.value, upgrade_card.value, history_card.value] if card %}
+    {% for card in [plan_card.value, account_card.value] if card %}
     <section class="pqx-billing-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
       <div class="pqx-section-head">
         <div>
@@ -61,4 +61,40 @@
     </section>
     {% endfor %}
   </div>
+
+  {% if upgrade_card.value or history_card.value %}
+  <details class="pqx-billing-more pqx-mobile-fold">
+    <summary><strong>More</strong></summary>
+    <div class="pqx-billing-grid" style="margin-top:12px;">
+      {% for card in [upgrade_card.value, history_card.value] if card %}
+      <section class="pqx-billing-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
+        <div class="pqx-section-head">
+          <div>
+            {% if card.get('eyebrow') %}<div class="pqx-small">{{ card.get('eyebrow') }}</div>{% endif %}
+            <h2>{{ card.get('title') }}</h2>
+            {% if card.get('body') %}<div class="pqx-note">{{ card.get('body') }}</div>{% endif %}
+          </div>
+        </div>
+        {% if card.get('items') %}
+        <div class="pqx-pref-list">
+          {% for item in card.get('items') or [] %}
+          <div class="pqx-pref-row">
+            <div>
+              <strong>{{ item.get('title') }}</strong>
+              {% if item.get('detail') %}<small>{{ item.get('detail') }}</small>{% endif %}
+            </div>
+            <div class="pqx-actions">
+              {% if item.get('tag') %}<span class="pqx-pill">{{ item.get('tag') }}</span>{% endif %}
+              {% if item.get('action_href') and item.get('action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('action_href') }}">{{ item.get('action_label') }}</a>{% endif %}
+              {% if item.get('secondary_action_href') and item.get('secondary_action_label') %}<a class="pqx-link-button subtle" href="{{ item.get('secondary_action_href') }}">{{ item.get('secondary_action_label') }}</a>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </section>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
 </section>

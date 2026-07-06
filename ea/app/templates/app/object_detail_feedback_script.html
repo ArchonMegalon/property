@@ -52,7 +52,7 @@
     if (!lifestylePreview) return;
     const imageUrl = String(scene?.image_url || '').trim();
     const summary = String(scene?.summary || '').trim();
-    const sceneType = String(scene?.scene_type || 'furnished preview').replaceAll('_', ' ');
+    const sceneType = String(scene?.scene_type || 'furnished look').replaceAll('_', ' ');
     if (!imageUrl) {
       clearNode(lifestylePreview);
       return;
@@ -62,19 +62,19 @@
     row.className = 'object-row';
     const textWrap = document.createElement('div');
     appendTextNode(textWrap, 'strong', sceneType);
-    appendTextNode(textWrap, 'small', summary || 'Furnished preview ready for the review PDF.');
+    appendTextNode(textWrap, 'small', summary || 'Furnished image ready.');
     row.appendChild(textWrap);
     appendTextNode(row, 'div', 'Ready').className = 'object-tag';
     lifestylePreview.appendChild(row);
     const image = document.createElement('img');
     image.src = imageUrl;
-    image.alt = 'Lifestyle simulation preview';
+    image.alt = 'Furnished image';
     image.loading = 'lazy';
     lifestylePreview.appendChild(image);
     appendTextNode(
       lifestylePreview,
       'div',
-      'Furnished preview only. This is not listing photography.',
+      'Concept image only. This is not listing photography.',
     ).className = 'object-copy';
   };
   const renderLifestyleReferenceList = () => {
@@ -86,10 +86,10 @@
     const rows = [
       ...lifestyleUploadedReferenceUrls.map((url, index) => ({ title: `Uploaded reference ${index + 1}`, detail: url, tag: 'Upload' })),
       ...manualUrls.map((url, index) => ({ title: `Manual reference ${index + 1}`, detail: url, tag: 'URL' })),
-      ...(lifestyleSessionId ? [{ title: 'Google Photos session', detail: lifestyleSessionId, tag: 'Picker' }] : []),
+      ...(lifestyleSessionId ? [{ title: 'Google Photos selection', detail: lifestyleSessionId, tag: 'Picker' }] : []),
     ];
     clearNode(lifestyleReferenceList);
-    const targetRows = rows.length ? rows : [{ title: 'No references selected yet', detail: 'Upload 1 to 3 portraits, start Google Photos Picker, or paste image URLs.', tag: 'Waiting' }];
+    const targetRows = rows.length ? rows : [{ title: 'No references yet', detail: 'Upload 1 to 3 photos, use Google Photos, or paste image links.', tag: 'Waiting' }];
     targetRows.forEach((row) => {
       const wrapper = document.createElement('div');
       wrapper.className = 'object-row';
@@ -111,8 +111,8 @@
       const wrapper = document.createElement('div');
       wrapper.className = 'object-row';
       const body = document.createElement('div');
-      appendTextNode(body, 'strong', 'No tracked question yet');
-      appendTextNode(body, 'small', 'Use the question helper or the suggested next question to start a tracked follow-up.');
+      appendTextNode(body, 'strong', 'No follow-up yet');
+      appendTextNode(body, 'small', 'Add a question here when you want to keep something open.');
       wrapper.appendChild(body);
       appendTextNode(wrapper, 'div', 'Waiting').className = 'object-tag';
       followupsNode.appendChild(wrapper);
@@ -201,14 +201,14 @@
           category: 'priority',
           sentiment: 'neutral',
           importance: 4,
-          text: `Decision state moved to ${String(decisionState || '').replaceAll('_', ' ')}.`,
+          text: `Saved as ${String(decisionState || '').replaceAll('_', ' ')}.`,
           source: 'decision_lifecycle',
           decision_state: String(decisionState || ''),
         }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not record the decision state.'));
-      if (decisionStateStatus) decisionStateStatus.textContent = `Decision state saved as ${String(decisionState || '').replaceAll('_', ' ')}.`;
+      if (decisionStateStatus) decisionStateStatus.textContent = `Saved as ${String(decisionState || '').replaceAll('_', ' ')}.`;
     } catch (error) {
       if (decisionStateStatus) decisionStateStatus.textContent = error instanceof Error ? error.message : 'Could not record the decision state.';
     }
@@ -226,10 +226,10 @@
     const topRow = document.createElement('div');
     topRow.className = 'object-row';
     const topBody = document.createElement('div');
-    appendTextNode(topBody, 'strong', body?.name || 'Question helper');
-    appendTextNode(topBody, 'small', body?.answer || 'No answer returned.');
+    appendTextNode(topBody, 'strong', body?.name || 'Question');
+    appendTextNode(topBody, 'small', body?.answer || 'No answer yet.');
     topRow.appendChild(topBody);
-    appendTextNode(topRow, 'div', 'Grounded').className = 'object-tag';
+    appendTextNode(topRow, 'div', 'Answer').className = 'object-tag';
     clippyAnswer.appendChild(topRow);
     evidence.forEach((row) => {
       const evidenceRow = document.createElement('div');
@@ -274,7 +274,7 @@
             selectedReasons.add(String(row.reason_key || ''));
             reasonButton.classList.add('active');
           }
-          if (status) status.textContent = `Question helper marked ${String(row.detail || 'a reason').trim()} as the current reason. Save your answer when ready.`;
+          if (status) status.textContent = `${String(row.detail || 'A reason').trim()} is now selected. Save when ready.`;
           return;
         }
         if (action === 'ask_agent' && row.question) {
@@ -297,10 +297,10 @@
               }),
             });
             const body = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(String(body.detail || 'Could not record the agent question.'));
-            if (clippyStatus) clippyStatus.textContent = 'Agent follow-up recorded in the decision timeline.';
+            if (!response.ok) throw new Error(String(body.detail || 'Could not save the question.'));
+            if (clippyStatus) clippyStatus.textContent = 'Question saved.';
           } catch (error) {
-            if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Could not record the agent question.';
+            if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Could not save the question.';
           }
         }
       });
@@ -314,7 +314,7 @@
   lifestyleToggle?.addEventListener('click', () => {
     const open = Boolean(lifestylePanel?.hidden);
     if (lifestylePanel) lifestylePanel.hidden = !open;
-    lifestyleToggle.textContent = open ? 'Hide furnished preview' : 'Visualize furnished living';
+    lifestyleToggle.textContent = open ? 'Hide furnished look' : 'Furnished look';
   });
   root.querySelectorAll('[data-object-lifestyle-scene]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -433,7 +433,7 @@
     const includeChild = Boolean(root.querySelector('[data-object-lifestyle-include-child]')?.checked);
     const childConsent = Boolean(root.querySelector('[data-object-lifestyle-child-consent]')?.checked);
     const shareWithPacket = Boolean(root.querySelector('[data-object-lifestyle-share]')?.checked);
-    if (lifestyleStatus) lifestyleStatus.textContent = 'Creating furnished preview...';
+    if (lifestyleStatus) lifestyleStatus.textContent = 'Creating furnished image...';
     try {
       const response = await fetch(lifestyleCreateEndpoint, {
         method: 'POST',
@@ -457,13 +457,13 @@
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(body.detail || 'Could not create the furnished preview.'));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not create the furnished image.'));
       payload[lifestyleScenePayloadKey] = body;
       renderLifestylePreview(body);
       renderLifestyleReferenceList();
-      if (lifestyleStatus) lifestyleStatus.textContent = 'Furnished preview ready. The next review PDF can include this still.';
+      if (lifestyleStatus) lifestyleStatus.textContent = 'Furnished image ready. You can include it in the next PDF.';
     } catch (error) {
-      if (lifestyleStatus) lifestyleStatus.textContent = error instanceof Error ? error.message : 'Could not create the furnished preview.';
+      if (lifestyleStatus) lifestyleStatus.textContent = error instanceof Error ? error.message : 'Could not create the furnished image.';
     }
   });
   root.querySelectorAll('[data-object-clippy-prompt]').forEach((button) => {

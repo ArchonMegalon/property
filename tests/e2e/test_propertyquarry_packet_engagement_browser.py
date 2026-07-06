@@ -36,7 +36,7 @@ def test_packet_dashboard_renders_share_and_followup_state(monkeypatch, tmp_path
 
     page = client.get("/app/properties/packets")
     assert page.status_code == 200
-    assert "Share page" in page.text
+    assert "Share property pages and keep the replies together." in page.text
     assert "Recipients" in page.text
     assert "Follow-ups" in page.text
     assert "Next step:" in page.text
@@ -98,5 +98,5 @@ def test_workspace_shortlist_surfaces_packet_followup_entry(monkeypatch, tmp_pat
     install_property_run(monkeypatch, property_url="https://example.com/listing-1")
     page = client.get("/app/properties", params={"run_id": "run-phase1"})
     assert page.status_code == 200
-    assert "Open property page" in page.text
-    assert "More actions" in page.text
+    assert "Open property" in page.text
+    assert "More" in page.text

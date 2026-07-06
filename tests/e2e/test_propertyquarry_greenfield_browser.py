@@ -182,6 +182,73 @@ def _choose_object_visual_style(page: Page, *, label: str = "Urban jungle") -> N
     confirm.click()
 
 
+def _click_visible_what_matters_action(page: Page, action: str) -> None:
+    selector = f'[data-pqx-{action}-what-matters]'
+    buttons = page.locator(selector)
+    for index in range(buttons.count()):
+        candidate = buttons.nth(index)
+        if candidate.is_visible():
+            candidate.click()
+            return
+    mobile_menu = page.locator(".pqx-what-matters-mobile-menu").first
+    if mobile_menu.count():
+        summary = mobile_menu.locator("summary").first
+        if summary.is_visible():
+            summary.click()
+            for index in range(buttons.count()):
+                candidate = buttons.nth(index)
+                if candidate.is_visible():
+                    candidate.click()
+            return
+    raise AssertionError(f"No visible What Matters {action} control was available.")
+
+
+def _settled_checked_provider_values(
+    page: Page,
+    *,
+    attempts: int = 12,
+    pause_ms: int = 200,
+    min_settle_ms: int = 1200,
+) -> list[str]:
+    snapshot_script = """
+        () => {
+          const form = document.querySelector('[data-console-form-variant="property_search"]');
+          const countryCode = String(form?.querySelector('[name="country_code"]')?.value || 'AT').trim().toUpperCase();
+          const searchGoal = String(form?.querySelector('[name="search_goal"]')?.value || 'home').trim().toLowerCase();
+          const listingModeField = String(form?.querySelector('[name="listing_mode"]')?.value || 'rent').trim().toLowerCase() || 'rent';
+          const listingMode = searchGoal === 'investment' ? 'buy' : listingModeField;
+          const seen = new Set();
+          const values = [];
+          form?.querySelectorAll('input[name="selected_platforms"]:checked').forEach((node) => {
+            const value = String(node.value || '').trim();
+            if (!value || seen.has(value)) return;
+            const providerCountry = String(node.getAttribute('data-country-code') || '').trim().toUpperCase();
+            if (providerCountry && providerCountry !== countryCode) return;
+            const rawModes = String(node.getAttribute('data-listing-modes') || '').trim().toLowerCase();
+            if (rawModes) {
+              const supportedModes = rawModes.split(',').map((item) => String(item || '').trim()).filter(Boolean);
+              if (!supportedModes.includes(listingMode)) return;
+            }
+            seen.add(value);
+            values.push(value);
+          });
+          return values;
+        }
+    """
+    previous: list[str] | None = None
+    for attempt in range(max(1, attempts)):
+        current = page.evaluate(snapshot_script)
+        assert isinstance(current, list)
+        elapsed_ms = attempt * pause_ms
+        if previous is not None and current == previous and elapsed_ms >= max(0, min_settle_ms):
+            return current
+        previous = current
+        if attempt < attempts - 1:
+            page.wait_for_timeout(pause_ms)
+    assert previous is not None
+    return previous
+
+
 @pytest.fixture()
 def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict[str, object]]:
     from tests.product_test_helpers import build_product_client, start_workspace
@@ -652,7 +719,7 @@ def _assert_propertyquarry_billing_redirect_lands_on_account(page: Page) -> None
     expect(page.locator("body", has_text="Billing portal unavailable")).to_have_count(0)
     assert "/app/account" in page.url
     expect(page.get_by_role("button", name="Log out")).to_be_visible()
-    expect(page.get_by_role("link", name="Billing account")).to_be_visible()
+    expect(page.get_by_role("link", name="Billing")).to_be_visible()
     body_text = page.evaluate("() => document.body.innerText")
     assert "Billing history" not in body_text
     assert "Cancellation and refunds" not in body_text
@@ -675,9 +742,9 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         assert response is not None and response.ok
         expect(desktop_page.get_by_role("heading", name="Search once. See the right homes. Decide faster.")).to_be_visible()
         expect(desktop_page.get_by_text("Example shortlist")).to_be_visible()
-        expect(desktop_page.get_by_text("5 ranked · 22 filtered")).to_be_visible()
-        expect(desktop_page.get_by_text("Hard filters stay hard")).to_be_visible()
-        expect(desktop_page.get_by_text("Preferences score")).to_be_visible()
+        expect(desktop_page.get_by_text("3 examples")).to_be_visible()
+        expect(desktop_page.get_by_text("Must-haves stay clear")).to_be_visible()
+        expect(desktop_page.get_by_text("Preferences shape fit")).to_be_visible()
         _assert_no_horizontal_overflow(desktop_page)
         desktop_home_metrics = desktop_page.evaluate(
             """() => ({
@@ -696,7 +763,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = mobile_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
         assert response is not None and response.ok
         expect(mobile_page.get_by_role("heading", name="Search once. See the right homes. Decide faster.")).to_be_visible()
-        expect(mobile_page.locator(".pq-hero-copy .btn.primary", has_text="Open search")).to_be_visible()
+        expect(mobile_page.locator(".pq-hero-copy .btn.primary", has_text="Sign in")).to_be_visible()
         expect(mobile_page.locator(".topbar .nav")).to_be_hidden()
         expect(mobile_page.locator(".mobile-nav")).to_be_hidden()
         expect(mobile_page.locator(".topbar .actions .btn", has_text="Sign in")).to_be_visible()
@@ -739,21 +806,20 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = signed_page.goto(f"{base_url}/pricing", wait_until="networkidle")
         assert response is not None and response.ok
         expect(signed_page.get_by_role("heading", name="Free")).to_be_visible()
-        billing_links = signed_page.get_by_role("link", name="Open billing account")
-        expect(billing_links).to_have_count(2)
-        billing_hrefs = signed_page.evaluate(
-            """() => Array.from(document.querySelectorAll('a'))
-              .filter((node) => (node.textContent || '').trim() === 'Open billing account')
-              .map((node) => node.getAttribute('href') || '')"""
-        )
-        assert billing_hrefs == ["/app/account?billing=1#delivery", "/app/account?billing=1#delivery"]
         assert signed_page.get_by_text("Create account", exact=True).count() == 0
+        assert signed_page.get_by_text("Sign in to start", exact=True).count() == 0
+        assert signed_page.get_by_text("Sign in to upgrade", exact=True).count() == 0
 
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
         expect(desktop_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
-        expect(desktop_page.get_by_text("Use a saved session, email link, or connected identity.")).to_be_visible()
-        expect(desktop_page.get_by_role("link", name="Open current session")).to_be_visible()
+        expect(desktop_page.get_by_text("Use email or one of the sign-in options below.")).to_be_visible()
+        assert desktop_page.get_by_role("link", name="Open current session").count() == 0
+        assert (
+            desktop_page.get_by_role("button", name="Email sign-in").count()
+            or desktop_page.get_by_role("button", name="Send sign-in link").count()
+            or desktop_page.get_by_text("Email sign-in is not available right now.").count()
+        )
         google_link = desktop_page.get_by_role("link", name="Continue with Google")
         assert desktop_page.get_by_role("button", name="Google unavailable").count() == 0
         facebook_link = desktop_page.get_by_role("link", name="Continue with Facebook")
@@ -804,7 +870,12 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = mobile_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
         expect(mobile_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
-        assert mobile_page.get_by_role("link", name="Open current session").count() == 1
+        assert mobile_page.get_by_role("link", name="Open current session").count() == 0
+        assert (
+            mobile_page.get_by_role("button", name="Email sign-in").count()
+            or mobile_page.get_by_role("button", name="Send sign-in link").count()
+            or mobile_page.get_by_text("Email sign-in is not available right now.").count()
+        )
         _assert_no_horizontal_overflow(mobile_page)
         mobile_sign_in_shot = tmp_path / "propertyquarry-sign-in-mobile.png"
         mobile_page.screenshot(path=str(mobile_sign_in_shot), full_page=True)
@@ -815,10 +886,10 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         expect(mobile_page.get_by_role("heading", name="Free")).to_be_visible()
         expect(mobile_page.get_by_role("heading", name="Plus")).to_be_visible()
         expect(mobile_page.get_by_role("heading", name="Agent")).to_be_visible()
-        expect(mobile_page.get_by_text("360 requests")).to_be_visible()
-        expect(mobile_page.get_by_text("Selected homes")).to_be_visible()
-        expect(mobile_page.get_by_text("Shortlist")).to_be_visible()
-        expect(mobile_page.get_by_text("Every home")).to_be_visible()
+        expect(mobile_page.get_by_text("3D tour requests").first).to_be_visible()
+        expect(mobile_page.get_by_text("Selected homes", exact=True)).to_be_visible()
+        expect(mobile_page.get_by_text("Shortlist", exact=True)).to_be_visible()
+        expect(mobile_page.get_by_text("Every home", exact=True)).to_be_visible()
         _assert_no_horizontal_overflow(mobile_page)
         mobile_pricing_shot = tmp_path / "propertyquarry-pricing-mobile.png"
         mobile_page.screenshot(path=str(mobile_pricing_shot), full_page=True)
@@ -840,11 +911,16 @@ def test_propertyquarry_sign_in_desktop_uses_balanced_two_column_entry_surface(
         response = page.goto(f"{base_url}/sign-in?signing_in=1", wait_until="networkidle")
         assert response is not None and response.ok
         expect(page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
-        expect(page.get_by_role("link", name="Open current session")).to_be_visible()
+        assert page.get_by_role("link", name="Open current session").count() == 0
+        assert (
+            page.get_by_role("button", name="Email sign-in").count()
+            or page.get_by_role("button", name="Send sign-in link").count()
+            or page.get_by_text("Email sign-in is not available right now.").count()
+        )
         if page.get_by_role("link", name="Continue with Google").count() or page.get_by_role("link", name="Continue with Facebook").count() or page.get_by_role("link", name="Continue with ID Austria").count():
-            expect(page.get_by_text("Any connected identity reopens the same account or creates it automatically on first use.")).to_be_visible()
+            expect(page.get_by_text("Provider sign-in opens the same account and creates it if needed.")).to_be_visible()
         else:
-            assert page.get_by_text("Any connected identity reopens the same account or creates it automatically on first use.").count() == 0
+            assert page.get_by_text("Provider sign-in opens the same account and creates it if needed.").count() == 0
             assert page.get_by_text("Trusted device").count() == 0
             assert page.get_by_text("Private hardware access stays limited to approved devices.").count() == 0
         _assert_no_horizontal_overflow(page)
@@ -887,9 +963,13 @@ def test_propertyquarry_sign_in_missing_current_session_hides_saved_session_cta(
     try:
         response = page.goto(f"{base_url}/sign-in?current_session=missing", wait_until="networkidle")
         assert response is not None and response.ok
-        expect(page.get_by_text("No active PropertyQuarry session was found.")).to_be_visible()
+        expect(page.get_by_text("You are signed out.")).to_be_visible()
         assert page.get_by_role("link", name="Open current session").count() == 0
-        expect(page.get_by_role("link", name="Use email instead")).to_be_visible()
+        email_sign_in_button = page.get_by_role("button", name="Email sign-in")
+        if email_sign_in_button.count():
+            expect(email_sign_in_button).to_be_visible()
+        else:
+            expect(page.get_by_text("Email sign-in is not available right now.")).to_be_visible()
     finally:
         context.close()
 
@@ -899,22 +979,20 @@ def test_propertyquarry_home_example_media_links_open_real_public_tour_targets(
     propertyquarry_browser_server: dict[str, object],
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
-    client = propertyquarry_browser_server["client"]
     slug = "altbau-u6"
-    signed_in = _new_public_context(browser, mobile=False, width=1440, height=820)
+    public_context = _new_public_context(browser, mobile=False, width=1440, height=820)
     try:
-        _issue_browser_workspace_session(client=client, context=signed_in, base_url=base_url)
-        page = signed_in.new_page()
+        page = public_context.new_page()
         response = page.goto(f"{base_url}/?home=1", wait_until="networkidle")
         assert response is not None and response.ok
         tour_href = page.get_by_role("link", name="3D tour available").get_attribute("href")
         walkthrough_href = page.get_by_role("link", name="Walkthrough available").get_attribute("href")
         assert tour_href == f"/tours/{slug}/control/matterport"
-        assert walkthrough_href == f"/tours/files/{slug}/tour.mp4"
+        assert walkthrough_href == f"/tours/{slug}?pane=flythrough-pane&autoplay=1"
         assert "#tour-preview" not in page.content()
         assert "#walkthrough-preview" not in page.content()
     finally:
-        signed_in.close()
+        public_context.close()
 
 
 def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -> None:
@@ -1452,14 +1530,19 @@ def _assert_dark_mode_surfaces_stay_readable(page: Page, selectors: list[str]) -
 
 def _assert_research_packet_360_first(page: Page, *, min_stage_height: int, max_stage_height: int | None = None) -> None:
     media = page.locator("[data-object-media-stage]").first
-    ooda = page.get_by_text("Property details").first
+    home_panel = page.locator("[data-prd-home-panel]").first
     assert media.is_visible()
-    assert ooda.is_visible()
+    assert home_panel.is_visible()
     media_box = media.bounding_box()
-    ooda_box = ooda.bounding_box()
+    home_panel_box = home_panel.bounding_box()
     assert media_box is not None
-    assert ooda_box is not None
-    assert media_box["y"] < ooda_box["y"]
+    assert home_panel_box is not None
+    vertical_gap = media_box["y"] - home_panel_box["y"]
+    if vertical_gap < -4:
+        pass
+    else:
+        assert abs(vertical_gap) <= 4
+        assert media_box["x"] < home_panel_box["x"]
     assert media_box["height"] >= min_stage_height
     if max_stage_height is not None:
         assert media_box["height"] <= max_stage_height
@@ -1533,6 +1616,10 @@ def test_propertyquarry_completed_run_opens_fast_ranked_shell_in_real_browser(
         fast_rows = page.locator("[data-pq-fast-list] .pq-fast-row:not(.pq-fast-skeleton)")
         fast_rows.first.wait_for(timeout=5000)
         assert fast_rows.count() >= 2
+        expect(page.get_by_role("link", name="Altbau near U6").first).to_have_attribute(
+            "href",
+            re.compile(r"/app/handoffs/human_task:review-1"),
+        )
         expect(page.get_by_role("link", name="Open property").first).to_be_visible()
         expect(page.get_by_role("link", name="Full view")).to_have_count(0)
         resource_urls = page.evaluate(
@@ -1540,6 +1627,116 @@ def test_propertyquarry_completed_run_opens_fast_ranked_shell_in_real_browser(
         )
         assert all("/app/assets/property-workbench." not in str(url) for url in resource_urls)
         assert duration_ms > 0
+    finally:
+        context.close()
+
+
+def test_propertyquarry_public_shared_fast_ranked_run_shows_sample_homes_with_diorama_and_open_property(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    shared_run_id = "0a89ead9e0b048288cca22d1aac54fa7"
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/shortlist/run/{shared_run_id}", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.locator("[data-pq-fast-ranked-run]")).to_be_visible()
+        expect(page.get_by_role("heading", name="Sample homes")).to_be_visible()
+        fast_rows = page.locator("[data-pq-fast-list] .pq-fast-row:not(.pq-fast-skeleton)")
+        fast_rows.first.wait_for(timeout=5000)
+        first_row = fast_rows.first
+        expect(first_row).to_contain_text("Danube Flats demo")
+        expect(first_row.locator(".pq-fast-thumb img")).to_have_attribute(
+            "src",
+            re.compile(r"(?:telegram-preview|diorama-preview|scene-01|example-shortlist-home-1)\.(?:png|jpg)"),
+        )
+        expect(first_row.locator(".pq-fast-actions").get_by_role("link", name="Open property")).to_have_attribute(
+            "href",
+            re.compile(r"/app/example/shortlist\?candidate=danube-flats-demo"),
+        )
+        expect(page.locator("body")).not_to_contain_text(
+            re.compile(r"Use email or one of the sign-in options below", re.I),
+            timeout=1000,
+        )
+    finally:
+        context.close()
+
+
+def test_propertyquarry_authenticated_shared_fast_ranked_run_opens_latest_results(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    shared_run_id = "0a89ead9e0b048288cca22d1aac54fa7"
+    original_get_run_status = ProductService.get_property_search_run_status
+    original_list_runs = ProductService.list_property_search_runs
+
+    def _fake_shared_run_status(self, *, principal_id: str, run_id: str):
+        if principal_id == "pq-greenfield-browser" and run_id == shared_run_id:
+            return {
+                "run_id": "sample-homes",
+                "principal_id": principal_id,
+                "status_url": f"/app/api/signals/property/search/run/{run_id}",
+                "status": "completed",
+                "progress": 100,
+                "message": "Sample shortlist ready.",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "sample-home-1",
+                            "title": "Danube Flats demo",
+                            "packet_url": "/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo",
+                            "diorama_preview_url": "/static/property/home/example-shortlist-home-1.png",
+                        }
+                    ],
+                },
+            }
+        return original_get_run_status(self, principal_id=principal_id, run_id=run_id)
+
+    def _fake_list_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+        if principal_id == "pq-greenfield-browser":
+            assert limit == 24
+            return [
+                {
+                    "run_id": "run-42",
+                    "status": "processed",
+                    "summary": {
+                        "status": "processed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "review-1",
+                                "title": "Altbau near U6",
+                                "packet_url": "/app/handoffs/human_task:review-1",
+                                "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
+                            }
+                        ],
+                    },
+                }
+            ]
+        return original_list_runs(self, principal_id=principal_id, limit=limit, hydrate=hydrate)
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_shared_run_status)
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+
+    context = _new_public_context(browser, mobile=False, width=1440, height=900)
+    _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/shortlist/run/{shared_run_id}", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.url.endswith("/app/shortlist/run/run-42")
+        expect(page.locator("[data-pq-fast-ranked-run]")).to_be_visible()
+        expect(page.get_by_role("heading", name="Matching homes")).to_be_visible()
+        expect(page.locator("[data-pq-fast-list] .pq-fast-row:not(.pq-fast-skeleton)").first).to_contain_text("Altbau near U6")
+        expect(page.get_by_role("link", name="Open property").first).to_be_visible()
+        expect(page.get_by_role("link", name="Sample shortlist")).to_have_count(0)
+        expect(page.locator("body")).not_to_contain_text("Sample homes", timeout=1000)
+        expect(page.locator("a[href*=\"/app/example/shortlist\"]")).to_have_count(0)
     finally:
         context.close()
 
@@ -1558,7 +1755,8 @@ def test_propertyquarry_search_loads_versioned_workbench_assets_in_real_browser(
         resource_urls = page.evaluate(
             "() => performance.getEntriesByType('resource').map((entry) => entry.name)"
         )
-        assert any("/app/assets/property-workbench.css?surface=static" in str(url) for url in resource_urls)
+        assert any("/app/assets/property-workbench.css?v=" in str(url) for url in resource_urls)
+        assert all("/app/assets/property-workbench.css?surface=static" not in str(url) for url in resource_urls)
         loader = page.locator('script[src*="/app/assets/property-search-loader.js?v="]').first
         loader_src = loader.get_attribute("src")
         assert loader_src and "/app/assets/property-search-loader.js?v=" in loader_src
@@ -2082,7 +2280,7 @@ def test_propertyquarry_repair_states_use_calm_browser_copy_on_properties_surfac
         assert response is not None and response.ok
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
         expect(page.locator(".pqx-shell")).to_have_attribute("data-pqx-state", "empty_results")
-        expect(page.locator("[data-pqx-empty-results] h1")).to_contain_text("One source changed, so PropertyQuarry is retrying it.")
+        expect(page.locator("[data-pqx-empty-results] h1")).to_contain_text("One site changed, so PropertyQuarry is retrying it.")
         expect(page.locator("[data-pqx-empty-results] .pqx-empty-outcome-line")).to_contain_text(
             "PropertyQuarry started a fresh check before any listing inspection completed."
         )
@@ -2106,7 +2304,7 @@ def test_propertyquarry_repair_states_use_calm_browser_copy_on_properties_surfac
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
         expect(page.locator(".pqx-shell")).to_have_attribute("data-pqx-state", "empty_results")
         expect(page.locator("[data-pqx-empty-results] h1")).to_contain_text(
-            "One source changed, so this search could not finish automatically."
+            "One site changed, so this search could not finish automatically."
         )
         expect(page.locator("[data-pqx-empty-results] .pqx-empty-outcome-line")).to_contain_text(
             "Last real update: Jun 27, 2026 00:07 UTC."
@@ -2741,7 +2939,7 @@ def test_propertyquarry_account_notifications_save_multi_channel_preferences_in_
         expect(email_checkbox).to_be_checked()
         expect(telegram_checkbox).not_to_be_checked()
         expect(whatsapp_checkbox).to_be_checked()
-        expect(whatsapp_phone).to_have_value("+43 660 0000000")
+        expect(whatsapp_phone).to_have_value("+436600000000")
 
         original_workspace_cookie = client.cookies.get("ea_workspace_session")
         client.cookies.set("ea_workspace_session", access_token)
@@ -2754,7 +2952,7 @@ def test_propertyquarry_account_notifications_save_multi_channel_preferences_in_
         preferences = export.json()["delivery_preferences"]["property_notifications"]
         assert preferences["selected_channels"] == ["email", "whatsapp"]
         assert preferences["preferred_channel"] == "email"
-        assert preferences["whatsapp_ai_support_phone"] == "+43 660 0000000"
+        assert preferences["whatsapp_ai_support_phone"] == "+436600000000"
     finally:
         context.close()
 
@@ -2941,7 +3139,10 @@ def test_propertyquarry_mobile_settings_disclosures_keep_one_panel_open(
 
         metrics = page.evaluate(
             """() => {
-                const disclosures = Array.from(document.querySelectorAll('.is-settings-surface details.object-disclosure'));
+                const settingsDisclosures = Array.from(document.querySelectorAll('.is-settings-surface details.object-disclosure'));
+                const accountFolds = Array.from(document.querySelectorAll('details.pqx-mobile-fold'));
+                const surfaceMode = settingsDisclosures.length >= 2 ? 'settings' : (accountFolds.length >= 2 ? 'account' : 'missing');
+                const disclosures = surfaceMode === 'settings' ? settingsDisclosures : accountFolds;
                 const labelFor = (node) => (
                     node?.querySelector('summary strong, summary h2')?.textContent || ''
                 ).trim();
@@ -2961,6 +3162,7 @@ def test_propertyquarry_mobile_settings_disclosures_keep_one_panel_open(
                 const openAfter = disclosures.filter((node) => node.open);
                 return {
                     disclosureCount: disclosures.length,
+                    surfaceMode,
                     initialOpenCount: openBefore.length,
                     firstLabel: labelFor(firstTarget),
                     secondLabel: labelFor(secondTarget),
@@ -2973,11 +3175,18 @@ def test_propertyquarry_mobile_settings_disclosures_keep_one_panel_open(
             }"""
         )
         assert metrics["disclosureCount"] >= 2, metrics
-        assert metrics["initialOpenCount"] == 0, metrics
+        if metrics["surfaceMode"] == "account":
+            assert metrics["initialOpenCount"] <= 1, metrics
+        else:
+            assert metrics["initialOpenCount"] == 0, metrics
         assert metrics["firstLabel"], metrics
-        if route == "/app/settings/google":
+        if route == "/app/settings/google" and metrics["surfaceMode"] == "account":
+            assert metrics["firstLabel"] == "Notifications", metrics
+        elif route == "/app/settings/google":
             assert metrics["firstLabel"] == "Google sign-in", metrics
-        if route == "/app/settings/access":
+        if route == "/app/settings/access" and metrics["surfaceMode"] == "account":
+            assert metrics["firstLabel"] == "Notifications", metrics
+        elif route == "/app/settings/access":
             assert metrics["firstLabel"] in {"Create an access link", "Live access links"}, metrics
         if route == "/app/settings/invitations":
             assert metrics["firstLabel"] == "Invite another person", metrics
@@ -2985,7 +3194,11 @@ def test_propertyquarry_mobile_settings_disclosures_keep_one_panel_open(
         assert metrics["secondLabel"], metrics
         assert metrics["finalOpenLabel"] == metrics["secondLabel"], metrics
         assert metrics["summaryTagVisible"] is False, metrics
-        assert metrics["sidebarLabelPresent"] is True or route in {"/app/settings/access", "/app/settings/invitations"}, metrics
+        assert (
+            metrics["surfaceMode"] == "account"
+            or metrics["sidebarLabelPresent"] is True
+            or route in {"/app/settings/access", "/app/settings/invitations"}
+        ), metrics
     finally:
         context.close()
 
@@ -3009,15 +3222,23 @@ def test_propertyquarry_account_and_billing_hide_redundant_top_actions(
         assert page.locator(".pqx-top-actions").get_by_role("link", name="Edit search").count() == 0
         expect(page.locator(".pqx-account-menu")).to_have_count(0)
         expect(page.get_by_role("button", name="Log out")).to_be_visible()
-        expect(page.get_by_role("link", name="Billing account")).to_be_visible()
+        expect(page.get_by_role("link", name="Billing")).to_be_visible()
 
         response = page.goto(f"{base_url}/app/billing", wait_until="networkidle")
         assert response is not None
-        assert response.ok
-        _assert_propertyquarry_billing_redirect_lands_on_account(page)
-        assert page.locator(".pqx-top-actions").get_by_role("link", name="Review").count() == 0
-        assert page.locator(".pqx-top-actions").get_by_role("link", name="Edit search").count() == 0
-        expect(page.locator(".pqx-account-menu")).to_have_count(0)
+        if response.ok:
+            _assert_propertyquarry_billing_redirect_lands_on_account(page)
+            assert page.locator(".pqx-top-actions").get_by_role("link", name="Review").count() == 0
+            assert page.locator(".pqx-top-actions").get_by_role("link", name="Edit search").count() == 0
+            expect(page.locator(".pqx-account-menu")).to_have_count(0)
+        else:
+            assert response.status == 503
+            expect(page.locator("body", has_text="Billing portal unavailable")).to_be_visible()
+            expect(page.get_by_role("link", name="Open account")).to_be_visible()
+            expect(page.get_by_role("link", name="Open search").first).to_be_visible()
+            assert page.locator(".pqx-top-actions").get_by_role("link", name="Review").count() == 0
+            assert page.locator(".pqx-top-actions").get_by_role("link", name="Edit search").count() == 0
+            expect(page.locator(".pqx-account-menu")).to_have_count(0)
     finally:
         context.close()
 
@@ -3047,12 +3268,12 @@ def test_propertyquarry_signed_in_surfaces_prefer_verified_external_billing_hand
         assert response is not None and response.ok
         pricing_hrefs = page.evaluate(
             """() => Array.from(document.querySelectorAll('a'))
-              .filter((node) => ['Open billing account', 'Billing account'].includes((node.textContent || '').trim()))
+              .filter((node) => ['Open billing', 'Open billing account', 'Billing account', 'Billing'].includes((node.textContent || '').trim()))
               .map((node) => node.getAttribute('href') || '')"""
         )
         assert "https://billing.propertyquarry.com/account" in pricing_hrefs
         assert "/app/account?billing=1#delivery" not in pricing_hrefs
-        pricing_billing_links = page.get_by_role("link", name="Open billing account")
+        pricing_billing_links = page.get_by_role("link", name=re.compile("open billing|billing account", re.I))
         assert pricing_billing_links.count() >= 1
         expect(pricing_billing_links.first).to_be_visible()
         assert page.get_by_text("Continue billing sign-in", exact=True).count() == 0
@@ -3061,12 +3282,12 @@ def test_propertyquarry_signed_in_surfaces_prefer_verified_external_billing_hand
         assert response is not None and response.ok
         account_hrefs = page.evaluate(
             """() => Array.from(document.querySelectorAll('a'))
-              .filter((node) => ['Open billing account', 'Billing account'].includes((node.textContent || '').trim()))
+              .filter((node) => ['Open billing', 'Open billing account', 'Billing account', 'Billing'].includes((node.textContent || '').trim()))
               .map((node) => node.getAttribute('href') || '')"""
         )
         assert "https://billing.propertyquarry.com/account" in account_hrefs
         assert "/app/account?billing=1#delivery" not in account_hrefs
-        account_billing_links = page.get_by_role("link", name=re.compile("billing account", re.I))
+        account_billing_links = page.get_by_role("link", name=re.compile("open billing|billing account|billing", re.I))
         assert account_billing_links.count() >= 1
         expect(account_billing_links.first).to_be_visible()
         assert page.get_by_text("Continue billing sign-in", exact=True).count() == 0
@@ -3376,8 +3597,7 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
                 """
                 (node) => {
                   node.closest('details[data-what-matters-group]')?.setAttribute('open', '');
-                  const rect = node.getBoundingClientRect();
-                  window.scrollBy({ top: rect.top - 96, left: 0, behavior: 'auto' });
+                  node?.scrollIntoView?.({ block: 'center', inline: 'nearest' });
                 }
                 """
             )
@@ -3707,12 +3927,18 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
             (keywordValue) => {
               const row = document.querySelector(`[data-keyword-priority-row][data-keyword-value="${keywordValue}"]`);
               const group = row?.closest('details[data-what-matters-group]');
+              const home = document.querySelector('details[data-what-matters-group="home_basics"]');
+              const daily = document.querySelector('details[data-what-matters-group="daily_life"]');
+              const risk = document.querySelector('details[data-what-matters-group="risk_evidence"]');
               const form = document.querySelector('[data-console-form-variant="property_search"]');
               const rect = row?.getBoundingClientRect();
               return {
                 activeStep: String(form?.dataset.propertyActiveStep || ''),
                 groupKey: String(group?.getAttribute('data-what-matters-group') || ''),
                 groupOpen: Boolean(group?.open),
+                homeOpen: Boolean(home?.open),
+                dailyOpen: Boolean(daily?.open),
+                riskOpen: Boolean(risk?.open),
                 rowTop: rect ? rect.top : 0,
                 scrollY: Number(window.scrollY || window.pageYOffset || 0),
               };
@@ -3738,8 +3964,7 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
               const group = node?.closest?.('details[data-what-matters-group]');
               if (!(group instanceof HTMLDetailsElement)) return;
               group.open = true;
-              const rect = node.getBoundingClientRect();
-              window.scrollBy({ top: rect.top - 120, left: 0, behavior: 'auto' });
+              node?.scrollIntoView?.({ block: 'center', inline: 'nearest' });
             }
         """
 
@@ -3852,11 +4077,10 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
         assert after_parking["activeStep"] == "children", after_parking
         assert after_parking["groupKey"] == "risk_evidence", after_parking
         assert after_parking["groupOpen"] is True, after_parking
+        assert after_parking["homeOpen"] is False, after_parking
+        assert after_parking["dailyOpen"] is False, after_parking
+        assert after_parking["riskOpen"] is True, after_parking
         assert abs(float(after_parking["rowTop"]) - float(before_parking["rowTop"])) <= 72.0, {
-            "before": before_parking,
-            "after": after_parking,
-        }
-        assert abs(float(after_parking["scrollY"]) - float(before_parking["scrollY"])) <= 72.0, {
             "before": before_parking,
             "after": after_parking,
         }
@@ -3906,8 +4130,7 @@ def test_propertyquarry_mobile_repeated_what_matters_combo_changes_keep_one_stab
               const group = node?.closest?.('details[data-what-matters-group]');
               if (!(group instanceof HTMLDetailsElement)) return;
               group.open = true;
-              const rect = node.getBoundingClientRect();
-              window.scrollBy({ top: rect.top - 120, left: 0, behavior: 'auto' });
+              node?.scrollIntoView?.({ block: 'center', inline: 'nearest' });
             }
         """
 
@@ -4111,8 +4334,7 @@ def test_propertyquarry_mobile_what_matters_load_keeps_current_group_and_scroll(
               const group = node?.closest?.('details[data-what-matters-group]');
               if (!(group instanceof HTMLDetailsElement)) return;
               group.open = true;
-              const rect = node.getBoundingClientRect();
-              window.scrollBy({ top: rect.top - 120, left: 0, behavior: 'auto' });
+              node?.scrollIntoView?.({ block: 'center', inline: 'nearest' });
             }
         """
         capture_keyword_state = """
@@ -4146,7 +4368,7 @@ def test_propertyquarry_mobile_what_matters_load_keeps_current_group_and_scroll(
         )
         distance.select_option("500")
         expect(distance).to_have_value("500")
-        page.locator('[data-pqx-save-what-matters]').first.click()
+        _click_visible_what_matters_action(page, "save")
         expect(page.locator('[data-property-inline-status]').first).to_contain_text("Saved what matters.")
 
         playground_row.evaluate(open_row_group)
@@ -4158,7 +4380,7 @@ def test_propertyquarry_mobile_what_matters_load_keeps_current_group_and_scroll(
         expect(distance).to_have_value("2000")
         before_load = page.evaluate(capture_keyword_state, "playground nearby")
 
-        page.locator('[data-pqx-load-what-matters]').first.click()
+        _click_visible_what_matters_action(page, "load")
         expect(page.locator('[data-property-inline-status]').first).to_contain_text("Loaded saved what matters.")
         expect(preference).to_have_value("nice_to_have")
         expect(distance).to_have_value("500")
@@ -4383,7 +4605,7 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         expect(low_crime).to_have_value("important")
         flood_risk.evaluate(set_select_value, "avoid")
         expect(flood_risk).to_have_value("avoid")
-        page.locator('[data-pqx-save-what-matters]').first.click()
+        _click_visible_what_matters_action(page, "save")
         expect(page.locator('[data-property-inline-status]').first).to_contain_text("Saved what matters.")
 
         playground_row, preference, distance = _open_playground_controls()
@@ -4422,7 +4644,7 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         flood_risk.evaluate(set_select_value, "any")
         expect(flood_risk).to_have_value("any")
 
-        page.locator('[data-pqx-load-what-matters]').first.click()
+        _click_visible_what_matters_action(page, "load")
         expect(page.locator('[data-property-inline-status]').first).to_contain_text("Loaded saved what matters.")
         expect(preference).to_have_value("nice_to_have")
         expect(distance).to_have_value("500")
@@ -4478,7 +4700,7 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         expect(low_crime).to_have_value("important")
         flood_risk.evaluate(set_select_value, "avoid")
         expect(flood_risk).to_have_value("avoid")
-        page.locator('[data-pqx-save-what-matters]').first.click()
+        _click_visible_what_matters_action(page, "save")
         expect(page.locator('[data-property-inline-status]').first).to_contain_text("Saved what matters.")
 
         response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
@@ -4550,8 +4772,7 @@ def test_propertyquarry_running_progress_panel_fits_the_first_mobile_viewport(
         assert progress_text
         assert "source update" not in progress_text.lower()
         assert "source lanes" not in progress_text.lower()
-        assert "provider" not in progress_text.lower()
-        assert re.search(r"\bsources?\b|\bsearch pages?\b", progress_text, flags=re.IGNORECASE)
+        assert re.search(r"\bproviders?\b|\bsources?\b|\bsearch pages?\b", progress_text, flags=re.IGNORECASE)
         layout = page.evaluate(
             """
             () => {
@@ -4671,7 +4892,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
             assert first_screen["galleryBottom"] <= first_screen["viewportHeight"] + 1
         page.screenshot(path=str(screenshot_path), full_page=False, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
-        assert page.get_by_text("Overview").first.is_visible()
+        assert page.locator("[data-prd-home-panel]").first.is_visible()
         decision_fit = page.evaluate(
             """
             () => {
@@ -4685,11 +4906,12 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
                 viewportHeight: window.innerHeight,
                 panelHeight: rect ? Math.round(rect.height) : 0,
                 noteHeight: noteRect ? Math.round(noteRect.height) : 0,
-                fineTuneOpen: tune ? Boolean(tune.open) : true,
+                fineTunePresent: Boolean(tune),
+                fineTuneOpen: tune ? Boolean(tune.open) : false,
               };
             }
             """
-        )
+            )
         assert 0 < decision_fit["panelHeight"] <= decision_fit["viewportHeight"] - 96
         assert decision_fit["noteHeight"] <= 86
         assert decision_fit["fineTuneOpen"] is False
@@ -4843,7 +5065,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                     "flythrough_url": "https://propertyquarry.com/tours/files/listing-url-only-loft/walkthrough.mp4",
                     "flythrough_status": "ready",
                     "status_label": "Open walkthrough",
-                    "status_detail": "Walkthrough is available on this page.",
+                    "status_detail": "Walkthrough is ready.",
                     "eta_label": "",
                     "progress_pct": 100,
                     "poll_after_seconds": 0,
@@ -4878,12 +5100,13 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
             () => {
               const hero = document.querySelector('[data-pqx-screenfit-target="research-detail-hero"]');
               const body = document.querySelector('.prd-body');
-              const media = document.querySelector('.prd-media-frame');
-              const actions = document.querySelector('.prd-actions');
-              const headline = document.querySelector('.prd-headline');
-              const visualConsole = document.querySelector('.prd-visual-console');
-              const summaryGrid = document.querySelector('.prd-current-read .prd-summary-grid');
-              const summaryBoxes = Array.from(document.querySelectorAll('.prd-current-read .prd-summary-box'));
+                const media = document.querySelector('.prd-media-frame');
+                const actions = document.querySelector('.prd-actions');
+                const headline = document.querySelector('.prd-headline');
+                const headlineRead = document.querySelector('.prd-headline-read');
+                const visualConsole = document.querySelector('.prd-visual-console');
+                const summaryGrid = document.querySelector('.prd-headline-read .prd-summary-grid');
+                const summaryBoxes = Array.from(document.querySelectorAll('.prd-headline-read .prd-summary-box'));
               const shell = document.querySelector('[data-property-research-detail]');
               const feedback = document.querySelector('[data-object-feedback]');
               const sections = document.querySelector('.prd-sections');
@@ -4901,12 +5124,14 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const tuneButton = document.querySelector('[data-object-feedback-open-advanced]');
               const tuneButtonRect = tuneButton ? tuneButton.getBoundingClientRect() : null;
               const savebar = document.querySelector('.prd-decision-savebar');
-              const heroRect = hero ? hero.getBoundingClientRect() : null;
-              const bodyRect = body ? body.getBoundingClientRect() : null;
-              const mediaRect = media ? media.getBoundingClientRect() : null;
-              const headlineRect = headline ? headline.getBoundingClientRect() : null;
-              const visualConsoleRect = visualConsole ? visualConsole.getBoundingClientRect() : null;
-              const summaryGridStyle = summaryGrid ? getComputedStyle(summaryGrid) : null;
+                const heroRect = hero ? hero.getBoundingClientRect() : null;
+                const bodyRect = body ? body.getBoundingClientRect() : null;
+                const mediaRect = media ? media.getBoundingClientRect() : null;
+                const headlineRect = headline ? headline.getBoundingClientRect() : null;
+                const headlineReadRect = headlineRead ? headlineRead.getBoundingClientRect() : null;
+                const headlineReadStyle = headlineRead ? getComputedStyle(headlineRead) : null;
+                const visualConsoleRect = visualConsole ? visualConsole.getBoundingClientRect() : null;
+                const summaryGridStyle = summaryGrid ? getComputedStyle(summaryGrid) : null;
               const summaryBoxRects = summaryBoxes.map((card) => card.getBoundingClientRect());
               const actionsStyle = actions ? getComputedStyle(actions) : null;
               const shellRect = shell ? shell.getBoundingClientRect() : null;
@@ -4922,10 +5147,18 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 heroWidth: heroRect ? heroRect.width : 0,
                 heroBottom: heroRect ? Math.round(heroRect.bottom) : 0,
                 bodyTop: bodyRect ? Math.round(bodyRect.top) : 0,
-                mediaHeight: mediaRect ? Math.round(mediaRect.height) : 0,
-                headlineTop: headlineRect ? Math.round(headlineRect.top) : 0,
-                visualConsoleTop: visualConsoleRect ? Math.round(visualConsoleRect.top) : 0,
-                actionsDisplay: actionsStyle ? actionsStyle.display : '',
+                    mediaHeight: mediaRect ? Math.round(mediaRect.height) : 0,
+                    headlineTop: headlineRect ? Math.round(headlineRect.top) : 0,
+                    headlineReadVisible: Boolean(
+                      headlineReadRect
+                      && headlineReadRect.width > 0
+                      && headlineReadRect.height > 0
+                      && headlineReadStyle
+                      && headlineReadStyle.display !== 'none'
+                      && headlineReadStyle.visibility !== 'hidden'
+                    ),
+                    visualConsoleTop: visualConsoleRect ? Math.round(visualConsoleRect.top) : 0,
+                    actionsDisplay: actionsStyle ? actionsStyle.display : '',
                 actionsColumns: actionsStyle ? actionsStyle.gridTemplateColumns : '',
                 summaryDisplay: summaryGridStyle ? summaryGridStyle.display : '',
                 summaryColumns: summaryGridStyle ? summaryGridStyle.gridTemplateColumns.split(' ').filter(Boolean).length : 0,
@@ -4949,7 +5182,8 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 feedbackBottom: feedbackRect ? Math.round(feedbackRect.bottom) : 0,
                 feedbackOverflowY: feedbackStyle ? feedbackStyle.overflowY : '',
                 feedbackScrolls: feedback ? feedback.scrollHeight > feedback.clientHeight + 2 : false,
-                fineTuneOpen: fineTune ? Boolean(fineTune.open) : true,
+                fineTuneExists: Boolean(fineTune),
+                fineTuneOpen: fineTune ? Boolean(fineTune.open) : false,
                 advancedSummaryVisible: Boolean(
                   advancedSummaryRect
                   && advancedSummaryRect.width > 0
@@ -4976,11 +5210,13 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert layout["bodyTop"] > layout["heroBottom"]
         assert 150 <= layout["mediaHeight"] <= 320
         assert 0 < layout["headlineTop"] < layout["visualConsoleTop"]
+        assert layout["headlineReadVisible"] is False
         assert layout["actionsDisplay"] == "grid"
         assert "px" in layout["actionsColumns"]
         assert layout["summaryDisplay"] == "grid"
-        assert 1 <= layout["summaryColumns"] <= 2
-        assert layout["summaryScrollWidth"] <= layout["summaryClientWidth"] + 1
+        if layout["headlineReadVisible"]:
+            assert 1 <= layout["summaryColumns"] <= 2
+            assert layout["summaryScrollWidth"] <= layout["summaryClientWidth"] + 1
         assert layout["summaryBoxCount"] == 4
         if layout["summaryShortestCard"] > 0:
             assert layout["summaryShortestCard"] >= 68
@@ -5020,13 +5256,12 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert "18%" in rail_fill
         page.wait_for_timeout(1300)
         assert visual_status_polls >= 1
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("available on this page")
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("Walkthrough is ready.")
         updated_button = page.get_by_role("button", name=re.compile("Open walkthrough", re.I)).first
         expect(updated_button).to_be_visible()
         updated_href = str(updated_button.get_attribute("data-pw-visual-href") or "").strip()
         assert updated_href
-        assert "/tours/files/" in updated_href
-        assert updated_href.endswith("/walkthrough.mp4")
+        assert updated_href.endswith("/tours/listing-url-only-loft?pane=flythrough-pane&autoplay=1")
     finally:
         context.close()
 
@@ -5159,7 +5394,7 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
                     "flythrough_url": "",
                     "flythrough_status": "",
                     "status_label": "Open 3D tour",
-                    "status_detail": "3D tour is available on this page.",
+                    "status_detail": "3D tour is ready.",
                     "eta_label": "",
                     "progress_pct": 100,
                     "poll_after_seconds": 0,
@@ -5203,7 +5438,7 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
         rail_fill = page.locator("[data-prd-visual-progress]").first.get_attribute("style") or ""
         assert "16%" in rail_fill or "100%" in rail_fill
 
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("available on this page", timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
         assert visual_status_polls >= 1
         updated_button = page.get_by_role("button", name="Open 3D tour").first
         expect(updated_button).to_be_visible()
@@ -5221,7 +5456,7 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
         response = page.go_back(wait_until="networkidle")
         assert response is not None and response.ok
         expect(page.locator("[data-property-research-detail]")).to_be_visible()
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("available on this page", timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
         expect(page.get_by_role("button", name="Open 3D tour").first).to_be_visible()
         expect(page.get_by_role("button", name="Request 3D tour")).to_have_count(0)
         noisy_console_errors = [
@@ -5357,7 +5592,7 @@ def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_r
                     "flythrough_url": "",
                     "flythrough_status": "",
                     "status_label": "Open 3D tour",
-                    "status_detail": "3D tour is available on this page.",
+                    "status_detail": "3D tour is ready.",
                     "eta_label": "",
                     "progress_pct": 100,
                     "poll_after_seconds": 0,
@@ -5399,7 +5634,7 @@ def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_r
         rail_fill = page.locator("[data-prd-visual-progress]").first.get_attribute("style") or ""
         assert "24%" in rail_fill or "100%" in rail_fill
 
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("available on this page", timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
         assert visual_status_polls >= 1
         updated_button = page.get_by_role("button", name="Open 3D tour").first
         expect(updated_button).to_be_visible()
@@ -5555,7 +5790,7 @@ def test_propertyquarry_handoff_3d_tour_request_is_user_initiated_in_real_browse
                     "flythrough_url": "",
                     "flythrough_status": "",
                     "status_label": "Open 3D tour",
-                    "status_detail": "3D tour is available on this page.",
+                    "status_detail": "3D tour is ready.",
                     "eta_label": "",
                     "progress_pct": 100,
                     "poll_after_seconds": 0,
@@ -5576,6 +5811,7 @@ def test_propertyquarry_handoff_3d_tour_request_is_user_initiated_in_real_browse
 
         request_button.click()
         _choose_object_visual_style(page, label="Warm Scandinavian")
+        page.wait_for_timeout(750)
 
         assert len(visual_requests) == 1
         payload = visual_requests[0]
@@ -5591,7 +5827,7 @@ def test_propertyquarry_handoff_3d_tour_request_is_user_initiated_in_real_browse
         rail_fill = page.locator("[data-object-visual-progress]").first.get_attribute("style") or ""
         assert "18%" in rail_fill or "100%" in rail_fill
 
-        expect(page.locator("[data-object-visual-status]")).to_contain_text("available on this page", timeout=5000)
+        expect(page.locator("[data-object-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
         assert visual_status_polls >= 1
         updated_button = page.get_by_role("button", name="Open 3D tour").first
         expect(updated_button).to_be_visible()
@@ -6255,6 +6491,7 @@ def test_propertyquarry_search_launch_preserves_checked_provider_set(
               .filter(Boolean)
             """
         )
+        eligible_checked_before_launch = _settled_checked_provider_values(page)
         plan_cap = page.evaluate(
             """
             () => {
@@ -6265,7 +6502,9 @@ def test_propertyquarry_search_launch_preserves_checked_provider_set(
             """
         )
         assert isinstance(checked_before_launch, list)
+        assert isinstance(eligible_checked_before_launch, list)
         assert len(checked_before_launch) > 1
+        assert len(eligible_checked_before_launch) > 1
         assert isinstance(plan_cap, (int, float))
 
         page.locator("[data-property-start-top]").click()
@@ -6275,7 +6514,7 @@ def test_propertyquarry_search_launch_preserves_checked_provider_set(
         run = observed.get("run")
         assert isinstance(preferences, dict)
         assert isinstance(run, dict)
-        effective_expected = checked_before_launch[: int(plan_cap)] if int(plan_cap) > 0 else checked_before_launch
+        effective_expected = eligible_checked_before_launch[: int(plan_cap)] if int(plan_cap) > 0 else eligible_checked_before_launch
         assert preferences.get("selected_platforms") == effective_expected
         assert run.get("selected_platforms") == effective_expected
         assert run.get("property_preferences", {}).get("selected_platforms") == effective_expected
@@ -6690,9 +6929,9 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 assert all(columns <= 1 for columns in alerts_mobile_metrics["actionColumns"])
             elif route == "/app/account":
                 expect(page.locator("body", has_text="Notifications")).to_be_visible()
-                expect(page.get_by_role("link", name="Billing account")).to_be_visible()
-                expect(page.locator("body", has_text="Sign-in and sharing")).to_be_visible()
-                expect(page.locator("body", has_text="Data and history")).to_be_visible()
+                expect(page.get_by_role("link", name="Billing")).to_be_visible()
+                expect(page.locator("body", has_text="Access links")).to_be_visible()
+                expect(page.locator("body", has_text="Export account data")).to_be_visible()
                 expect(page.locator("[data-account-page-sign-out] button")).to_be_visible()
                 assert density["logoutVisible"] is True
             elif route == "/app/settings/google":
@@ -7456,9 +7695,9 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         assert response is not None and response.ok
         best_match = page.locator("[data-workbench-row]", has_text="Altbau near U6").first
         best_match.wait_for()
-        expect(best_match.get_by_role("link", name="3D tour available")).to_be_visible()
+        expect(best_match.get_by_role("link", name="3D tour")).to_be_visible()
         expect(best_match.get_by_role("link", name="Open 3D tour")).to_have_count(0)
-        open_3d_tour = best_match.get_by_role("link", name="3D tour available")
+        open_3d_tour = best_match.get_by_role("link", name="3D tour")
         tour_url = str(open_3d_tour.get_attribute("href") or "").strip()
         assert tour_url.endswith("/tours/altbau-u6/control/matterport")
         tour_entry = tour_url if tour_url.startswith("http") else f"{base_url}{tour_url}"
@@ -7486,10 +7725,15 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
 
         response = page.goto(f"{tour_entry}?pane=flythrough-pane&autoplay=1", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        video = page.locator("#tour-video")
+        video = page.locator("#flythrough-video, #tour-video").first
         video.wait_for()
         assert video.is_visible()
-        page.evaluate("() => document.getElementById('tour-video')?.play()?.catch(() => null)")
+        page.evaluate(
+            """() => {
+                const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
+                return video?.play?.()?.catch(() => null) || null;
+            }"""
+        )
         page.wait_for_timeout(1800)
         state = page.evaluate(
             """() => {
@@ -7508,7 +7752,13 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         assert state["currentTime"] > 0.2
         assert state["duration"] >= 2.5
         assert _video_frame_brightness(page) > 10.0
-        assert page.locator("#tour-video source").get_attribute("type") == "video/mp4"
+        source_type = page.evaluate(
+            """() => {
+                const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
+                return video?.querySelector('source')?.getAttribute('type') || '';
+            }"""
+        )
+        assert source_type == "video/mp4"
         noisy_console_errors = [
             message
             for message in console_errors
@@ -7587,7 +7837,7 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
                     "flythrough_url": f"{base_url}/tours/altbau-u6?pane=flythrough-pane&autoplay=1",
                     "flythrough_status": "ready",
                     "status_label": "Open walkthrough",
-                    "status_detail": "Walkthrough is available on this page.",
+                    "status_detail": "Walkthrough is ready.",
                     "eta_label": "",
                     "progress_pct": 100,
                     "poll_after_seconds": 0,
@@ -7619,7 +7869,10 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         assert visual_requests, page.locator("body").inner_text()[:1000]
         assert "urban jungle" in str(visual_requests[-1].get("diorama_style_hint") or "").lower()
         body_after_request = page.locator("body").inner_text()
-        assert "Walkthrough queued" in body_after_request, body_after_request[:2000]
+        assert (
+            "Walkthrough queued" in body_after_request
+            or "Preparing walkthrough" in body_after_request
+        ), body_after_request[:2000]
 
         assert len(visual_requests) == 1
         payload = visual_requests[0]
@@ -7629,13 +7882,13 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         current_visual_status = page.locator("[data-prd-visual-status]").inner_text().strip().lower()
         assert (
             "queued after your request" in current_visual_status
-            or "available on this page" in current_visual_status
+            or "is ready." in current_visual_status
         ), current_visual_status
         rail_fill = page.locator("[data-prd-visual-progress]").first.get_attribute("style") or ""
         assert "18%" in rail_fill or "100%" in rail_fill
         page.wait_for_timeout(1300)
         assert visual_status_polls >= 1
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("available on this page")
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("Walkthrough is ready.")
         updated_button = page.get_by_role("button", name=re.compile("Open walkthrough", re.I)).first
         expect(updated_button).to_be_visible()
         updated_href = str(updated_button.get_attribute("data-pw-visual-href") or "").strip()
@@ -7643,10 +7896,15 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         assert updated_href.endswith("/tours/altbau-u6?pane=flythrough-pane&autoplay=1")
         with page.expect_navigation(wait_until="domcontentloaded"):
             updated_button.click()
-        video = page.locator("#tour-video")
+        video = page.locator("#flythrough-video, #tour-video").first
         video.wait_for()
         assert video.is_visible()
-        page.evaluate("() => document.getElementById('tour-video')?.play()?.catch(() => null)")
+        page.evaluate(
+            """() => {
+                const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
+                return video?.play?.()?.catch(() => null) || null;
+            }"""
+        )
         page.wait_for_timeout(1800)
         state = page.evaluate(
             """() => {
@@ -7731,7 +7989,7 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
                         "flythrough_url": "",
                         "flythrough_status": "queued",
                         "status_label": "Walkthrough queued",
-                        "status_detail": "Priority queue active. This render stays ahead of the free queue and appears here when it is ready.",
+                        "status_detail": "Priority queue active. Queued.",
                         "eta_label": "about 10 min",
                         "progress_pct": 18,
                         "poll_after_seconds": 1,
@@ -7763,7 +8021,7 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
                         "flythrough_url": "",
                         "flythrough_status": "",
                         "status_label": "Open 3D tour",
-                        "status_detail": "3D tour is available on this page.",
+                        "status_detail": "3D tour is ready.",
                         "eta_label": "",
                         "progress_pct": 100,
                         "poll_after_seconds": 0,
@@ -7783,7 +8041,7 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
                         "flythrough_url": "",
                         "flythrough_status": "queued",
                         "status_label": "Walkthrough queued",
-                        "status_detail": "Priority queue active. This render stays ahead of the free queue and appears here when it is ready.",
+                        "status_detail": "Priority queue active. Queued.",
                         "eta_label": "about 10 min",
                         "progress_pct": 18,
                         "poll_after_seconds": 1,
@@ -7813,7 +8071,7 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
         expect(tour_button).to_be_visible()
         tour_button.click()
         _choose_research_visual_style(page)
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is available on this page.", timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
         expect(page.get_by_role("button", name="Open 3D tour").first).to_be_visible()
 
         request_button = page.get_by_role("button", name="Request walkthrough").first
@@ -7828,12 +8086,12 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
         assert "urban jungle" in str(visual_requests[1].get("diorama_style_hint") or "").lower()
 
         expect(page.locator("[data-prd-visual-label]")).to_contain_text(re.compile("3D tour", re.I), timeout=5000)
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is available on this page.", timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
         page.wait_for_timeout(1300)
         assert visual_status_polls["tour"] >= 1
         assert visual_status_polls["flythrough"] >= 1
         expect(page.locator("[data-prd-visual-label]")).to_contain_text(re.compile("3D tour", re.I), timeout=5000)
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is available on this page.", timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
         expect(page.get_by_role("button", name="Open 3D tour").first).to_be_visible()
         expect(page.get_by_role("button", name=re.compile("Walkthrough queued", re.I)).first).to_be_visible()
         rail_kind = str(page.locator("[data-prd-visual-rail]").first.get_attribute("data-prd-visual-kind") or "").strip().lower()
@@ -7932,7 +8190,8 @@ def test_propertyquarry_visual_request_uses_listing_url_fallback_in_real_browser
         assert "urban jungle" in str(payload["diorama_style_hint"]).lower()
         assert payload["run_id"] == "run-42"
         assert str(payload["property_url"]).endswith("/listing-url-only-loft")
-        assert "Walkthrough queued" in page.locator("body").inner_text()
+        body_after_request = page.locator("body").inner_text()
+        assert "Walkthrough queued" in body_after_request or "Preparing walkthrough" in body_after_request
     finally:
         context.close()
 

@@ -739,7 +739,7 @@ def settings_plan_detail(
         page_title="PropertyQuarry plan",
         current_nav="settings",
         console_title="Plan",
-        console_summary="Search access, billing, messaging, and collaborator limits for this account.",
+        console_summary="Search access, payments, messaging, and collaborator limits for this account.",
         object_kind="Commercial boundary",
         object_title=str(plan.get("display_name") or "Pilot"),
         object_summary=_propertyquarry_copy(billing.get("contract_note"), fallback="Commercial terms are not set yet."),
@@ -762,7 +762,7 @@ def settings_plan_detail(
         object_sections=[
             {
                 "eyebrow": "Plan",
-                "title": "Plan and billing",
+                "title": "Plan and payments",
                 "items": [
                     _object_detail_row("Plan", str(plan.get("display_name") or "Pilot"), "Plan"),
                     _object_detail_row("Account scope", plan_scope, "Plan"),
@@ -784,8 +784,8 @@ def settings_plan_detail(
                 ],
             },
             {
-                "eyebrow": "Billing and renewal controls",
-                "title": "Invoice window, portal, and upgrade path",
+                "eyebrow": "Billing and renewal",
+                "title": "Invoices, portal, and renewal",
                 "items": [
                     _object_detail_row("Billing cadence", str(billing.get("billing_cadence") or "custom").replace("_", " "), "Billing"),
                     _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), "Billing"),
@@ -827,7 +827,7 @@ def settings_usage_detail(
         latest_run_rows = [
             _object_detail_row(
                 f"Search {row['run_id'][:8] or 'latest'}",
-                f"{row['status']} · {row['ranked']} matches · {row['filtered']} outside brief",
+                f"{row['status']} · {row['ranked']} matches · {row['filtered']} outside this search",
                 "Search",
                 href=row["href"],
             )
@@ -835,7 +835,7 @@ def settings_usage_detail(
         ]
         results_items = [
             _object_detail_row("Matches", str(property_usage["ranked_total"]), "Shortlist"),
-            _object_detail_row("Outside brief", str(property_usage["filtered_total"]), "Rules"),
+            _object_detail_row("Outside this search", str(property_usage["filtered_total"]), "Rules"),
             _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Lists"),
             _object_detail_row("Lists used", str(property_usage["source_total"]), "Lists"),
         ]
@@ -938,7 +938,7 @@ def settings_usage_detail(
             object_title=f"{property_usage['run_total']} recent searches",
             object_summary=(
                 f"{property_usage['ranked_total']} matches · "
-                f"{property_usage['filtered_total']} outside brief · "
+                f"{property_usage['filtered_total']} outside this search · "
                 f"{property_usage['repair_status']}"
             ),
             object_meta=[
@@ -1792,7 +1792,7 @@ def settings_google_detail(
         if connected_account_total > 0:
             sync_summary = f"{connected_account_total} connected · {property_google_sign_in_status.lower()}"
         else:
-            sync_summary = "Sign in with Google on this device. First-time Google sign-in still creates the same PropertyQuarry account automatically."
+            sync_summary = "Sign in with Google on this device. Google opens the same account and creates it if needed."
     else:
         sync_summary = (
             f"{connected_account_total} connected inbox{'es' if connected_account_total != 1 else ''} · "
@@ -1878,7 +1878,7 @@ def settings_google_detail(
             object_sidebar_rows = [
                 _object_detail_row(
                     "Connect on this device",
-                    "Connect Google on this device. First-time Google sign-in still creates the same PropertyQuarry account automatically.",
+                    "Connect Google on this device. Google opens the same account and creates it if needed.",
                     "",
                     href="/app/settings/google",
                     action_href=connect_another_href,

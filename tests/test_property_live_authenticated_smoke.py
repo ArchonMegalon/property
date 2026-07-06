@@ -17,18 +17,18 @@ SECURITY_HEADERS = {
 
 SIGN_IN_BODY = (
     "PropertyQuarry Open search Continue with Google "
-    "First-time connected sign-in still creates the account automatically. "
-    "<button>Log out</button> Open current session"
+    "First sign-in creates the account automatically. "
+    "<button>Log out</button>"
 )
 
 SIGN_IN_ACTIVE_BODY = (
     "PropertyQuarry Open search Continue with Google "
-    "First-time connected sign-in still creates the account automatically. "
+    "First sign-in creates the account automatically. "
     "<button>Log out</button>"
 )
 
 ACCOUNT_AGENT_BODY = (
-    'PropertyQuarry <section class="pqx-account-logout-strip" aria-label="Current session">'
+    'PropertyQuarry <section class="pqx-account-logout-strip" aria-label="Signed-in session">'
     "<button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>"
     '<form action="/app/api/property/account/notifications">'
     '<input type="checkbox" name="notification_channels" value="email">'
@@ -36,7 +36,7 @@ ACCOUNT_AGENT_BODY = (
     '<input type="checkbox" name="notification_channels" value="whatsapp">'
     '<input type="radio" name="preferred_channel" value="email">'
     '<input type="tel" name="whatsapp_ai_support_phone">'
-    "<button>Save notification routing</button></form>"
+    "<button>Save notifications</button></form>"
 )
 
 ACCOUNT_FREE_BODY = ACCOUNT_AGENT_BODY.replace("<h2>Agent</h2>", "<h2>Free</h2>")
@@ -51,6 +51,12 @@ BILLING_PORTAL_LOGIN_REQUIRED_BODY = (
     "PropertyQuarry Billing portal unavailable. "
     "This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now. "
     "Your PropertyQuarry access stays active from the account page."
+)
+
+AUTHENTICATED_SHARED_FAST_RUN_BODY = (
+    "PropertyQuarry Search results Matching homes "
+    "Altbau near U6 "
+    '<a href="/app/research/latest-real-home?run_id=run-42">Open property</a>'
 )
 
 
@@ -87,6 +93,105 @@ def test_live_authenticated_smoke_passes_paid_customer_surfaces_without_network(
 
     assert receipt["status"] == "pass"
     assert receipt["failed_count"] == 0
+
+
+def test_live_authenticated_smoke_default_live_routes_cover_shared_fast_run_without_network() -> None:
+    shared_path = authenticated_smoke.AUTHENTICATED_SHARED_FAST_RUN_PATH
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/app/billing": BILLING_PORTAL_UNAVAILABLE_BODY,
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+        f"https://propertyquarry.com{shared_path}": AUTHENTICATED_SHARED_FAST_RUN_BODY,
+    }
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        routes=authenticated_smoke.DEFAULT_LIVE_ROUTES,
+        fetcher=lambda url, _timeout: _fake_response(bodies[url], final_url=url),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["failed_count"] == 0
+    shared_row = next(row for row in receipt["checks"] if row["path"] == shared_path)
+    assert any(check["name"] == "authenticated_fast_run_heading" and check["ok"] is True for check in shared_row["checks"])
+    assert any(check["name"] == "authenticated_fast_run_no_sample_copy" and check["ok"] is True for check in shared_row["checks"])
+    assert any(check["name"] == "authenticated_fast_run_no_example_shortlist" and check["ok"] is True for check in shared_row["checks"])
+
+
+def test_live_authenticated_smoke_accepts_shared_fast_run_redirect_to_latest_without_network() -> None:
+    shared_path = authenticated_smoke.AUTHENTICATED_SHARED_FAST_RUN_PATH
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        assert url == f"https://propertyquarry.com{shared_path}"
+        return _fake_response(
+            "",
+            status_code=303,
+            final_url=url,
+            headers={**SECURITY_HEADERS, "Location": "/app/shortlist/run/run-42"},
+        )
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        routes=(shared_path,),
+        fetcher=fetcher,
+    )
+
+    assert receipt["status"] == "pass"
+    shared_row = receipt["checks"][0]
+    assert any(check["name"] == "authenticated_fast_run_redirects_to_latest" and check["ok"] is True for check in shared_row["checks"])
+    assert any(check["name"] == "authenticated_fast_run_not_public_entrypoint_redirect" and check["ok"] is True for check in shared_row["checks"])
+
+
+def test_live_authenticated_smoke_rejects_shared_fast_run_sample_leak_without_network() -> None:
+    shared_path = authenticated_smoke.AUTHENTICATED_SHARED_FAST_RUN_PATH
+    sample_body = (
+        "PropertyQuarry Sample homes Danube Flats demo "
+        '<a href="/app/example/shortlist?candidate=danube-flats-demo">Open property</a>'
+    )
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        routes=(shared_path,),
+        fetcher=lambda url, _timeout: _fake_response(sample_body, final_url=url),
+    )
+
+    assert receipt["status"] == "fail"
+    shared_row = receipt["checks"][0]
+    assert any(check["name"] == "authenticated_fast_run_heading" and check["ok"] is False for check in shared_row["checks"])
+    assert any(check["name"] == "authenticated_fast_run_no_sample_copy" and check["ok"] is False for check in shared_row["checks"])
+    assert any(check["name"] == "authenticated_fast_run_no_example_shortlist" and check["ok"] is False for check in shared_row["checks"])
+
+
+def test_live_authenticated_smoke_rejects_shared_fast_run_public_entrypoint_redirect_without_network() -> None:
+    shared_path = authenticated_smoke.AUTHENTICATED_SHARED_FAST_RUN_PATH
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        routes=(shared_path,),
+        fetcher=lambda url, _timeout: _fake_response(
+            "",
+            status_code=303,
+            final_url=url,
+            headers={**SECURITY_HEADERS, "Location": "/app/shortlist/run/public-demo-run"},
+        ),
+    )
+
+    assert receipt["status"] == "fail"
+    shared_row = receipt["checks"][0]
+    assert any(check["name"] == "authenticated_fast_run_redirects_to_latest" and check["ok"] is False for check in shared_row["checks"])
+    assert any(check["name"] == "authenticated_fast_run_not_public_entrypoint_redirect" and check["ok"] is False for check in shared_row["checks"])
 
 
 def test_live_authenticated_smoke_accepts_active_signed_in_copy_without_network() -> None:
@@ -905,7 +1010,7 @@ def test_live_authenticated_smoke_fails_when_sign_in_surface_duplicates_logout()
 
 def test_live_authenticated_smoke_fails_when_sign_in_loses_account_creation_copy() -> None:
     bodies = {
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session Email sign-in links are temporarily unavailable.",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Email sign-in is not available right now.",
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -919,7 +1024,6 @@ def test_live_authenticated_smoke_fails_when_sign_in_loses_account_creation_copy
     sign_in_row = next(row for row in receipt["checks"] if row["path"] == "/sign-in")
     assert receipt["status"] == "fail"
     assert any(check["name"] == "sign_in_connected_identity_creates_account" and check["ok"] is False for check in sign_in_row["checks"])
-    assert any(check["name"] == "sign_in_no_unavailable_auth_copy" and check["ok"] is False for check in sign_in_row["checks"])
 
 
 def test_live_authenticated_smoke_retries_transient_transport_failures_without_network() -> None:

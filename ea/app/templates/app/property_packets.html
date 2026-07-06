@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PropertyQuarry Shared Pages</title>
+  <title>PropertyQuarry Shared Homes</title>
   <script>
     (function () {
       try {
@@ -456,7 +456,7 @@
             </div>
             <div class="pq-pack-account-links">
               <a class="pq-pack-button" href="{{ account_nav.profile_href }}">Saved defaults</a>
-              <a class="pq-pack-button" href="{{ account_nav.billing_href }}">Billing account</a>
+              <a class="pq-pack-button" href="{{ account_nav.billing_href }}">Billing</a>
               <a class="pq-pack-button" href="{{ account_nav.settings_href }}">Access</a>
               <form method="post" action="{{ account_nav.sign_out_action }}">
                 <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
@@ -473,15 +473,15 @@
 
     <section class="pq-pack-hero">
       <div class="pq-pack-panel">
-        <div class="pq-pack-kicker">Shared pages</div>
+        <div class="pq-pack-kicker">Shared homes</div>
         <h1>Share property pages and keep the replies together.</h1>
         <p class="pq-pack-copy">Send only pages that are ready to be seen. Replies stay here before they change the search.</p>
       </div>
       <div class="pq-pack-panel">
         <div class="pq-pack-stat-grid">
-          <div class="pq-pack-stat"><span>Pages</span><strong>{{ publications|length }}</strong></div>
+          <div class="pq-pack-stat"><span>Homes</span><strong>{{ publications|length }}</strong></div>
           <div class="pq-pack-stat"><span>Responses</span><strong>{{ feedback_total }}</strong></div>
-          <div class="pq-pack-stat"><span>Published</span><strong>{{ publications|selectattr("status", "equalto", "published")|list|length }}</strong></div>
+          <div class="pq-pack-stat"><span>Ready</span><strong>{{ publications|selectattr("status", "equalto", "published")|list|length }}</strong></div>
           <div class="pq-pack-stat"><span>Slots</span><strong>{{ fliplink_capacity.active }}/{{ fliplink_capacity.cap }}</strong></div>
         </div>
         <p class="pq-pack-muted" style="margin:12px 0 0;">{{ fliplink_capacity.remaining }} sharing slot(s) remain on the current sharing plan.</p>
@@ -490,26 +490,26 @@
 
     <section class="pq-pack-summary-grid" aria-label="Property sharing summary">
       <article class="pq-pack-summary-card">
-        <div class="pq-pack-kicker">Ready to send</div>
-        <strong>Pages that are ready to share</strong>
+        <div class="pq-pack-kicker">Ready to share</div>
+        <strong>Homes that are ready to share</strong>
         <ul>
-          <li>{{ dashboard_summary.published_total }} page(s) published and {{ dashboard_summary.share_total }} page(s) already shared.</li>
+          <li>{{ dashboard_summary.published_total }} home page(s) ready and {{ dashboard_summary.share_total }} already shared.</li>
           <li>{{ fliplink_capacity.remaining }} sharing slot(s) remain on the current plan.</li>
           <li>Use this page instead of forwarding loose PDFs or scattered links.</li>
         </ul>
       </article>
       <article class="pq-pack-summary-card">
         <div class="pq-pack-kicker">Replies</div>
-        <strong>Review replies before they change the search</strong>
+        <strong>Read replies here before they change the search</strong>
         <ul>
           <li>{{ dashboard_summary.feedback_pending_total }} viewer response(s) still need your review.</li>
-          <li>{{ dashboard_summary.followup_open_total }} follow-up loop(s) remain open across shared property pages.</li>
+          <li>{{ dashboard_summary.followup_open_total }} follow-up step(s) are still open across shared homes.</li>
           <li>Outside reactions stay here before they change preferences or requirements.</li>
         </ul>
       </article>
       <article class="pq-pack-summary-card">
         <div class="pq-pack-kicker">Next improvement</div>
-        <strong>Use real replies to improve the next page</strong>
+        <strong>Use replies to improve the next page</strong>
         <ul>
           <li>{{ dashboard_summary.optimization_open_total }} page idea(s) are still open.</li>
           <li>Better pages are clearer, faster to review, and leave fewer questions open.</li>
@@ -519,8 +519,8 @@
     </section>
 
     <section class="pq-pack-panel">
-      <div class="pq-pack-kicker">Pages</div>
-      <h2>Property pages</h2>
+      <div class="pq-pack-kicker">Homes</div>
+      <h2>Shared homes</h2>
       {% if publications %}
       <div class="pq-pack-card-list">
         {% for row in publications %}
@@ -616,11 +616,11 @@
                   <option value="investor">Investor</option>
                 </select>
                 <input class="pq-pack-input" type="text" name="variant_key" placeholder="family-v1" value="default" autocomplete="off">
-                <button class="pq-pack-button small" type="submit">Share page</button>
+                <button class="pq-pack-button small" type="submit">Share</button>
               </div>
             </form>
             <form class="pq-pack-form" data-fliplink-manual-form data-publication-id="{{ row.publication_id }}">
-              <input class="pq-pack-input" type="url" name="fliplink_url" placeholder="Paste shared page link" value="{{ row.fliplink_url }}" autocomplete="off">
+              <input class="pq-pack-input" type="url" name="fliplink_url" placeholder="Paste shared link" value="{{ row.fliplink_url }}" autocomplete="off">
               <input type="hidden" name="fliplink_format" value="{{ row.fliplink_format }}">
               <div class="pq-pack-inline">
                 <label class="pq-pack-check"><input type="checkbox" name="lead_capture_enabled" {% if row.lead_capture_enabled %}checked{% endif %}> Responses</label>
@@ -641,7 +641,7 @@
               <a class="pq-pack-button small" href="{{ row.artifact_download_path }}">Download PDF</a>
               <button class="pq-pack-button small" type="button" data-republish-publication data-publication-id="{{ row.publication_id }}">Republish page</button>
               <button class="pq-pack-button small" type="button" data-copy-kind="title" data-copy-value="{{ row.recommended_title or row.property_ref }}">Copy title</button>
-              <button class="pq-pack-button small" type="button" data-copy-kind="webhook" data-copy-value="{{ fliplink_webhook_url }}">Copy response endpoint</button>
+              <button class="pq-pack-button small" type="button" data-copy-kind="webhook" data-copy-value="{{ fliplink_webhook_url }}">Copy reply link</button>
               <button class="pq-pack-button small" type="button" data-copy-lead-schema data-property-ref="{{ row.property_ref }}" data-packet-kind="{{ row.packet_kind }}" data-privacy-mode="{{ row.privacy_mode }}">Copy response fields</button>
               <button class="pq-pack-button small" type="button" data-browseract-publish data-publication-id="{{ row.publication_id }}">Publish assist</button>
               <button class="pq-pack-button small danger" type="button" data-archive-publication data-publication-id="{{ row.publication_id }}">Archive</button>
@@ -673,7 +673,7 @@
               {% endfor %}
             </div>
             <div class="pq-pack-muted">
-              <strong>Attached summaries</strong>
+              <strong>Added summaries</strong>
               {% for item in row.attached_summaries[:3] %}
               <div>{{ item.title }} · {{ item.audience_type }}</div>
               {% else %}
@@ -694,7 +694,7 @@
         {% endfor %}
       </div>
       {% else %}
-        <div class="pq-pack-empty">No shared page is ready yet. Finish a search, open a strong home, and create the first page from the property review.</div>
+        <div class="pq-pack-empty">No shared home is ready yet. Finish a search, open a strong home, and create the first shared page.</div>
       {% endif %}
     </section>
 
@@ -809,7 +809,7 @@
                 },
               ],
             });
-            showStatus(shareForm, "Share page saved.", "ok");
+            showStatus(shareForm, "Share saved.", "ok");
           } catch (error) {
             showStatus(shareForm, error.message, "error");
           }

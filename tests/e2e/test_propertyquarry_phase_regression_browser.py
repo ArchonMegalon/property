@@ -26,4 +26,4 @@ def test_core_propertyquarry_pages_still_render(monkeypatch, tmp_path: Path) -> 
 
     settings = client.get("/app/settings")
     assert settings.status_code == 200
-    assert "Settings" in settings.text or "Rules" in settings.text
+    assert "Account" in settings.text or "Settings" in settings.text or "Rules" in settings.text

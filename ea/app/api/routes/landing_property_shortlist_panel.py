@@ -176,6 +176,10 @@ def build_property_shortlist_panel(
     candidate_priority_reason,
     property_candidate_ref,
 ) -> tuple[list[dict[str, str]], list[dict[str, object]]]:
+    from app.api.routes.landing_view_models import _property_result_title_display
+    from app.api.routes.landing_view_models import _clean_property_candidate_detail_copy
+    from app.services.property_customer_copy import summarize_property_description_copy
+
     property_shortlist_rows: list[dict[str, str]] = []
     property_shortlist_cards: list[dict[str, object]] = []
     if not wants_run_views:
@@ -208,8 +212,11 @@ def build_property_shortlist_panel(
     for candidate in ranked_candidates:
         candidate_facts = _property_candidate_display_facts(candidate)
         source_label = str(candidate.get("source_label") or candidate.get("source_url") or "Source").strip()
-        title = str(candidate.get("title") or candidate.get("property_url") or "Property").strip() or "Property"
-        detail_parts = [clean_candidate_copy(candidate.get("fit_summary") or "")]
+        title = _property_result_title_display(candidate.get("title") or candidate.get("property_url") or "Property")
+        cleaned_fit_summary = _clean_property_candidate_detail_copy(candidate.get("fit_summary") or "")
+        if not cleaned_fit_summary:
+            cleaned_fit_summary = summarize_property_description_copy(clean_candidate_copy(candidate.get("summary") or ""))
+        detail_parts = [cleaned_fit_summary]
         match_reasons = [
             clean_candidate_copy(item)
             for item in list(candidate.get("match_reasons") or [])
@@ -220,7 +227,7 @@ def build_property_shortlist_panel(
             facts=candidate_facts,
             preferences=property_preferences,
         )
-        priority_reason = candidate_priority_reason(match_reasons, mismatch_reasons, clean_candidate_copy(candidate.get("fit_summary") or ""))
+        priority_reason = candidate_priority_reason(match_reasons, mismatch_reasons, cleaned_fit_summary)
         if priority_reason:
             detail_parts.append(priority_reason)
         row: dict[str, str] = {
@@ -247,7 +254,7 @@ def build_property_shortlist_panel(
         if review_url:
             row["action_href"] = packet_url
             row["action_method"] = "get"
-            row["action_label"] = "Open property page"
+            row["action_label"] = "Open property"
             if external_listing_url:
                 row["secondary_action_href"] = external_listing_url
                 row["secondary_action_method"] = "get"
@@ -255,7 +262,7 @@ def build_property_shortlist_panel(
         else:
             row["action_href"] = packet_url
             row["action_method"] = "get"
-            row["action_label"] = "Open property page"
+            row["action_label"] = "Open property"
         if tour_url:
             if row.get("secondary_action_href"):
                 row["tertiary_action_href"] = tour_url
@@ -293,7 +300,7 @@ def build_property_shortlist_panel(
                 "source_label": source_label,
                 "detail": row["detail"],
                 "tag": row["tag"],
-                "fit_summary": str(candidate.get("fit_summary") or "").strip(),
+                "fit_summary": cleaned_fit_summary,
                 "recommendation": str(candidate.get("recommendation") or "").strip(),
                 "property_url": property_url,
                 "packet_url": packet_url,

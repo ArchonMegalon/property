@@ -31,6 +31,7 @@ from app.product.service import (
     _property_visual_unavailable_detail,
 )
 from app.product import property_tour_hosting
+from app.services.property_customer_copy import sanitize_property_marketing_copy, summarize_property_description_copy
 from app.services.property_market_catalog import supported_currency_codes
 
 
@@ -115,14 +116,14 @@ def _evidence_detail_rows(items) -> list[dict[str, str]]:  # type: ignore[no-unt
     for item in items or ():
         rows.append(
             _object_detail_row(
-                str(getattr(item, "note", "") or getattr(item, "ref", "") or "Supporting detail"),
-                str(getattr(item, "ref", "") or "No external reference attached."),
-                str(getattr(item, "source_type", "") or "Detail"),
+                str(getattr(item, "note", "") or getattr(item, "ref", "") or "Linked source"),
+                str(getattr(item, "ref", "") or "No source linked."),
+                str(getattr(item, "source_type", "") or "Source"),
             )
         )
     if rows:
         return rows
-    return [_object_detail_row("No supporting details yet", "This object has no attached details yet.", "Pending")]
+    return [_object_detail_row("No linked sources yet", "Nothing extra is attached here yet.", "Pending")]
 
 
 def _render_console_object_detail(
@@ -354,6 +355,13 @@ def _property_enriched_candidate_facts(*, candidate: dict[str, object]) -> dict[
     facts = _property_candidate_display_facts(candidate)
     title = str(candidate.get("title") or "").strip()
     summary = str(candidate.get("summary") or "").strip()
+    if not any(
+        str(facts.get(key) or "").strip()
+        for key in ("description", "description_text", "object_description", "listing_description", "summary")
+    ):
+        fallback_description = summarize_property_description_copy(title or summary)
+        if fallback_description:
+            facts["description"] = fallback_description
     text = " | ".join(part for part in (title, summary) if part)
     if text:
         if "price_eur" not in facts:
@@ -427,8 +435,20 @@ def _property_missing_fact_item(facts: dict[str, object], field: str) -> dict[st
     return {}
 
 
+def _property_rooms_research_relevant(preferences: dict[str, object]) -> bool:
+    raw_value = preferences.get("min_rooms")
+    if raw_value in (None, "", [], {}, False):
+        return False
+    try:
+        return float(raw_value) > 0
+    except Exception:
+        return False
+
+
 def _property_rooms_display(facts: dict[str, object]) -> str:
     label = str(facts.get("rooms_label") or "").strip()
+    if "under research" in label.lower():
+        return ""
     if label:
         return label
     raw_value = facts.get("rooms") or facts.get("room_count")
@@ -436,7 +456,10 @@ def _property_rooms_display(facts: dict[str, object]) -> str:
         return f"{raw_value} rooms"
     item = _property_missing_fact_item(facts, "rooms")
     if item:
-        return str(item.get("display_value") or "Rooms under research").strip() or "Rooms under research"
+        display_value = str(item.get("display_value") or "").strip()
+        if "under research" in display_value.lower():
+            return ""
+        return display_value
     return ""
 
 
@@ -584,6 +607,7 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
             "listing_360_media_missing": "Floor plan or room photos are missing, so a real tour is not ready yet.",
             "pure_360_assets_unavailable": "The available media is not usable enough for a real tour yet.",
             "property_tour_fallback_disabled": "3D tour generation is waiting for a floor plan or usable room photos.",
+            "property_tour_rebuild_required": "A real 3D tour is not available for this listing yet.",
         }
         return reason_map.get(blocked_reason, blocked_reason.replace("_", " "))
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -622,10 +646,6 @@ def _hosted_tour_rebuild_detail() -> str:
     return "A real 3D tour is not available for this listing yet."
 
 
-def _generated_reconstruction_preview_detail() -> str:
-    return "A layout preview is ready below. A real 3D tour is not available for this listing yet."
-
-
 def _property_visual_provider_label(value: object) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
     label_map = {
@@ -649,12 +669,22 @@ def _property_visual_provider_label(value: object) -> str:
     return "3D tour" if normalized else ""
 
 
+def _customer_facing_vendor_tour_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    verified_open_url = str(property_tour_hosting._hosted_property_tour_verified_open_url(normalized) or "").strip()
+    verified_provider = str(property_tour_hosting._hosted_property_tour_verified_provider(normalized) or "").strip().lower()
+    if verified_open_url and verified_provider in {"matterport", "3dvista"}:
+        return verified_open_url
+    return ""
+
+
 def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
     tour_url = str(candidate.get("tour_url") or "").strip()
     if tour_url and _property_hosted_tour_disabled_fallback(tour_url):
         tour_url = ""
-    generated_reconstruction_tour_url = str(candidate.get("generated_reconstruction_url") or "").strip()
-    vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
+    vendor_tour_url = _customer_facing_vendor_tour_url(candidate.get("vendor_tour_url"))
     review_url = str(candidate.get("review_url") or "").strip()
     status = str(candidate.get("tour_status") or "").strip().lower()
     terminal_status = _property_visual_terminal_status_for_reason(
@@ -684,26 +714,11 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     verified_tour_provider = property_tour_hosting._hosted_property_tour_verified_provider(tour_url) if hosted_tour_ready else ""
     generated_reconstruction_href = ""
     generated_reconstruction_ready = False
-    generated_reconstruction_photo_hrefs: tuple[str, ...] = ()
-    generated_reconstruction_floorplan_href = ""
-    if generated_reconstruction_tour_url:
-        generated_reconstruction_photo_hrefs = property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_urls(
-            generated_reconstruction_tour_url
-        )
-        generated_reconstruction_floorplan_href = property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
-            generated_reconstruction_tour_url,
-            asset_key="floorplan_relpath",
-        )
-        generated_reconstruction_ready = bool(generated_reconstruction_photo_hrefs or generated_reconstruction_floorplan_href)
-        generated_reconstruction_href = (
-            str(generated_reconstruction_photo_hrefs[0]).strip()
-            if generated_reconstruction_photo_hrefs
-            else str(generated_reconstruction_floorplan_href).strip()
-        )
     open_tour_href = verified_tour_href
     embed_href = verified_tour_href if hosted_tour_ready else ""
-    verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(tour_url) or property_tour_hosting._published_walkthrough_asset_url(
-        candidate.get("flythrough_url")
+    verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_open_url(
+        tour_url,
+        candidate.get("flythrough_url"),
     )
     walkthrough_ready = bool(verified_walkthrough_href)
     walkthrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
@@ -729,11 +744,11 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         and walkthrough_status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
     ):
         walkthrough_status = str(live_walkthrough_progress.get("status") or "").strip().lower()
-    vendor_tour_provider = property_tour_hosting._property_tour_provider_host_kind(vendor_tour_url) if vendor_tour_url else ""
+    vendor_tour_provider = property_tour_hosting._hosted_property_tour_verified_provider(vendor_tour_url) if vendor_tour_url else ""
     walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
     if hosted_tour_ready:
         status_label = "3D tour available"
-        status_detail = "3D tour is available on this page."
+        status_detail = "3D tour is ready."
     elif tour_url:
         status_label = "3D tour unavailable"
         status_detail = _hosted_tour_rebuild_detail()
@@ -743,31 +758,23 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     elif status in {"queued", "pending"}:
         status_label = "3D tour queued"
         status_detail = (
-            "Tour generation is still queued. Taking longer than usual."
+            "Still queued."
             if eta_label.startswith("delayed")
-            else f"Tour generation is queued. ETA {eta_label or f'about {eta_minutes or 10} min'}."
+            else "Queued."
         )
     elif status in {"processing", "running", "in_progress", "started", "rendering"}:
         status_label = "3D tour rendering"
         status_detail = (
-            "Tour generation is still rendering. Taking longer than usual."
+            "Still rendering."
             if eta_label.startswith("delayed")
-            else f"Tour generation is running. ETA {eta_label or f'about {eta_minutes or 5} min'}."
+            else "Rendering."
         )
     elif status in {"blocked", "failed", "skipped", "not_applicable"}:
         status_label = "3D tour unavailable"
-        status_detail = (
-            _generated_reconstruction_preview_detail()
-            if generated_reconstruction_ready
-            else _property_tour_source_gap_detail(candidate)
-        )
+        status_detail = _property_tour_source_gap_detail(candidate)
     else:
         status_label = "3D tour unavailable"
-        status_detail = (
-            _generated_reconstruction_preview_detail()
-            if generated_reconstruction_ready
-            else _property_tour_source_gap_detail(candidate)
-        )
+        status_detail = _property_tour_source_gap_detail(candidate)
     return {
         "status_label": status_label,
         "status_detail": status_detail,
@@ -779,7 +786,6 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "show_status_line": bool(
             hosted_tour_ready
             or tour_url
-            or generated_reconstruction_ready
             or vendor_tour_url
             or status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
         ),
@@ -787,10 +793,10 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "primary_label": (
             "Open 3D tour"
             if open_tour_href
-            else ("Open original tour" if vendor_tour_url else ("Open property page" if review_url else ""))
+            else ("Open original tour" if vendor_tour_url else ("Open property" if review_url else ""))
         ),
         "secondary_href": review_url,
-        "secondary_label": "Open property page" if review_url else "",
+        "secondary_label": "Open property" if review_url else "",
         "tertiary_href": vendor_tour_url if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
         "tertiary_label": "Open original tour" if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
         "walkthrough_href": verified_walkthrough_href,
@@ -799,15 +805,27 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "walkthrough_provider_label": "Walkthrough" if walkthrough_provider or walkthrough_ready else "",
         "walkthrough_provider_key": walkthrough_provider,
         "walkthrough_status_detail": (
-            "Walkthrough is available on this page."
+            "Walkthrough is ready."
             if walkthrough_ready
             else (
                 live_walkthrough_detail
                 if live_walkthrough_detail and walkthrough_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing", "blocked", "failed", "skipped", "not_applicable"}
                 else (
+                (
+                    "Queued."
+                    if walkthrough_status in {"queued", "pending"}
+                    else (
+                        "Rendering."
+                        if walkthrough_status in {"processing", "running", "in_progress", "started", "rendering"}
+                        else ""
+                    )
+                )
+                if walkthrough_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}
+                else (
                 _property_visual_unavailable_detail(request_kind="flythrough", reason=walkthrough_reason)
                 if walkthrough_status in {"blocked", "failed", "skipped", "not_applicable"}
                 else ""
+                )
                 )
             )
         ),
@@ -817,7 +835,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
 
 def _property_tour_detail_line(candidate: dict[str, object]) -> str:
     tour_url = str(candidate.get("tour_url") or "").strip()
-    vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
+    vendor_tour_url = _customer_facing_vendor_tour_url(candidate.get("vendor_tour_url"))
     if str(property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url) or "").strip():
         return "Open the 3D tour on PropertyQuarry."
     if vendor_tour_url:
@@ -918,8 +936,8 @@ def _property_research_gallery_items(
 def _property_review_detail_line(candidate: dict[str, object]) -> str:
     review_url = str(candidate.get("review_url") or "").strip()
     if review_url:
-        return "Open the property page on PropertyQuarry."
-    return "No property page exists for this home yet."
+        return "Open the home."
+    return "No property page yet."
 
 
 def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str, str]]:
@@ -954,9 +972,9 @@ def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str,
             value = str(raw_value).strip()
         if not value:
             continue
-        provenance = "Researched" if key in research_snapshot else "Listing"
+        provenance = "Checked" if key in research_snapshot else "From listing"
         if key in {"street_address", "exact_address", "address"} and ("map_lat" in research_snapshot or "map_lng" in research_snapshot):
-            provenance = "Inferred"
+            provenance = "Estimated"
         detail = value
         strategy = str(research_meta.get("strategy") or "").strip()
         if provenance == "Researched" and strategy:
@@ -971,8 +989,8 @@ def _property_packet_official_evidence_rows(facts: dict[str, object]) -> list[di
     for row in list(official.get("sources") or [])[:6]:
         if not isinstance(row, dict):
             continue
-        title = str(row.get("label") or row.get("risk_key") or "Official data").strip()
-        source_label = str(row.get("source_label") or row.get("provider") or "Official dataset").strip()
+        title = str(row.get("label") or row.get("risk_key") or "Local data").strip()
+        source_label = str(row.get("source_label") or row.get("provider") or "Local dataset").strip()
         authority = str(row.get("authority_label") or row.get("provider") or "").strip()
         summary = str(row.get("summary") or "").strip()
         availability = str(row.get("availability") or "official_dataset").replace("_", " ").title()
@@ -985,7 +1003,7 @@ def _property_packet_official_evidence_rows(facts: dict[str, object]) -> list[di
         rows.append(
             _object_detail_row(
                 title,
-                detail or "Official data attached for this check.",
+                detail or "Public data is attached for this check.",
                 " · ".join(part for part in (availability, verification) if part),
                 href=str(row.get("source_url") or "").strip(),
             )
@@ -999,9 +1017,9 @@ def _property_packet_official_posture_rows(facts: dict[str, object]) -> list[dic
     for row in _official_risk_posture_rows(official):
         rows.append(
             _object_detail_row(
-                str(row.get("title") or "Official checks").strip(),
-                str(row.get("detail") or "").strip() or "No official-source check is attached yet.",
-                str(row.get("tag") or "Pending").strip() or "Pending",
+                str(row.get("title") or "Area checks").strip(),
+                str(row.get("detail") or "").strip() or "No public area check is attached yet.",
+                str(row.get("tag") or "Open").strip() or "Open",
             )
         )
     return rows
@@ -1015,9 +1033,9 @@ def _property_packet_future_research_rows(facts: dict[str, object]) -> list[dict
     school_evidence_type = str(future.get("school_atlas_evidence_type") or "").strip().replace("_", " ")
     school_source_url = str(future.get("school_atlas_source_url") or "").strip()
     if school_quality:
-        rows.append(_object_detail_row("School context", school_quality, school_evidence_type.title() or "Research", href=school_source_url))
+        rows.append(_object_detail_row("School context", school_quality, school_evidence_type.title() or "School data", href=school_source_url))
     if school_progression:
-        rows.append(_object_detail_row("Gymnasium progression", school_progression, school_evidence_type.title() or "Research", href=school_source_url))
+        rows.append(_object_detail_row("Gymnasium progression", school_progression, school_evidence_type.title() or "School data", href=school_source_url))
     selected_school = dict(future.get("school_atlas_selected_school") or {}) if isinstance(future.get("school_atlas_selected_school"), dict) else {}
     if selected_school:
         selected_label = " | ".join(
@@ -1058,7 +1076,7 @@ def _property_packet_evidence_overlay_rows(
             _object_detail_row(
                 str(overlay.get("title") or "Area layer").strip(),
                 str(overlay.get("detail") or "No area layer is available yet.").strip(),
-                str(overlay.get("tag") or "Unavailable").strip(),
+                str(overlay.get("tag") or "Open").strip(),
                 href=article_url or source_url,
             )
         )
@@ -1083,7 +1101,7 @@ def _property_packet_score_rows(
             _object_detail_row(
                 "Location fit",
                 fact_address,
-                "Listed" if "location" in confirmed_fields else ("Strong" if fits_location else "Check"),
+                "From listing" if "location" in confirmed_fields else ("Strong" if fits_location else "Check"),
             )
         )
     price_value = str(
@@ -1094,7 +1112,7 @@ def _property_packet_score_rows(
         or ""
     ).strip()
     if price_value:
-        rows.append(_object_detail_row("Budget signal", price_value, "Listed" if "price" in confirmed_fields else "Budget"))
+        rows.append(_object_detail_row("Budget signal", price_value, "From listing" if "price" in confirmed_fields else "Budget"))
     area_value = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
     rooms_value = _property_rooms_display(facts)
     if area_value or rooms_value:
@@ -1104,13 +1122,13 @@ def _property_packet_score_rows(
                 f"{area_value} m2" if area_value else "",
             ) if part
         )
-        rows.append(_object_detail_row("Layout signal", detail, "Listed" if {"area", "rooms"} & confirmed_fields else "Layout"))
+        rows.append(_object_detail_row("Layout signal", detail, "From listing" if {"area", "rooms"} & confirmed_fields else "Layout"))
     if confirmed_fields:
         rows.append(
             _object_detail_row(
-                str(confirmation.get("label") or "Listing facts"),
+                str(confirmation.get("label") or "Core details"),
                 str(confirmation.get("summary") or "Core details were read from the listing automatically."),
-                "Listed",
+                "From listing",
             )
         )
     if match_reasons:
@@ -1136,41 +1154,41 @@ def _property_packet_missing_rows(
     def _open_check_detail(*, title: str, primary_key: str) -> str:
         normalized_key = str(primary_key or "").strip().lower()
         explicit = {
-            "address": "Exact address is still missing.",
-            "heating_type": "Heating type still missing.",
-            "has_lift": "Lift status still missing.",
-            "nearest_supermarket_m": "Supermarket distance still missing.",
-            "distance_supermarket_m": "Supermarket distance still missing.",
-            "nearest_playground_m": "Playground distance still missing.",
-            "distance_playground_m": "Playground distance still missing.",
-            "nearest_library_m": "Library distance still missing.",
-            "nearest_zoo_m": "Zoo distance still missing.",
-            "nearest_pharmacy_m": "Pharmacy distance still missing.",
-            "distance_pharmacy_m": "Pharmacy distance still missing.",
-            "nearest_medical_care_m": "Doctor or hospital distance still missing.",
-            "nearest_market_m": "Market distance still missing.",
-            "nearest_hardware_store_m": "Baumarkt distance still missing.",
-            "nearest_shopping_center_m": "Shopping-center distance still missing.",
-            "nearest_shopping_street_m": "Shopping-street distance still missing.",
-            "nearest_theatre_m": "Theatre distance still missing.",
-            "nearest_public_pool_m": "Public-pool distance still missing.",
-            "nearest_subway_m": "Underground distance still missing.",
-            "nearest_transit_m": "Transit distance still missing.",
-            "distance_underground_m": "Underground distance still missing.",
-            "air_quality_risk": "Air-quality read still missing.",
-            "crime_risk": "Safety read still missing.",
-            "parking_pressure_risk": "Parking-pressure read still missing.",
-            "drinking_water_risk": "Water-source read still missing.",
-            "cesspit_risk": "Septic read still missing.",
-            "winter_access_risk": "Winter-access read still missing.",
-            "flood_risk": "Flood read still missing.",
+            "address": "Exact address not listed yet.",
+            "heating_type": "Heating type not listed yet.",
+            "has_lift": "Lift status not listed yet.",
+            "nearest_supermarket_m": "Supermarket distance not listed yet.",
+            "distance_supermarket_m": "Supermarket distance not listed yet.",
+            "nearest_playground_m": "Playground distance not listed yet.",
+            "distance_playground_m": "Playground distance not listed yet.",
+            "nearest_library_m": "Library distance not listed yet.",
+            "nearest_zoo_m": "Zoo distance not listed yet.",
+            "nearest_pharmacy_m": "Pharmacy distance not listed yet.",
+            "distance_pharmacy_m": "Pharmacy distance not listed yet.",
+            "nearest_medical_care_m": "Doctor or hospital distance not listed yet.",
+            "nearest_market_m": "Market distance not listed yet.",
+            "nearest_hardware_store_m": "Baumarkt distance not listed yet.",
+            "nearest_shopping_center_m": "Shopping-center distance not listed yet.",
+            "nearest_shopping_street_m": "Shopping-street distance not listed yet.",
+            "nearest_theatre_m": "Theatre distance not listed yet.",
+            "nearest_public_pool_m": "Public-pool distance not listed yet.",
+            "nearest_subway_m": "Underground distance not listed yet.",
+            "nearest_transit_m": "Transit distance not listed yet.",
+            "distance_underground_m": "Underground distance not listed yet.",
+            "air_quality_risk": "Air-quality read not listed yet.",
+            "crime_risk": "Safety read not listed yet.",
+            "parking_pressure_risk": "Parking-pressure read not listed yet.",
+            "drinking_water_risk": "Water-source read not listed yet.",
+            "cesspit_risk": "Septic read not listed yet.",
+            "winter_access_risk": "Winter-access read not listed yet.",
+            "flood_risk": "Flood read not listed yet.",
         }
         if normalized_key in explicit:
             return explicit[normalized_key]
         normalized_title = str(title or "").strip().lower()
         if not normalized_title:
-            return "Details still missing."
-        return f"{normalized_title.title()} still missing."
+            return "Details not listed yet."
+        return f"{normalized_title.title()} not listed yet."
 
     def _has_any_fact_value(keys: str | tuple[str, ...]) -> bool:
         key_group = (keys,) if isinstance(keys, str) else tuple(keys)
@@ -1341,10 +1359,12 @@ def _property_packet_missing_rows(
     for item in _property_missing_fact_items(facts):
         if str(item.get("status") or "").strip().lower() == "filled":
             continue
+        if str(item.get("field") or "").strip().lower() == "rooms" and not _property_rooms_research_relevant(preferences):
+            continue
         label = str(item.get("label") or item.get("field") or "Missing fact").strip()
         ooda = dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {}
         detail = str(ooda.get("act") or item.get("evidence") or "We are still checking this detail.").strip()
-        rows.append(_object_detail_row(label, detail, "Research"))
+        rows.append(_object_detail_row(label, detail, "To check"))
     return rows
 
 
@@ -1777,7 +1797,7 @@ def _property_packet_missing_summary_row(
     if critical_titles:
         summary = _property_human_join(critical_titles[:3])
         verb = "is" if len(critical_titles[:3]) == 1 else "are"
-        return _object_detail_row("Still to confirm", f"Before trusting this fully, {summary} {verb} still missing.", "High")
+        return _object_detail_row("Next question", f"Next question: {summary} {verb} not listed yet.", "High")
     important_titles = [
         str(row.get("title") or "").strip()
         for row in missing_rows
@@ -1785,8 +1805,7 @@ def _property_packet_missing_summary_row(
     ]
     if important_titles:
         summary = _property_human_join(important_titles[:3])
-        verb = "is" if len(important_titles[:3]) == 1 else "are"
-        return _object_detail_row("Still to confirm", f"Worth checking next: {summary} {verb} still open.", "Medium")
+        return _object_detail_row("Next question", f"Next question: {summary}.", "Medium")
     return None
 
 
@@ -1916,19 +1935,19 @@ def _property_packet_risk_fit_rows(
         if bool(facts.get(flag)):
             rows.append(_object_detail_row(title, detail, "Risk"))
     if bool(preferences.get("prefer_good_air_quality")) and not bool(facts.get("air_quality_risk")):
-        rows.append(_object_detail_row("Air-quality check", "The brief asks for good air quality, so the local burden still needs a closer look.", "Research"))
+        rows.append(_object_detail_row("Air-quality check", "The brief asks for good air quality, so the local burden still needs a closer look.", "To check"))
     if bool(preferences.get("prefer_low_crime_area")) and not bool(facts.get("crime_risk")):
-        rows.append(_object_detail_row("Safety check", "The brief asks for a lower-crime area, so the quarter pattern still needs a closer look.", "Research"))
+        rows.append(_object_detail_row("Safety check", "The brief asks for a lower-crime area, so the quarter pattern still needs a closer look.", "To check"))
     if bool(preferences.get("require_parking_pressure_check")) and not bool(facts.get("garage")) and not bool(facts.get("parking_pressure_risk")):
-        rows.append(_object_detail_row("Parking check", "No garage is listed, so evening street parking still needs a closer look.", "Research"))
+        rows.append(_object_detail_row("Parking check", "No garage is listed, so evening street parking still needs a closer look.", "To check"))
     if bool(preferences.get("require_drinking_water_quality_research")) and not bool(facts.get("drinking_water_risk")):
-        rows.append(_object_detail_row("Water-source check", "The brief asks for water-source and groundwater context.", "Research"))
+        rows.append(_object_detail_row("Water-source check", "The brief asks for water-source and groundwater context.", "To check"))
     if bool(preferences.get("avoid_cesspit_or_septic_risk")) and not bool(facts.get("cesspit_risk")):
-        rows.append(_object_detail_row("Senkgrube check", "The brief asks to avoid Senkgrube or septic burden, so the infrastructure should be checked.", "Research"))
+        rows.append(_object_detail_row("Senkgrube check", "The brief asks to avoid Senkgrube or septic burden, so the infrastructure should be checked.", "To check"))
     if bool(preferences.get("require_winter_access_research")) and not bool(facts.get("winter_access_risk")):
-        rows.append(_object_detail_row("Winter-access check", "The brief asks for snow and slope driveability context.", "Research"))
+        rows.append(_object_detail_row("Winter-access check", "The brief asks for snow and slope driveability context.", "To check"))
     if bool(preferences.get("avoid_flood_risk_area")) and not bool(facts.get("flood_risk")):
-        rows.append(_object_detail_row("Flood check", "The brief asks to avoid flood exposure, so runoff and flood-zone history should be checked.", "Research"))
+        rows.append(_object_detail_row("Flood check", "The brief asks to avoid flood exposure, so runoff and flood-zone history should be checked.", "To check"))
     return rows
 
 
@@ -2123,7 +2142,7 @@ def _property_investment_research_rows(
     ]
     underwriting = _property_investment_underwriting_payload(
         title=str(facts.get("listing_title") or facts.get("title") or property_url).strip() or property_url,
-        summary=str(facts.get("summary") or facts.get("description_text") or "").strip(),
+        summary=summarize_property_description_copy(facts.get("summary") or facts.get("description_text") or ""),
         facts=facts,
         preferences=preferences,
         snapshot=snapshot,

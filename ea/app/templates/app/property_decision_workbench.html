@@ -34,7 +34,7 @@
 {% set mobile_primary = setup_mobile_primary if setup_mode else ('results' if has_results or run_terminal_no_results else 'property') %}
 {% set show_form_controls = show_brief_form and setup_mode %}
 {% set show_top_search_action = is_explicit_search_route and setup_mode and console_form and show_form_controls %}
-{% set result_surface = surface_mode in ['search', 'properties', 'shortlist'] %}
+{% set result_surface = surface_mode in ['properties', 'shortlist'] %}
 {% set account_surface = surface_mode in ['account', 'settings'] %}
 {% set billing_handoff_focus = account_surface and request is defined and request.query_params is defined and request.query_params.get('billing') == '1' %}
 {% set billing_surface = surface_mode == 'billing' %}
@@ -107,7 +107,7 @@
           <div class="pqx-suppression-panel" data-pqx-filtered-breakdown data-pqx-suppression-summary>
   <button class="pqx-suppression-trigger" type="button" data-pqx-filtered-open aria-label="Open relaxed search options">
     <span class="pqx-suppression-trigger-copy">
-      <strong>{% if ns.total %}{{ ns.total }} outside brief{% else %}Adjust search{% endif %}</strong>
+      <strong>{% if ns.total %}{{ ns.total }} outside this search{% else %}Adjust search{% endif %}</strong>
       <span class="pqx-note">
         Choose one small change, then search again.
       </span>
@@ -117,7 +117,7 @@
 {% endif %}
 {%- endmacro %}
 {% macro filtered_recovery_dialog(counterfactual_rows, suppression_rows) -%}
-          <dialog class="pqx-filtered-dialog" data-pqx-filtered-dialog aria-label="Review outside-brief homes">
+          <dialog class="pqx-filtered-dialog" data-pqx-filtered-dialog aria-label="Homes outside this search">
               <div class="pqx-filtered-dialog-card">
               <div class="pqx-filtered-dialog-head">
                 <div>
@@ -201,7 +201,7 @@
                   <strong>Soften one preference</strong>
                   <span class="pqx-note">Keep must-haves strict. Soften one nice-to-have if the result set is too narrow.</span>
                   <div class="pqx-actions">
-                    <a class="pqx-button subtle" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Review what matters</a>
+                    <a class="pqx-button subtle" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Adjust what matters</a>
                   </div>
                 </div>
                 {% endfor %}
@@ -244,7 +244,7 @@
 <section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
   <div class="pqx-section-head">
     <div>
-      <h2>Check next</h2>
+      <h2>To confirm</h2>
       <div class="pqx-note">Open this only if a missing floor plan or document could change your choice.</div>
     </div>
     <span class="pqx-pill warn" data-research-task-count>{{ counts.get('open') or 0 }} open</span>
@@ -333,7 +333,7 @@
 {% set source_check_total = source_check_total if source_check_total > 0 else provider_display_total %}
 {% set source_check_done = source_done_total if source_done_total > 0 else 0 %}
 {% set source_check_done = source_check_done if source_check_total <= 0 or source_check_done < source_check_total else source_check_total %}
-{% set source_unit = 'search pages' if source_variant_total > provider_display_total and provider_display_total > 0 else 'sites' %}
+{% set source_unit = 'checks' if source_variant_total > provider_display_total and provider_display_total > 0 else 'providers' %}
 {% set source_check_label = source_check_done|string ~ ' / ' ~ source_check_total|string ~ ' ' ~ source_unit if source_check_total > 0 and source_variant_total > 0 else '' %}
 {% set raw_listing_total = (summary.get('found_listing_total') if summary.get('found_listing_total') is not none else (summary.get('raw_listing_total') or 0))|int %}
 {% set listing_total = (summary.get('listing_total') or 0)|int %}
@@ -347,11 +347,15 @@
 {% set checked_label = (found_total|string ~ ' homes found') if found_total > 0 else 'checking' %}
 {% set source_progress_label = '' %}
 {% if source_variant_total > 0 %}
+{% if source_unit == 'checks' and provider_display_total > 0 %}
+{% set scan_count_label = provider_display_total|string ~ ' providers · ' ~ source_check_label %}
+{% else %}
 {% set scan_count_label = source_check_label %}
+{% endif %}
 {% elif provider_display_total > 0 %}
-{% set scan_count_label = provider_display_total|string ~ ' sites selected' %}
+{% set scan_count_label = provider_display_total|string ~ ' providers selected' %}
 {% elif source_completed > 0 or source_total > 0 %}
-{% set scan_count_label = 'Checking sites' %}
+{% set scan_count_label = 'Providers' %}
 {% else %}
 {% set scan_count_label = 'Preparing search' %}
 {% endif %}
@@ -366,7 +370,7 @@
 {% set progress_has_repair_copy = status|lower == 'failed' or progress_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
 {% set progress_customer_message = (reliability.get('customer_status_message') or summary.get('customer_status_message') or '')|trim %}
 {% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
-{% set progress_message_display = progress_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'search pages waiting')|replace('Lists left', 'Search pages waiting')|replace('lists open', 'search pages still running')|replace('Lists open', 'Search pages still running') %}
+{% set progress_message_display = progress_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'checks waiting')|replace('Lists left', 'Checks waiting')|replace('lists open', 'checks still running')|replace('Lists open', 'Checks still running') %}
 {% set progress_message_display_lower = progress_message_display|lower %}
 {% set progress_current_step = (summary.get('current_step') or run.get('current_step') or '')|lower %}
 {% set progress_detail_preparing = found_total > 0 and ('review page preparation timed out' in progress_message_display_lower or 'reviewing candidate' in progress_message_display_lower or progress_current_step in ['source_review_packet', 'source_review_packet_failed']) %}
@@ -374,14 +378,14 @@
 {% set progress_source_left_label = progress_source_left_total|string ~ ' ' ~ source_unit ~ ' left' if progress_source_left_total > 0 else '' %}
 {% if progress_detail_preparing %}
   {% if source_open_total > 0 %}
-    {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared · ' ~ (progress_source_left_label or source_check_label) %}
+    {% set progress_message_display = found_total ~ ' homes found · home details are still loading · ' ~ (progress_source_left_label or source_check_label) %}
   {% else %}
-    {% set progress_message_display = found_total ~ ' homes found · property pages are still being prepared' %}
+    {% set progress_message_display = found_total ~ ' homes found · home details are still loading' %}
   {% endif %}
   {% set progress_message_display_lower = progress_message_display|lower %}
 {% endif %}
 {% set progress_compact_found_message = found_total|string ~ ' homes found' %}
-{% set progress_queue_label = to_review_total|string ~ ' to review' if to_review_total > 0 else (progress_source_left_label if source_open_total > 0 and progress_source_left_label else 'all found homes reviewed') %}
+{% set progress_queue_label = to_review_total|string ~ ' to review' if to_review_total > 0 else (progress_source_left_label if source_open_total > 0 and progress_source_left_label else 'all found homes are checked') %}
 {% set progress_compact_queue_message = found_total|string ~ ' homes found · ' ~ progress_queue_label %}
 {% if not progress_message_display or 'could not load property search status' in progress_message_display_lower or 'checking run status' in progress_message_display_lower or 'suppressed_generic_listing_page' in progress_message_display_lower or 'starting property search run' in progress_message_display_lower or 'scoring enriched candidate' in progress_message_display_lower or 'ranking homes' in progress_message_display_lower or (found_total and to_review_total <= 0 and progress_source_left_total > 0 and '0 to review' in progress_message_display_lower) or progress_message_display_lower in ['starting', 'checking'] or (found_total and progress_message_display == progress_compact_found_message) or (found_total and progress_message_display == progress_compact_queue_message) %}
   {% if found_total %}
@@ -421,7 +425,7 @@
 {% set detail_queue_value = to_review_total if to_review_total > 0 else 0 %}
 {% set detail_queue_pct = to_review_bar_pct %}
 {% if to_review_total <= 0 and source_open_total > 0 and progress_source_left_total > 0 %}
-  {% set detail_queue_label = 'Pages left' %}
+  {% set detail_queue_label = 'Checks left' %}
   {% set detail_queue_value = progress_source_left_total %}
   {% set detail_queue_pct = ((progress_source_left_total * 100) // source_check_total) if source_check_total > 0 else 0 %}
 {% endif %}
@@ -436,13 +440,13 @@
 		  <div class="pqx-source-progress" data-pqx-source-progress>
 		    <div class="pqx-source-progress-head">
 				      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-							      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total and source_open_total > 0 %}{{ source_open_total }} {{ source_unit }} left{% elif found_total %}all found homes reviewed{% elif provider_display_total %}{{ provider_display_total }} sites selected{% else %}Looking for listings{% endif %}</span>
+							      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total and source_open_total > 0 %}{{ source_open_total }} {{ source_unit }} left{% elif found_total %}all found homes are checked{% elif provider_display_total %}{{ provider_display_total }} providers selected{% else %}Looking for homes{% endif %}</span>
 						      {% if found_total and to_review_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
 					    </div>
-				    <span class="pqx-note">{{ progress_message_display or 'Looking for the first listings.' }}</span>
+				    <span class="pqx-note">{{ progress_message_display or 'Looking for the first homes.' }}</span>
 				    <div class="pqx-live-review-bars" aria-label="Search totals">
 		      <span>
-		        <b>Found</b>
+		        <b>Homes</b>
 		        <i>{{ found_total or 0 }}</i>
 		        <em><u style="--progress: {{ found_bar_pct }}"></u></em>
 			      </span>
@@ -452,7 +456,7 @@
 			        <em><u style="--progress: {{ detail_queue_pct }}"></u></em>
 			      </span>
 		      <span>
-					        <b>Sites</b>
+					        <b>{{ 'Checks' if source_unit == 'checks' else 'Providers' }}</b>
 		        <i>{% if source_variant_total > 0 %}{{ source_check_done }} / {{ source_check_total }}{% else %}{{ provider_display_total or 0 }}{% endif %}</i>
 		        <em><u style="--progress: {{ ((source_check_done * 100) // source_check_total) if source_check_total > 0 and source_check_done > 0 else 0 }}"></u></em>
 		      </span>
@@ -465,7 +469,7 @@
 	  <div class="pqx-reliability-strip" data-pqx-run-reliability>
     <div class="pqx-reliability-head">
       <span class="pqx-pill {{ reliability.get('health_tone') }}">{{ reliability.get('health_label') or 'Working' }}</span>
-      {% if reliability.get('repair_step_label') %}<strong>Refreshing affected sites</strong>{% endif %}
+      {% if reliability.get('repair_step_label') %}<strong>Refreshing affected providers</strong>{% endif %}
       {% if reliability.get('next_useful_update_eta_label') %}<span class="pqx-small">Next useful update: {{ reliability.get('next_useful_update_eta_label') }}</span>{% endif %}
       {% if reliability.get('final_eta_label') %}<span class="pqx-small">Finish: {{ reliability.get('final_eta_label') }}</span>{% endif %}
     </div>
@@ -2218,6 +2222,42 @@
     .pqx-dashboard-stack {
       display: grid;
       gap: 10px;
+    }
+    .pqx-current-run-card {
+      margin-bottom: 14px;
+    }
+    .pqx-current-run-actions {
+      margin-top: 10px;
+      justify-content: flex-start;
+    }
+    .pqx-current-run-facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .pqx-current-run-fact {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+      padding: 9px 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: var(--pq-panel-alt);
+    }
+    .pqx-current-run-fact span {
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.1;
+      text-transform: uppercase;
+    }
+    .pqx-current-run-fact strong {
+      color: var(--pq-ink);
+      font-size: 0.97rem;
+      line-height: 1.2;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: auto;
     }
     .pqx-dashboard-row {
       display: grid;
@@ -4410,7 +4450,6 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
-    {% if surface_mode == 'search' %}
     .pqx-what-matters-group-summary {
       display: grid;
       gap: 2px;
@@ -4424,7 +4463,6 @@
       content: "";
       display: none;
     }
-    {% endif %}
     .pqx-what-matters-group-note {
       margin: -2px 0 1px;
       color: var(--pq-faint);
@@ -4679,8 +4717,23 @@
       display: block;
       margin-top: 4px;
     }
+    html[data-pq-theme="dark"] .pqx-what-matters-more {
+      border-color: color-mix(in srgb, var(--pq-line) 78%, transparent);
+      background: color-mix(in srgb, var(--pq-paper) 96%, rgba(12, 10, 8, 0.16));
+    }
+    html[data-pq-theme="dark"] .pqx-what-matters-more .pqx-mobile-fold-copy strong,
+    html[data-pq-theme="dark"] .pqx-what-matters-more .pqx-mobile-fold-copy .pqx-note,
+    html[data-pq-theme="dark"] .pqx-what-matters-more .pqx-mobile-fold-meta,
+    html[data-pq-theme="dark"] .pqx-what-matters-more .pqx-field label,
+    html[data-pq-theme="dark"] .pqx-what-matters-more .pqx-check span,
+    html[data-pq-theme="dark"] .pqx-what-matters-more .pqx-check small {
+      color: var(--pq-ink);
+    }
+    html[data-pq-theme="dark"] .pqx-what-matters-more .pqx-check {
+      background: color-mix(in srgb, var(--pq-paper) 92%, rgba(12, 10, 8, 0.22));
+      border: 1px solid color-mix(in srgb, var(--pq-line) 72%, transparent);
+    }
     @media (max-width: 760px) {
-      {% if surface_mode == 'search' %}
       .pqx-what-matters-head {
         grid-template-columns: minmax(0, 1fr) auto;
         align-items: start;
@@ -4701,8 +4754,8 @@
         z-index: auto;
         display: grid;
         grid-template-rows: auto minmax(0, 1fr);
-        max-height: none;
-        overflow: visible;
+        max-height: calc(100svh - 28px);
+        overflow: hidden;
         padding: 0;
         border-radius: 16px;
         background: rgba(255, 253, 248, 0.99);
@@ -4718,9 +4771,12 @@
       }
       .pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel .pqx-advanced-panel-grid {
         min-height: 0;
-        overflow: visible;
-        overscroll-behavior: auto;
-        padding-bottom: 8px;
+        max-height: 100%;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        overflow-anchor: none;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
       }
       .pqx-what-matters-head .pqx-button {
         width: auto;
@@ -4739,6 +4795,7 @@
         max-width: 100%;
         padding: 8px;
         border-radius: 14px;
+        overflow-anchor: none;
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open][data-active-distance-rows="true"],
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][data-mobile-distance-control-active="true"] {
@@ -4829,6 +4886,7 @@
         max-width: 100%;
         box-sizing: border-box !important;
         overflow-x: clip;
+        overflow-anchor: none;
       }
       .pqx-what-matters-panel .pqx-pref-row-title .pqx-tooltip {
         display: inline-grid;
@@ -4895,9 +4953,7 @@
       .pqx-what-matters-more .pqx-mobile-fold-content {
         padding: 10px 12px 12px;
       }
-      {% endif %}
     }
-    {% if surface_mode == 'search' %}
     @media (max-width: 380px) {
       .pqx-what-matters-head .pqx-actions,
       .pqx-what-matters-panel .pqx-pref-row,
@@ -4906,7 +4962,6 @@
         grid-template-columns: minmax(0, 1fr);
       }
     }
-    {% endif %}
     @media (max-width: 760px) {
       .pqx-what-matters-panel[data-property-what-matters-panel] .pqx-pref-list,
       [data-property-what-matters-panel] .pqx-pref-list {
@@ -5546,6 +5601,11 @@
       background: #fffefa;
       height: max-content;
     }
+    .pqx-account-action-card > div,
+    .pqx-account-action-card > summary,
+    .pqx-account-action-card .pqx-mobile-fold-copy {
+      min-width: 0;
+    }
     .pqx-account-action-card[id],
     .pqx-card[id] {
       scroll-margin-top: 96px;
@@ -5573,15 +5633,25 @@
     }
     .pqx-account-action-card h2 {
       margin: 2px 0 0;
+      max-width: 100%;
       color: var(--pq-ink);
       font-size: 1.05rem;
       line-height: 1.18;
+      overflow-wrap: anywhere;
     }
     .pqx-account-action-card p {
       margin: 6px 0 0;
+      max-width: 100%;
       color: var(--pq-muted);
       font-size: 12px;
       line-height: 1.42;
+      overflow-wrap: anywhere;
+    }
+    .pqx-account-action-card .pqx-small,
+    .pqx-account-action-card strong,
+    .pqx-account-action-card small {
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
     .pqx-account-channel-form {
       display: grid;
@@ -6546,24 +6616,6 @@
 	        linear-gradient(180deg, transparent 48%, rgba(22, 26, 24, 0.22)),
 	        linear-gradient(45deg, rgba(255,255,255,0.16), transparent 48%);
 	      pointer-events: none;
-	    }
-	    .pqx-result-diorama-label {
-	      position: absolute;
-	      left: 8px;
-	      bottom: 8px;
-	      z-index: 2;
-	      min-height: 24px;
-	      display: inline-flex;
-	      align-items: center;
-	      padding: 0 9px;
-	      border-radius: 999px;
-	      background: rgba(22, 26, 24, 0.72);
-	      color: #fff8f1;
-	      font-size: 10px;
-	      font-weight: 820;
-	      letter-spacing: 0.03em;
-	      text-transform: uppercase;
-	      backdrop-filter: blur(8px);
 	    }
 	    .pqx-result-diorama-room {
 	      position: absolute;
@@ -9511,9 +9563,14 @@
         padding-right: 30px;
       }
       .pqx-account-action-card {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
         grid-template-columns: minmax(0, 1fr);
         align-items: stretch;
         scroll-margin-top: 86px;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
       }
       .pqx-account-logout-strip {
         grid-template-columns: minmax(0, 1fr);
@@ -9539,6 +9596,16 @@
       .pqx-account-action-grid,
       .pqx-account-channel-form {
         gap: 8px;
+      }
+      .pqx-account-action-grid > *,
+      .pqx-account-action-card > div,
+      .pqx-account-action-card > summary,
+      .pqx-account-action-card .pqx-mobile-fold-copy,
+      .pqx-account-action-card .pqx-link-button,
+      .pqx-account-action-card button {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
       }
       .pqx-account-action-card {
         padding: 9px;
@@ -9859,9 +9926,6 @@
         max-height: none;
         overflow: visible;
       }
-      .pqx-mobile-property-panel .pqx-mobile-visual-facts {
-        gap: 5px;
-      }
       .pqx-mobile-property-panel .pqx-mobile-visual-status {
         min-height: 0;
         font-size: 12px;
@@ -10078,71 +10142,39 @@
         display: block !important;
         position: relative;
         justify-self: start;
+        min-width: 0;
+        width: 100%;
       }
       .pqx-mobile-nav-menu > summary {
-        min-height: 38px;
-        display: inline-flex !important;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 0 12px;
-        border: 1px solid color-mix(in srgb, var(--pq-line) 78%, transparent);
-        border-radius: 999px;
-        background: color-mix(in srgb, var(--pq-paper) 98%, white);
-        color: var(--pq-muted);
-        font-size: 11px;
-        font-weight: 700;
-        list-style: none;
-        white-space: nowrap;
-        cursor: pointer;
-      }
-      .pqx-mobile-nav-menu > summary .pqx-mobile-nav-label {
-        display: inline-flex;
-        align-items: center;
-        min-height: 40px;
-      }
-      .pqx-mobile-nav-menu > summary::-webkit-details-marker {
-        display: none;
-      }
-      .pqx-mobile-nav-menu > summary::after {
-        content: "";
-        width: 6px;
-        height: 6px;
-        border-right: 1.5px solid currentColor;
-        border-bottom: 1.5px solid currentColor;
-        transform: rotate(45deg) translateY(-1px);
-        transform-origin: center;
-      }
-      .pqx-mobile-nav-menu[open] > summary::after {
-        transform: rotate(225deg) translateY(-1px);
-      }
-      .pqx-mobile-nav-menu .pqx-primary-nav {
         display: none !important;
       }
+      .pqx-mobile-nav-menu .pqx-primary-nav,
       .pqx-mobile-nav-menu[open] .pqx-primary-nav {
-        position: fixed;
-        top: calc(50px + env(safe-area-inset-top, 0px));
-        left: 8px;
-        right: 8px;
-        z-index: 46;
-        display: grid !important;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 6px;
-        padding: 8px;
-        border: 1px solid color-mix(in srgb, var(--pq-line) 82%, transparent);
-        border-radius: 14px;
-        background: color-mix(in srgb, var(--pq-paper) 98%, white);
-        box-shadow: 0 16px 30px rgba(28, 24, 18, 0.12);
-      }
-      html[data-pq-theme="dark"] .pqx-mobile-nav-menu[open] .pqx-primary-nav {
-        background: color-mix(in srgb, var(--pq-paper) 96%, black);
-        box-shadow: 0 18px 32px rgba(0, 0, 0, 0.34);
-      }
-      .pqx-mobile-nav-menu[open] .pqx-primary-nav :is(a, span) {
-        min-height: 40px;
+        position: static !important;
+        display: flex !important;
+        align-items: center;
         justify-content: flex-start;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        gap: 6px;
+        padding: 0;
+        overflow-x: auto !important;
+        overflow-y: hidden;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+      .pqx-mobile-nav-menu .pqx-primary-nav :is(a, span),
+      .pqx-mobile-nav-menu[open] .pqx-primary-nav :is(a, span) {
+        width: auto;
+        min-width: 44px;
+        min-height: 40px;
+        justify-content: center;
         padding: 0 12px;
         font-size: 11px;
+        flex: 0 0 auto;
       }
       .pqx-top-actions {
         grid-area: actions;
@@ -10447,37 +10479,34 @@
       .pqx-mobile-nav-menu > summary::-webkit-details-marker {
         display: none;
       }
-      .pqx-mobile-nav-menu[open] > summary {
-        border-color: color-mix(in srgb, var(--pq-gold) 32%, var(--pq-line));
-        background: color-mix(in srgb, var(--pq-gold) 10%, var(--pq-paper));
-      }
       .pqx-primary-nav {
-        display: none;
-        position: fixed;
-        top: calc(44px + var(--pq-mobile-safe-top));
-        left: 8px;
-        right: 8px;
-        width: auto;
-        padding: 8px;
+        display: flex !important;
+        position: static;
+        top: auto;
+        left: auto;
+        right: auto;
+        width: 100%;
+        min-width: 0;
+        padding: 0;
         gap: 6px;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        overflow: visible;
-        border: 1px solid color-mix(in srgb, var(--pq-line) 84%, white);
-        border-radius: 14px;
-        background: color-mix(in srgb, var(--pq-paper) 98%, white);
-        box-shadow: 0 16px 30px rgba(36, 29, 20, 0.12);
-        z-index: 46;
-      }
-      .pqx-mobile-nav-menu[open] .pqx-primary-nav {
-        display: grid;
+        grid-template-columns: none;
+        overflow-x: auto !important;
+        overflow-y: hidden;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        z-index: auto;
       }
       .pqx-primary-nav :is(a, span) {
-        width: 100%;
+        width: auto;
+        min-width: 44px;
         min-height: 40px;
-        justify-content: flex-start;
+        justify-content: center;
         padding: 0 12px;
         border-radius: 10px;
         font-size: 0.78rem;
+        flex: 0 0 auto;
       }
       .pqx-top-actions {
         grid-area: account;
@@ -10654,7 +10683,7 @@
     'empty_outcome': empty_outcome,
   } %}
   <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-surface="{{ surface_mode }}" data-pqx-state="{{ 'results' if has_results else ('running' if run_active else ('empty_results' if run_terminal_no_results else 'setup')) }}">
-    <header class="pqx-topbar" data-property-research-topnav data-property-console-topnav>
+    <header class="pqx-topbar" data-property-research-topnav>
       <a class="pqx-brand" href="/?home=1" aria-label="PropertyQuarry public home">
         <span class="pqx-mark">PQ</span>
         <span>
@@ -10663,9 +10692,9 @@
         </span>
       </a>
       {% if not billing_handoff_focus %}
-      <details class="pqx-mobile-nav-menu" data-pqx-mobile-nav-menu>
+      <details class="pqx-mobile-nav-menu" data-pqx-mobile-nav-menu open>
         <summary><span class="pqx-mobile-nav-label is-active" aria-current="page">{% if surface_mode in ['properties', 'search'] %}Search{% elif surface_mode == 'shortlist' %}Shortlist{% elif surface_mode == 'research' %}Research{% elif surface_mode == 'agents' %}Saved{% elif surface_mode == 'alerts' %}Alerts{% elif surface_mode == 'billing' %}Billing{% elif surface_mode == 'account' %}Account{% else %}Menu{% endif %}</span></summary>
-      <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
+      <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections" data-property-console-topnav>
         {% if surface_mode in ['properties', 'search'] %}
         <span class="is-active" aria-current="page">Search</span>
         {% else %}
@@ -10704,7 +10733,7 @@
         </div>
         {% endif %}
         {% if has_results and result_surface %}
-        <a class="pqx-link-button subtle" href="/app/properties/packets{{ topnav_query_suffix }}">Review</a>
+        <a class="pqx-link-button subtle" href="/app/properties/packets{{ topnav_query_suffix }}">Saved pages</a>
         {% endif %}
         {% if has_results and result_surface %}
         <a class="pqx-link-button subtle" href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Edit search</a>
@@ -10738,7 +10767,7 @@
               <a class="pqx-link-button" href="{{ account_nav.profile_href }}">Saved defaults</a>
               {% endif %}
             {% if not billing_surface and surface_mode != 'search' %}
-            <a class="pqx-link-button" href="{{ account_nav.billing_href }}">{{ account_nav.billing_label or 'Billing account' }}</a>
+            <a class="pqx-link-button" href="{{ account_nav.billing_href }}">{{ account_nav.billing_label or 'Billing' }}</a>
             {% endif %}
               {% if not account_surface %}
               <a class="pqx-link-button subtle" href="{{ account_nav.settings_href }}">Access</a>
@@ -10762,6 +10791,7 @@
       (() => {
         const root = document.querySelector('[data-property-decision-workbench]');
         if (!root) return;
+        const mobileTopNavUsesVisibleRail = () => window.matchMedia('(max-width: 760px)').matches;
         const applyMobileTopNavFallback = () => {
           if (!window.matchMedia('(max-width: 760px)').matches) return;
           const menu = root.querySelector('[data-pqx-mobile-nav-menu]');
@@ -10769,6 +10799,36 @@
           const summary = menu.querySelector(':scope > summary');
           const nav = menu.querySelector('.pqx-primary-nav');
           if (!(summary instanceof HTMLElement) || !(nav instanceof HTMLElement)) return;
+          if (mobileTopNavUsesVisibleRail()) {
+            menu.open = true;
+            menu.style.setProperty('display', 'block', 'important');
+            menu.style.setProperty('position', 'relative');
+            menu.style.setProperty('width', '100%');
+            menu.style.setProperty('min-width', '0');
+            summary.style.setProperty('display', 'none', 'important');
+            nav.style.setProperty('display', 'flex', 'important');
+            nav.style.setProperty('position', 'static', 'important');
+            nav.style.setProperty('width', '100%', 'important');
+            nav.style.setProperty('max-width', '100%', 'important');
+            nav.style.setProperty('min-width', '0', 'important');
+            nav.style.setProperty('padding', '0', 'important');
+            nav.style.setProperty('gap', '6px', 'important');
+            nav.style.setProperty('overflow-x', 'auto', 'important');
+            nav.style.setProperty('overflow-y', 'hidden', 'important');
+            nav.style.setProperty('border', '0', 'important');
+            nav.style.setProperty('border-radius', '0', 'important');
+            nav.style.setProperty('background', 'transparent', 'important');
+            nav.style.setProperty('box-shadow', 'none', 'important');
+            nav.style.setProperty('grid-template-columns', 'none', 'important');
+            nav.querySelectorAll('a, span').forEach((item) => {
+              if (!(item instanceof HTMLElement)) return;
+              item.style.setProperty('width', 'auto', 'important');
+              item.style.setProperty('min-width', '44px', 'important');
+              item.style.setProperty('justify-content', 'center', 'important');
+              item.style.setProperty('flex', '0 0 auto', 'important');
+            });
+            return;
+          }
           const summaryRect = summary.getBoundingClientRect();
           const navRect = nav.getBoundingClientRect();
           const summaryVisible = summaryRect.width > 0 && summaryRect.height > 0;
@@ -10798,11 +10858,13 @@
         if (mobileNavMenu instanceof HTMLDetailsElement) {
           mobileNavMenu.querySelectorAll('.pqx-primary-nav a').forEach((link) => {
             link.addEventListener('click', () => {
+              if (mobileTopNavUsesVisibleRail()) return;
               mobileNavMenu.open = false;
             });
           });
           document.addEventListener('click', (event) => {
             if (!window.matchMedia('(max-width: 760px)').matches) return;
+            if (mobileTopNavUsesVisibleRail()) return;
             if (!mobileNavMenu.open) return;
             if (mobileNavMenu.contains(event.target instanceof Node ? event.target : null)) return;
             mobileNavMenu.open = false;
@@ -10898,7 +10960,7 @@
           {% set live_source_check_total = live_source_check_total if live_source_check_total > 0 else live_provider_total %}
           {% set live_source_check_done = live_source_done_total if live_source_done_total > 0 else 0 %}
           {% set live_source_check_done = live_source_check_done if live_source_check_total <= 0 or live_source_check_done < live_source_check_total else live_source_check_total %}
-          {% set live_source_unit = 'search pages' if live_source_total > live_provider_total and live_provider_total > 0 else 'sites' %}
+          {% set live_source_unit = 'checks' if live_source_total > live_provider_total and live_provider_total > 0 else 'providers' %}
           {% set live_source_check_label = live_source_check_done|string ~ ' / ' ~ live_source_check_total|string ~ ' ' ~ live_source_unit if live_source_check_total > 0 and live_source_total > 0 else '' %}
           {% set live_reviewed_total = (run_summary.get('scanned_listing_total') if run_summary.get('scanned_listing_total') is not none else (run_summary.get('reviewed_listing_total') or 0))|int %}
           {% set live_raw_found_total = (run_summary.get('found_listing_total') if run_summary.get('found_listing_total') is not none else (run_summary.get('raw_listing_total') or live_reviewed_total or run_summary.get('listing_total') or 0))|int %}
@@ -10908,26 +10970,26 @@
           {% set live_has_repair_copy = run_status == 'failed' or live_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
           {% set live_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
           {% set live_run_message_display = live_safe_message if live_has_repair_copy and live_safe_message else live_run_message_raw %}
-          {% set live_run_message_display = live_run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'search pages waiting')|replace('Lists left', 'Search pages waiting')|replace('lists open', 'search pages still running')|replace('Lists open', 'Search pages still running') %}
+          {% set live_run_message_display = live_run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'checks waiting')|replace('Lists left', 'Checks waiting')|replace('lists open', 'checks still running')|replace('Lists open', 'Checks still running') %}
           {% set live_run_message_display_lower = live_run_message_display|lower %}
           {% set live_prepared_total = ((run_summary.get('review_created_total') or 0)|int) + ((run_summary.get('review_existing_total') or 0)|int) %}
           {% set live_source_left_total = live_source_check_total - live_source_check_done if live_source_check_total > live_source_check_done else 0 %}
           {% set live_source_left_label = live_source_left_total|string ~ ' ' ~ live_source_unit ~ ' left' if live_source_left_total > 0 else '' %}
           {% if live_found_total > 0 and live_prepared_total <= 0 and ('review page preparation timed out' in live_run_message_display_lower or 'reviewing candidate' in live_run_message_display_lower or (run_summary.get('current_step') or run.get('current_step') or '')|lower == 'source_review_packet') %}
 		          {% if live_source_open_total > 0 %}
-		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared · ' ~ (live_source_left_label or live_source_check_label) %}
+		            {% set live_run_message_display = live_found_total ~ ' homes found · home details are still loading · ' ~ (live_source_left_label or live_source_check_label) %}
 		          {% else %}
-		            {% set live_run_message_display = live_found_total ~ ' homes found · property pages are still being prepared' %}
+		            {% set live_run_message_display = live_found_total ~ ' homes found · home details are still loading' %}
 		          {% endif %}
 		          {% set live_run_message_display_lower = live_run_message_display|lower %}
 {% endif %}
           {% set live_compact_found_message = live_found_total|string ~ ' homes found' %}
-	          {% set live_queue_label = live_to_review_total|string ~ ' to review' if live_to_review_total > 0 else (live_source_left_label if live_source_open_total > 0 and live_source_left_label else 'all found homes reviewed') %}
+	          {% set live_queue_label = live_to_review_total|string ~ ' to review' if live_to_review_total > 0 else (live_source_left_label if live_source_open_total > 0 and live_source_left_label else 'all found homes are checked') %}
 	          {% set live_compact_queue_message = live_found_total|string ~ ' homes found · ' ~ live_queue_label %}
           {% set live_detail_queue_label = 'To review' %}
           {% set live_detail_queue_value = live_to_review_total|string ~ ' homes' if live_to_review_total > 0 else '0 homes' %}
           {% if live_to_review_total <= 0 and live_source_open_total > 0 and live_source_left_total > 0 %}
-            {% set live_detail_queue_label = 'Pages left' %}
+            {% set live_detail_queue_label = 'Checks left' %}
             {% set live_detail_queue_value = live_source_left_total|string ~ ' ' ~ live_source_unit %}
           {% endif %}
           {% if not live_run_message_display or 'could not load property search status' in live_run_message_display_lower or 'checking run status' in live_run_message_display_lower or 'suppressed_generic_listing_page' in live_run_message_display_lower or 'starting property search run' in live_run_message_display_lower or 'scoring enriched candidate' in live_run_message_display_lower or 'ranking homes' in live_run_message_display_lower or (live_found_total and live_to_review_total <= 0 and live_source_left_total > 0 and '0 to review' in live_run_message_display_lower) or live_run_message_display_lower in ['starting', 'checking'] or (live_found_total and live_run_message_display == live_compact_found_message) or (live_found_total and live_run_message_display == live_compact_queue_message) %}
@@ -10943,24 +11005,35 @@
 			          {% set live_run_message_display = 'Preparing search.' %}
 				        {% endif %}
           {% endif %}
-          <section class="pqx-card" style="margin-bottom:14px;">
+          <section class="pqx-card pqx-current-run-card">
             <div class="pqx-section-head">
               <div>
                 <h2>Current search</h2>
                 <div class="pqx-note" data-pqx-run-message>{{ live_run_message_display or 'The current search is still running.' }}</div>
               </div>
-	              <span class="pqx-pill good">{{ run.get('progress') or 0 }}%</span>
-	            </div>
-	            <div class="pqx-pref-list">
-	              <div class="pqx-pref-row">
-	                <div><strong>Status</strong><small>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</small></div>
-			                  <div><strong>Sites</strong><small>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} sites selected{% else %}Preparing{% endif %}</small></div>
-		                  <div><strong>Found</strong><small>{{ live_found_total }} homes</small></div>
-				                <div><strong>{{ live_detail_queue_label }}</strong><small>{{ live_detail_queue_value }}</small></div>
-	                <div><strong>Search</strong><small><a href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}">Open search</a></small></div>
-	              </div>
+              <span class="pqx-pill good">{{ run.get('progress') or 0 }}%</span>
+            </div>
+            <div class="pqx-actions pqx-current-run-actions">
+              <a class="pqx-link-button subtle" href="/app/properties{% if run.get('run_id') %}?run_id={{ run.get('run_id') }}{% endif %}" data-pqx-loading-link>Open search</a>
+            </div>
+            <div class="pqx-current-run-facts" aria-label="Current search totals">
+              <div class="pqx-current-run-fact">
+                <span>Providers</span>
+                <strong>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} providers selected{% else %}Preparing{% endif %}</strong>
+              </div>
+              <div class="pqx-current-run-fact">
+                <span>Homes</span>
+                <strong>{{ live_found_total }} homes</strong>
+              </div>
+              <div class="pqx-current-run-fact">
+                <span>{{ live_detail_queue_label }}</span>
+                <strong>{{ live_detail_queue_value }}</strong>
+              </div>
+            </div>
+            <div class="pqx-pref-list">
           {% if live_preview %}
-          {% set live_preview_href = live_preview.get('source_url') or live_preview.get('property_url') or live_preview.get('review_url') or '' %}
+          {% set live_preview_href = live_preview.get('packet_url') or live_preview.get('review_url') or live_preview.get('property_url') or live_preview.get('source_url') or '' %}
+          {% set live_preview_is_internal = live_preview_href.startswith('/app/') or 'propertyquarry.com/app/' in live_preview_href %}
           {% set live_preview_title = live_preview.get('title') or live_preview.get('listing_title') or 'Property' %}
           {% set live_preview_image = live_preview.get('preview_image_url') or '' %}
           {% set live_preview_facts = live_preview.get('property_facts') or {} %}
@@ -10972,7 +11045,7 @@
           {% set live_preview_price = live_preview_price_text or ((live_preview_currency ~ ' ' ~ '{:,.0f}'.format(live_preview_price_numeric|float)) if live_preview_price_numeric else '') %}
           {% set live_preview_reason_raw = (live_preview.get('fit_summary') or live_preview.get('summary') or '')|trim %}
           {% set live_preview_reason_lower = live_preview_reason_raw|lower %}
-          {% set live_preview_reason = live_preview_reason_raw if live_preview_reason_raw and not (live_preview_reason_lower.startswith('http://') or live_preview_reason_lower.startswith('https://') or live_preview_reason_lower.startswith('www.')) else 'Leading match right now.' %}
+          {% set live_preview_reason = live_preview_reason_raw if live_preview_reason_raw and not (live_preview_reason_lower.startswith('http://') or live_preview_reason_lower.startswith('https://') or live_preview_reason_lower.startswith('www.')) else 'Fits the brief so far.' %}
           <div class="pqx-pref-row">
             <div>
                   <strong>{{ live_preview_title }}</strong>
@@ -10988,23 +11061,24 @@
                 <div><strong>Location</strong><small>{{ live_preview_location }}</small></div>
               </div>
               {% endif %}
-              <div class="pqx-note" style="margin-top:4px;">Leading right now. Can still change before the search finishes.</div>
               {% if live_preview_image or live_preview_href %}
               <div class="pqx-pref-row">
                 <div style="display:flex; align-items:center; gap:12px; min-width:0;">
                   {% if live_preview_image %}
-                  <a href="{{ live_preview_href or '#' }}" {% if live_preview_href %}target="_blank" rel="noopener noreferrer"{% endif %} style="display:block; width:88px; height:66px; border-radius:10px; overflow:hidden; border:1px solid var(--pq-line); background:var(--pq-panel-alt); flex:0 0 auto;">
+                  <a href="{{ live_preview_href or '#' }}" {% if live_preview_href and not live_preview_is_internal %}target="_blank" rel="noopener noreferrer"{% endif %} style="display:block; width:88px; height:66px; border-radius:10px; overflow:hidden; border:1px solid var(--pq-line); background:var(--pq-panel-alt); flex:0 0 auto;">
                     <img src="{{ live_preview_image }}" alt="" style="width:100%; height:100%; object-fit:cover; display:block;">
                   </a>
                   {% endif %}
+                  {% if live_preview_reason or live_preview_location %}
                   <div style="min-width:0;">
-                    <strong style="display:block;">Preview</strong>
-                    <small style="display:block;">Open the current leading listing while the rest of the search continues.</small>
+                    {% if live_preview_location %}<strong style="display:block;">{{ live_preview_location }}</strong>{% endif %}
+                    {% if live_preview_reason %}<small style="display:block;">{{ live_preview_reason }}</small>{% endif %}
                   </div>
+                  {% endif %}
                 </div>
                 <div class="pqx-actions">
                   {% if live_preview_href %}
-                  <a class="pqx-link-button subtle" href="{{ live_preview_href }}" target="_blank" rel="noopener noreferrer">Open listing</a>
+                  <a class="pqx-link-button subtle" href="{{ live_preview_href }}" {% if not live_preview_is_internal %}target="_blank" rel="noopener noreferrer"{% endif %}>{{ 'Open property' if live_preview_is_internal else 'Open listing' }}</a>
                   {% endif %}
                 </div>
               </div>
@@ -11076,7 +11150,7 @@
           </div>
           {% if surface_mode != 'agents' %}
           <div class="pqx-dashboard-row">
-            <span class="pqx-small">Search history</span>
+            <span class="pqx-small">Recent searches</span>
             <strong>
               {% if previous_total %}
               {{ previous_total }} recent {{ 'search' if previous_total == 1 else 'searches' }}
@@ -11086,9 +11160,9 @@
             </strong>
             <span class="pqx-note">
               {% if previous_total %}
-              Open an earlier search without losing the current brief.
+              Open an earlier search.
               {% else %}
-              Recent searches will appear here after the first search.
+              Saved searches appear here after the first run.
               {% endif %}
             </span>
           </div>
@@ -11128,7 +11202,7 @@
                 {% else %}
                 <div class="pqx-previous-scope-empty">
                   <strong>Scope saved</strong>
-                  <span class="pqx-note">This search kept the area and labels. The preview can be rebuilt next time it runs.</span>
+                  <span class="pqx-note">Area saved. The preview updates the next time it runs.</span>
                 </div>
                 {% endif %}
                 <div class="pqx-previous-scope-caption">
@@ -11179,9 +11253,9 @@
             </article>
             {% else %}
             <div class="pqx-dashboard-row">
-              <span class="pqx-small">No previous searches yet</span>
+              <span class="pqx-small">No saved searches yet</span>
               <strong>Start with one search or evaluate a single listing.</strong>
-              <span class="pqx-note">Recent searches will appear here after the first search.</span>
+              <span class="pqx-note">Saved searches appear here after the first run.</span>
             </div>
             {% endfor %}
           </div>
@@ -11190,8 +11264,8 @@
             <summary>
               <span class="pqx-mobile-fold-copy">
                 <span class="pqx-small">History</span>
-                <strong>All recent searches</strong>
-                <span class="pqx-note">Keep this brief open and jump back into any earlier result.</span>
+                <strong>Search history</strong>
+                <span class="pqx-note">Keep this brief open and jump back when needed.</span>
               </span>
               <span class="pqx-mobile-fold-meta">
                 <span class="pqx-pill">{{ previous_total }} searches</span>
@@ -11715,12 +11789,12 @@
 	                {% elif field.type == 'checkbox_group' %}
 	                <fieldset class="pqx-choice-groupbox">
 	                  <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
-	                  {% if field.name == 'selected_platforms' %}<span hidden>Select sites</span>{% endif %}
+	                  {% if field.name == 'selected_platforms' %}<span hidden>Select providers</span>{% endif %}
 	                  {% if field.name in ['selected_platforms', 'location_query'] %}
                   <div class="pqx-choice-groupbox-head">
                     <div class="pqx-choice-groupbox-actions pqx-field-tools">
                       {% if field.name == 'selected_platforms' %}
-	                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all sites">All sites</button>
+	                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all providers">All providers</button>
                       {% else %}
                       <div class="pqx-location-mode-toggle" role="group" aria-label="Area selection mode">
                         <button class="pqx-field-action" type="button" data-location-mode-button="map" aria-pressed="true">Map</button>
@@ -12068,7 +12142,7 @@
               {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_display_total') or run_summary.get('provider_total') or run_sources|length or run_summary.get('sources_total') or 0)|int %}
 	              {% set homes_checked_total = (run_summary.get('found_listing_total') if run_summary.get('found_listing_total') is not none else (run_summary.get('raw_listing_total') or run_summary.get('scanned_listing_total') or run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0))|int %}
 	              <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
-		              <div class="pqx-fact"><span>Sites</span><strong>{{ provider_display_total or 0 }}</strong></div>
+		              <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
 	              <div class="pqx-fact"><span>Listings</span><strong>{{ homes_checked_total }}</strong></div>
             </div>
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
@@ -12106,7 +12180,7 @@
                 {% set variant_display_total = (run.get('source_variant_display_total') or run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
                 {% set homes_checked = (run_summary.get('listing_total') or run_summary.get('raw_listing_total') or 0)|int %}
               {% if provider_display_total > 0 and variant_display_total > provider_display_total %}
-                {{ provider_display_total }} sites · {{ homes_checked }} homes checked
+                {{ provider_display_total }} providers · {{ homes_checked }} homes checked
               {% else %}
                 {{ homes_checked }} homes checked
                 {% endif %}
@@ -12218,8 +12292,8 @@
             {% endif %}
             <div class="pqx-section-head">
               <div>
-                <h2>{% if surface_mode == 'research' %}Property research{% else %}Best matches{% endif %}</h2>
-                <div class="pqx-note" data-pqx-run-summary>{% if surface_mode == 'research' %}{{ results|length }} homes are ready{% if run_active %} while the search keeps checking in the background{% endif %}.{% else %}{{ results|length }} homes match the current brief{% if run_active %} · search is still checking the rest in the background{% endif %}{% endif %}</div>
+                <h2>{% if surface_mode == 'research' %}Open properties{% else %}Results{% endif %}</h2>
+                <div class="pqx-note" data-pqx-run-summary>{% if surface_mode == 'research' %}{{ results|length }} homes are ready{% if run_active %} while the search keeps checking in the background{% endif %}.{% else %}{{ results|length }} homes fit this search{% if run_active %} · the rest is still being checked{% endif %}{% endif %}</div>
               </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
@@ -12232,7 +12306,7 @@
                   <th>Property</th>
                   <th>Media</th>
                   <th>Match</th>
-                  <th>Highlights</th>
+                  <th>Why it works</th>
                   <th>Open</th>
                 </tr>
               </thead>
@@ -12280,16 +12354,16 @@
                       {% endfor %}
                     </div>
                     {% else %}
-                    <span class="pqx-small">Routes not available yet</span>
+                    <span class="pqx-small">Routes not ready</span>
                     {% endif %}
                   </td>
                   <td>{{ candidate.get('fit_score') or candidate.get('personal_fit_score') or '—' }}</td>
-                  <td>{{ candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Open the property page for more context'])[0] }}</td>
+                  <td>{{ candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Open property for details.'])[0] }}</td>
                   <td>
-                    {% set hosted_tour_url = candidate.get('tour_url') or candidate.get('tour', {}).get('url') or '' %}
+                    {% set hosted_tour_url = candidate.get('verified_tour_url') or candidate.get('open_tour_url') or candidate.get('tour', {}).get('url') or '' %}
                     {% set walkthrough_url = candidate.get('flythrough_url') or candidate.get('flythrough', {}).get('url') or '' %}
                     {% set hosted_tour_provider = (candidate.get('tour_provider') or candidate.get('tour', {}).get('provider') or '')|lower %}
-                    {% if candidate.get('packet_url') %}<a href="{{ candidate.get('packet_url') }}">{% if surface_mode == 'research' %}Property page{% else %}Review{% endif %}</a>{% endif %}
+                    {% if candidate.get('packet_url') %}<a href="{{ candidate.get('packet_url') }}">Open property</a>{% endif %}
                     {% if hosted_tour_url %}
                     <a href="{{ hosted_tour_url }}" target="_blank" rel="noreferrer">
                       {% if hosted_tour_provider == 'matterport' or 'matterport' in hosted_tour_url|lower %}
@@ -12332,27 +12406,27 @@
           {% for event in (run.get('events') or [])|reverse %}
           {% set event_step = (event.get('step') or '')|lower %}
           {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
-          {% set event_label = 'Preparing search' %}
+          {% set event_label = 'Preparing' %}
           {% elif event_step in ['source_search', 'provider_search', 'search'] %}
-	          {% set event_label = 'Checking sites' %}
+	          {% set event_label = 'Providers' %}
           {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
-          {% set event_label = 'Checking details' %}
+          {% set event_label = 'Details' %}
           {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
-          {% set event_label = 'Checking listings' %}
+          {% set event_label = 'Listings' %}
           {% elif event_step in ['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'] %}
-          {% set event_label = 'Matching homes' %}
+          {% set event_label = 'Matching' %}
           {% elif event_step == 'shortlist_ready' %}
-          {% set event_label = 'First shortlist' %}
+          {% set event_label = 'Shortlist' %}
           {% elif event_step in ['source_review_packet', 'source_review_packet_failed'] %}
-          {% set event_label = 'Property page ready' %}
+          {% set event_label = 'Home page' %}
           {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
-          {% set event_label = 'Checking requirements' %}
+          {% set event_label = 'Filters' %}
           {% elif event_step in ['source_completed', 'completed'] %}
-          {% set event_label = 'List finished' %}
+          {% set event_label = 'Done' %}
           {% elif event_step in ['source_notify'] %}
-          {% set event_label = 'Sending update' %}
+          {% set event_label = 'Sending' %}
           {% elif event_step.startswith('repair') or event_step in ['source_repair_reuse', 'source_failed'] %}
-          {% set event_label = 'Recovery' %}
+          {% set event_label = 'Fixing' %}
           {% else %}
           {% set event_label = 'Update' %}
           {% endif %}
@@ -12387,10 +12461,14 @@
         {% set selected_visual_property_url = selected.get('property_url') or selected.get('source_url') or selected.get('listing_url') %}
         {% set selected_tour = selected.get('tour', {}) %}
         {% set selected_flythrough = selected.get('flythrough', {}) %}
+        {% set selected_visual_media_ready = selected.get('floorplan_url') or selected.get('source_virtual_tour_url') or selected.get('vendor_tour_url') %}
+        {% set selected_visual_request_ready = selected_visual_property_url and selected_visual_media_ready and not mobile_is_shortlist_surface %}
         {% set selected_tour_status = (selected_tour.get('status') or '')|lower %}
         {% set selected_flythrough_status = (selected_flythrough.get('status') or '')|lower %}
         {% set selected_tour_pending = selected_tour_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
         {% set selected_flythrough_pending = selected_flythrough_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
+        {% set selected_tour_terminal = selected_tour_status in ['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] %}
+        {% set selected_flythrough_terminal = selected_flythrough_status in ['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] %}
         {% set selected_tour_progress = selected_tour.get('progress_pct') if selected_tour.get('progress_pct') is not none else (100 if selected_tour.get('url') else 0) %}
         {% set selected_flythrough_progress = selected_flythrough.get('progress_pct') if selected_flythrough.get('progress_pct') is not none else (100 if selected_flythrough.get('url') else 0) %}
         {% set selected_visual_status = '' %}
@@ -12398,12 +12476,16 @@
         {% set selected_visual_status = (selected_tour.get('status_detail') or selected_tour.get('detail') or selected_tour.get('label') or 'Preparing 3D tour.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') %}
         {% elif selected_flythrough_pending %}
         {% set selected_visual_status = (selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Preparing walkthrough.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') %}
-        {% elif selected_tour.get('status') == 'blocked' %}
-        {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('eta_label') or '3D tour not available yet.' %}
-        {% elif selected_flythrough.get('status') == 'blocked' %}
+        {% elif selected_tour_terminal %}
+        {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('detail') or selected_tour.get('eta_label') or '3D tour not available yet.' %}
+        {% elif selected_flythrough_terminal %}
         {% set selected_visual_status = selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or 'Walkthrough not available yet.' %}
-        {% elif not selected_tour.get('url') and not selected_flythrough.get('url') and selected_visual_property_url and not mobile_is_shortlist_surface %}
-        {% set selected_visual_status = 'Request when you want a closer look.' %}
+        {% elif mobile_is_shortlist_surface and selected_tour.get('url') and selected_flythrough.get('url') %}
+        {% set selected_visual_status = '3D tour and walkthrough ready.' %}
+        {% elif mobile_is_shortlist_surface and selected_tour.get('url') %}
+        {% set selected_visual_status = '3D tour ready.' %}
+        {% elif mobile_is_shortlist_surface and selected_flythrough.get('url') %}
+        {% set selected_visual_status = 'Walkthrough ready.' %}
         {% endif %}
         {% set mobile_visual_preview = '' %}
         {% if selected_tour.get('url') and selected_flythrough.get('url') %}
@@ -12416,8 +12498,12 @@
         {% set mobile_visual_preview = selected_tour.get('label') or '3D tour in progress' %}
         {% elif selected_flythrough_pending %}
         {% set mobile_visual_preview = selected_flythrough.get('label') or 'Walkthrough in progress' %}
-        {% elif selected_visual_property_url and not mobile_is_shortlist_surface %}
-        {% set mobile_visual_preview = 'Request remote visuals' %}
+        {% elif selected_tour_terminal %}
+        {% set mobile_visual_preview = selected_tour.get('label') or ('Retry 3D tour' if selected_tour_status in ['blocked', 'failed'] else 'Request 3D tour') %}
+        {% elif selected_flythrough_terminal %}
+        {% set mobile_visual_preview = selected_flythrough.get('label') or ('Retry walkthrough' if selected_flythrough_status in ['blocked', 'failed'] else 'Request walkthrough') %}
+        {% elif selected_visual_request_ready %}
+        {% set mobile_visual_preview = 'Request 3D tour or walkthrough' %}
         {% elif selected_visual_property_url %}
         {% set mobile_visual_preview = 'Visuals not published yet' %}
         {% endif %}
@@ -12444,24 +12530,6 @@
                   {% if selected_mobile_costs %}<span class="pqx-result-fact">{{ selected_mobile_costs }}</span>{% endif %}
                   {% if selected.get('layout_display') %}<span class="pqx-result-fact">{{ selected.get('layout_display') }}</span>{% endif %}
                 </div>
-                {% if selected_tour.get('url') or selected_tour_pending or selected_tour.get('status') == 'blocked' or selected_flythrough.get('url') or selected_flythrough_pending or selected_flythrough.get('status') == 'blocked' %}
-                <div class="pqx-result-facts pqx-mobile-visual-facts" aria-label="Visual delivery status">
-                  {% if selected_tour.get('url') %}
-                  <span class="pqx-result-fact">{{ pqx_visual_provider_label(selected_tour.get('provider_label'), '3D tour') }} ready</span>
-                  {% elif selected_tour_pending %}
-                  <span class="pqx-result-fact">{{ selected_tour.get('recovery_label') or '3D tour in progress' }}</span>
-                  {% elif selected_tour.get('status') == 'blocked' %}
-                  <span class="pqx-result-fact warn">{{ selected_tour.get('recovery_label') or '3D tour unavailable' }}</span>
-                  {% endif %}
-                  {% if selected_flythrough.get('url') %}
-                  <span class="pqx-result-fact">{{ pqx_visual_provider_label(selected_flythrough.get('provider_label'), 'Walkthrough') }} ready</span>
-                  {% elif selected_flythrough_pending %}
-                  <span class="pqx-result-fact">{{ selected_flythrough.get('recovery_label') or 'Walkthrough in progress' }}</span>
-                  {% elif selected_flythrough.get('status') == 'blocked' %}
-                  <span class="pqx-result-fact warn">{{ selected_flythrough.get('recovery_label') or 'Walkthrough unavailable' }}</span>
-                  {% endif %}
-                </div>
-                {% endif %}
                 <div class="pqx-context-actions">
                   <div class="pqx-context-primary">
                     {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}">Open property</a>{% elif selected.get('source_url') or selected.get('property_url') %}<a class="pqx-link-button primary" href="{{ selected.get('source_url') or selected.get('property_url') }}" target="_blank" rel="noreferrer">Open listing</a>{% endif %}
@@ -12477,9 +12545,7 @@
                   </details>
                   {% endif %}
                 </div>
-                {% if selected_visual_status %}
-                <div class="pqx-decision-status pqx-mobile-visual-status" data-pw-visual-request-status>{{ selected_visual_status }}</div>
-                {% endif %}
+                <div class="pqx-decision-status pqx-mobile-visual-status" data-pw-visual-request-status{% if not selected_visual_status %} hidden{% endif %}>{{ selected_visual_status }}</div>
               </div>
             </div>
           </div>
@@ -12498,7 +12564,7 @@
               {% endfor %}
             </div>
           </details>
-          {% if selected_tour.get('url') or selected_tour_pending or selected_tour.get('status') == 'blocked' or selected_flythrough.get('url') or selected_flythrough_pending or selected_flythrough.get('status') == 'blocked' or (selected_visual_property_url and not mobile_is_shortlist_surface) %}
+          {% if selected_tour.get('url') or selected_tour_pending or selected_tour_terminal or selected_flythrough.get('url') or selected_flythrough_pending or selected_flythrough_terminal or (selected_visual_property_url and not mobile_is_shortlist_surface) %}
           <details class="pqx-card pqx-mobile-review-more pqx-mobile-fold">
             <summary>
               <span class="pqx-mobile-review-copy">
@@ -12511,20 +12577,21 @@
               <a class="pqx-link-button" href="{{ selected_tour.get('url') }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="selected_review">Open 3D tour</a>
               {% elif selected_tour_pending %}
               <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_tour_progress }}%;" title="{{ (selected_tour.get('detail') or selected_tour.get('label') or '3D tour is on the way.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') }}" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-pw-visual-state="{{ selected_tour_status or 'queued' }}" data-pw-visual-progress="{{ selected_tour_progress }}" data-pw-visual-eta="{{ selected_tour.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_tour.get('detail') or selected_tour.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_tour.get('label') or '3D tour queued' }}</button>
-              {% elif selected_visual_property_url and not mobile_is_shortlist_surface %}
+              {% elif selected_tour_terminal and selected_visual_request_ready %}
+              <button class="pqx-button" type="button" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-pw-visual-state="{{ selected_tour_status or 'blocked' }}" data-pw-visual-progress="0" data-pw-visual-eta="" data-pw-visual-detail="{{ selected_tour.get('status_detail') or selected_tour.get('detail') or '' }}" data-pw-visual-poll-seconds="0" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="selected_review">{{ selected_tour.get('label') or ('Retry 3D tour' if selected_tour_status in ['blocked', 'failed'] else 'Request 3D tour') }}</button>
+              {% elif selected_visual_request_ready %}
               <button class="pqx-button" type="button" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="selected_review">Request 3D tour</button>
               {% endif %}
               {% if selected_flythrough.get('url') %}
               <a class="pqx-link-button" href="{{ selected_flythrough.get('url') }}">Open walkthrough</a>
               {% elif selected_flythrough_pending %}
               <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_flythrough_progress }}%;" title="{{ (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Preparing walkthrough.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') }}" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-pw-visual-state="{{ selected_flythrough_status or 'queued' }}" data-pw-visual-progress="{{ selected_flythrough_progress }}" data-pw-visual-eta="{{ selected_flythrough.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_flythrough.get('detail') or selected_flythrough.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_flythrough.get('label') or 'Walkthrough queued' }}</button>
-              {% elif selected_visual_property_url and not mobile_is_shortlist_surface %}
+              {% elif selected_flythrough_terminal and selected_visual_request_ready %}
+              <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-pw-visual-state="{{ selected_flythrough_status or 'blocked' }}" data-pw-visual-progress="0" data-pw-visual-eta="" data-pw-visual-detail="{{ selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or '' }}" data-pw-visual-poll-seconds="0" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">{{ selected_flythrough.get('label') or ('Retry walkthrough' if selected_flythrough_status in ['blocked', 'failed'] else 'Request walkthrough') }}</button>
+              {% elif selected_visual_request_ready %}
               <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">Request walkthrough</button>
               {% endif %}
             </div>
-            {% if selected_visual_status %}
-            <div class="pqx-decision-status">{{ selected_visual_status }}</div>
-            {% endif %}
           </details>
           {% endif %}
         </section>

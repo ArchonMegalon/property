@@ -609,5 +609,6 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
 
     properties = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert properties.status_code == 200
-    assert "Review" in properties.text
+    assert "data-property-research-topnav" in properties.text
+    assert "Adjust search" in properties.text
     assert "Research" in properties.text

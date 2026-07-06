@@ -1655,11 +1655,11 @@ class FlipLinkPacketService:
         property_ref = subject if subject_type == "property" else ""
         summary = self.feedback_summary(principal_id=principal_id, property_ref=property_ref) if property_ref else {}
         body = {
-            "why_shortlisted": f"This property stays shortlisted because it is review-ready and has a shareable packet. Feedback signals: {summary.get('dealbreaker_count', 0)} dealbreakers, {summary.get('open_questions_count', 0)} open questions.",
+            "why_shortlisted": f"This home is worth sharing now. Feedback so far: {summary.get('dealbreaker_count', 0)} dealbreakers, {summary.get('open_questions_count', 0)} open questions.",
             "tradeoff_summary": f"Main tradeoffs: {', '.join(cluster.get('theme') for cluster in list(summary.get('clusters') or [])[:3]) or 'No major tradeoffs captured yet.'}",
-            "what_changed": "; ".join(item.get("summary") or item.get("detail") or "Packet and feedback state updated." for item in self.property_change_log(principal_id=principal_id, property_ref=property_ref)[:3]) or "No major change recorded yet.",
-            "recommended_next_step": "Review the packet engagement state and send the next focused follow-up.",
-            "family_review_digest": "Family review digest: package the current shortlist reason, tradeoffs, and open questions in one shareable note.",
+            "what_changed": "; ".join(item.get("summary") or item.get("detail") or "Page and reply status updated." for item in self.property_change_log(principal_id=principal_id, property_ref=property_ref)[:3]) or "No major change recorded yet.",
+            "recommended_next_step": "Check the replies here and send the next focused follow-up.",
+            "family_review_digest": "Family digest: keep the current reason, tradeoffs, and open questions in one shared note.",
         }[artifact_kind]
         artifact = {
             "artifact_id": f"sum_{uuid4().hex}",

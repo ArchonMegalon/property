@@ -53,6 +53,7 @@ MAX_MARKER_SCAN_BYTES = 1_000_000
 MAX_MARKER_SCAN_FILES = 240
 EQUIRECTANGULAR_MIN_RATIO = 1.9
 EQUIRECTANGULAR_MAX_RATIO = 2.1
+OPERATOR_DROP_LANE_SLUG = "_operator-import-lane"
 
 
 def _default_drop_dir() -> Path:
@@ -72,6 +73,10 @@ def _safe_slug(value: object) -> str:
     if not raw or "/" in raw or raw in {".", ".."} or ".." in raw:
         return ""
     return raw
+
+
+def _is_operator_drop_lane_slug(value: object) -> bool:
+    return _safe_slug(value) == OPERATOR_DROP_LANE_SLUG
 
 
 def _provider_from_text(value: object, *, allow_embedded: bool = False) -> str:
@@ -276,6 +281,62 @@ def _discover_receipt(asset_dir: Path) -> Path | None:
     return matches[0] if matches else None
 
 
+def _load_bundle_json(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _public_bundle_provider_state(*, bundle_dir: Path, slug: str, provider: str) -> dict[str, str]:
+    payload = _load_bundle_json(bundle_dir / "tour.json")
+    private_payload = _load_bundle_json(bundle_dir / "tour.private.json")
+    if provider == "3dvista":
+        entry_relpath = str(payload.get("three_d_vista_entry_relpath") or private_payload.get("three_d_vista_entry_relpath") or "").strip()
+        provider_url = str(private_payload.get("three_d_vista_url") or payload.get("three_d_vista_url") or "").strip()
+        if entry_relpath:
+            return {
+                "evidence": "public_bundle_3dvista_import",
+                "entry_relpath": entry_relpath,
+                "control_path": f"/tours/{slug}/control/3dvista",
+            }
+        if provider_url:
+            return {
+                "evidence": "private_allowlisted_3dvista_url",
+                "control_path": f"/tours/{slug}/control/3dvista",
+            }
+        return {}
+    if provider == "pano2vr":
+        entry_relpath = str(payload.get("pano2vr_entry_relpath") or private_payload.get("pano2vr_entry_relpath") or "").strip()
+        if entry_relpath:
+            return {
+                "evidence": "public_bundle_pano2vr_import",
+                "entry_relpath": entry_relpath,
+                "control_path": f"/tours/{slug}/control/pano2vr",
+            }
+        return {}
+    if provider == "krpano":
+        imported = dict(payload.get("krpano_import") or {}) if isinstance(payload.get("krpano_import"), dict) else {}
+        if imported:
+            return {
+                "evidence": "public_bundle_krpano_import",
+                "control_path": f"/tours/{slug}/control/krpano",
+            }
+        return {}
+    if provider == "magicfit":
+        imported = dict(payload.get("magicfit_import") or {}) if isinstance(payload.get("magicfit_import"), dict) else {}
+        if imported:
+            target_relpath = str(imported.get("target_relpath") or "").strip()
+            control_path = f"/tours/files/{slug}/{target_relpath}" if target_relpath else ""
+            return {
+                "evidence": "public_bundle_magicfit_import",
+                "control_path": control_path,
+            }
+        return {}
+    return {}
+
+
 def _receipt_target_matches_slug(payload: dict[str, object], *, slug: str) -> bool:
     expected = str(slug or "").strip()
     if not expected:
@@ -337,6 +398,16 @@ def _file_count(export_dir: Path) -> int:
     )
 
 
+def _is_documentation_only_export_dir(export_dir: Path) -> bool:
+    if not export_dir.is_dir():
+        return False
+    has_readme = any(
+        path.is_file() and path.name == "README.propertyquarry-export.txt"
+        for path in export_dir.rglob("*")
+    )
+    return has_readme and _file_count(export_dir) == 0
+
+
 def _entry_candidate_sample(export_dir: Path, *, limit: int = 6) -> list[str]:
     if not export_dir.is_dir():
         return []
@@ -380,6 +451,31 @@ def _rejection_row(*, slug: str, provider: str, reason: str, export_dir: Path | 
         row["drop_path"] = str(export_dir)
         row.update(_provider_drop_diagnostics(export_dir, provider))
     return row
+
+
+def _resolved_existing_import_row(
+    *,
+    slug: str,
+    provider: str,
+    export_dir: Path,
+    reason: str,
+    live_state: dict[str, str],
+) -> dict[str, Any]:
+    row = _rejection_row(slug=slug, provider=provider, reason=reason, export_dir=export_dir)
+    row["status"] = "already_imported_live_bundle"
+    row["resolution"] = "provider already imported in the live tour bundle; archive or ignore stale drop assets unless you intend to replace the live import"
+    row["live_evidence"] = str(live_state.get("evidence") or "").strip()
+    row["live_control_path"] = str(live_state.get("control_path") or "").strip()
+    if str(live_state.get("entry_relpath") or "").strip():
+        row["live_entry_relpath"] = str(live_state.get("entry_relpath") or "").strip()
+    return row
+
+
+def _ignored_duplicate_drop_row(row: dict[str, Any]) -> dict[str, Any]:
+    duplicate = dict(row)
+    duplicate["status"] = "ignored_duplicate_drop"
+    duplicate["resolution"] = "another drop folder for the same slug/provider is already importable in this discovery run"
+    return duplicate
 
 
 def _repair_manifest_rows(rejected: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -481,15 +577,15 @@ def _candidate_layouts(drop_dir: Path) -> list[tuple[str, str, Path]]:
         if _provider_from_text(slug_dir.name):
             continue
         slug = _safe_slug(slug_dir.name)
-        if not slug:
+        if not slug or _is_operator_drop_lane_slug(slug):
             continue
         for provider in PROVIDERS:
             provider_dir = slug_dir / provider
-            if provider_dir.is_dir():
+            if provider_dir.is_dir() and not _is_documentation_only_export_dir(provider_dir):
                 rows.append((slug, provider, provider_dir.resolve()))
         for export_dir in sorted(path for path in slug_dir.iterdir() if path.is_dir()):
             provider = _provider_from_text(export_dir.name, allow_embedded=True)
-            if provider:
+            if provider and not _is_documentation_only_export_dir(export_dir):
                 rows.append((slug, provider, export_dir.resolve()))
     for provider_dir in sorted(path for path in drop_dir.iterdir() if path.is_dir()):
         provider = _provider_from_text(provider_dir.name)
@@ -497,7 +593,7 @@ def _candidate_layouts(drop_dir: Path) -> list[tuple[str, str, Path]]:
             continue
         for slug_dir in sorted(path for path in provider_dir.iterdir() if path.is_dir()):
             slug = _safe_slug(slug_dir.name)
-            if slug:
+            if slug and not _is_operator_drop_lane_slug(slug) and not _is_documentation_only_export_dir(slug_dir):
                 rows.append((slug, provider, slug_dir.resolve()))
     deduped: dict[tuple[str, str, str], tuple[str, str, Path]] = {}
     for slug, provider, export_dir in rows:
@@ -505,90 +601,116 @@ def _candidate_layouts(drop_dir: Path) -> list[tuple[str, str, Path]]:
     return list(deduped.values())
 
 
+def _evaluate_candidate_layout(*, slug: str, provider: str, export_dir: Path, manifest_path: Path) -> tuple[str, dict[str, Any]]:
+    if not manifest_path.is_file():
+        return "rejected", _rejection_row(slug=slug, provider=provider, reason="tour_manifest_missing", export_dir=export_dir)
+    if provider in {"3dvista", "pano2vr"}:
+        entry, entry_relpath = _verified_entry(export_dir, provider)
+        export_zip: Path | None = None
+        zip_rejection_reason = ""
+        if entry is None:
+            export_zip, entry_relpath, zip_rejection_reason = _discover_export_zip(export_dir, provider)
+        if entry is None and export_zip is None:
+            return (
+                "rejected",
+                _rejection_row(
+                    slug=slug,
+                    provider=provider,
+                    reason=zip_rejection_reason or f"{provider}_export_entry_unverified",
+                    export_dir=export_dir,
+                ),
+            )
+        if entry is not None and _export_has_forbidden_provider_markers(export_dir, entry, provider):
+            return "rejected", _rejection_row(slug=slug, provider=provider, reason=f"{provider}_trial_branding_present", export_dir=export_dir)
+        row = {
+            "slug": slug,
+            "provider": provider,
+            "export_dir": str(export_dir),
+            "entry": entry_relpath,
+        }
+        if export_zip is not None:
+            row["export_zip"] = str(export_zip)
+        return "import", row
+    if provider == "krpano":
+        panorama = _discover_panorama(export_dir)
+        cube_faces = _discover_cube_faces(export_dir)
+        if panorama is None and len(cube_faces) != 6:
+            return "rejected", _rejection_row(slug=slug, provider=provider, reason="krpano_assets_missing", export_dir=export_dir)
+        row = {
+            "slug": slug,
+            "provider": provider,
+            "asset_dir": str(export_dir),
+        }
+        if panorama is not None:
+            row["panorama"] = str(panorama)
+        elif len(cube_faces) == 6:
+            for index, face in enumerate(cube_faces, start=1):
+                row[f"cube_face_{index}"] = str(face)
+        return "import", row
+    if provider == "magicfit":
+        video = _discover_video(export_dir)
+        receipt = _discover_receipt(export_dir)
+        if video is None:
+            return "rejected", _rejection_row(slug=slug, provider=provider, reason="magicfit_video_missing", export_dir=export_dir)
+        if not _video_has_playable_stream(video):
+            return "rejected", _rejection_row(slug=slug, provider=provider, reason="magicfit_video_unverified", export_dir=export_dir)
+        if receipt is None:
+            return "rejected", _rejection_row(slug=slug, provider=provider, reason="magicfit_receipt_missing", export_dir=export_dir)
+        receipt_rejection_reason = _magicfit_receipt_rejection_reason(receipt, video=video, slug=slug)
+        if receipt_rejection_reason:
+            return "rejected", _rejection_row(slug=slug, provider=provider, reason=receipt_rejection_reason, export_dir=export_dir)
+        return (
+            "import",
+            {
+                "slug": slug,
+                "provider": provider,
+                "asset_dir": str(export_dir),
+                "video": str(video),
+                "receipt": str(receipt),
+            },
+        )
+    return "rejected", _rejection_row(slug=slug, provider=provider, reason="unsupported_provider", export_dir=export_dir)
+
+
 def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = None) -> dict[str, Any]:
     public_root = (public_tour_dir or Path(os.getenv("EA_PUBLIC_TOUR_DIR") or "/data/public_property_tours")).expanduser()
     imports: list[dict[str, str]] = []
     rejected: list[dict[str, str]] = []
+    resolved_existing_imports: list[dict[str, Any]] = []
+    ignored_duplicate_drop_rows: list[dict[str, Any]] = []
+    grouped: dict[tuple[str, str], list[Path]] = {}
     for slug, provider, export_dir in _candidate_layouts(drop_dir.expanduser()):
+        grouped.setdefault((slug, provider), []).append(export_dir)
+    for (slug, provider), export_dirs in grouped.items():
         manifest_path = public_root / slug / "tour.json"
-        if not manifest_path.is_file():
-            rejected.append(_rejection_row(slug=slug, provider=provider, reason="tour_manifest_missing", export_dir=export_dir))
+        bundle_dir = manifest_path.parent
+        group_imports: list[dict[str, Any]] = []
+        group_rejected: list[dict[str, Any]] = []
+        for export_dir in export_dirs:
+            kind, row = _evaluate_candidate_layout(slug=slug, provider=provider, export_dir=export_dir, manifest_path=manifest_path)
+            if kind == "import":
+                group_imports.append(row)
+            else:
+                group_rejected.append(row)
+        if group_imports:
+            imports.extend(group_imports)
+            ignored_duplicate_drop_rows.extend(_ignored_duplicate_drop_row(row) for row in group_rejected)
             continue
-        if provider in {"3dvista", "pano2vr"}:
-            entry, entry_relpath = _verified_entry(export_dir, provider)
-            export_zip: Path | None = None
-            zip_rejection_reason = ""
-            if entry is None:
-                export_zip, entry_relpath, zip_rejection_reason = _discover_export_zip(export_dir, provider)
-            if entry is None and export_zip is None:
-                rejected.append(
-                    _rejection_row(
-                        slug=slug,
-                        provider=provider,
-                        reason=zip_rejection_reason or f"{provider}_export_entry_unverified",
-                        export_dir=export_dir,
-                    )
+        live_state = _public_bundle_provider_state(bundle_dir=bundle_dir, slug=slug, provider=provider)
+        if live_state:
+            resolved_existing_imports.extend(
+                _resolved_existing_import_row(
+                    slug=slug,
+                    provider=provider,
+                    export_dir=Path(str(row.get("drop_path") or "")),
+                    reason=str(row.get("reason") or "").strip(),
+                    live_state=live_state,
                 )
-                continue
-            if entry is not None and _export_has_forbidden_provider_markers(export_dir, entry, provider):
-                rejected.append(_rejection_row(slug=slug, provider=provider, reason=f"{provider}_trial_branding_present", export_dir=export_dir))
-                continue
-            row = {
-                "slug": slug,
-                "provider": provider,
-                "export_dir": str(export_dir),
-                "entry": entry_relpath,
-            }
-            if export_zip is not None:
-                row["export_zip"] = str(export_zip)
-            imports.append(row)
-            continue
-        if provider == "krpano":
-            panorama = _discover_panorama(export_dir)
-            cube_faces = _discover_cube_faces(export_dir)
-            if panorama is None and len(cube_faces) != 6:
-                rejected.append(_rejection_row(slug=slug, provider=provider, reason="krpano_assets_missing", export_dir=export_dir))
-                continue
-            row = {
-                "slug": slug,
-                "provider": provider,
-                "asset_dir": str(export_dir),
-            }
-            if panorama is not None:
-                row["panorama"] = str(panorama)
-            elif len(cube_faces) == 6:
-                for index, face in enumerate(cube_faces, start=1):
-                    row[f"cube_face_{index}"] = str(face)
-            imports.append(row)
-            continue
-        if provider == "magicfit":
-            video = _discover_video(export_dir)
-            receipt = _discover_receipt(export_dir)
-            if video is None:
-                rejected.append(_rejection_row(slug=slug, provider=provider, reason="magicfit_video_missing", export_dir=export_dir))
-                continue
-            if not _video_has_playable_stream(video):
-                rejected.append(_rejection_row(slug=slug, provider=provider, reason="magicfit_video_unverified", export_dir=export_dir))
-                continue
-            if receipt is None:
-                rejected.append(_rejection_row(slug=slug, provider=provider, reason="magicfit_receipt_missing", export_dir=export_dir))
-                continue
-            receipt_rejection_reason = _magicfit_receipt_rejection_reason(receipt, video=video, slug=slug)
-            if receipt_rejection_reason:
-                rejected.append(_rejection_row(slug=slug, provider=provider, reason=receipt_rejection_reason, export_dir=export_dir))
-                continue
-            imports.append(
-                {
-                    "slug": slug,
-                    "provider": provider,
-                    "asset_dir": str(export_dir),
-                    "video": str(video),
-                    "receipt": str(receipt),
-                }
+                for row in group_rejected
             )
             continue
-        rejected.append(_rejection_row(slug=slug, provider=provider, reason="unsupported_provider", export_dir=export_dir))
-    status = "ready" if imports else "blocked_no_verified_exports"
+        rejected.extend(group_rejected)
+    status = "ready" if imports or resolved_existing_imports else "blocked_no_verified_exports"
     repair_manifest = _repair_manifest_rows(rejected)
     return {
         "status": status,
@@ -597,15 +719,22 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
         "public_tour_dir": str(public_root),
         "import_count": len(imports),
         "rejected_count": len(rejected),
+        "resolved_existing_import_count": len(resolved_existing_imports),
+        "ignored_duplicate_drop_count": len(ignored_duplicate_drop_rows),
         "imports": imports,
         "rejected": rejected,
+        "resolved_existing_imports": resolved_existing_imports,
+        "ignored_duplicate_drop_rows": ignored_duplicate_drop_rows,
         "repair_count": len(repair_manifest),
         "repair_manifest": repair_manifest,
         "import_manifest": {"imports": imports},
         "notes": [
             "This discovery step does not publish tours. It only emits rows accepted by the hardened import_property_tour_exports.py importer.",
+            "Documentation-only provider folders that contain only README.propertyquarry-export.txt are intentionally ignored here so they do not appear as broken exports.",
             "3DVista and Pano2VR placeholders are rejected unless the entry or bundled local runtime files contain provider markers.",
             "krpano rows require a real panorama/cubemap candidate; MagicFit rows require a playable video stream and receipt candidate before import.",
+            "Rejected duplicate drop folders are ignored when another folder for the same slug/provider is already importable in this run.",
+            "Rejected rows are resolved instead of repaired when the provider is already imported in the live tour bundle for the same slug.",
             "Rejected rows are also emitted in repair_manifest so status/UI repair can show exact missing assets without treating placeholders as verified tours.",
         ],
     }

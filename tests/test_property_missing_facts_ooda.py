@@ -22,7 +22,7 @@ def test_missing_rooms_with_floorplan_creates_ooda_research_item() -> None:
     assert research["status"] == "queued"
     assert research["items"][0]["field"] == "rooms"
     assert research["items"][0]["ooda"]["act"].startswith("Queue missing-fact research")
-    assert _property_rooms_display(facts) == "Rooms under research"
+    assert _property_rooms_display(facts) == ""
 
 
 def test_missing_rooms_ooda_fills_medium_confidence_room_count_from_text() -> None:
@@ -61,9 +61,9 @@ def test_packet_missing_rows_surface_missing_fact_ooda() -> None:
         summary="No structured room count.",
     )
 
-    rows = _property_packet_missing_rows(facts=facts, preferences={})
+    rows = _property_packet_missing_rows(facts=facts, preferences={"min_rooms": 3})
 
-    assert any(row["title"] == "Rooms" and row["tag"] == "Research" for row in rows)
+    assert any(row["title"] == "Rooms" and row["tag"] == "To check" for row in rows)
 
 
 def test_family_only_distance_rows_stay_hidden_without_family_context() -> None:

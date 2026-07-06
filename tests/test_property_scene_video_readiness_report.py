@@ -137,6 +137,47 @@ def test_scene_video_readiness_report_promotes_mootion_when_browseract_bridge_re
     assert report["summary"]["ready_count"] == 1
 
 
+def test_scene_video_readiness_report_actions_missing_mootion_remote_lane(monkeypatch) -> None:
+    module = _load_script()
+    monkeypatch.setattr(
+        module,
+        "scene_video_provider_runtime_readiness",
+        lambda provider: {
+            "provider_key": "mootion",
+            "provider_backend_key": "mootion",
+            "ready": True,
+            "status": "ready",
+            "blockers": [],
+            "checks": {"script_exists": True, "docker_socket_configured": True, "docker_cli_configured": True},
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "mootion_browseract_bridge_readiness",
+        lambda: {
+            "ready": False,
+            "status": "unavailable",
+            "target_count": 0,
+            "targets": [],
+        },
+    )
+
+    report = module.build_report(providers=("mootion",))
+    row = report["providers"][0]
+    reasons = {(action["provider"], action["reason"]) for action in report["next_actions"]}
+
+    assert row["ready"] is True
+    assert "execution_lane" not in row
+    assert ("mootion", "mootion_browseract_remote_lane_missing") in reasons
+    assert ("mootion", "mootion_browseract_bridge_not_ready") in reasons
+    lane_action = next(
+        action
+        for action in report["next_actions"]
+        if action["provider"] == "mootion" and action["reason"] == "mootion_browseract_remote_lane_missing"
+    )
+    assert lane_action["current_execution_lane"] == "local_worker_or_unset"
+
+
 def test_scene_video_readiness_report_records_expected_account_visibility_gaps(monkeypatch) -> None:
     module = _load_script()
 
@@ -194,6 +235,69 @@ def test_scene_video_readiness_report_records_expected_account_visibility_gaps(m
     rendered_actions = json.dumps(report["next_actions"])
     assert "ONEMIN_*" in rendered_actions
     assert "forbidden-secret" not in rendered_actions
+
+
+def test_scene_video_readiness_report_actions_missing_omagic_adapter_target(monkeypatch) -> None:
+    module = _load_script()
+
+    def fake_readiness(provider: str) -> dict[str, object]:
+        return {
+            "provider_key": "omagic",
+            "provider_backend_key": "omagic",
+            "ready": False,
+            "status": "blocked",
+            "blockers": ["omagic_model_upload_endpoint_missing"],
+            "runtime_account_count": 8,
+            "checks": {
+                "model_upload_adapter_enabled": True,
+                "model_upload_adapter_target_configured": False,
+                "model_upload_endpoint_env_names": [],
+                "model_upload_command_env_names": [],
+                "secret_value": "forbidden-secret",
+            },
+        }
+
+    monkeypatch.setattr(module, "scene_video_provider_runtime_readiness", fake_readiness)
+    report = module.build_report(providers=("magic",))
+
+    row = report["providers"][0]
+    reasons = {(action["provider"], action["reason"]) for action in report["next_actions"]}
+    rendered = json.dumps(report)
+    assert row["checks"]["model_upload_adapter_target_configured"] is False
+    assert ("omagic", "omagic_model_upload_endpoint_missing") in reasons
+    assert "forbidden-secret" not in rendered
+
+
+def test_scene_video_readiness_report_actions_disabled_omagic_adapter_with_missing_target(monkeypatch) -> None:
+    module = _load_script()
+
+    def fake_readiness(provider: str) -> dict[str, object]:
+        return {
+            "provider_key": "omagic",
+            "provider_backend_key": "omagic",
+            "ready": False,
+            "status": "blocked",
+            "blockers": [
+                "omagic_model_upload_adapter_disabled",
+                "omagic_model_upload_endpoint_missing",
+            ],
+            "runtime_account_count": 8,
+            "checks": {
+                "script_exists": True,
+                "model_upload_adapter_enabled": False,
+                "model_upload_adapter_target_configured": False,
+                "model_upload_endpoint_env_names": [],
+                "model_upload_command_env_names": [],
+            },
+        }
+
+    monkeypatch.setattr(module, "scene_video_provider_runtime_readiness", fake_readiness)
+
+    report = module.build_report(providers=("omagic",))
+    reasons = {(action["provider"], action["reason"]) for action in report["next_actions"]}
+
+    assert ("omagic", "omagic_model_upload_adapter_disabled") in reasons
+    assert ("omagic", "omagic_model_upload_endpoint_missing") in reasons
 
 
 def test_scene_video_readiness_report_reads_expected_account_counts_from_inventory_file(

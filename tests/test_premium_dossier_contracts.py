@@ -643,6 +643,7 @@ def test_premium_pipeline_fails_closed_when_rendered_pdf_fails_quality_gate(monk
     assert rendered["status"] == "premium_render_failed"
     assert rendered["error_code"] == "premium_pdf_render_failed"
     assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "premium_pdf_quality_gate_failed"
+    assert rendered["receipt"]["premium_render_failures"][0]["visual_preview_check"] == "failed"
     assert rendered["receipt"]["legacy_renderer_blocked"] is True
     assert rendered["receipt"]["emergency_legacy_renderer_used"] is False
     assert legacy_called["value"] is False
@@ -916,6 +917,52 @@ def test_playwright_renderer_prefers_explicit_helper_python(monkeypatch) -> None
     }
 
 
+def test_premium_dossier_qa_uses_helper_runtime_when_local_pdf_libs_are_missing(monkeypatch, tmp_path: Path) -> None:
+    import base64
+    import builtins
+
+    from app.services.premium_dossier import qa
+
+    observed: list[tuple[str, str]] = []
+    real_import = builtins.__import__
+
+    def _fake_import(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: ANN001, A002
+        if name in {"pypdfium2", "pypdf"}:
+            raise ModuleNotFoundError(name)
+        return real_import(name, globals, locals, fromlist, level)
+
+    def _fake_run_helper(mode: str, artifact_bytes: bytes, *, output_path=None):
+        observed.append((mode, str(output_path or "")))
+        if mode == "text":
+            return {"text": "PropertyQuarry helper preview"}
+        return {
+            "png_b64": base64.b64encode(b"png").decode("ascii"),
+            "width": 1200,
+            "height": 1800,
+        }
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+    monkeypatch.setattr(qa, "_run_helper", _fake_run_helper)
+    monkeypatch.setattr(qa, "_png_visual_metrics", lambda png_bytes: (0.41, 0.31, 0.03))
+
+    report = qa.inspect_rendered_artifact(
+        artifact_bytes=b"%PDF-1.4 helper",
+        expected_text=["PropertyQuarry helper preview"],
+        forbidden_text=["token"],
+        preview_output_path=tmp_path / "preview.png",
+        require_cover_visual_dominance=True,
+        require_footer_band=True,
+    )
+
+    assert report.ok is True
+    assert report.required_text_hits == ["PropertyQuarry helper preview"]
+    assert report.visual_preview_check == "passed"
+    assert report.cover_dominance_check == "passed"
+    assert report.footer_band_check == "passed"
+    assert ("text", "") in observed
+    assert observed[1][0] == "preview"
+
+
 def test_premium_pipeline_records_quality_failure_when_fail_closed_blocks_legacy(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
@@ -953,6 +1000,7 @@ def test_premium_pipeline_records_quality_failure_when_fail_closed_blocks_legacy
 
     assert rendered["status"] == "premium_render_failed"
     assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "premium_pdf_quality_gate_failed"
+    assert rendered["receipt"]["premium_render_failures"][0]["visual_preview_check"] == "failed"
     assert rendered["receipt"]["legacy_renderer_blocked"] is True
     assert legacy_called["value"] is False
 

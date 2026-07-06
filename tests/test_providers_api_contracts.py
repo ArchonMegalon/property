@@ -4346,8 +4346,8 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Use a saved session, email link, or connected identity." in sign_in.text
-    assert "Any connected identity reopens the same account or creates it automatically on first use." in sign_in.text
+    assert "Use email or one of the sign-in options below." in sign_in.text
+    assert "Provider sign-in opens the same account and creates it if needed." in sign_in.text
     assert "Identity only" not in sign_in.text
     assert 'href="/app/search"' in sign_in.text
     assert 'action="/app/actions/sign-out"' in sign_in.text
@@ -4361,8 +4361,9 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     privacy = owner.get("/security")
     assert privacy.status_code == 200
     _assert_no_product_drift(privacy.text)
-    assert "Score guide" in privacy.text
-    assert "Hard filters decide eligibility. Optional preferences tune the score." in privacy.text
+    assert "Fit guide" in privacy.text
+    assert "Open fit guide" in privacy.text
+    assert "Must-haves decide what belongs. Preferences shape the order." in privacy.text
 
     for path in ("/product", "/integrations", "/pricing", "/docs"):
         page = owner.get(path)
@@ -8264,7 +8265,7 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
     assert "Property Tour" not in page.text
     assert "Load 3D tour" not in page.text
     assert control.status_code == 200
-    assert "3D Tour" in control.text
+    assert "3DVista Control" in control.text
     assert "Property Tour" not in control.text
     assert "Open fullscreen" not in control.text
     assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control.text

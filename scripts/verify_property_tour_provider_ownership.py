@@ -40,6 +40,19 @@ def _load_optional_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _provider_ready_mode(
+    *,
+    ownership_metadata_present: bool,
+    secret_config_present: bool,
+    delivery_evidence_present: bool,
+) -> str:
+    if ownership_metadata_present and secret_config_present:
+        return "owned_configured"
+    if ownership_metadata_present and delivery_evidence_present:
+        return "owned_receipt_backed"
+    return "missing_config"
+
+
 def build_property_tour_provider_ownership_receipt(
     *,
     three_dvista_invoice_ids: tuple[str, ...] = ("60076", "60074"),
@@ -60,12 +73,31 @@ def build_property_tour_provider_ownership_receipt(
     three_dvista_private_viewer_verified = str(three_dvista_refresh.get("status") or "").strip().lower() == "refreshed"
     three_dvista_import_verified = str(three_dvista_import.get("status") or "").strip().lower() == "imported"
     pano2vr_import_verified = str(pano2vr_import.get("status") or "").strip().lower() == "imported"
+    three_dvista_ownership_metadata_present = bool(three_dvista_invoice_ids)
+    three_dvista_secret_config_present = bool(three_dvista_email and three_dvista_password)
+    three_dvista_delivery_evidence_present = bool(three_dvista_private_viewer_verified and three_dvista_import_verified)
+    pano2vr_ownership_metadata_present = bool(pano2vr_order_id and pano2vr_product_id)
+    pano2vr_secret_config_present = bool(pano2vr_email and pano2vr_license)
+    pano2vr_delivery_evidence_present = bool(pano2vr_import_verified)
+    three_dvista_status = _provider_ready_mode(
+        ownership_metadata_present=three_dvista_ownership_metadata_present,
+        secret_config_present=three_dvista_secret_config_present,
+        delivery_evidence_present=three_dvista_delivery_evidence_present,
+    )
+    pano2vr_status = _provider_ready_mode(
+        ownership_metadata_present=pano2vr_ownership_metadata_present,
+        secret_config_present=pano2vr_secret_config_present,
+        delivery_evidence_present=pano2vr_delivery_evidence_present,
+    )
     providers = {
         "3dvista": {
-            "status": "owned_configured" if three_dvista_email and three_dvista_password and three_dvista_invoice_ids else "missing_config",
+            "status": three_dvista_status,
             "account_email_hash": _hash(three_dvista_email),
             "login_email_present": bool(three_dvista_email),
             "password_present": bool(three_dvista_password),
+            "ownership_metadata_present": three_dvista_ownership_metadata_present,
+            "secret_config_present": three_dvista_secret_config_present,
+            "delivery_evidence_present": three_dvista_delivery_evidence_present,
             "invoice_ids": list(three_dvista_invoice_ids),
             "owned_products": ["3DVista VT Pro", "Branded Pack"],
             "login_verified": False,
@@ -83,9 +115,12 @@ def build_property_tour_provider_ownership_receipt(
             ),
         },
         "pano2vr": {
-            "status": "owned_configured" if pano2vr_email and pano2vr_license and pano2vr_order_id and pano2vr_product_id else "missing_config",
+            "status": pano2vr_status,
             "account_email_hash": _hash(pano2vr_email),
             "account_email_present": bool(pano2vr_email),
+            "ownership_metadata_present": pano2vr_ownership_metadata_present,
+            "secret_config_present": pano2vr_secret_config_present,
+            "delivery_evidence_present": pano2vr_delivery_evidence_present,
             "license_key": _presence(pano2vr_license),
             "order_id": pano2vr_order_id,
             "product_id": pano2vr_product_id,
@@ -106,7 +141,7 @@ def build_property_tour_provider_ownership_receipt(
     missing = [
         provider
         for provider in required
-        if providers[provider]["status"] != "owned_configured"
+        if providers[provider]["status"] not in {"owned_configured", "owned_receipt_backed"}
     ]
     return {
         "generated_at": _utc_now(),
@@ -127,6 +162,7 @@ def build_property_tour_provider_ownership_receipt(
         "notes": [
             "This receipt proves ownership/config readiness only.",
             "When local import/runtime receipts are available, this record also captures current non-secret 3DVista/Pano2VR verification evidence.",
+            "Receipt-backed ownership is accepted when invoice/order metadata is present and current non-secret delivery receipts prove the provider is already working without re-reading secrets.",
             "It does not satisfy gold tour readiness without verified 3DVista/Pano2VR exports or allowlisted hosted controls.",
         ],
     }

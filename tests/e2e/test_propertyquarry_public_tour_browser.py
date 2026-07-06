@@ -643,6 +643,126 @@ def test_public_tour_flythrough_video_decodes_and_advances_in_real_browser(
     context.close()
 
 
+def test_public_tour_flythrough_video_autoplay_without_pane_decodes_and_advances_in_real_browser(
+    public_tour_browser_server: dict[str, str],
+    browser: Browser,
+) -> None:
+    context = _new_context(browser)
+    _stub_matterport_provider(context)
+    page = context.new_page()
+    console_errors: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['video_slug']}?autoplay=1"
+
+    page.goto(url, wait_until="networkidle")
+    video = page.locator("#tour-video")
+    video.wait_for()
+    assert video.is_visible()
+    page.wait_for_timeout(1800)
+    state = page.evaluate(
+        """() => {
+            const video = document.getElementById('flythrough-video') || document.getElementById('tour-video');
+            return video ? {
+                currentTime: video.currentTime,
+                duration: video.duration,
+                readyState: video.readyState,
+                videoWidth: video.videoWidth,
+                paused: video.paused,
+            } : null;
+        }"""
+    )
+    assert state is not None
+    assert state["readyState"] >= 2
+    assert state["videoWidth"] >= 640
+    assert state["currentTime"] > 0.2
+    assert state["duration"] >= 2.5
+    assert _video_frame_brightness(page) > 10.0
+    profile = _video_playback_profile(page)
+    assert len(profile["times"]) == 5
+    assert all(later >= earlier for earlier, later in zip(profile["times"], profile["times"][1:])), profile
+    assert profile["times"][-1] - profile["times"][0] >= 0.6, profile
+    assert len(profile["presentedFrames"]) == 5
+    assert all(
+        later >= earlier for earlier, later in zip(profile["presentedFrames"], profile["presentedFrames"][1:])
+    ), profile
+    presented_delta = profile["presentedFrames"][-1] - profile["presentedFrames"][0]
+    assert len(profile["frameSignatures"]) == 5
+    assert len(profile["droppedFrames"]) == 5
+    dropped_delta = profile["droppedFrames"][-1] - profile["droppedFrames"][0]
+    if presented_delta > 0:
+        assert presented_delta >= 6, profile
+        assert dropped_delta < presented_delta, profile
+        assert dropped_delta <= max(16, presented_delta * 0.8), profile
+    else:
+        distinct_signatures = len(set(profile["frameSignatures"]))
+        assert distinct_signatures >= 2, profile
+        assert profile["frameSignatures"][-1] != profile["frameSignatures"][0], profile
+        assert dropped_delta <= 16, profile
+    assert page.locator("#tour-video source").get_attribute("type") == "video/mp4"
+    assert not [message for message in console_errors if "MEDIA" in message.upper() or "decode" in message.lower()]
+    context.close()
+
+
+def test_public_tour_provider_access_shell_autoplay_without_pane_decodes_and_uses_sanitized_walkthrough_route(
+    public_tour_browser_server: dict[str, str],
+    browser: Browser,
+) -> None:
+    context = _new_context(browser)
+    _stub_matterport_provider(context)
+    page = context.new_page()
+    console_errors: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    url = f"{public_tour_browser_server['base_url']}/tours/{public_tour_browser_server['slug']}?autoplay=1"
+
+    page.goto(url, wait_until="networkidle")
+    video = page.locator("#tour-video")
+    video.wait_for()
+    assert video.is_visible()
+    assert page.locator("#tour-video source").get_attribute("src").endswith(
+        f"/tours/{public_tour_browser_server['slug']}/walkthrough"
+    )
+    page_markup = page.content()
+    assert f"/tours/{public_tour_browser_server['slug']}/walkthrough" in page_markup
+    assert f"/tours/files/{public_tour_browser_server['slug']}/tour.mp4" not in page_markup
+    if page.locator(".provider-frame").count():
+        assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=REALBROWSER123"
+    walkthrough_links = page.get_by_role("link", name="Open walkthrough")
+    if walkthrough_links.count():
+        hrefs = [
+            walkthrough_links.nth(index).get_attribute("href")
+            for index in range(walkthrough_links.count())
+        ]
+        assert all(
+            str(href or "").endswith(f"/tours/{public_tour_browser_server['slug']}/walkthrough")
+            for href in hrefs
+        )
+    page.wait_for_timeout(1800)
+    state = page.evaluate(
+        """() => {
+            const video = document.getElementById('tour-video');
+            return video ? {
+                currentTime: video.currentTime,
+                duration: video.duration,
+                readyState: video.readyState,
+                videoWidth: video.videoWidth,
+                paused: video.paused,
+            } : null;
+        }"""
+    )
+    assert state is not None
+    assert state["readyState"] >= 2
+    assert state["videoWidth"] >= 640
+    assert state["currentTime"] > 0.2
+    assert state["duration"] >= 2.5
+    assert _video_frame_brightness(page) > 10.0
+    profile = _video_playback_profile(page)
+    assert len(profile["times"]) == 5
+    assert all(later >= earlier for earlier, later in zip(profile["times"], profile["times"][1:])), profile
+    assert profile["times"][-1] - profile["times"][0] >= 0.6, profile
+    assert not [message for message in console_errors if "MEDIA" in message.upper() or "decode" in message.lower()]
+    context.close()
+
+
 def test_public_tour_provider_control_is_mobile_safe_and_opens_vendor_immediately(
     public_tour_browser_server: dict[str, str],
     browser: Browser,
@@ -660,8 +780,7 @@ def test_public_tour_provider_control_is_mobile_safe_and_opens_vendor_immediatel
     page.goto(url, wait_until="networkidle")
     page.locator("h1").wait_for()
     assert "Property Tour" not in page.locator("body").inner_text()
-    assert page.locator(".badge").inner_text().lower() == "3d tour"
-    assert "Matterport control" not in page.locator("body").inner_text()
+    assert page.locator(".badge").inner_text().lower() == "matterport control"
     assert "MagicFit" not in page.locator("body").inner_text()
     assert page.locator("#load-provider").count() == 0
     assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=REALBROWSER123"

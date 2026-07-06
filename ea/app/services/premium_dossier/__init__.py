@@ -158,7 +158,13 @@ def render_property_packet_pdf_via_premium_pipeline(
                     "error_code": "premium_pdf_quality_gate_failed",
                     "required_text_check": candidate_quality.required_text_check,
                     "forbidden_text_check": candidate_quality.forbidden_text_check,
+                    "visual_preview_check": candidate_quality.visual_preview_check,
+                    "cover_dominance_check": candidate_quality.cover_dominance_check,
+                    "footer_band_check": candidate_quality.footer_band_check,
+                    "raw_url_text_check": candidate_quality.raw_url_text_check,
                     "forbidden_hits": candidate_quality.forbidden_text_hits[:3],
+                    "raw_url_hits": candidate_quality.raw_url_text_hits[:3],
+                    "required_text_hits": candidate_quality.required_text_hits[:3],
                 }
             )
         elif result.error_code:

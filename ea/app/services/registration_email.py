@@ -447,7 +447,7 @@ def _property_search_results_ready_html(
             for label, value in _property_email_facts(row)
         ) or '<tr><td style="padding:4px 0;color:#6c675f;font-size:13px;" colspan="2">No structured facts captured.</td></tr>'
         action_links = [
-            _html_link(href=review_url, label="Open property page") if review_url else "",
+            _html_link(href=review_url, label="Open property") if review_url else "",
             _html_link(href=tour_url, label="Open 360") if tour_url else "",
             _html_link(href=property_url, label="Open listing") if property_url else "",
         ]
@@ -515,7 +515,7 @@ def _property_match_html(
         if str(value or "").strip()
     )
     links = [
-        _html_link(href=review_url or primary_link, label="Open property page") if (review_url or primary_link) else "",
+        _html_link(href=review_url or primary_link, label="Open property") if (review_url or primary_link) else "",
         _html_link(href=tour_url, label="Open 360") if tour_url else "",
         _html_link(href=property_url, label="Open listing") if property_url else "",
     ]
@@ -529,7 +529,7 @@ def _property_match_html(
     )
     followup_buttons = _email_button_row(
         [
-            _email_button(href=review_url or primary_link, label="Open property page"),
+            _email_button(href=review_url or primary_link, label="Open property"),
             _email_button(href=tour_url, label="Open 360", kind="secondary"),
             _email_button(href=action_urls["ask_agent"], label="Ask agent", kind="secondary"),
         ]
@@ -951,14 +951,14 @@ def send_property_tour_email(
     html_body += _email_button_row(
         [
             _email_button(href=tour_url, label="Open 360 review"),
-            _email_button(href=property_url, label="Open property page", kind="secondary") if str(property_url or "").strip() else "",
+            _email_button(href=property_url, label="Open property", kind="secondary") if str(property_url or "").strip() else "",
             _email_button(href=action_urls["yes"], label="Yes, shortlist", kind="secondary"),
             _email_button(href=action_urls["no"], label="No — tell us why", kind="secondary"),
             _email_button(href=action_urls["ask_agent"], label="Ask agent", kind="secondary"),
         ]
     )
     if str(property_url or "").strip():
-        html_body += f'<p style="margin:0 0 14px;">{_html_link(href=property_url, label="Open property page or listing context")}</p>'
+        html_body += f'<p style="margin:0 0 14px;">{_html_link(href=property_url, label="Open property")}</p>'
     if facts_table_html:
         html_body += (
             '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:12px 0 0;">'
@@ -1194,7 +1194,7 @@ def send_property_search_results_ready_email(
         property_url = html.escape(str(row.get("property_url") or "").strip())
         actions = []
         if review_url:
-            actions.append(_email_button(href=review_url, label="Open property page", kind="secondary"))
+            actions.append(_email_button(href=review_url, label="Open property", kind="secondary"))
         if tour_url:
             actions.append(_email_button(href=tour_url, label="Open 360"))
         elif property_url:
@@ -1391,7 +1391,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                     + _email_button_row(
                         [
                             _email_button(href="https://propertyquarry.com/tours/family-flat-near-augarten", label="Open 360 review"),
-                            _email_button(href="https://propertyquarry.com/app/research/family-flat-near-augarten?run_id=run-42", label="Open property page", kind="secondary"),
+                            _email_button(href="https://propertyquarry.com/app/research/family-flat-near-augarten?run_id=run-42", label="Open property", kind="secondary"),
                             _email_button(href=action_urls["yes"], label="Yes, shortlist", kind="secondary"),
                             _email_button(href=action_urls["no"], label="No — tell us why", kind="secondary"),
                         ]

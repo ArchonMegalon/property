@@ -12,8 +12,8 @@ SECURITY_HEADERS = {
 }
 
 SIGN_IN_COPY = (
-    "PropertyQuarry Use a saved session, email link, or connected identity. "
-    "First-time connected sign-in also creates the account automatically. "
+    "PropertyQuarry Use email or one of the sign-in options below. "
+    "First sign-in creates the account automatically. "
 )
 
 
@@ -52,9 +52,9 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/disclaimers": "PropertyQuarry Disclaimers Generated visualization",
         "https://propertyquarry.com/register": "PropertyQuarry Set up your PropertyQuarry account Finish setup",
         "https://propertyquarry.com/sign-in": (
-            'PropertyQuarry Use a saved session, email link, or connected identity. '
-            "First-time connected sign-in also creates the account automatically. "
-            "Any connected identity reopens the same account or creates it automatically on first use. "
+            'PropertyQuarry Use email or one of the sign-in options below. '
+            "First sign-in creates the account automatically. "
+            "Provider sign-in opens the same account and creates it if needed. "
             '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
         ),
         "https://propertyquarry.com/manifest.webmanifest": (
@@ -69,7 +69,17 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/service-worker.js": "self.skipWaiting(); self.clients.claim();",
         "https://propertyquarry.com/robots.txt": "Sitemap: https://propertyquarry.com/sitemap.xml",
         "https://propertyquarry.com/sitemap.xml": "<loc>https://propertyquarry.com/</loc><loc>https://propertyquarry.com/pricing</loc>",
-        "https://propertyquarry.com/app/properties": "PropertyQuarry Use a saved session, email link, or connected identity.",
+        "https://propertyquarry.com/app/properties": "PropertyQuarry Use email or one of the sign-in options below.",
+        "https://propertyquarry.com/app/shortlist/run/public-demo-run": (
+            "PropertyQuarry Sample homes Preview example homes before signing in. "
+            "example-shortlist-home-1.png Open property "
+            "/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo"
+        ),
+        "https://propertyquarry.com/app/shortlist/run/0a89ead9e0b048288cca22d1aac54fa7": (
+            "PropertyQuarry Sample homes Preview example homes before signing in. "
+            "example-shortlist-home-1.png Open property "
+            "/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo"
+        ),
     }
 
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
@@ -98,6 +108,39 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
     assert receipt["failed_count"] == 0
     rows = {row["path"]: row for row in receipt["checks"]}
     assert any(check["name"] == "no_visible_internal_proof_copy" and check["ok"] is True for check in rows["/privacy"]["checks"])
+    shared_row = rows["/app/shortlist/run/0a89ead9e0b048288cca22d1aac54fa7"]
+    assert any(check["name"] == "public_fast_run_sample_copy" and check["ok"] is True for check in shared_row["checks"])
+    assert any(check["name"] == "public_fast_run_open_property" and check["ok"] is True for check in shared_row["checks"])
+    assert any(check["name"] == "public_fast_run_diorama_payload" and check["ok"] is True for check in shared_row["checks"])
+
+
+def test_live_public_smoke_accepts_hosted_diorama_preview_variants_without_network() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/shortlist/run/public-demo-run": (
+            "PropertyQuarry Sample homes Preview example homes before signing in. "
+            "telegram-preview.png Open property /app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo"
+        ),
+        "https://propertyquarry.com/app/shortlist/run/0a89ead9e0b048288cca22d1aac54fa7": (
+            "PropertyQuarry Sample homes Preview example homes before signing in. "
+            "telegram-preview.png Open property /app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo"
+        ),
+    }
+
+    receipt = build_live_public_smoke_receipt(
+        routes=(
+            "/app/shortlist/run/public-demo-run",
+            "/app/shortlist/run/0a89ead9e0b048288cca22d1aac54fa7",
+        ),
+        fetcher=lambda url, _timeout: _fake_response(bodies[url], final_url=url),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["failed_count"] == 0
+    row = next(row for row in receipt["checks"] if row["path"] == "/app/shortlist/run/public-demo-run")
+    assert any(check["name"] == "public_fast_run_diorama_payload" and check["ok"] is True for check in row["checks"])
+    shared_row = next(row for row in receipt["checks"] if row["path"] == "/app/shortlist/run/0a89ead9e0b048288cca22d1aac54fa7")
+    assert any(check["name"] == "public_fast_run_diorama_payload" and check["ok"] is True for check in shared_row["checks"])
+    assert any(check["name"] == "public_fast_run_open_property" and check["ok"] is True for check in shared_row["checks"])
 
 
 def test_live_public_smoke_checks_billing_worker_redirects_without_network() -> None:
@@ -271,7 +314,7 @@ def test_live_public_smoke_fails_broken_google_sign_in_redirect_without_network(
 def test_live_public_smoke_fails_sign_in_without_account_creation_copy() -> None:
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         return _fake_response(
-            'PropertyQuarry Use a saved session, email link, or connected identity. '
+            'PropertyQuarry Use email or one of the sign-in options below. '
             'Email sign-in links are temporarily unavailable. '
             '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>',
             final_url=url,

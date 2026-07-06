@@ -311,6 +311,7 @@ def test_tour_delivery_contract_reports_ready_public_safe_payload(tmp_path: Path
             "title": "Matterport Contract",
             "control_path": f"/tours/{slug}/control/matterport",
             "evidence": "allowlisted_matterport_url",
+            "route_visibility": "public",
         }
     ]
     assert "READY123" not in serialized_contract
@@ -1067,6 +1068,11 @@ def test_batch_tour_export_importer_materializes_krpano_and_magicfit_assets(tmp_
         json.dumps(
             {
                 "provider": "magicfit",
+                "provider_key": "magicfit",
+                "provider_backend_key": "magicfit",
+                "render_status": "completed",
+                "video_output_url": "https://media.powlcdn.com/magicfit/batch-magicfit.mp4",
+                "hosted_walkthrough_video_url": "https://media.powlcdn.com/magicfit/batch-magicfit.mp4",
                 "target_slug": "batch-magicfit",
                 "output_file": str(video_path.resolve()),
             }
@@ -1255,6 +1261,40 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
                 "property_slug": slug,
                 "property_title": "Import target",
                 "generated_at": "2026-06-25T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    weak_receipt = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--video-path",
+        str(playable_video),
+        "--source-receipt",
+        str(receipt_path),
+    )
+
+    assert weak_receipt.returncode != 0
+    assert "magicfit_receipt_backend_mismatch" in weak_receipt.stderr
+    assert not (bundle_dir / "magicfit-walkthrough.mp4").exists()
+
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "provider": "magicfit",
+                "provider_key": "magicfit",
+                "provider_backend_key": "magicfit",
+                "render_status": "completed",
+                "video_output_url": "https://media.powlcdn.com/magicfit/example.mp4",
+                "hosted_walkthrough_video_url": "https://media.powlcdn.com/magicfit/example.mp4",
+                "output_file": str(playable_video),
+                "target_slug": slug,
+                "property_slug": slug,
+                "property_title": "Import target",
+                "generated_at": "2026-06-25T00:00:00Z",
                 "walkthrough_coverage_proof": {
                     "status": "pass",
                     "segments_expected": ["entry", "living", "kitchen"],
@@ -1287,13 +1327,17 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     body = json.loads(imported.stdout)
     assert body["video_url"] == f"/tours/files/{slug}/walkthrough/final.mp4"
     assert body["provider"] == "magicfit"
+    assert body["provider_backend_key"] == "magicfit"
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     assert manifest["video_provider"] == "magicfit"
+    assert manifest["video_provider_backend_key"] == "magicfit"
     assert manifest["video_relpath"] == "walkthrough/final.mp4"
     assert manifest["video_coverage_proof"] == "boundary_verified_frame_continuation"
     assert manifest["walkthrough_coverage_proof"]["status"] == "pass"
     assert manifest["walkthrough_coverage_proof"]["segments_expected"] == ["entry", "living", "kitchen"]
     assert manifest["magicfit_import"]["source"] == "magicfit_rendered_walkthrough"
+    assert manifest["magicfit_import"]["provider_backend_key"] == "magicfit"
+    assert manifest["magicfit_import"]["proof_status"] == "pass"
     assert manifest["magicfit_import"]["source_receipt_path"] == str(receipt_path)
     assert manifest["magicfit_import"]["coverage_proof"]["coverage_segments"][0]["segment"] == "entry"
     assert manifest["magicfit_import"]["size_bytes"] == playable_video.stat().st_size
@@ -1549,6 +1593,69 @@ def test_tour_export_discovery_accepts_verified_provider_zips(tmp_path: Path) ->
     assert rows[("discover-zip-pano2vr", "pano2vr")]["export_zip"].endswith("export.zip")
 
 
+def test_tour_export_discovery_resolves_stale_drop_when_provider_already_imported_live(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    bundle_dir = _write_base_tour(tmp_path, "existing-3dvista")
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["three_d_vista_entry_relpath"] = "3dvista/index.htm"
+    manifest["three_d_vista_import"] = {
+        "source": "3dvista_private_viewer_runtime_refresh",
+        "entry_relpath": "3dvista/index.htm",
+        "target_subdir": "3dvista",
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+
+    drop_dir = tmp_path / "drop"
+    stale_export = drop_dir / "existing-3dvista" / "3dvista"
+    stale_export.mkdir(parents=True)
+    (stale_export / "index.html").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
+
+    receipt = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=public_root)
+
+    assert receipt["status"] == "ready"
+    assert receipt["import_count"] == 0
+    assert receipt["rejected_count"] == 0
+    assert receipt["repair_count"] == 0
+    assert receipt["resolved_existing_import_count"] == 1
+    resolved = receipt["resolved_existing_imports"][0]
+    assert resolved["provider"] == "3dvista"
+    assert resolved["reason"] == "3dvista_export_entry_unverified"
+    assert resolved["status"] == "already_imported_live_bundle"
+    assert resolved["live_evidence"] == "public_bundle_3dvista_import"
+    assert resolved["live_control_path"] == "/tours/existing-3dvista/control/3dvista"
+
+
+def test_tour_export_discovery_ignores_duplicate_rejected_drop_when_same_provider_is_importable(
+    tmp_path: Path,
+) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "duplicate-pano2vr")
+
+    drop_dir = tmp_path / "drop"
+    valid_export = drop_dir / "duplicate-pano2vr" / "pano2vr"
+    valid_export.mkdir(parents=True)
+    (valid_export / "index.html").write_text("<script src='assets/viewer.js'></script>", encoding="utf-8")
+    (valid_export / "assets").mkdir()
+    (valid_export / "assets" / "viewer.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+
+    duplicate_placeholder = drop_dir / "pano2vr" / "duplicate-pano2vr"
+    duplicate_placeholder.mkdir(parents=True)
+    (duplicate_placeholder / "index.html").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
+
+    receipt = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=public_root)
+
+    assert receipt["status"] == "ready"
+    assert receipt["import_count"] == 1
+    assert receipt["rejected_count"] == 0
+    assert receipt["ignored_duplicate_drop_count"] == 1
+    ignored = receipt["ignored_duplicate_drop_rows"][0]
+    assert ignored["provider"] == "pano2vr"
+    assert ignored["reason"] == "pano2vr_export_entry_unverified"
+    assert ignored["status"] == "ignored_duplicate_drop"
+    assert "already importable" in ignored["resolution"]
+
+
 def test_tour_export_discovery_rejects_16_9_krpano_panorama_candidates(tmp_path: Path) -> None:
     public_root = tmp_path / "public_tours"
     _write_base_tour(tmp_path, "discover-flat-krpano")
@@ -1725,3 +1832,66 @@ def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(t
     assert "Present sample: `index.html`" in handoff
     assert "Required markers/evidence: `ggpkg, ggskin, pano.xml, tour.js`" in handoff
     assert "import_pano2vr_export.py" in handoff
+
+
+def test_tour_export_discovery_ignores_operator_drop_lane_readmes(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    drop_dir = tmp_path / "drop"
+    for provider in ("3dvista", "pano2vr", "krpano", "magicfit"):
+        export_dir = drop_dir / "_operator-import-lane" / provider
+        export_dir.mkdir(parents=True)
+        (export_dir / "README.propertyquarry-export.txt").write_text(
+            f"Operator drop instructions for {provider}",
+            encoding="utf-8",
+        )
+    receipt_path = tmp_path / "discovery.json"
+
+    discovered = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "discover_property_tour_exports.py"),
+            "--drop-dir",
+            str(drop_dir),
+            "--public-tour-dir",
+            str(public_root),
+            "--write",
+            str(receipt_path),
+            "--fail-on-blocked",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert discovered.returncode == 2
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "blocked_no_verified_exports"
+    assert receipt["import_count"] == 0
+    assert receipt["rejected_count"] == 0
+    assert receipt["rejected"] == []
+    assert receipt["repair_count"] == 0
+    assert receipt["repair_manifest"] == []
+    assert any("readme.propertyquarry-export.txt" in note.lower() for note in receipt["notes"])
+
+
+def test_tour_export_discovery_ignores_documentation_only_provider_folders_for_normal_slugs(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    drop_dir = tmp_path / "drop"
+    for provider in ("3dvista", "pano2vr", "krpano"):
+        export_dir = drop_dir / "normal-slug" / provider
+        export_dir.mkdir(parents=True)
+        (export_dir / "README.propertyquarry-export.txt").write_text(
+            f"Instructions for {provider}",
+            encoding="utf-8",
+        )
+    receipt = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=public_root)
+
+    assert receipt["status"] == "blocked_no_verified_exports"
+    assert receipt["import_count"] == 0
+    assert receipt["rejected_count"] == 0
+    assert receipt["rejected"] == []
+    assert receipt["repair_count"] == 0
+    assert receipt["repair_manifest"] == []
+    assert any("readme.propertyquarry-export.txt" in note.lower() for note in receipt["notes"])

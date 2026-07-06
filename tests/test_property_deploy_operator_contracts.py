@@ -314,12 +314,11 @@ def test_property_release_gate_wires_tour_import_manifest_into_gold_status() -> 
     assert "--incoming-root /data/incoming_property_tours" in release_gate
     assert "property-tour-export-import-manifest-release-gate-live-container.json" in release_gate
     assert "property_render_container=\"${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}\"" in release_gate
-    assert "docker exec \"${property_render_container}\" python /app/scripts/verify_property_tour_vendor_tooling.py" in release_gate
+    assert "scripts/verify_property_tour_vendor_tooling.py" in release_gate
+    assert '--runtime-container "${property_api_container}"' in release_gate
     assert 'runtime_reconstruction_container="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${property_render_container}}"' in release_gate
     assert 'runtime_reconstruction_container="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${property_api_container}}"' not in release_gate
     assert "--runtime-only" in release_gate
-    assert "property-tour-vendor-tooling-release-gate-live-container.json" in release_gate
-    assert "docker cp \"${property_render_container}:/data/artifacts/property-tour-vendor-tooling-release-gate-live-container.json\"" in release_gate
     assert "_completion/tours/property-tour-vendor-tooling-current.json" in release_gate
     assert "--drop-dir \"${tour_export_incoming_dir}\"" in release_gate
     assert "--public-tour-dir \"${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}\"" in release_gate
@@ -338,6 +337,15 @@ def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:
     assert "scripts/propertyquarry_live_mobile_surface_smoke.py" in release_gate
     assert "PROPERTYQUARRY_LIVE_MOBILE_BASE_URL" in release_gate
     assert "PROPERTYQUARRY_LIVE_SMOKE_BASE_URL" in release_gate
+
+
+def test_property_gold_refresh_checks_omagic_adapter_in_api_runtime() -> None:
+    refresh_script = _read("scripts/refresh_propertyquarry_current_gold_receipts.sh")
+
+    assert "Vendor-tooling receipt from host with API runtime adapter proof" in refresh_script
+    assert '--runtime-container "${API_CONTAINER}"' in refresh_script
+    assert "--runtime-container ''" not in refresh_script
+    assert "Vendor-tooling receipt from render container" not in refresh_script
 
 
 def test_property_deploy_seeds_default_mobile_research_detail_fixture() -> None:
@@ -466,6 +474,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
     assert "COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py" in dockerfile
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
+    assert "COPY scripts/render_omagic_property_model_walkthrough.py /app/scripts/render_omagic_property_model_walkthrough.py" in dockerfile
     assert "COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py" in dockerfile
     assert "COPY scripts/verify_property_scene_video_readiness.py /app/scripts/verify_property_scene_video_readiness.py" in dockerfile
     assert "COPY scripts/materialize_scene_video_provider_refresh_packet.py /app/scripts/materialize_scene_video_provider_refresh_packet.py" in dockerfile
@@ -500,6 +509,7 @@ def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_b
     assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
     assert "COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py" in dockerfile
+    assert "COPY scripts/render_omagic_property_model_walkthrough.py /app/scripts/render_omagic_property_model_walkthrough.py" in dockerfile
     assert "COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py" in dockerfile
     assert "COPY scripts/discover_property_tour_exports.py /app/scripts/discover_property_tour_exports.py" in dockerfile
     assert "COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py" in dockerfile
@@ -528,6 +538,7 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         "mootion_movie_worker.py",
         "render_magicfit_property_flythrough.py",
         "render_onemin_property_i2v_segment.py",
+        "render_omagic_property_model_walkthrough.py",
         "property_scene_video_readiness_report.py",
         "verify_property_scene_video_readiness.py",
         "materialize_scene_video_provider_refresh_packet.py",

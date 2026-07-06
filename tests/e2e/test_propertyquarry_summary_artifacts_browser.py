@@ -24,5 +24,5 @@ def test_packet_dashboard_renders_attached_summary(tmp_path: Path) -> None:
 
     page = client.get("/app/properties/packets")
     assert page.status_code == 200
-    assert "Attached summaries" in page.text
+    assert "Added summaries" in page.text
     assert "Why Shortlisted" in page.text or "Why shortlisted" in page.text

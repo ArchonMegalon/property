@@ -11,7 +11,7 @@
     <div>
       <div class="pqx-small">Saved searches</div>
       <h2>Saved searches</h2>
-      <div class="pqx-note">Review saved searches, start them again, and keep notifications under control.</div>
+      <div class="pqx-note">Open saved searches, run them again, and keep notifications under control.</div>
     </div>
     <div class="pqx-actions">
       <span class="pqx-pill">{{ active_total }} active</span>
@@ -98,7 +98,7 @@
       <div class="pqx-previous-metrics">
         <a class="pqx-previous-open-link" href="/app/search"><b>{{ previous.get('ranked_total') or 0 }}</b> matches</a>
         {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> updates</span>{% endif %}
-        {% if previous.get('held_back_total') %}<span><b>{{ previous.get('held_back_total') }}</b> outside brief</span>{% endif %}
+        {% if previous.get('held_back_total') %}<span><b>{{ previous.get('held_back_total') }}</b> outside this search</span>{% endif %}
         {% if previous.get('top_fit_score') %}<span>top match</span>{% endif %}
       </div>
     </article>

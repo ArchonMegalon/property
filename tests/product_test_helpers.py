@@ -17,8 +17,10 @@ def _build_client(
     host: str | None = None,
 ) -> TestClient:
     from app.api.app import create_app
+    from app.api.routes.landing import prewarm_property_search_surface_cache
 
     client = TestClient(create_app(), base_url=base_url)
+    prewarm_property_search_surface_cache()
     headers = {"X-EA-Principal-ID": principal_id}
     if api_token:
         headers["Authorization"] = f"Bearer {api_token}"

@@ -9,6 +9,7 @@ from typing import Any
 
 from app.product.property_surface_state import build_property_run_reliability_snapshot
 from app.services.property_artifact_contracts import required_artifact_receipt_rows
+from app.services.property_customer_copy import sanitize_property_marketing_copy, summarize_property_description_copy
 from app.services.property_market_catalog import supported_currency_codes
 
 
@@ -218,7 +219,28 @@ def _property_source_360_url_looks_usable(value: object, *, context: str = "") -
     if host.endswith("propertyquarry.com") and path.startswith("/tours/"):
         return False
     combined = f"{host}{path}?{parsed.query.lower()} {str(context or '').lower()}"
-    return any(marker in combined for marker in _PROPERTY_SOURCE_360_MARKERS)
+    if any(marker in combined for marker in _PROPERTY_SOURCE_360_MARKERS):
+        return True
+    context_lower = str(context or "").strip().lower()
+    explicit_tour_context = any(
+        marker in context_lower
+        for marker in (
+            "source_virtual_tour",
+            "virtual_tour",
+            "tour_360",
+            "three_d_tour",
+            "threed_tour",
+            "panorama",
+            "matterport",
+            "ogulo",
+            "immoviewer",
+        )
+    )
+    if not explicit_tour_context:
+        return False
+    if path.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".pdf", ".svg")):
+        return False
+    return bool(parsed.scheme in {"http", "https"} and host)
 
 
 def _property_floorplan_url_looks_usable(value: object, *, context: str = "") -> bool:
@@ -357,6 +379,19 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
         top_level_facts = {**top_level_facts, **dict(candidate.get("property_facts_json") or {})}
     snapshot = dict(top_level_facts.get("listing_research_snapshot") or {}) if isinstance(top_level_facts.get("listing_research_snapshot"), dict) else {}
     merged = {**top_level_facts, **snapshot}
+
+    for target_key, candidate_keys in (
+        ("description", ("description_text", "description", "listing_description", "object_description", "summary")),
+        ("location_description", ("location_text", "location_description", "micro_location_summary", "neighborhood_description")),
+    ):
+        if str(merged.get(target_key) or "").strip():
+            continue
+        for source_key in candidate_keys:
+            fallback_value = str(candidate.get(source_key) or "").strip()
+            if not fallback_value:
+                continue
+            merged[target_key] = fallback_value
+            break
 
     def _normalized(value: object) -> str:
         return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
@@ -1231,8 +1266,12 @@ def _candidate_detail_sections(facts: dict[str, object]) -> dict[str, object]:
         _bool_fact_text(facts, "has_garden", "garden", label="Garden"),
         _bool_fact_text(facts, "has_loggia", "loggia", label="Loggia"),
     ]
-    description_text = _first_fact_text(facts, "description", "object_description", "listing_description", "summary")
-    location_text = _first_fact_text(facts, "location_description", "lage", "neighborhood_description", "micro_location_summary")
+    description_text = summarize_property_description_copy(
+        _first_fact_text(facts, "description", "object_description", "listing_description", "summary")
+    )
+    location_text = sanitize_property_marketing_copy(
+        _first_fact_text(facts, "location_description", "lage", "neighborhood_description", "micro_location_summary")
+    )
     energy_rows = [
         ("HWB", _first_fact_text(facts, "hwb", "hwb_kwh_m2_year")),
         ("HWB class", _first_fact_text(facts, "hwb_class", "hwb_energieklasse")),
@@ -1572,9 +1611,9 @@ def _property_suppression_rows(
         if aggregate_filtered_total > 0:
             rows.append(
                 {
-                    "title": "Filtered by the current brief",
+                    "title": "Filtered by this search",
                     "rule_key": "Aggregate filtered",
-                    "detail": f"{aggregate_filtered_total} candidates were held back by the current brief. Open the active filters to inspect what is still strict.",
+                    "detail": f"{aggregate_filtered_total} candidates were held back by this search. Open the active filters to inspect what is still strict.",
                     "tag": "Search rule",
                     "affected_total": aggregate_filtered_total,
                     "action_label": "Adjust filters",
@@ -1612,7 +1651,7 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
         },
         {
             "title": "Files ready",
-            "detail": f"{packet_total} review page{'s' if packet_total != 1 else ''}, {tour_total} tour{'s' if tour_total != 1 else ''}, {telegram_sent} sent update{'s' if telegram_sent != 1 else ''}.",
+            "detail": f"{packet_total} saved page{'s' if packet_total != 1 else ''}, {tour_total} tour{'s' if tour_total != 1 else ''}, {telegram_sent} sent update{'s' if telegram_sent != 1 else ''}.",
             "tag": "Saved",
         },
     ]

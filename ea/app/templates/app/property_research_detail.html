@@ -741,7 +741,7 @@
     color: var(--text);
   }
   .prd-media-frame.prd-media-image-failed::before {
-    content: "Preview unavailable";
+    content: "Image unavailable";
     position: absolute;
     inset: 0;
     display: grid;
@@ -1016,13 +1016,45 @@
     0% { transform: translateX(-100%); }
     100% { transform: translateX(140%); }
   }
-  .prd-gallery {
-    grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  .prd-gallery-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .prd-gallery-meta {
+    display: inline-flex;
+    align-items: center;
     gap: 8px;
+    color: var(--text-soft);
+    font-size: 11px;
+    line-height: 1.2;
+  }
+  .prd-gallery-shell {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .prd-gallery {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(92px, 104px);
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-behavior: smooth;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .prd-gallery::-webkit-scrollbar {
+    display: none;
   }
   .prd-gallery-item {
     display: grid;
     gap: 6px;
+    scroll-snap-align: start;
   }
   .prd-gallery-thumb {
     display: block;
@@ -1060,6 +1092,34 @@
   }
   .prd-gallery-label b {
     color: var(--text);
+  }
+  .prd-gallery-nav {
+    width: 38px;
+    min-width: 38px;
+    min-height: 38px;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel) 86%, var(--prd-gold) 5%);
+    color: var(--text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 140ms ease, transform 140ms ease, opacity 140ms ease;
+  }
+  .prd-gallery-nav:hover {
+    border-color: color-mix(in srgb, var(--prd-gold) 56%, var(--line) 44%);
+    transform: translateY(-1px);
+  }
+  .prd-gallery-nav[disabled] {
+    opacity: 0.4;
+    cursor: default;
+    transform: none;
+  }
+  .prd-gallery-nav svg {
+    width: 15px;
+    height: 15px;
   }
   .prd-meta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1201,11 +1261,12 @@
     gap: 8px;
   }
   .prd-hero-gallery {
-    display: none;
+    display: grid;
+    gap: 10px;
     align-self: start;
   }
   .prd-hero-gallery .prd-gallery {
-    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+    grid-auto-columns: minmax(76px, 94px);
   }
   .prd-hero-gallery .prd-kicker {
     margin-bottom: 3px;
@@ -2180,6 +2241,9 @@
       gap: 6px;
       overflow: visible;
     }
+    .prd-headline-read .prd-summary-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
     .prd-current-read .prd-summary-grid {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -2426,7 +2490,8 @@
       min-width: 60px;
     }
     .prd-hero-gallery {
-      display: none;
+      display: grid;
+      gap: 6px;
     }
     .prd-map-card:not(.prd-map-inline) {
       display: none;
@@ -2434,12 +2499,21 @@
     .prd-map-card {
       padding: 7px;
     }
+    .prd-gallery-shell {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 5px;
+    }
     .prd-gallery {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-auto-columns: minmax(70px, 78px);
       gap: 5px;
     }
     .prd-gallery-thumb {
       border-radius: 10px;
+    }
+    .prd-gallery-nav {
+      width: 34px;
+      min-width: 34px;
+      min-height: 34px;
     }
     .prd-lightbox {
       width: calc(100vw - 16px);
@@ -2913,6 +2987,47 @@
       border-radius: 999px;
       font-size: 0.72rem;
     }
+    .prd-mobile-nav-menu {
+      min-width: 0;
+      width: 100%;
+    }
+    .prd-mobile-nav-menu > summary {
+      display: none !important;
+    }
+    .prd-mobile-nav-menu .prd-primary-nav,
+    .prd-mobile-nav-menu[open] .prd-primary-nav,
+    .prd-primary-nav[data-property-console-topnav] {
+      display: flex !important;
+      position: static !important;
+      top: auto !important;
+      left: auto !important;
+      right: auto !important;
+      z-index: auto !important;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      gap: 4px;
+      overflow-x: auto !important;
+      overflow-y: hidden;
+      grid-template-columns: none !important;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    .prd-mobile-nav-menu .prd-primary-nav a,
+    .prd-mobile-nav-menu .prd-primary-nav span,
+    .prd-mobile-nav-menu[open] .prd-primary-nav a,
+    .prd-mobile-nav-menu[open] .prd-primary-nav span,
+    .prd-primary-nav[data-property-console-topnav] a,
+    .prd-primary-nav[data-property-console-topnav] span {
+      width: auto;
+      min-width: 44px;
+      justify-content: center;
+      flex: 0 0 auto;
+    }
     .prd-top-actions {
       gap: 6px;
     }
@@ -2951,7 +3066,7 @@
   {'href': '/app/research' ~ research_query_suffix, 'label': 'Research', 'key': 'research'},
   {'href': '/app/account' ~ research_query_suffix, 'label': 'Account', 'key': 'account'},
 ) %}
-<header class="prd-topbar pqx-topbar" data-property-research-topnav data-property-console-topnav>
+<header class="prd-topbar pqx-topbar" data-property-research-topnav>
   <a class="prd-brand" href="/app/properties{{ research_query_suffix }}" aria-label="PropertyQuarry search">
     <span class="prd-brand-mark">PQ</span>
     <span class="prd-brand-copy">
@@ -2959,9 +3074,9 @@
       <span>Research desk</span>
     </span>
   </a>
-  <details class="prd-mobile-nav-menu" data-prd-mobile-nav-menu data-pqx-mobile-nav-menu>
+  <details class="prd-mobile-nav-menu" data-prd-mobile-nav-menu data-pqx-mobile-nav-menu open>
     <summary><span class="prd-mobile-nav-label is-active" aria-current="page">{% if current_nav == 'research' %}Research{% elif current_nav in ['account', 'agents', 'alerts', 'billing', 'settings'] %}Account{% else %}Search{% endif %}</span></summary>
-    <nav class="prd-primary-nav" aria-label="PropertyQuarry sections">
+    <nav class="prd-primary-nav" aria-label="PropertyQuarry sections" data-property-console-topnav>
       {% for item in research_topnav_items %}
         {% if item.key == current_nav or (item.key == 'account' and current_nav in ['agents', 'alerts', 'billing', 'settings']) %}
         <span class="is-active" aria-current="page">{{ item.label }}</span>
@@ -2992,7 +3107,7 @@
         </div>
         <div class="account-menu-links">
           <a class="btn" href="{{ account_nav.profile_href }}">Saved defaults</a>
-          <a class="btn" href="{{ account_nav.billing_href }}">Billing account</a>
+          <a class="btn" href="{{ account_nav.billing_href }}">Billing</a>
           <a class="btn ghost" href="{{ account_nav.settings_href }}">Access</a>
           <form class="account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
             <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
@@ -3009,15 +3124,21 @@
   document.addEventListener('DOMContentLoaded', () => {
     const legacyAppbar = document.querySelector('.pq-shell[data-property-app-shell] .pq-appbar');
     if (legacyAppbar) legacyAppbar.remove();
+    const mobileTopNavUsesVisibleRail = () => window.matchMedia('(max-width: 760px)').matches;
     const mobileNavMenu = document.querySelector('[data-prd-mobile-nav-menu]');
     if (mobileNavMenu instanceof HTMLDetailsElement) {
+      if (mobileTopNavUsesVisibleRail()) {
+        mobileNavMenu.open = true;
+      }
       mobileNavMenu.querySelectorAll('.prd-primary-nav a').forEach((link) => {
         link.addEventListener('click', () => {
+          if (mobileTopNavUsesVisibleRail()) return;
           mobileNavMenu.open = false;
         });
       });
       document.addEventListener('click', (event) => {
         if (!window.matchMedia('(max-width: 760px)').matches) return;
+        if (mobileTopNavUsesVisibleRail()) return;
         if (!mobileNavMenu.open) return;
         if (mobileNavMenu.contains(event.target instanceof Node ? event.target : null)) return;
         mobileNavMenu.open = false;
@@ -3029,8 +3150,8 @@
 {% if research_route_recovery %}
 <aside class="prd-route-recovery" data-prd-route-recovery role="status">
   <div class="prd-route-recovery-copy">
-    <strong>{{ research_route_recovery.get('title') or 'Opened the latest result' }}</strong>
-    <span>{{ research_route_recovery.get('detail') or 'This saved link was stale, so PropertyQuarry opened the matching property from your latest search.' }}</span>
+    <strong>{{ research_route_recovery.get('title') or 'Opened the current match' }}</strong>
+    <span>{{ research_route_recovery.get('detail') or 'This link moved, so PropertyQuarry opened the matching home from your latest search.' }}</span>
   </div>
   <div class="prd-route-recovery-meta">
     <a class="prd-run-chip" href="{{ research_route_recovery.get('action_href') or ('/app/shortlist' ~ research_query_suffix) }}">{{ research_route_recovery.get('action_label') or 'Open search results' }}</a>
@@ -3053,9 +3174,9 @@
     {% for action in visual_actions.items %}
       {% set action_label = (action.get('label') or '')|lower %}
       {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': '3D tour', 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open or request the tour here.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': '3D tour', 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open or request it here.', 'action': action}] %}
       {% elif action.get('kind') == 'flythrough' or 'walkthrough' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': 'Walkthrough', 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open or request the walkthrough here.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': 'Walkthrough', 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open or request it here.', 'action': action}] %}
       {% endif %}
     {% endfor %}
     {% set visual_status = namespace(active=None) %}
@@ -3085,7 +3206,7 @@
       {% set visual_rail.label = research_media.get('status_label') or 'Open 3D tour' %}
       {% set visual_rail.eta = '' %}
       {% set visual_rail.progress = 100 %}
-      {% set visual_rail.detail = research_visual_status_line or research_media.get('status_detail') or '3D tour is available on this page.' %}
+      {% set visual_rail.detail = research_visual_status_line or research_media.get('status_detail') or '3D tour is ready.' %}
     {% elif visual_status.active %}
       {% set visual_rail.kind = visual_status.active.get('kind') or '' %}
       {% set visual_rail.state = visual_status.active.get('state') or '' %}
@@ -3099,7 +3220,7 @@
       {% set visual_rail.label = 'Open walkthrough' %}
       {% set visual_rail.eta = '' %}
       {% set visual_rail.progress = 100 %}
-      {% set visual_rail.detail = research_visual_status_line or research_media.get('walkthrough_status_detail') or 'Walkthrough is available on this page.' %}
+      {% set visual_rail.detail = research_visual_status_line or research_media.get('walkthrough_status_detail') or 'Walkthrough is ready.' %}
     {% else %}
       {% set visual_rail.kind = 'tour' if research_media.get('show_status_line') else '' %}
       {% set visual_rail.state = '' %}
@@ -3108,12 +3229,29 @@
       {% set visual_rail.progress = 0 %}
       {% set visual_rail.detail = research_visual_status_line or '' %}
     {% endif %}
+    {% set visual_pending_states = ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'repairing'] %}
+    {% set visual_rail_label_display = visual_rail.label or '' %}
+    {% if visual_rail.state == 'ready' and visual_rail.kind == 'tour' %}
+      {% set visual_rail_label_display = '3D tour' %}
+    {% elif visual_rail.state == 'ready' and visual_rail.kind in ['flythrough', 'walkthrough'] %}
+      {% set visual_rail_label_display = 'Walkthrough' %}
+    {% elif visual_rail.state in visual_pending_states and visual_rail.kind == 'tour' %}
+      {% set visual_rail_label_display = 'Preparing 3D tour' %}
+    {% elif visual_rail.state in visual_pending_states and visual_rail.kind in ['flythrough', 'walkthrough'] %}
+      {% set visual_rail_label_display = 'Preparing walkthrough' %}
+    {% endif %}
+    {% set research_media_badge_label = research_media.get('status_label') or 'Media' %}
+    {% if visual_ready_tour %}
+      {% set research_media_badge_label = '3D tour' %}
+    {% elif visual_ready_walkthrough %}
+      {% set research_media_badge_label = 'Walkthrough' %}
+    {% endif %}
     <section class="prd-media-stack">
       {% set inline_media_preview = research_preview_image or research_location_preview.get('image_url') or '' %}
       <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live{% endif %}" data-object-media-stage>
         <div class="prd-media-badge">
           {% if research_media.get('show_status_line') %}
-            {{ research_media.get('status_label') or 'Media' }}
+            {{ research_media_badge_label }}
           {% elif research_preview_image %}
             Photos
           {% elif research_location_preview.get('image_url') %}
@@ -3122,8 +3260,10 @@
             Media
           {% endif %}
         </div>
-        {% if research_media.get('embed_href') %}
-        <iframe data-prd-inline-viewer src="{{ research_media.get('embed_href') }}" title="Property 3D tour" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+        {% if inline_media_preview %}
+        <img src="{{ inline_media_preview }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image{% if research_location_preview.get('image_url') and inline_media_preview != research_location_preview.get('image_url') %} data-prd-hero-fallback-src="{{ research_location_preview.get('image_url') or '' }}"{% endif %}>
+        {% elif research_media.get('embed_href') %}
+        <div class="prd-media-empty">Open the 3D tour to inspect the space.</div>
         {% elif research_preview_image %}
         <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image data-prd-hero-fallback-src="{{ research_location_preview.get('image_url') or '' }}">
         {% elif research_location_preview.get('image_url') %}
@@ -3143,7 +3283,7 @@
       <div class="prd-visual-toolbar">
         <div class="prd-visual-heading">
           <div class="prd-kicker">Visuals</div>
-          <p class="prd-copy">Tours and walkthroughs.</p>
+          <p class="prd-copy">Tours and walkthroughs for this home.</p>
         </div>
         {% if research_media.get('show_status_line') %}
         <span class="prd-status-badge">{{ research_media.get('status_label') or 'Ready' }}</span>
@@ -3162,17 +3302,17 @@
           {% if visual_card.get('key') == 'tour' %}
           <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
             {% if action.get('href') %}
-            3D tour available.
+            Open now.
             {% else %}
-            3D tour not available yet.
+            On request.
             {% endif %}
           </p>
           {% elif visual_card.get('key') == 'walkthrough' %}
           <p class="prd-visual-evidence" data-prd-visual-evidence="walkthrough">
             {% if action.get('href') %}
-            Walkthrough available.
+            Open now.
             {% else %}
-            Walkthrough not available yet.
+            On request.
             {% endif %}
           </p>
           {% endif %}
@@ -3187,6 +3327,10 @@
           {% else %}
           {% set action_state = (action.get('state') or 'idle')|lower %}
           {% set is_walkthrough_request = action.get('kind') == 'flythrough' %}
+          {% set action_button_label = action.get('label') or 'Request visual review' %}
+          {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}
+            {% set action_button_label = 'Preparing walkthrough' if is_walkthrough_request else 'Preparing 3D tour' %}
+          {% endif %}
           <button
             class="console-action prd-visual-hero-action"
             type="button"
@@ -3203,15 +3347,15 @@
             {% if action.get('kind') in ['tour', 'flythrough'] %}data-pw-visual-style-required="1"{% endif %}
             {% if is_walkthrough_request %}data-pw-walkthrough-provider="default"{% endif %}
             {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}disabled aria-disabled="true"{% endif %}
-            aria-label="{{ action.get('label') or 'Request visual review' }}"
-          >{{ action.get('label') }}</button>
+            aria-label="{{ action_button_label }}"
+          >{{ action_button_label }}</button>
           {% endif %}
           </div>
         </article>
         {% endfor %}
       </div>
       {% endif %}
-      {% set visual_rail_active_states = ['ready', 'pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'repairing'] %}
+      {% set visual_rail_active_states = ['ready', 'pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'repairing', 'blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] %}
       <div
         class="prd-visual-rail{% if visual_rail.state in visual_rail_active_states %} is-active{% endif %}"
         data-prd-visual-rail
@@ -3220,12 +3364,12 @@
         data-prd-primary-tour-ready="{% if visual_ready_tour %}1{% else %}0{% endif %}"
         data-prd-primary-tour-kind="tour"
         data-prd-primary-tour-state="{% if visual_ready_tour %}ready{% endif %}"
-        data-prd-primary-tour-label="{% if visual_ready_tour %}{{ research_media.get('status_label') or 'Open 3D tour' }}{% endif %}"
-        data-prd-primary-tour-detail="{% if visual_ready_tour %}{{ research_visual_status_line or research_media.get('status_detail') or '3D tour is available on this page.' }}{% endif %}"
+        data-prd-primary-tour-label="{% if visual_ready_tour %}3D tour{% endif %}"
+        data-prd-primary-tour-detail="{% if visual_ready_tour %}{{ research_visual_status_line or research_media.get('status_detail') or '3D tour is ready.' }}{% endif %}"
         data-prd-primary-tour-progress="{% if visual_ready_tour %}100{% else %}0{% endif %}"
       >
         <div class="prd-visual-meta">
-          <strong data-prd-visual-label>{{ visual_rail.label }}</strong>
+          <strong data-prd-visual-label>{{ visual_rail_label_display }}</strong>
           <span class="prd-visual-eta" data-prd-visual-eta>{{ visual_rail.eta }}</span>
         </div>
         <div
@@ -3246,8 +3390,8 @@
           {% set headline_actions.items = headline_actions.items + [action] %}
         {% endif %}
       {% endfor %}
-      <section class="prd-panel prd-headline-panel">
-        <div class="prd-kicker">Property details</div>
+      <section class="prd-panel prd-headline-panel" data-prd-home-panel>
+        <div class="prd-kicker">Home</div>
         {% if research_source_label %}<div class="prd-copy">{{ research_source_label }}</div>{% endif %}
         <h1>{{ research_title }}</h1>
         <h2 class="prd-price">{{ research_price }}</h2>
@@ -3257,9 +3401,9 @@
           {% if research_location %}<span class="prd-chip">{{ research_location }}</span>{% endif %}
         </div>
         {% if research_overview_rows %}
-        <section class="prd-headline-read" aria-label="Overview">
-          <div class="prd-kicker">Overview</div>
-          <div class="prd-summary-grid">
+        <section class="prd-headline-read" aria-label="At a glance">
+          <div class="prd-kicker">At a glance</div>
+          <div class="prd-summary-grid" style="grid-template-columns: 1fr 1fr;">
             {% for row in research_overview_rows[:4] %}
             <div class="prd-summary-box">
               <span>{{ row.label }}</span>
@@ -3326,14 +3470,30 @@
         {% endif %}
         {% if research_gallery_items %}
         <section class="prd-panel prd-hero-gallery">
-          <div class="prd-kicker">Media and plans</div>
-          <div class="prd-gallery">
-            {% for item in research_gallery_items[:4] %}
+          <div class="prd-gallery-head">
+            <div>
+              <div class="prd-kicker">Media and plans</div>
+            </div>
+            {% if (research_gallery_items|length) > 1 %}
+            <div class="prd-gallery-meta">
+              <span data-prd-gallery-count>1 / {{ research_gallery_items|length }}</span>
+            </div>
+            {% endif %}
+          </div>
+          <div class="prd-gallery-shell">
+            {% if (research_gallery_items|length) > 1 %}
+            <button class="prd-gallery-nav" type="button" data-prd-gallery-nav="prev" aria-label="Previous photo">
+              <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M12.8 3.8 6.6 10l6.2 6.2-1.4 1.4L3.8 10l7.6-7.6 1.4 1.4Z" fill="currentColor"/></svg>
+            </button>
+            {% endif %}
+            <div class="prd-gallery" data-prd-gallery-track>
+            {% for item in research_gallery_items %}
             <div class="prd-gallery-item">
               <button
                 class="prd-gallery-thumb{% if loop.first and not research_media.get('embed_href') %} is-active{% endif %}"
                 type="button"
                 data-prd-media-select
+                data-prd-media-index="{{ loop.index0 }}"
                 data-prd-media-src="{{ item.get('url') }}"
                 data-prd-media-title="{{ research_title }}"
                 data-prd-media-summary="{{ item.get('label') }}"
@@ -3344,6 +3504,12 @@
               <div class="prd-gallery-label"><b>{{ item.get('kind')|title }}</b> · {{ item.get('label') }}</div>
             </div>
             {% endfor %}
+            </div>
+            {% if (research_gallery_items|length) > 1 %}
+            <button class="prd-gallery-nav" type="button" data-prd-gallery-nav="next" aria-label="Next photo">
+              <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m7.2 3.8 1.4-1.4L16.2 10l-7.6 7.6-1.4-1.4L13.4 10 7.2 3.8Z" fill="currentColor"/></svg>
+            </button>
+            {% endif %}
           </div>
         </section>
         {% endif %}
@@ -3353,35 +3519,22 @@
   </section>
 
   <section class="prd-body">
-    {% if research_overview_rows %}
-    <section class="prd-panel prd-current-read" aria-label="Overview">
-      <div class="prd-kicker">Overview</div>
-      <div class="prd-summary-grid">
-        {% for row in research_overview_rows[:4] %}
-        <div class="prd-summary-box">
-          <span>{{ row.label }}</span>
-          <strong>{{ row.value }}</strong>
-        </div>
-        {% endfor %}
-      </div>
-    </section>
-    {% endif %}
     <section class="prd-sections">
       {% set open_check_rows = (research_missing_rows + research_investment_risk_rows)[:6] %}
       {% if open_check_rows %}
       <details class="prd-band prd-open-checks prd-mobile-secondary" open data-prd-mobile-secondary="open-checks">
         <summary>
           <span class="prd-mobile-secondary-toggle">
-            <span class="prd-kicker">To confirm</span>
-            <strong>Still to confirm</strong>
+            <span class="prd-kicker">Next checks</span>
+            <strong>Still open</strong>
           </span>
           <span class="prd-tag">{{ open_check_rows|length }} item{% if open_check_rows|length != 1 %}s{% endif %}</span>
         </summary>
         <div class="prd-collapse-body">
-          <div class="prd-kicker">To confirm</div>
-          <h2 class="prd-section-title">Still to confirm</h2>
+          <div class="prd-kicker">Next checks</div>
+          <h2 class="prd-section-title">Still open</h2>
           <p class="prd-open-checks-summary">
-            {{ open_check_rows|length }} item{% if open_check_rows|length != 1 %}s{% endif %} still need a quick manual check before you commit.
+            {{ open_check_rows|length }} item{% if open_check_rows|length != 1 %}s{% endif %} still deserve a quick look before you decide.
           </p>
           <div class="prd-facts prd-open-checks-chips">
             {% for item in open_check_rows[:4] %}
@@ -3401,7 +3554,7 @@
           </div>
           {% if open_check_rows|length > 3 %}
           <details class="prd-open-checks-more">
-            <summary>Show {{ open_check_rows|length - 3 }} more checks</summary>
+            <summary>Show {{ open_check_rows|length - 3 }} more</summary>
             <div class="prd-feedback-body">
               <div class="prd-gate-list">
                 {% for item in open_check_rows[3:] %}
@@ -3425,14 +3578,14 @@
       <details class="prd-band prd-mobile-secondary" open data-prd-mobile-secondary="confirmed">
         <summary>
           <span class="prd-mobile-secondary-toggle">
-            <span class="prd-kicker">Listing facts</span>
-            <strong>What the listing says</strong>
+              <span class="prd-kicker">Highlights</span>
+              <strong>What stands out</strong>
           </span>
           <span class="prd-tag">{{ research_score_rows[:5]|length }} item{% if research_score_rows[:5]|length != 1 %}s{% endif %}</span>
         </summary>
         <div class="prd-collapse-body">
-          <div class="prd-kicker">Listing facts</div>
-          <h2 class="prd-section-title">What the listing says</h2>
+          <div class="prd-kicker">Highlights</div>
+          <h2 class="prd-section-title">What stands out</h2>
           <div class="object-list">
             {% for row in research_score_rows[:5] %}
             <div class="prd-row">
@@ -3449,19 +3602,19 @@
         <details class="prd-mobile-secondary" open data-prd-mobile-secondary="listing">
           <summary>
             <span class="prd-mobile-secondary-toggle">
-              <span class="prd-kicker">Listing facts</span>
-              <strong>What the listing clearly says</strong>
+              <span class="prd-kicker">Details</span>
+              <strong>Details</strong>
             </span>
             <span class="prd-tag">{{ research_listing_rows|length }} item{% if research_listing_rows|length != 1 %}s{% endif %}</span>
           </summary>
           <div class="prd-collapse-body">
-            <div class="prd-kicker">Listing facts</div>
-            <h2 class="prd-section-title">What the listing clearly says</h2>
+            <div class="prd-kicker">Details</div>
+            <h2 class="prd-section-title">Details</h2>
             <div class="object-list">
               {% for row in research_listing_rows %}
               <div class="prd-row">
                 <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
-                <span class="prd-tag">Listing</span>
+                <span class="prd-tag">Facts</span>
               </div>
               {% endfor %}
             </div>
@@ -3477,14 +3630,14 @@
         <details class="prd-mobile-secondary" open data-prd-mobile-secondary="costs">
           <summary>
             <span class="prd-mobile-secondary-toggle">
-              <span class="prd-kicker">Return and costs</span>
-              <strong>Price, rent, financing, and running costs</strong>
+              <span class="prd-kicker">Costs</span>
+              <strong>Price and running costs</strong>
             </span>
             <span class="prd-tag">{% if research_cost_rows %}{{ research_cost_rows|length }} item{% if research_cost_rows|length != 1 %}s{% endif %}{% else %}Open{% endif %}</span>
           </summary>
           <div class="prd-collapse-body">
-            <div class="prd-kicker">Return and costs</div>
-            <h2 class="prd-section-title">Price, rent, financing, and running costs</h2>
+            <div class="prd-kicker">Costs</div>
+            <h2 class="prd-section-title">Price and running costs</h2>
             <div class="object-list">
               {% for row in research_cost_rows %}
               <div class="prd-row">
@@ -3494,7 +3647,7 @@
               {% endfor %}
               {% if not research_cost_rows %}
               <div class="prd-row">
-                <div><strong>No full cost sheet yet</strong><small>The current source does not expose enough cost detail for a cleaner underwriting read.</small></div>
+                <div><strong>Some costs are still missing</strong><small>The listing does not show all running costs yet.</small></div>
                 <span class="prd-tag">Open</span>
               </div>
               {% endif %}
@@ -3507,14 +3660,14 @@
       <details class="prd-mobile-secondary" open data-prd-mobile-secondary="narrative">
         <summary>
           <span class="prd-mobile-secondary-toggle">
-            <span class="prd-kicker">Narrative</span>
-            <strong>How the listing presents this home</strong>
+              <span class="prd-kicker">About the home</span>
+              <strong>About the home</strong>
           </span>
-          <span class="prd-tag">Listing</span>
+          <span class="prd-tag">Facts</span>
         </summary>
         <div class="prd-collapse-body">
-          <div class="prd-kicker">Narrative</div>
-          <h2 class="prd-section-title">How the listing presents this home</h2>
+          <div class="prd-kicker">About the home</div>
+          <h2 class="prd-section-title">About the home</h2>
           <p class="prd-copy">{{ research_description_text }}</p>
         </div>
       </details>
@@ -3527,13 +3680,13 @@
           <summary>
             <span class="prd-mobile-secondary-toggle">
               <span class="prd-kicker">Area</span>
-              <strong>Location and daily fit</strong>
+              <strong>Daily life nearby</strong>
             </span>
             <span class="prd-tag">{% if research_everyday_fit_rows %}{{ research_everyday_fit_rows[:6]|length }} notes{% else %}Area{% endif %}</span>
           </summary>
           <div class="prd-collapse-body">
             <div class="prd-kicker">Area</div>
-            <h2 class="prd-section-title">Location and daily fit</h2>
+            <h2 class="prd-section-title">Daily life nearby</h2>
             {% if research_location_text %}<p class="prd-copy">{{ research_location_text }}</p>{% endif %}
             {% if research_everyday_fit_rows %}
             <div class="prd-key-points" style="margin-top:14px;">
@@ -3564,7 +3717,7 @@
               {% for row in research_energy_rows %}
               <div class="prd-row">
                 <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
-                <span class="prd-tag">Listing</span>
+                <span class="prd-tag">Facts</span>
               </div>
               {% endfor %}
             </div>
@@ -3576,17 +3729,17 @@
 
       <details class="prd-collapse">
         <summary>
-          <span>
-            <span class="prd-kicker">Area</span>
-            <strong>Area</strong>
-          </span>
+            <span>
+              <span class="prd-kicker">Map and context</span>
+              <strong>Map and context</strong>
+            </span>
           <span class="prd-tag">Optional</span>
         </summary>
         <div class="prd-collapse-body">
           {% if research_evidence_overlay_rows or research_official_evidence_rows or research_official_posture_rows or research_future_research_rows or research_provenance_rows %}
           <section class="prd-stack">
-            <h2 class="prd-section-title">Area</h2>
-            <p class="prd-section-copy">Map layers and local notes appear here when available.</p>
+            <h2 class="prd-section-title">Map and context</h2>
+            <p class="prd-section-copy">Nearby notes and map layers appear here.</p>
             <div class="object-list">
               {% for row in research_evidence_overlay_rows[:8] %}
               <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span></div>
@@ -3647,16 +3800,16 @@
     </aside>
 
     <section class="prd-panel prd-decision-workspace object-feedback" data-object-feedback data-object-feedback-payload='{{ research_feedback|tojson|safe }}'>
-      <div class="prd-decision-layout">
+        <div class="prd-decision-layout">
         <div class="prd-decision-intro">
             <div class="prd-decision-heading">
-              <div class="prd-kicker">Decision</div>
+              <div class="prd-kicker">Next step</div>
             <h2>Next step</h2>
-            <p class="object-copy">Save one quick reaction. Open the rest only if it changes what happens next.</p>
+            <p class="object-copy">Save your take first. Open more only if it changes what you do next.</p>
           </div>
           {% if research_decision_rows or (research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings'))) %}
           <details class="prd-feedback-details prd-decision-context">
-            <summary>What stands out</summary>
+            <summary>At a glance</summary>
             <div class="prd-feedback-body">
           <div class="prd-key-points">
             {% for row in research_decision_rows[:3] %}
@@ -3667,7 +3820,7 @@
             {% endfor %}
             {% if research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings')) %}
             <div class="prd-key-point">
-              <strong>Ask next</strong>
+              <strong>Next to check</strong>
               <span>
                 {% if research_neuronwriter.get('questions') %}
                 {{ (research_neuronwriter.get('questions') or [])[:3]|join(' · ') }}
@@ -3684,7 +3837,7 @@
         </div>
         <div class="prd-decision-form">
       <section class="prd-decision-card prd-decision-primary">
-      <h3>Shortlist decision</h3>
+      <h3>Your take</h3>
       <div class="object-feedback-row" aria-label="Property feedback reaction">
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
@@ -3695,7 +3848,7 @@
       <div class="prd-decision-savebar">
         <div class="object-actions prd-decision-save-actions">
           <button class="console-action prd-decision-save-primary" type="button" data-object-feedback-save aria-label="Save decision">Save</button>
-          <button class="console-action prd-decision-save-secondary" type="button" data-object-feedback-open-advanced>Fine-tune preferences</button>
+          <button class="console-action prd-decision-save-secondary" type="button" data-object-feedback-open-advanced>Adjust next search</button>
           <a class="console-action prd-decision-save-brief" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Edit search</a>
         </div>
         <p class="object-copy" data-object-feedback-status></p>
@@ -3704,10 +3857,10 @@
       {% set research_agent_questions = research_feedback_suggestions.get('agent_questions') or [] %}
       {% set research_followup_rows = research_feedback.get('followup_rows') or [] %}
       <details class="prd-feedback-details prd-decision-advanced">
-      <summary>Fine-tune preferences</summary>
+      <summary>Adjust next search</summary>
       <div class="prd-feedback-body">
       <section class="prd-decision-card">
-      <h3>Update state</h3>
+      <h3>Mark next step</h3>
       <div class="object-actions">
         <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
         <button class="console-action" type="button" data-object-decision-state="documents_requested">Request missing documents</button>
@@ -3717,15 +3870,15 @@
       <p class="object-copy" data-object-decision-state-status></p>
       </section>
       <section class="prd-decision-card prd-decision-note">
-      <h3>Add note</h3>
+      <h3>Note</h3>
       <textarea data-object-feedback-note placeholder="Only add what changes the next step."></textarea>
       </section>
       {% if research_feedback_suggestions.get('negative') or research_feedback_suggestions.get('positive') or research_agent_questions or research_followup_rows %}
       <details class="prd-feedback-details prd-decision-inline-details">
-        <summary>Reasons and next steps</summary>
+        <summary>Why it works and next step</summary>
         <div class="prd-feedback-body">
       <section class="prd-decision-card">
-      <h3>Reason chips</h3>
+      <h3>What worked</h3>
       <div class="object-feedback-reasons" data-object-feedback-reasons>
         {% for row in research_feedback_suggestions.get('negative') or [] %}
         <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}" aria-label="{{ row.get('label') or 'Feedback reason' }}">{{ row.get('label') }}</button>
@@ -3736,7 +3889,7 @@
       </div>
       </section>
       {% if research_agent_questions %}
-      <div class="object-copy"><strong>Ask next</strong></div>
+      <div class="object-copy"><strong>Next to check</strong></div>
       <div class="object-list">
         {% for row in research_agent_questions[:2] %}
         <div class="object-row">
@@ -3747,7 +3900,7 @@
       </div>
       {% endif %}
       {% if research_followup_rows %}
-      <div class="object-copy"><strong>Follow-up</strong></div>
+      <div class="object-copy"><strong>Next to check</strong></div>
       <div class="object-list" data-object-followups>
         {% for row in research_followup_rows[:3] %}
         <div class="object-row">
@@ -3765,27 +3918,26 @@
       {% endif %}
       <details class="prd-feedback-details prd-decision-inline-details">
         <summary>
-          <span>
-            <span class="prd-kicker">Optional tools</span>
-            <strong>Optional tools</strong>
+            <span>
+            <span class="prd-kicker">More</span>
+            <strong>More</strong>
           </span>
-          <span class="prd-tag">Opt-in</span>
+          <span class="prd-tag">Optional</span>
         </summary>
         <div class="prd-feedback-body">
           <div class="object-actions">
-            <button class="console-action" type="button" data-object-clippy-toggle>Ask about this home</button>
-            <button class="console-action" type="button" data-object-lifestyle-toggle>Lifestyle preview</button>
+            <button class="console-action" type="button" data-object-clippy-toggle>Ask a question</button>
+            <button class="console-action" type="button" data-object-lifestyle-toggle>Furnished look</button>
           </div>
           <div class="object-list" data-object-clippy-panel hidden>
             <div class="object-row">
-              <div><strong>Question helper</strong><small>Ask one grounded question about this home. It only answers from what is already on this page.</small></div>
-              <div class="object-tag">Opt-in</div>
+              <div><strong>Ask from this page</strong><small>Ask one question based only on what is already shown here.</small></div>
+              <div class="object-tag">Optional</div>
             </div>
             <div class="object-actions">
               <button class="console-action" type="button" data-object-clippy-prompt="Why is this only Maybe?">Why maybe?</button>
-              <button class="console-action" type="button" data-object-clippy-prompt="What should I ask next?">Ask next</button>
-              <button class="console-action" type="button" data-object-clippy-prompt="What changed since last time?">What changed?</button>
-              <button class="console-action" type="button" data-object-clippy-prompt="What is the biggest investment risk here?">Risk</button>
+              <button class="console-action" type="button" data-object-clippy-prompt="What should I check next?">Next question</button>
+              <button class="console-action" type="button" data-object-clippy-prompt="What should I keep in mind here?">Keep in mind</button>
             </div>
             <textarea data-object-clippy-question rows="3" placeholder="Ask about blockers, disagreements, or the next follow-up."></textarea>
             <div class="object-actions"><button class="console-action" type="button" data-object-clippy-ask>Ask</button></div>
@@ -3794,8 +3946,8 @@
           </div>
           <div class="object-lifestyle-panel" data-object-lifestyle-panel hidden>
             <div class="object-row">
-              <div><strong>Furnished living preview</strong><small>Opt in to create a furnished preview for this home.</small></div>
-              <div class="object-tag">Opt-in</div>
+              <div><strong>Furnished look</strong><small>Preview this home furnished.</small></div>
+              <div class="object-tag">Optional</div>
             </div>
             <div class="object-actions">
               <button class="console-action" type="button" data-object-lifestyle-scene="breakfast">Breakfast</button>
@@ -3822,8 +3974,8 @@
             <label class="object-check"><input type="checkbox" data-object-lifestyle-consent><span>I confirm these personal photos were explicitly selected for this lifestyle simulation.</span></label>
             <label class="object-check"><input type="checkbox" data-object-lifestyle-include-child><span>Include a child reference in the family scene.</span></label>
             <label class="object-check"><input type="checkbox" data-object-lifestyle-child-consent><span>I confirm guardian approval exists for any child likeness used here.</span></label>
-            <label class="object-check"><input type="checkbox" data-object-lifestyle-share checked><span>Attach this preview to the review PDF.</span></label>
-            <div class="object-actions"><button class="console-action" type="button" data-object-lifestyle-generate>Create preview</button></div>
+            <label class="object-check"><input type="checkbox" data-object-lifestyle-share checked><span>Include this image in the PDF.</span></label>
+            <div class="object-actions"><button class="console-action" type="button" data-object-lifestyle-generate>Create image</button></div>
             <div class="object-copy" data-object-lifestyle-status></div>
             <div class="object-lifestyle-preview" data-object-lifestyle-preview></div>
           </div>
@@ -3839,14 +3991,14 @@
         <summary>
           <span>
             <span class="prd-kicker">Optional</span>
-            <strong>More context</strong>
+            <strong>More notes</strong>
           </span>
           <span class="prd-tag">Collapsed</span>
         </summary>
         <div class="prd-collapse-body prd-minor-stack">
           {% if research_objection_rows %}
           <section class="prd-stack">
-            <h2 class="prd-section-title">What others flagged</h2>
+            <h2 class="prd-section-title">Past notes</h2>
             <div class="object-list">
               {% for item in research_objection_rows %}
               <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(item.get('tag')) }}</span></div>
@@ -3856,7 +4008,7 @@
           {% endif %}
           {% if research_household_rows %}
           <section class="prd-stack">
-            <h2 class="prd-section-title">Household alignment</h2>
+            <h2 class="prd-section-title">Household notes</h2>
             <div class="object-list">
               {% for item in research_household_rows %}
               <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(item.get('tag')) }}</span></div>
@@ -3866,7 +4018,7 @@
           {% endif %}
           {% if research_risk_signal_rows %}
           <section class="prd-stack">
-            <h2 class="prd-section-title">Shared watch-outs</h2>
+            <h2 class="prd-section-title">Things to watch</h2>
             <div class="object-list">
               {% for item in research_risk_signal_rows %}
               <div class="prd-row"><div><strong>{{ item.get('title') }}</strong><small>{{ item.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(item.get('tag')) }}</span></div>
@@ -3879,7 +4031,7 @@
   </section>
 </section>
 
-<dialog class="prd-lightbox" data-prd-map-lightbox aria-label="Area map preview">
+<dialog class="prd-lightbox" data-prd-map-lightbox aria-label="Area map">
   <div class="prd-lightbox-card">
     <div class="prd-lightbox-header">
       <div>
@@ -3953,7 +4105,101 @@
   const visualRequestButtons = Array.from(document.querySelectorAll('[data-pw-visual-request]'));
   const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];
   const visualTerminalStates = ['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'];
+  const currentVisualSearchParams = (() => {
+    try {
+      return new URLSearchParams(window.location.search || '');
+    } catch (_error) {
+      return new URLSearchParams();
+    }
+  })();
+  const currentVisualRunId = String(currentVisualSearchParams.get('run_id') || '').trim();
+  const currentVisualCandidateRef = (() => {
+    try {
+      const pathMatch = window.location.pathname.match(/\/app\/research\/([^/?#]+)/i);
+      return pathMatch ? decodeURIComponent(pathMatch[1] || '').trim() : '';
+    } catch (_error) {
+      return '';
+    }
+  })();
+  const isRawHostedTourBase = (value) => {
+    const url = String(value || '').trim();
+    if (!url) return false;
+    try {
+      const parsed = new URL(url, window.location.origin);
+      return /^\/tours\/[^/]+\/?$/i.test(parsed.pathname);
+    } catch (_error) {
+      return /^(\/tours\/[^/]+)\/?$/i.test((url.split(/[?#]/)[0] || '').trim());
+    }
+  };
+  const rawHostedWalkthroughBase = (value) => {
+    const url = String(value || '').trim();
+    if (!url) return '';
+    try {
+      const parsed = new URL(url, window.location.origin);
+      const match = parsed.pathname.match(/^\/tours\/([^/?#]+)(?:\/walkthrough)?\/?$/i)
+        || parsed.pathname.match(/^\/tours\/files\/([^/?#]+)\/.+$/i);
+      if (!match) return '';
+      const basePath = `/tours/${match[1]}`;
+      return /^[a-z][a-z0-9+.-]*:/i.test(url) ? `${parsed.origin}${basePath}` : basePath;
+    } catch (_error) {
+      const path = url.split(/[?#]/)[0] || '';
+      const match = path.match(/^\/tours\/([^/?#]+)(?:\/walkthrough)?\/?$/i)
+        || path.match(/^\/tours\/files\/([^/?#]+)\/.+$/i);
+      return match ? `/tours/${match[1]}` : '';
+    }
+  };
+  const hostedWalkthroughVideoPattern = /\.(?:mp4|m4v|mov|webm)(?:$|[?#])/i;
+  const directHostedWalkthroughUrl = (...values) => {
+    const explicitWalkthroughHref = (value) => {
+      const url = String(value || '').trim();
+      if (!url) return '';
+      try {
+        const parsed = new URL(url, window.location.origin);
+        const pathname = String(parsed.pathname || '');
+        const pane = String(parsed.searchParams.get('pane') || '').trim().toLowerCase();
+        if (
+          pane === 'flythrough-pane'
+          && /^\/tours\/[^/]+(?:\/control\/[^/]+)?\/?$/i.test(pathname || '')
+        ) {
+          if (!parsed.searchParams.get('autoplay')) parsed.searchParams.set('autoplay', '1');
+          return parsed.href;
+        }
+        if (/^\/tours\/[^/]+\/walkthrough\/?$/i.test(pathname || '')) {
+          const hostedBase = rawHostedWalkthroughBase(parsed.href);
+          if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+        }
+        if (/^\/tours\/files\/[^/?#]+\/.+$/i.test(pathname || '') && hostedWalkthroughVideoPattern.test(pathname || '')) {
+          const hostedBase = rawHostedWalkthroughBase(parsed.href);
+          if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+        }
+        if (hostedWalkthroughVideoPattern.test(pathname || '') && ['http:', 'https:'].includes(parsed.protocol)) {
+          return parsed.href;
+        }
+      } catch (_error) {
+        if (/^\/tours\/[^/?#]+(?:\/control\/[^/?#]+)?(?:\?[^#]*)?$/i.test(url) && /(?:[?&])pane=flythrough-pane(?:[&#]|$)/i.test(url)) {
+          return /(?:[?&])autoplay=1(?:[&#]|$)/i.test(url) ? url : `${url}${url.includes('?') ? '&' : '?'}autoplay=1`;
+        }
+        if (/^\/tours\/[^/?#]+\/walkthrough\/?(?:\?[^#]*)?$/i.test(url)) {
+          const hostedBase = rawHostedWalkthroughBase(url);
+          if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+        }
+        const relpath = url.split(/[?#]/)[0] || '';
+        if (/^\/tours\/files\/[^/?#]+\/.+$/i.test(relpath) && hostedWalkthroughVideoPattern.test(relpath)) {
+          const hostedBase = rawHostedWalkthroughBase(url);
+          if (hostedBase) return `${hostedBase}?pane=flythrough-pane&autoplay=1`;
+        }
+        if (url.startsWith('/') && hostedWalkthroughVideoPattern.test(relpath)) return url;
+      }
+      return '';
+    };
+    for (const value of values) {
+      const resolved = explicitWalkthroughHref(value);
+      if (resolved) return resolved;
+    }
+    return '';
+  };
   const visualStatusStorageKey = (requestKind) => `pq.visual-status:${window.location.pathname}${window.location.search}:${String(requestKind || 'tour').trim().toLowerCase() || 'tour'}`;
+  const visualButtonStateStorageKey = (requestKind) => `pq.visual-button-state:${window.location.pathname}${window.location.search}:${String(requestKind || 'tour').trim().toLowerCase() || 'tour'}`;
   const rememberVisualStatusDetail = (requestKind, detail) => {
     const text = String(detail || '').trim();
     if (!text) return;
@@ -3961,6 +4207,55 @@
       window.sessionStorage.setItem(visualStatusStorageKey(requestKind), text);
     } catch (_error) {
       // Session storage can be unavailable in hardened browser contexts.
+    }
+  };
+  const rememberVisualButtonState = (requestKind, state) => {
+    const kind = String(requestKind || '').trim().toLowerCase();
+    if (!kind) return;
+    const normalizedState = String(state?.state || '').trim().toLowerCase() || 'idle';
+    const href = String(state?.href || '').trim();
+    const payload = {
+      state: normalizedState,
+      href,
+      label: String(state?.label || '').trim(),
+      eta: String(state?.eta || '').trim(),
+      detail: String(state?.detail || '').trim(),
+      progress: Math.max(0, Math.min(100, Number(state?.progress || 0) || 0)),
+      pollSeconds: Math.max(0, Number(state?.pollSeconds || 0) || 0),
+    };
+    const keepState = Boolean(
+      payload.href
+      || normalizedState === 'ready'
+      || visualPendingStates.includes(normalizedState)
+      || visualTerminalStates.includes(normalizedState)
+    );
+    try {
+      if (!keepState) {
+        window.sessionStorage.removeItem(visualButtonStateStorageKey(kind));
+        return;
+      }
+      window.sessionStorage.setItem(visualButtonStateStorageKey(kind), JSON.stringify(payload));
+    } catch (_error) {
+      // Session storage can be unavailable in hardened browser contexts.
+    }
+  };
+  const readRememberedVisualButtonState = (requestKind) => {
+    try {
+      const raw = String(window.sessionStorage.getItem(visualButtonStateStorageKey(requestKind)) || '').trim();
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      return {
+        state: String(parsed.state || '').trim().toLowerCase() || 'idle',
+        href: String(parsed.href || '').trim(),
+        label: String(parsed.label || '').trim(),
+        eta: String(parsed.eta || '').trim(),
+        detail: String(parsed.detail || '').trim(),
+        progress: Math.max(0, Math.min(100, Number(parsed.progress || 0) || 0)),
+        pollSeconds: Math.max(0, Number(parsed.pollSeconds || 0) || 0),
+      };
+    } catch (_error) {
+      return null;
     }
   };
   const restoreRememberedVisualStatus = () => {
@@ -3986,7 +4281,7 @@
       label: String(visualRail.getAttribute('data-prd-primary-tour-label') || 'Open 3D tour').trim(),
       eta: '',
       progress: Math.max(0, Math.min(100, Number(visualRail.getAttribute('data-prd-primary-tour-progress') || 100) || 100)),
-      detail: String(visualRail.getAttribute('data-prd-primary-tour-detail') || '3D tour is available on this page.').trim(),
+      detail: String(visualRail.getAttribute('data-prd-primary-tour-detail') || '3D tour is ready.').trim(),
     };
   })();
   const preferredVisualRailState = (requestKind, state) => {
@@ -3997,7 +4292,14 @@
     if (kind === 'tour' || nextState === 'ready') return normalized;
     return primaryReadyTourRailState;
   };
-  let visualPollTimer = 0;
+  const visualPollTimers = new Map();
+  const clearVisualStatusPoll = (requestKind = '') => {
+    const kind = String(requestKind || '').trim().toLowerCase();
+    if (!kind) return;
+    const existingTimer = visualPollTimers.get(kind);
+    if (existingTimer) window.clearTimeout(existingTimer);
+    visualPollTimers.delete(kind);
+  };
   const visualStyleDialog = document.querySelector('[data-prd-visual-style-dialog]');
   const visualStyleOptions = Array.from(document.querySelectorAll('[data-prd-style-option]'));
   const visualStyleConfirm = document.querySelector('[data-prd-style-confirm]');
@@ -4165,6 +4467,19 @@
     } else {
       button.removeAttribute('data-pw-visual-href');
     }
+    const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
+    if (requestKind) {
+      rememberVisualButtonState(requestKind, {
+        state: nextState,
+        href,
+        label,
+        eta,
+        detail,
+        progress,
+        pollSeconds,
+      });
+      if (detail) rememberVisualStatusDetail(requestKind, detail);
+    }
     const isWaiting = visualPendingStates.includes(nextState);
     button.disabled = isWaiting;
     button.classList.toggle('is-processing', isWaiting);
@@ -4174,12 +4489,31 @@
       button.removeAttribute('aria-disabled');
     }
   };
+  const calmVisualButtonLabel = ({ kind, state, href = '', fallbackLabel = '', retryableTerminal = false } = {}) => {
+    const normalizedKind = isWalkthroughRequestKind(kind) ? 'flythrough' : 'tour';
+    if (href) return normalizedKind === 'flythrough' ? 'Open walkthrough' : 'Open 3D tour';
+    if (retryableTerminal) {
+      return normalizedKind === 'flythrough'
+        ? (['blocked', 'failed'].includes(state) ? 'Retry walkthrough' : 'Request walkthrough')
+        : (['blocked', 'failed'].includes(state) ? 'Retry 3D tour' : 'Request 3D tour');
+    }
+    if (visualPendingStates.includes(state)) {
+      return normalizedKind === 'flythrough' ? 'Preparing walkthrough' : 'Preparing 3D tour';
+    }
+    return String(fallbackLabel || (normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour')).trim();
+  };
+  const calmVisualRailLabel = (kind, state, fallbackLabel = '') => {
+    const normalizedKind = isWalkthroughRequestKind(kind) ? 'flythrough' : 'tour';
+    if (state === 'ready') return normalizedKind === 'flythrough' ? 'Walkthrough' : '3D tour';
+    if (visualPendingStates.includes(state)) return normalizedKind === 'flythrough' ? 'Preparing walkthrough' : 'Preparing 3D tour';
+    return String(fallbackLabel || '').trim();
+  };
   const syncVisualRail = (requestKind, state) => {
     if (!visualRail) return;
     const normalized = preferredVisualRailState(requestKind, state);
     const nextState = String(normalized.state || 'idle').trim().toLowerCase() || 'idle';
     const nextKind = String(normalized.kind || requestKind || '').trim().toLowerCase();
-    const label = String(normalized.label || '').trim();
+    const label = calmVisualRailLabel(nextKind, nextState, String(normalized.label || '').trim());
     const eta = String(normalized.eta || '').trim();
     const detail = String(normalized.detail || '').trim();
     const progress = Math.max(0, Math.min(100, Number(normalized.progress || 0) || 0));
@@ -4199,7 +4533,7 @@
       visualRail.setAttribute('data-prd-primary-tour-detail', detail);
       visualRail.setAttribute('data-prd-primary-tour-progress', String(progress || 100));
     }
-    const isActive = Boolean(visualPendingStates.includes(nextState) || nextState === 'ready');
+    const isActive = Boolean(visualPendingStates.includes(nextState) || visualTerminalStates.includes(nextState) || nextState === 'ready');
     visualRail.classList.toggle('is-active', isActive);
     visualRail.setAttribute('data-prd-visual-kind', nextKind);
     visualRail.setAttribute('data-prd-visual-state', nextState);
@@ -4216,47 +4550,56 @@
   const visualStateFromPayload = (requestKind, payload, fallbackLabel = '') => {
     const kind = String(requestKind || 'tour').trim().toLowerCase();
     if (isWalkthroughRequestKind(kind)) {
+      const payloadStatusLabel = String(payload?.status_label || fallbackLabel || '').trim();
       const rawFlythroughState = String(payload?.flythrough_status || payload?.status || '').trim().toLowerCase();
-      const state = String(payload?.flythrough_url ? 'ready' : rawFlythroughState || 'pending').trim().toLowerCase();
-      const retryableTerminal = visualTerminalStates.includes(state) && !String(payload?.flythrough_url || '').trim();
+      const resolvedFlythroughUrl = directHostedWalkthroughUrl(
+        payload?.flythrough_url,
+        payload?.tour_url,
+        payload?.verified_tour_url,
+        payload?.open_tour_url,
+      );
+      const state = String(resolvedFlythroughUrl ? 'ready' : rawFlythroughState || 'pending').trim().toLowerCase();
+      const retryableTerminal = visualTerminalStates.includes(state) && !resolvedFlythroughUrl;
       return {
-        state: retryableTerminal ? 'idle' : state,
-        label: String(
-          payload?.flythrough_url
-            ? 'Open walkthrough'
-            : (
-                retryableTerminal
-                  ? (['blocked', 'failed'].includes(state) ? 'Retry walkthrough' : 'Request walkthrough')
-                  : (payload?.status_label || fallbackLabel || 'Walkthrough queued')
-              )
-        ).trim(),
-        href: String(payload?.flythrough_url || '').trim(),
+        state,
+        label: visualPendingStates.includes(state) && payloadStatusLabel
+          ? payloadStatusLabel
+          : calmVisualButtonLabel({
+            kind,
+            state,
+            href: resolvedFlythroughUrl,
+            fallbackLabel: payloadStatusLabel,
+            retryableTerminal,
+          }),
+        href: resolvedFlythroughUrl,
         detail: String(payload?.status_detail || '').trim(),
         eta: String(payload?.eta_label || '').trim(),
         progress: Number(payload?.progress_pct || 0) || 0,
         pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
       };
     }
+    const payloadStatusLabel = String(payload?.status_label || fallbackLabel || '').trim();
     const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
+    const rawReadyTourUrl = String(payload?.tour_url || '').trim();
     const openTourUrl = String(
       payload?.verified_tour_url
       || payload?.open_tour_url
-      || (rawTourState === 'ready' ? payload?.tour_url : '')
+      || (rawTourState === 'ready' && rawReadyTourUrl && !isRawHostedTourBase(rawReadyTourUrl) ? rawReadyTourUrl : '')
       || ''
     ).trim();
     const state = String(openTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();
     const retryableTerminal = visualTerminalStates.includes(state) && !openTourUrl;
-    return {
-      state: retryableTerminal ? 'idle' : state,
-      label: String(
-        openTourUrl
-          ? 'Open 3D tour'
-          : (
-              retryableTerminal
-                ? (['blocked', 'failed'].includes(state) ? 'Retry 3D tour' : 'Request 3D tour')
-                : (payload?.status_label || fallbackLabel || '3D tour queued')
-            )
-      ).trim(),
+      return {
+        state,
+        label: visualPendingStates.includes(state) && payloadStatusLabel
+          ? payloadStatusLabel
+          : calmVisualButtonLabel({
+            kind,
+            state,
+            href: openTourUrl,
+            fallbackLabel: payloadStatusLabel,
+            retryableTerminal,
+          }),
       href: openTourUrl,
       detail: String(payload?.status_detail || '').trim(),
       eta: String(payload?.eta_label || '').trim(),
@@ -4265,8 +4608,8 @@
     };
   };
   const scheduleVisualStatusPoll = (requestKind, options = {}) => {
-    window.clearTimeout(visualPollTimer);
     const kind = String(requestKind || '').trim().toLowerCase();
+    clearVisualStatusPoll(kind);
     const runId = String(options.runId || '').trim();
     if (!kind || !runId) return;
     const candidateRef = String(options.candidateRef || '').trim();
@@ -4274,8 +4617,12 @@
     const propertyUrl = String(options.propertyUrl || '').trim();
     const pollSeconds = Math.max(0, Number(options.pollSeconds || 0) || 0);
     if (!pollSeconds) return;
-    const firstPollDelaySeconds = Math.max(0.5, Math.min(pollSeconds, 1));
-    visualPollTimer = window.setTimeout(async () => {
+    const requestedFirstPollDelaySeconds = Math.max(0, Number(options.firstPollDelaySeconds || 0) || 0);
+    const firstPollDelaySeconds = requestedFirstPollDelaySeconds > 0
+      ? requestedFirstPollDelaySeconds
+      : Math.max(0.5, Math.min(pollSeconds, 1));
+    visualPollTimers.set(kind, window.setTimeout(async () => {
+      visualPollTimers.delete(kind);
       const query = new URLSearchParams({
         run_id: runId,
         request_kind: kind,
@@ -4310,11 +4657,35 @@
           pollSeconds,
         });
       }
-    }, firstPollDelaySeconds * 1000);
+    }, firstPollDelaySeconds * 1000));
+  };
+  const ensureVisualStatusPoll = (requestKind, payload, state) => {
+    const kind = String(requestKind || '').trim().toLowerCase();
+    const nextState = String(state?.state || '').trim().toLowerCase();
+    if (!kind || !visualPendingStates.includes(nextState) || visualPollTimers.get(kind)) return;
+    const matchingButton = visualRequestButtons.find(
+      (button) => String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase() === kind,
+    );
+    const runId = String(payload?.run_id || matchingButton?.getAttribute('data-run-id') || '').trim() || currentVisualRunId;
+    if (!runId) return;
+    scheduleVisualStatusPoll(kind, {
+      runId,
+      candidateRef: String(payload?.candidate_ref || matchingButton?.getAttribute('data-candidate-ref') || '').trim() || currentVisualCandidateRef,
+      sourceRef: String(payload?.source_ref || matchingButton?.getAttribute('data-source-ref') || '').trim(),
+      propertyUrl: String(payload?.property_url || matchingButton?.getAttribute('data-property-url') || '').trim(),
+      pollSeconds: Number(state?.pollSeconds || matchingButton?.getAttribute('data-pw-visual-poll-seconds') || 0) || 0,
+    });
   };
   const syncVisualButtons = (requestKind, payload) => {
     const kind = String(requestKind || '').trim().toLowerCase();
-    const state = visualStateFromPayload(kind, payload);
+    const baseState = visualStateFromPayload(kind, payload);
+    const etaFallback = String(payload?.eta_label || payload?.eta || '').trim();
+    const state = etaFallback && !String(baseState.eta || '').trim()
+      ? { ...baseState, eta: etaFallback }
+      : baseState;
+    if (!visualPendingStates.includes(String(state.state || '').trim().toLowerCase())) {
+      clearVisualStatusPoll(kind);
+    }
     syncVisualRail(kind, state);
     visualRequestButtons.forEach((button) => {
       if (String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase() !== kind) return;
@@ -4323,13 +4694,14 @@
         label: state.label || String(button.textContent || '').trim(),
       });
     });
+    ensureVisualStatusPoll(kind, payload, state);
   };
   const refreshVisualStatusFromButton = async (button, { preserveExistingStatus = false } = {}) => {
     if (!(button instanceof HTMLElement)) return;
     const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
-    const runId = String(button.getAttribute('data-run-id') || '').trim();
+    const runId = String(button.getAttribute('data-run-id') || '').trim() || currentVisualRunId;
     if (!requestKind || !runId) return;
-    const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
+    const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim() || currentVisualCandidateRef;
     const sourceRef = String(button.getAttribute('data-source-ref') || '').trim();
     const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
     const currentDetail = String(button.getAttribute('data-pw-visual-detail') || '').trim();
@@ -4389,8 +4761,8 @@
       const isWalkthroughRequest = isWalkthroughRequestKind(requestKind);
       const walkthroughProvider = isWalkthroughRequest ? getWalkthroughProviderFromButton(button) : '';
       const sourceRef = String(button.getAttribute('data-source-ref') || '').trim();
-      const runId = String(button.getAttribute('data-run-id') || '').trim();
-      const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
+      const runId = String(button.getAttribute('data-run-id') || '').trim() || currentVisualRunId;
+      const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim() || currentVisualCandidateRef;
       const currentState = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
       const readyHref = String(button.getAttribute('data-pw-visual-href') || '').trim();
       if (readyHref) {
@@ -4422,7 +4794,7 @@
       button.textContent = isWalkthroughRequest ? 'Requesting walkthrough...' : 'Requesting 3D tour...';
       syncVisualRail(requestKind, {
         state: 'queued',
-        label: isWalkthroughRequest ? 'Walkthrough queued' : '3D tour queued',
+        label: isWalkthroughRequest ? 'Preparing walkthrough' : 'Preparing 3D tour',
         detail: isWalkthroughRequest
           ? `Requesting${visualStyleLabel ? ` in ${visualStyleLabel}` : ''}.`
           : `Requesting${visualStyleLabel ? ` in ${visualStyleLabel}` : ''}.`,
@@ -4458,6 +4830,7 @@
           sourceRef,
           propertyUrl,
           pollSeconds: nextState.pollSeconds,
+          firstPollDelaySeconds: requestKind === 'tour' ? 0.2 : 0,
         });
         requestSucceeded = true;
       } catch (error) {
@@ -4471,22 +4844,50 @@
       }
     });
   });
-  const firstPendingVisualButton = visualRequestButtons.find((button) => {
+  const pendingVisualButtons = visualRequestButtons.filter((button) => {
     const state = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
     return visualPendingStates.includes(state);
   });
-  if (firstPendingVisualButton) {
+  pendingVisualButtons.forEach((pendingButton) => {
     scheduleVisualStatusPoll(
-      String(firstPendingVisualButton.getAttribute('data-pw-visual-request') || '').trim().toLowerCase(),
+      String(pendingButton.getAttribute('data-pw-visual-request') || '').trim().toLowerCase(),
       {
-        runId: String(firstPendingVisualButton.getAttribute('data-run-id') || '').trim(),
-        candidateRef: String(firstPendingVisualButton.getAttribute('data-candidate-ref') || '').trim(),
-        sourceRef: String(firstPendingVisualButton.getAttribute('data-source-ref') || '').trim(),
-        propertyUrl: String(firstPendingVisualButton.getAttribute('data-property-url') || '').trim(),
-        pollSeconds: Number(firstPendingVisualButton.getAttribute('data-pw-visual-poll-seconds') || 0) || 10,
+        runId: String(pendingButton.getAttribute('data-run-id') || '').trim() || currentVisualRunId,
+        candidateRef: String(pendingButton.getAttribute('data-candidate-ref') || '').trim() || currentVisualCandidateRef,
+        sourceRef: String(pendingButton.getAttribute('data-source-ref') || '').trim(),
+        propertyUrl: String(pendingButton.getAttribute('data-property-url') || '').trim(),
+        pollSeconds: Number(pendingButton.getAttribute('data-pw-visual-poll-seconds') || 0) || 10,
       },
     );
-  }
+  });
+  const restoreRememberedVisualButtonState = (button) => {
+    if (!(button instanceof HTMLButtonElement)) return false;
+    const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
+    if (!requestKind) return false;
+    const rememberedState = readRememberedVisualButtonState(requestKind);
+    if (!rememberedState) return false;
+    const currentHref = String(button.getAttribute('data-pw-visual-href') || '').trim();
+    const currentState = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
+    const rememberedHref = String(rememberedState.href || '').trim();
+    const shouldRestore = Boolean(
+      (rememberedHref && !currentHref)
+      || ((currentState === '' || currentState === 'idle') && (rememberedHref || rememberedState.state !== 'idle'))
+      || (rememberedState.state === 'ready' && currentState !== 'ready')
+    );
+    if (!shouldRestore) return false;
+    applyVisualButtonState(button, rememberedState);
+    syncVisualRail(requestKind, rememberedState);
+    return true;
+  };
+  const restoreRememberedVisualButtonStates = () => {
+    let restored = false;
+    visualRequestButtons.forEach((button) => {
+      if (restoreRememberedVisualButtonState(button)) restored = true;
+    });
+    if (restored) restoreRememberedVisualStatus();
+    return restored;
+  };
+  const restoredVisualButtonStateOnLoad = restoreRememberedVisualButtonStates();
   let visualStatusPageWasHidden = false;
   const isBackForwardNavigation = () => {
     try {
@@ -4497,6 +4898,7 @@
     }
   };
   const resyncVisualStatusesOnReturn = () => {
+    restoreRememberedVisualButtonStates();
     restoreRememberedVisualStatus();
     visualRequestButtons.forEach((button) => {
       void refreshVisualStatusFromButton(button, { preserveExistingStatus: true });
@@ -4520,6 +4922,9 @@
     visualStatusPageWasHidden = false;
     window.setTimeout(() => resyncVisualStatusesOnReturn(), 120);
   });
+  if (restoredVisualButtonStateOnLoad) {
+    window.setTimeout(() => resyncVisualStatusesOnReturn(), 120);
+  }
   restoreRememberedVisualStatus();
 
   document.querySelectorAll('[data-prd-copy-link]').forEach((button) => {
@@ -4575,6 +4980,10 @@
   const heroTitle = document.querySelector('[data-prd-hero-title]');
   const heroSummary = document.querySelector('[data-prd-hero-summary]');
   const heroBadge = document.querySelector('.prd-media-badge');
+  const galleryTrack = document.querySelector('[data-prd-gallery-track]');
+  const galleryCount = document.querySelector('[data-prd-gallery-count]');
+  const galleryNavButtons = Array.from(document.querySelectorAll('[data-prd-gallery-nav]'));
+  const galleryThumbs = Array.from(document.querySelectorAll('[data-prd-media-select]'));
   const lightboxTitle = document.querySelector('[data-prd-map-lightbox-title]');
   const lightboxImage = document.querySelector('[data-prd-map-lightbox-image]');
   const lightboxStage = document.querySelector('[data-prd-map-stage]');
@@ -4624,7 +5033,51 @@
       lightbox.showModal();
     });
   });
-  document.querySelectorAll('[data-prd-media-select]').forEach((button) => {
+  const selectedGalleryIndex = () => {
+    const activeIndex = galleryThumbs.findIndex((node) => node.classList.contains('is-active'));
+    return activeIndex >= 0 ? activeIndex : 0;
+  };
+  const updateGalleryCount = () => {
+    if (!galleryCount || !galleryThumbs.length) return;
+    galleryCount.textContent = `${selectedGalleryIndex() + 1} / ${galleryThumbs.length}`;
+  };
+  const galleryScrollAmount = () => {
+    if (!(galleryTrack instanceof HTMLElement)) return 0;
+    const firstItem = galleryTrack.querySelector('.prd-gallery-item');
+    if (!(firstItem instanceof HTMLElement)) return Math.max(96, Math.round(galleryTrack.clientWidth * 0.72));
+    const trackStyles = window.getComputedStyle(galleryTrack);
+    const gap = Number.parseFloat(trackStyles.columnGap || trackStyles.gap || '0') || 0;
+    return Math.max(firstItem.offsetWidth + gap, Math.round(galleryTrack.clientWidth * 0.72));
+  };
+  const updateGalleryNav = () => {
+    if (!(galleryTrack instanceof HTMLElement) || !galleryNavButtons.length) return;
+    const maxScrollLeft = Math.max(0, galleryTrack.scrollWidth - galleryTrack.clientWidth);
+    const atStart = galleryTrack.scrollLeft <= 4;
+    const atEnd = galleryTrack.scrollLeft >= Math.max(0, maxScrollLeft - 4);
+    galleryNavButtons.forEach((button) => {
+      const direction = String(button.getAttribute('data-prd-gallery-nav') || '').trim();
+      if (direction === 'prev') {
+        button.disabled = atStart;
+      } else if (direction === 'next') {
+        button.disabled = atEnd;
+      }
+    });
+    updateGalleryCount();
+  };
+  const activateGalleryThumb = (button, { scrollIntoView = false } = {}) => {
+    if (!(button instanceof HTMLElement)) return;
+    galleryThumbs.forEach((node) => node.classList.remove('is-active'));
+    button.classList.add('is-active');
+    if (scrollIntoView) {
+      try {
+        button.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+      } catch (_error) {
+        button.scrollIntoView();
+      }
+    }
+    updateGalleryNav();
+  };
+  galleryThumbs.forEach((button) => {
     button.addEventListener('click', () => {
       if (!(heroImage instanceof HTMLImageElement)) return;
       const src = String(button.getAttribute('data-prd-media-src') || '').trim();
@@ -4634,10 +5087,19 @@
       if (heroTitle) heroTitle.textContent = String(button.getAttribute('data-prd-media-title') || '').trim() || heroTitle.textContent || '';
       if (heroSummary) heroSummary.textContent = String(button.getAttribute('data-prd-media-summary') || '').trim() || heroSummary.textContent || '';
       if (heroBadge) heroBadge.textContent = String(button.getAttribute('data-prd-media-badge') || '').trim() || heroBadge.textContent || '';
-      document.querySelectorAll('[data-prd-media-select]').forEach((node) => node.classList.remove('is-active'));
-      button.classList.add('is-active');
+      activateGalleryThumb(button);
     });
   });
+  galleryNavButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      if (!(galleryTrack instanceof HTMLElement)) return;
+      const direction = String(button.getAttribute('data-prd-gallery-nav') || '').trim() === 'prev' ? -1 : 1;
+      galleryTrack.scrollBy({ left: direction * galleryScrollAmount(), behavior: 'smooth' });
+      window.setTimeout(updateGalleryNav, 220);
+    });
+  });
+  galleryTrack?.addEventListener('scroll', updateGalleryNav, { passive: true });
+  updateGalleryNav();
   document.querySelector('[data-prd-map-close]')?.addEventListener('click', () => {
     if (lightbox instanceof HTMLDialogElement) lightbox.close();
     resetZoom();

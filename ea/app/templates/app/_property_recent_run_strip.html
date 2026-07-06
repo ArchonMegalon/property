@@ -11,8 +11,8 @@
 <section class="pqx-card" style="margin:0 0 12px;" data-pqx-inline-run-history>
   <div class="pqx-section-head">
     <div>
-      <h2>Search history</h2>
-      <div class="pqx-note">Open an earlier search without losing this screen.</div>
+      <h2>Recent searches</h2>
+      <div class="pqx-note">Open an earlier search.</div>
     </div>
   </div>
   <div class="pqx-automation-history-strip">
@@ -29,7 +29,7 @@
         Open results
         {% endif %}
         {% if previous.get('held_back_total') %}
-        · {{ previous.get('held_back_total') }} outside brief
+        · {{ previous.get('held_back_total') }} outside this search
         {% endif %}
       </small>
     </a>
@@ -48,8 +48,8 @@
   <summary>
     <span class="pqx-mobile-fold-copy">
       <span class="pqx-small">History</span>
-      <strong>All recent searches</strong>
-      <span class="pqx-note">Keep the current search open and jump back into an older result when needed.</span>
+      <strong>Search history</strong>
+      <span class="pqx-note">Open an older search without leaving this one.</span>
     </span>
     <span class="pqx-mobile-fold-meta">
       <span class="pqx-pill">{{ total_history_runs.value }} searches</span>

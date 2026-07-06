@@ -122,6 +122,7 @@
     aspect-ratio: 4 / 3;
     min-height: 88px;
     display: block;
+    position: relative;
     overflow: hidden;
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -135,6 +136,49 @@
     display: block;
     object-fit: cover;
     transition: transform 160ms ease;
+  }
+  .pq-fast-thumb.pq-fast-diorama::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.1), transparent 44%),
+      linear-gradient(160deg, rgba(23, 33, 28, 0.08), transparent 68%);
+    pointer-events: none;
+  }
+  .pq-fast-thumb.pq-fast-diorama[data-visual-kind="preview"] img {
+    opacity: 0.86;
+    filter: saturate(0.92) contrast(1.03);
+  }
+  .pq-fast-diorama-room {
+    position: absolute;
+    display: block;
+    border: 1px solid rgba(255, 255, 255, 0.58);
+    border-radius: 10px;
+    background: rgba(244, 240, 232, 0.18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(1px);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .pq-fast-diorama-room.room-main {
+    inset: 12% 26% 18% 8%;
+  }
+  .pq-fast-diorama-room.room-side {
+    inset: 18% 8% 42% 63%;
+  }
+  .pq-fast-diorama-room.room-terrace {
+    inset: 62% 11% 10% 51%;
+  }
+  .pq-fast-diorama-label {
+    position: absolute;
+    inset: auto 0 10px 0;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 760;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    z-index: 1;
   }
   a.pq-fast-thumb:hover img,
   a.pq-fast-thumb:focus-visible img {
@@ -264,6 +308,7 @@
 <section
   class="pq-fast-run"
   data-pq-fast-ranked-run
+  data-auth-handoff-url="{{ auth_handoff_url or '' }}"
   data-status-url="{{ run_status_url }}"
   data-search-href="{{ search_href }}"
   data-run-id="{{ run_id }}"
@@ -271,26 +316,75 @@
 >
   <header class="pq-fast-top">
     <div>
-      <p class="pq-fast-kicker">Search results</p>
-      <h1 id="pq-fast-title">Matching homes</h1>
-      <p class="pq-fast-subtitle" data-pq-fast-subtitle>Opening the homes for this search.</p>
+      <p class="pq-fast-kicker">{{ page_kicker or 'Search results' }}</p>
+      <h1 id="pq-fast-title">{{ page_heading or 'Matching homes' }}</h1>
+      <p class="pq-fast-subtitle" data-pq-fast-subtitle>{{ page_subtitle or 'Opening the homes for this search.' }}</p>
     </div>
     <nav class="pq-fast-nav" aria-label="PropertyQuarry navigation">
-      <a href="{{ search_href }}">Search</a>
-      <a href="{{ history_href }}">History</a>
-      <a href="{{ account_href }}">Account</a>
+      {% for item in nav_links or [
+        {'label': 'Search', 'href': search_href},
+        {'label': 'History', 'href': history_href},
+        {'label': 'Account', 'href': account_href},
+      ] %}
+      <a href="{{ item.get('href') }}">{{ item.get('label') }}</a>
+      {% endfor %}
     </nav>
   </header>
 
-  <section class="pq-fast-card" aria-live="polite" aria-busy="true" data-pq-fast-status-card>
+  {% set initial_summary = (initial_run_payload or {}).get('summary') or {} %}
+  {% set initial_candidates = initial_summary.get('ranked_candidates') or [] %}
+  <section class="pq-fast-card" aria-live="polite" aria-busy="{{ 'false' if initial_candidates else 'true' }}" data-pq-fast-status-card>
     <div class="pq-fast-status">
+      {% if not initial_candidates %}
       <span class="pq-fast-spinner" aria-hidden="true"></span>
-      <strong data-pq-fast-status-title>Loading homes</strong>
-      <span class="pq-fast-muted" data-pq-fast-status-detail>Usually a few seconds.</span>
+      {% endif %}
+      <strong data-pq-fast-status-title>{{ (initial_candidates|length) ~ ' matching ' ~ ('home' if (initial_candidates|length) == 1 else 'homes') if initial_candidates else 'Loading homes' }}</strong>
+      <span class="pq-fast-muted" data-pq-fast-status-detail>{{ 'Open a property for details.' if initial_candidates else 'Usually a few seconds.' }}</span>
     </div>
   </section>
 
 	  <section class="pq-fast-list" data-pq-fast-list aria-label="Matching homes">
+	    {% if initial_candidates %}
+	    {% for candidate in initial_candidates %}
+	    {% set diorama = candidate.get('diorama_scene') if candidate.get('diorama_scene') is mapping else {} %}
+	    {% set facts = candidate.get('property_facts') if candidate.get('property_facts') is mapping else {} %}
+	    {% set open_href = candidate.get('packet_url') or candidate.get('review_url') or candidate.get('detail_href') or '' %}
+	    {% set thumb_href = candidate.get('diorama_preview_url') or diorama.get('image_url') or diorama.get('preview_image_url') or '' %}
+	    {% set title_text = candidate.get('title') or ('Home ' ~ loop.index) %}
+    <article class="pq-fast-row">
+      {% if open_href %}
+      <a class="pq-fast-thumb pq-fast-diorama{% if not thumb_href %} no-thumb{% endif %}" href="{{ open_href }}" aria-label="Open property: {{ title_text }}" data-visual-kind="{{ 'diorama' if (candidate.get('diorama_preview_url') or diorama.get('image_url') or diorama.get('preview_image_url')) else ('preview' if thumb_href else 'placeholder') }}">
+      {% else %}
+      <div class="pq-fast-thumb pq-fast-diorama{% if not thumb_href %} no-thumb{% endif %}" data-visual-kind="{{ 'diorama' if (candidate.get('diorama_preview_url') or diorama.get('image_url') or diorama.get('preview_image_url')) else ('preview' if thumb_href else 'placeholder') }}">
+      {% endif %}
+        {% if thumb_href %}<img src="{{ thumb_href }}" alt="{{ title_text }}" loading="lazy" decoding="async">{% endif %}
+        <span class="pq-fast-diorama-room room-main" aria-hidden="true"></span>
+        <span class="pq-fast-diorama-room room-side" aria-hidden="true"></span>
+        <span class="pq-fast-diorama-room room-terrace" aria-hidden="true"></span>
+        {% if not thumb_href %}<span class="pq-fast-diorama-label">Property</span>{% endif %}
+      {% if open_href %}</a>{% else %}</div>{% endif %}
+      <div>
+        <h2>
+          {% if open_href %}<a class="pq-fast-title-link" href="{{ open_href }}" aria-label="Open property: {{ title_text }}">{{ title_text }}</a>{% else %}{{ title_text }}{% endif %}
+        </h2>
+        <p>{{ candidate.get('fit_summary') or candidate.get('summary') or candidate.get('compare_reason') or 'Open the property to review the details.' }}</p>
+        <div class="pq-fast-meta">
+          {% set price_label = candidate.get('price_display') or candidate.get('rent_display') or facts.get('price_display') or facts.get('rent_display') or facts.get('price') or candidate.get('price') or '' %}
+          {% set location_label = candidate.get('location_label') or candidate.get('postal_name') or facts.get('postal_name') or facts.get('address') or candidate.get('source_label') or candidate.get('source_platform') or '' %}
+          {% if price_label %}<span class="pq-fast-chip good">{{ price_label }}</span>{% endif %}
+          {% if location_label %}<span class="pq-fast-chip">{{ location_label }}</span>{% endif %}
+        </div>
+        <div class="pq-fast-actions">
+          {% if open_href %}<a class="btn primary" href="{{ open_href }}">Open property</a>{% endif %}
+          {% set listing_href = candidate.get('property_url') or candidate.get('source_url') or candidate.get('listing_url') or '' %}
+          {% if listing_href and listing_href != open_href %}<a class="btn ghost" href="{{ listing_href }}" {% if listing_href.startswith('http://') or listing_href.startswith('https://') %}target="_blank" rel="noopener noreferrer"{% endif %}>Open listing</a>{% endif %}
+        </div>
+      </div>
+      {% set fit_score = candidate.get('fit_score') or candidate.get('personal_fit_score') or candidate.get('score') or '' %}
+      {% if fit_score %}<div class="pq-fast-score">Fit {{ fit_score }}</div>{% endif %}
+    </article>
+	    {% endfor %}
+	    {% else %}
 	    {% for _ in range(3) %}
     <article class="pq-fast-row pq-fast-skeleton" aria-hidden="true">
       <div class="pq-fast-skeleton-thumb"></div>
@@ -302,24 +396,34 @@
       <div class="pq-fast-skeleton-line short" style="width:48px;"></div>
     </article>
     {% endfor %}
+	    {% endif %}
 	  </section>
 	  <script type="application/json" data-pq-fast-initial-payload>{{ (initial_run_payload or {})|tojson }}</script>
 
   <noscript>
     <section class="pq-fast-card pq-fast-empty">
+      {% if initial_candidates %}
+      <h2>Homes are ready</h2>
+      <p>You can open a property from the list above. JavaScript only refreshes live status.</p>
+      <div class="pq-fast-actions">
+        <a class="btn primary" href="{{ initial_candidates[0].get('packet_url') or initial_candidates[0].get('review_url') or initial_candidates[0].get('detail_href') or search_href }}">Open property</a>
+      </div>
+      {% else %}
       <h2>Enable JavaScript to load homes</h2>
       <p>This page loads matching homes with JavaScript.</p>
       <div class="pq-fast-actions">
         <a class="btn primary" href="{{ search_href }}">Open search</a>
       </div>
+      {% endif %}
     </section>
   </noscript>
 </section>
 
 <script>
-(() => {
+(async () => {
   const root = document.querySelector('[data-pq-fast-ranked-run]');
   if (!root) return;
+  const authHandoffUrl = String(root.dataset.authHandoffUrl || '').trim();
   const statusUrl = String(root.dataset.statusUrl || '').trim();
   const searchHref = String(root.dataset.searchHref || '/app/search').trim();
   const list = root.querySelector('[data-pq-fast-list]');
@@ -328,21 +432,119 @@
   const statusDetail = root.querySelector('[data-pq-fast-status-detail]');
 	  const subtitle = root.querySelector('[data-pq-fast-subtitle]');
 	  const initialPayloadNode = root.querySelector('[data-pq-fast-initial-payload]');
-	  if (!statusUrl || !list) return;
+	  if (!list) return;
 
   const terminalStatuses = new Set(['processed', 'completed', 'completed_partial', 'failed', 'noop', 'cancelled']);
   let settled = false;
   let pollCount = 0;
+  let authHandoffChecked = false;
 
   const text = (value, fallback = '') => {
     const resolved = String(value == null ? '' : value).trim();
     return resolved || fallback;
   };
-  const cleanCandidateCopy = (value) => {
+  const capitalizeFirstAlpha = (value) => {
+    const resolved = String(value || '');
+    for (let index = 0; index < resolved.length; index += 1) {
+      const character = resolved[index];
+      if (/[A-Za-zÄÖÜäöüß]/.test(character)) {
+        return `${resolved.slice(0, index)}${character.toUpperCase()}${resolved.slice(index + 1)}`;
+      }
+    }
+    return resolved;
+  };
+  const sentenceCaseStopwords = new Set(['am', 'an', 'and', 'at', 'auf', 'bei', 'by', 'das', 'de', 'der', 'des', 'die', 'for', 'from', 'im', 'in', 'mit', 'of', 'on', 'oder', 'the', 'to', 'und', 'von']);
+  const normalizePromotionalSegment = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const rawLetters = Array.from(raw).filter((character) => /[A-Za-zÄÖÜäöüß]/.test(character));
+    const rawUpperRatio = rawLetters.length
+      ? rawLetters.filter((character) => character === character.toUpperCase()).length / rawLetters.length
+      : 0;
+    const tokens = raw.split(/(\s+)/);
+    if (rawUpperRatio >= 0.8) {
+      let alphaTokenIndex = 0;
+      const rebuilt = tokens.map((token) => {
+        if (!token || /^\s+$/.test(token)) return token;
+        const leading = (token.match(/^[^A-Za-zÄÖÜäöüß]*/) || [''])[0];
+        const trailing = (token.match(/[^A-Za-zÄÖÜäöüß]*$/) || [''])[0];
+        const endIndex = trailing ? token.length - trailing.length : token.length;
+        const core = token.slice(leading.length, endIndex);
+        const letters = Array.from(core).filter((character) => /[A-Za-zÄÖÜäöüß]/.test(character));
+        if (!letters.length) return token;
+        const lowered = core.toLowerCase();
+        const loweredKey = lowered.toLocaleLowerCase();
+        let normalizedCore = lowered;
+        if (letters.length <= 2 && core === core.toUpperCase() && !sentenceCaseStopwords.has(loweredKey)) {
+          normalizedCore = core;
+        } else if (alphaTokenIndex === 0 || !sentenceCaseStopwords.has(loweredKey)) {
+          normalizedCore = capitalizeFirstAlpha(lowered);
+        }
+        alphaTokenIndex += 1;
+        return `${leading}${normalizedCore}${trailing}`;
+      }).join('').trim();
+      return rebuilt;
+    }
+    const rebuilt = tokens.map((token) => {
+      if (!token || /^\s+$/.test(token)) return token;
+      const leading = (token.match(/^[^A-Za-zÄÖÜäöüß]*/) || [''])[0];
+      const trailing = (token.match(/[^A-Za-zÄÖÜäöüß]*$/) || [''])[0];
+      const endIndex = trailing ? token.length - trailing.length : token.length;
+      let core = token.slice(leading.length, endIndex);
+      const letters = Array.from(core).filter((character) => /[A-Za-zÄÖÜäöüß]/.test(character));
+      if (!letters.length) return token;
+      const upperRatio = letters.length
+        ? letters.filter((character) => character === character.toUpperCase()).length / letters.length
+        : 0;
+      if (letters.length >= 3 && upperRatio >= 0.8) core = core.toLowerCase();
+      return `${leading}${core}${trailing}`;
+    }).join('').trim();
+    return capitalizeFirstAlpha(rebuilt);
+  };
+  const stripProviderMarketing = (value) => {
     let resolved = text(value);
+    if (!resolved) return '';
+    if (resolved.includes(' - ')) {
+      const splitIndex = resolved.lastIndexOf(' - ');
+      const head = resolved.slice(0, splitIndex).trim();
+      const tail = resolved.slice(splitIndex + 3).trim().toLowerCase();
+      if (
+        tail
+        && (
+          tail.includes('.')
+          || ['willhaben', 'immoscout', 'immobilienscout', 'immowelt', 'idealista', 'remax', 'immobilien'].some((marker) => tail.includes(marker))
+        )
+      ) {
+        resolved = head;
+      }
+    }
+    [
+      /\.?\s*Wählen Sie aus\s+\d[\d.,\s]*(?:Angeboten|Immobilien|Wohnungen|Häusern|Objekten).*?$/i,
+      /\.?\s*Immobilien suchen und finden auf\s+.*?$/i,
+      /\.?\s*Choose from\s+\d[\d.,\s]*(?:listings|properties|homes|offers).*?$/i,
+      /\.?\s*(?:Search|Find)\s+(?:homes|properties|real estate)\s+(?:on|at)\s+.*?$/i,
+    ].forEach((pattern) => {
+      resolved = resolved.replace(pattern, '').trim();
+    });
+    const hadPromoSeparators = /\s+\|\s+|\s+I\s+/.test(resolved);
+    resolved = resolved.replace(/\s+\|\s+/g, ' · ').replace(/\s+I\s+/g, ' · ');
+    if (resolved.includes('·')) {
+      resolved = resolved
+        .split(/\s*·\s*/)
+        .map((part) => normalizePromotionalSegment(part))
+        .filter(Boolean)
+        .join(' · ');
+    }
+    resolved = resolved.trim().replace(/^[\s\-·|]+|[\s\-·|]+$/g, '');
+    if (hadPromoSeparators && resolved && !/[.!?]$/.test(resolved)) resolved = `${resolved}.`;
+    return resolved;
+  };
+  const cleanCandidateCopy = (value) => {
+    let resolved = stripProviderMarketing(value);
     if (!resolved) return '';
     resolved = resolved
       .replace(/^\s*(Chosen|Ranked) ahead of the next option because\s+/i, '')
+      .replace(/\bit scored \d+(?:\.\d+)? points higher for your search\b/gi, 'it best matches your search')
       .replace(/\bit scored \d+(?:\.\d+)? points higher on the current brief\b/gi, 'it best matches your search')
       .replace(/\bit scored \d+(?:\.\d+)? points higher\b/gi, 'it best matches your search')
       .replace(/[;,:]\s*it includes a floorplan while the next option does not\.?/gi, '. A floorplan is available.')
@@ -360,6 +562,33 @@
     if (/^it\s/i.test(resolved)) resolved = `It ${resolved.slice(3)}`;
     else if (/^[a-z]/.test(resolved)) resolved = `${resolved.charAt(0).toUpperCase()}${resolved.slice(1)}`;
     return /[.!?]$/.test(resolved) ? resolved : `${resolved}.`;
+  };
+  const summarizeCandidateCopy = (value) => {
+    const cleaned = cleanCandidateCopy(value);
+    if (!cleaned) return '';
+    const compact = cleaned.replace(/[.!?]+$/g, '').trim();
+    if (!compact.includes('·')) return cleaned;
+    const fragments = compact
+      .split(/\s*·\s*/)
+      .map((part) => part.trim().replace(/^[,.;:\-\s]+|[,.;:\-\s]+$/g, ''))
+      .filter(Boolean);
+    if (fragments.length < 2 || fragments.length > 5) return cleaned;
+    if (fragments.some((fragment) => fragment.length > 48)) return cleaned;
+    const wordTotal = fragments.reduce(
+      (total, fragment) => total + ((fragment.match(/[A-Za-zÄÖÜäöüß0-9/+-]+/g) || []).length),
+      0,
+    );
+    if (wordTotal > 16) return cleaned;
+    if (fragments.some((fragment) => /[.!?].+\S/.test(fragment))) return cleaned;
+    const summary = fragments.map((fragment, index) => {
+      if (index === 0) return fragment;
+      const match = fragment.match(/^([A-Za-zÄÖÜäöüß]+)/);
+      if (!match) return fragment;
+      const word = match[1];
+      if (word.length <= 1 || word === word.toUpperCase()) return fragment;
+      return `${word.charAt(0).toLowerCase()}${word.slice(1)}${fragment.slice(word.length)}`;
+    }).join(', ');
+    return /[.!?]$/.test(summary) ? summary : `${summary}.`;
   };
   const number = (value) => {
     const resolved = Number(value);
@@ -427,11 +656,23 @@
   };
   const candidateDetail = (candidate) => {
     const reasons = Array.isArray(candidate.match_reasons) ? candidate.match_reasons.filter(Boolean) : [];
-    return cleanCandidateCopy(candidate.fit_summary)
-      || cleanCandidateCopy(candidate.summary)
-      || cleanCandidateCopy(candidate.compare_reason)
+    return summarizeCandidateCopy(candidate.fit_summary)
+      || summarizeCandidateCopy(candidate.summary)
+      || summarizeCandidateCopy(candidate.compare_reason)
       || cleanCandidateCopy(reasons[0])
       || 'Open the property to review the details.';
+  };
+  const safeCandidateTitle = (value) => {
+    const cleaned = stripProviderMarketing(value).replace(/[.!?]+$/g, '').trim();
+    if (cleaned && !/^(https?:\/\/|www\.)/i.test(cleaned)) return cleaned;
+    return 'Property';
+  };
+  const appendDioramaPlaceholderLabel = (node) => {
+    if (!node || node.querySelector('.pq-fast-diorama-label')) return;
+    const label = document.createElement('span');
+    label.className = 'pq-fast-diorama-label';
+    label.textContent = 'Property';
+    node.appendChild(label);
   };
   const candidatePropertyHref = (candidate) => {
     return safeUrl(candidate.packet_url)
@@ -467,15 +708,12 @@
   const candidatePreviewHref = (candidate) => {
     const facts = candidate && typeof candidate.property_facts === 'object' && candidate.property_facts ? candidate.property_facts : {};
     const orientation = candidate && typeof candidate.orientation_preview === 'object' && candidate.orientation_preview ? candidate.orientation_preview : {};
-    const diorama = candidate && typeof candidate.diorama_scene === 'object' && candidate.diorama_scene ? candidate.diorama_scene : {};
     return firstSafeUrl(
       candidate.preview_image_url,
       candidate.thumbnail_url,
       candidate.image_url,
       candidate.hero_image_url,
       candidate.photo_url,
-      candidate.diorama_preview_url,
-      diorama.image_url,
       orientation.thumb_image_url,
       orientation.image_url,
       facts.preview_image_url,
@@ -486,6 +724,15 @@
       facts.floorplan_urls_json,
       candidate.map_image_url,
       facts.map_image_url,
+    );
+  };
+  const candidateDioramaHref = (candidate) => {
+    const diorama = candidate && typeof candidate.diorama_scene === 'object' && candidate.diorama_scene ? candidate.diorama_scene : {};
+    return firstSafeUrl(
+      candidate.diorama_preview_url,
+      diorama.image_url,
+      diorama.preview_image_url,
+      diorama.thumbnail_url,
     );
   };
   const listingCounts = (payload, candidates = []) => {
@@ -555,7 +802,7 @@
     );
     const providerDone = terminalStatus && providerTotal > 0 ? providerTotal : rawProviderDone;
     const providerLeft = providerTotal > providerDone ? providerTotal - providerDone : 0;
-    const sourceUnit = sourceActualTotal > 0 && sourceActualTotal >= providerTotal ? 'search pages' : 'providers';
+    const sourceUnit = sourceActualTotal > providerTotal && providerTotal > 0 ? 'search pages' : 'providers';
     const parts = [];
     parts.push(`${candidates.length} ranked ${candidates.length === 1 ? 'home' : 'homes'}`);
     if (providerTotal) {
@@ -566,7 +813,7 @@
     }
     if (found > 0) {
       parts.push(`${found} homes found`);
-      parts.push(toReview > 0 ? `${toReview} to review` : (providerLeft > 0 ? `${providerLeft} ${sourceUnit} left` : 'all found homes reviewed'));
+      parts.push(toReview > 0 ? `${toReview} to review` : (providerLeft > 0 ? `${providerLeft} ${sourceUnit} left` : 'all found homes are checked'));
     }
     return { status, detail: parts.join(' · ') };
   };
@@ -602,37 +849,49 @@
 
       const propertyHref = candidatePropertyHref(candidate);
       const listingHref = candidateListingHref(candidate);
-      const titleText = text(candidate.title, `Home ${index + 1}`);
+      const titleText = safeCandidateTitle(candidate.title || `Home ${index + 1}`);
       const previewHref = candidatePreviewHref(candidate);
-      const media = document.createElement(propertyHref ? 'a' : 'div');
-      media.className = `pq-fast-thumb${previewHref ? '' : ' no-thumb'}`;
-      if (propertyHref) {
-        media.href = propertyHref;
+      const dioramaHref = candidateDioramaHref(candidate);
+      const thumbHref = dioramaHref;
+      const thumbVisualKind = dioramaHref ? 'diorama' : 'placeholder';
+      const openHref = propertyHref;
+      const media = document.createElement(openHref ? 'a' : 'div');
+      media.className = `pq-fast-thumb pq-fast-diorama${thumbHref ? '' : ' no-thumb'}`;
+      media.setAttribute('data-visual-kind', thumbVisualKind);
+      if (openHref) {
+        media.href = openHref;
         media.setAttribute('aria-label', `Open property: ${titleText}`);
       }
-      if (previewHref) {
+      if (thumbHref) {
         const image = document.createElement('img');
-        image.src = previewHref;
+        image.src = thumbHref;
         image.alt = titleText;
         image.loading = 'lazy';
         image.decoding = 'async';
         image.addEventListener('error', () => {
           image.remove();
           media.classList.add('no-thumb');
-          media.textContent = 'Property';
+          media.setAttribute('data-visual-kind', 'placeholder');
+          appendDioramaPlaceholderLabel(media);
         }, { once: true });
         media.appendChild(image);
-      } else {
-        media.textContent = 'Property';
       }
+      ['room-main', 'room-side', 'room-terrace'].forEach((roomClass) => {
+        const room = document.createElement('span');
+        room.className = `pq-fast-diorama-room ${roomClass}`;
+        room.setAttribute('aria-hidden', 'true');
+        media.appendChild(room);
+      });
+      if (!thumbHref) appendDioramaPlaceholderLabel(media);
       article.appendChild(media);
 
       const copy = document.createElement('div');
       const title = document.createElement('h2');
-      if (propertyHref) {
+      if (openHref) {
         const titleLink = document.createElement('a');
         titleLink.className = 'pq-fast-title-link';
-        titleLink.href = propertyHref;
+        titleLink.href = openHref;
+        titleLink.setAttribute('aria-label', `Open property: ${titleText}`);
         titleLink.textContent = titleText;
         title.appendChild(titleLink);
       } else {
@@ -656,16 +915,16 @@
 
       const actions = document.createElement('div');
       actions.className = 'pq-fast-actions';
-      if (propertyHref) {
+      if (openHref) {
         const propertyLink = document.createElement('a');
         propertyLink.className = 'btn primary';
-        propertyLink.href = propertyHref;
+        propertyLink.href = openHref;
         propertyLink.textContent = 'Open property';
         actions.appendChild(propertyLink);
       }
-      if (listingHref) {
+      if (listingHref && listingHref !== openHref) {
         const listingLink = document.createElement('a');
-        listingLink.className = propertyHref ? 'btn ghost' : 'btn primary';
+        listingLink.className = 'btn ghost';
         listingLink.href = listingHref;
         listingLink.textContent = 'Open listing';
         if (/^https?:\/\//i.test(listingHref)) {
@@ -728,13 +987,35 @@
     if (statusDetail) statusDetail.textContent = status ? status.replace(/_/g, ' ') : 'Adjust the search and try again.';
     if (statusCard) statusCard.setAttribute('aria-busy', 'false');
   };
+	  const maybeRedirectSignedInViewer = async () => {
+	    if (!authHandoffUrl || authHandoffChecked) return false;
+	    authHandoffChecked = true;
+	    try {
+	      const response = await fetch(authHandoffUrl, {
+	        credentials: 'same-origin',
+	        cache: 'no-store',
+	        headers: { 'Accept': 'application/json' },
+	      });
+	      if (!response.ok) return false;
+	      const payload = await response.json();
+	      if (!payload || payload.signed_in !== true) return false;
+	      const target = String(payload.latest_results_target || payload.target || '').trim();
+	      if (!target) return false;
+	      const currentTarget = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+	      if (target === currentTarget) return false;
+	      window.location.replace(target);
+	      return true;
+	    } catch (_error) {
+	      return false;
+	    }
+	  };
 	  const loadOnce = async () => {
 	    if (statusCard) statusCard.setAttribute('aria-busy', 'true');
-	    if (statusTitle && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusTitle.textContent = 'Loading homes';
-	    if (statusDetail && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusDetail.textContent = 'Usually a few seconds.';
+	    if (statusTitle && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusTitle.textContent = 'Providers';
+	    if (statusDetail && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusDetail.textContent = 'Checking the selected providers.';
 	    const controller = new AbortController();
 	    const slowTimer = window.setTimeout(() => {
-	      if (!settled && statusDetail) statusDetail.textContent = 'Still checking for matching homes.';
+	      if (!settled && statusDetail) statusDetail.textContent = 'Still checking the selected providers.';
 	    }, 3500);
     const abortTimer = window.setTimeout(() => controller.abort(), 18000);
     try {
@@ -775,16 +1056,25 @@
     }
 	  };
 
+	  let initialPayload = {};
+	  let initialCandidates = [];
 	  try {
-	    const initialPayload = initialPayloadNode ? JSON.parse(initialPayloadNode.textContent || '{}') : {};
-	    const initialCandidates = collectRanked(initialPayload);
+	    initialPayload = initialPayloadNode ? JSON.parse(initialPayloadNode.textContent || '{}') : {};
+	    initialCandidates = collectRanked(initialPayload);
 	    if (initialCandidates.length) {
+	      if (await maybeRedirectSignedInViewer()) return;
 	      settled = true;
 	      renderCandidates(initialPayload, initialCandidates);
 	      if (isTerminalPayload(initialPayload)) return;
+	      if (!statusUrl) return;
 	    }
 	  } catch (_error) {
 	    // Keep the skeleton and fall through to the normal status request.
+	  }
+	  if (!statusUrl) {
+	    if (await maybeRedirectSignedInViewer()) return;
+	    renderEmpty(initialPayload, false);
+	    return;
 	  }
 	  loadOnce();
 	})();

@@ -12,6 +12,7 @@ import subprocess
 import time
 import urllib.parse
 import zipfile
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -451,9 +452,8 @@ def test_paid_property_plan_survives_console_context_projection() -> None:
     assert ">Agent<" in account.text
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
-    assert billing.status_code == 503
-    assert "Billing portal unavailable" in billing.text
-    assert "Your PropertyQuarry access stays active from the account page." in billing.text
+    assert billing.status_code == 303
+    assert billing.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_property_account_nav_prefers_available_external_billing_handoff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -605,11 +605,8 @@ def test_account_billing_and_automation_surfaces_do_not_render_same_page_links()
         assert response.status_code == 200
         assert f'href="{path}"' not in response.text
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
-    assert billing.status_code in {303, 503}
-    if billing.status_code == 303:
-        assert billing.headers["location"] != "/app/billing"
-    else:
-        assert "Billing portal unavailable" in billing.text
+    assert billing.status_code == 303
+    assert billing.headers["location"] != "/app/billing"
 
 
 def test_default_property_person_motion_hint_ignores_scanned_documents_io_error(
@@ -3396,7 +3393,7 @@ def test_property_alert_handoff_page_compacts_unavailable_360_state() -> None:
     assert handoff_page.status_code == 200
     assert 'class="object-media-grid is-compact"' in handoff_page.text
     assert "360 unavailable" in handoff_page.text
-    assert "Why it may suit you" in handoff_page.text
+    assert "Why it works" in handoff_page.text
 
 
 def test_signal_ingest_willhaben_property_alert_review_uses_personal_fit_priority(monkeypatch) -> None:
@@ -8034,7 +8031,7 @@ def test_property_alert_review_handoff_page_renders_research_packet() -> None:
     assert "Lift not confirmed." in page.text
     assert "Heating type needs research." in page.text
     assert "https://www.immobilienscout24.at/expose/watch-fit-1" in page.text
-    assert "At a glance" in page.text
+    assert "Quick read" in page.text
     assert "Check before deciding" in page.text
     assert "Ask next" not in page.text
     assert "Supporting evidence" not in page.text
@@ -8062,7 +8059,7 @@ def test_property_alert_review_handoff_page_uses_latest_visual_status(monkeypatc
                 "tour_status": "ready",
                 "blocked_reason": "",
                 "status_label": "Open 3D tour",
-                "status_detail": "3D tour is available. Open it here.",
+                "status_detail": "3D tour is ready.",
                 "progress_pct": 100,
                 "generated_at": "2026-07-04T20:30:00+00:00",
                 "property_url": property_url,
@@ -8073,7 +8070,7 @@ def test_property_alert_review_handoff_page_uses_latest_visual_status(monkeypatc
             "flythrough_status": "idle",
             "blocked_reason": "",
             "status_label": "Request walkthrough",
-            "status_detail": "No media request is open for this home yet.",
+            "status_detail": "Choose a style to start it.",
             "progress_pct": 0,
             "generated_at": "2026-07-04T20:30:00+00:00",
             "property_url": property_url,
@@ -8113,7 +8110,6 @@ def test_property_alert_review_handoff_page_uses_latest_visual_status(monkeypatc
 
     page = client.get(f"/app/handoffs/{result['human_task_id']}")
     assert page.status_code == 200
-    assert "https://propertyquarry.com/tours/demo-ready-tour" in page.text
     assert "Open 3D tour" in page.text
 
 
@@ -8246,9 +8242,10 @@ def test_property_alert_review_handoff_reuses_generated_reconstruction_bundle(
 
     page = client.get(f"/app/handoffs/{result['human_task_id']}")
     assert page.status_code == 200
-    assert f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/viewer.html" in page.text
-    assert 'data-obj-visual-request="tour"' not in page.text
-    assert "Open 3D tour" in page.text
+    assert f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/viewer.html" not in page.text
+    assert f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/photo-01.jpg" not in page.text
+    assert ">Open 3D tour<" not in page.text
+    assert "Open listing" in page.text
     assert "Rebuild 3D tour" not in page.text
     assert "Nearby options from this alert" not in page.text
     handoff = client.app.state.container.orchestrator.fetch_human_task(
@@ -8264,13 +8261,132 @@ def test_property_alert_review_handoff_reuses_generated_reconstruction_bundle(
         product=product,
         principal_id=principal_id,
     )
-    assert media_payload["status_label"] == "3D tour available"
-    assert media_payload["status_detail"] == "3D tour is available on this page."
-    assert media_payload["primary_label"] == "Open 3D tour"
-    assert media_payload["primary_href"] == f"https://myexternalbrain.com/tours/files/{slug}/generated-reconstruction/viewer.html"
-    assert media_payload["generated_reconstruction_ready"] is True
-    assert media_payload["request_actions"][0]["kind"] == "flythrough"
-    assert media_payload["request_actions"][0]["label"] == "Request walkthrough"
+    assert media_payload["status_label"] == "3D tour unavailable"
+    assert "layout preview" not in media_payload["status_detail"].lower()
+    assert media_payload["primary_label"] == "Open listing"
+    assert media_payload["primary_href"] == property_url
+    assert media_payload["generated_reconstruction_ready"] is False
+    assert media_payload["generated_reconstruction_href"] == ""
+    assert media_payload["carousel_items"] == []
+
+
+def test_property_alert_review_handoff_does_not_reuse_disabled_first_party_tour_as_generated_reconstruction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dead_tour_url = "https://propertyquarry.com/tours/dead-first-party-tour"
+
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_is_branded_public_tour_url",
+        lambda url: str(url or "").startswith("https://propertyquarry.com/tours/"),
+    )
+    monkeypatch.setattr(property_tour_hosting, "_hosted_property_tour_first_party_open_url", lambda _url: "")
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_payload_for_url",
+        lambda url: {"disabled_fallback": True} if str(url or "").strip() == dead_tour_url else {},
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_property_tour_payload_is_disabled_fallback",
+        lambda payload: bool((payload or {}).get("disabled_fallback")),
+    )
+    monkeypatch.setattr(property_tour_hosting, "_existing_hosted_property_tour_url_for_identity", lambda **_kwargs: "")
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_asset_urls",
+        lambda *_args, **_kwargs: pytest.fail("disabled first-party tour must not feed generated reconstruction assets"),
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_asset_url",
+        lambda *_args, **_kwargs: pytest.fail("disabled first-party tour must not feed generated reconstruction assets"),
+    )
+
+    handoff = SimpleNamespace(
+        summary="Dead tour handoff",
+        property_url="https://example.test/listing/dead-tour",
+        tour_url=dead_tour_url,
+        delivery_reason="property_tour_fallback_disabled",
+    )
+
+    media_payload = landing_objects._propertyquarry_handoff_media_payload(
+        handoff_ref="human_task:dead-tour",
+        handoff=handoff,
+        input_json={"property_url": handoff.property_url},
+        primary_candidate={},
+        product=None,
+        principal_id="",
+    )
+
+    assert media_payload["hosted_ready"] is False
+    assert media_payload["generated_reconstruction_ready"] is False
+    assert media_payload["generated_reconstruction_href"] == ""
+    assert media_payload["carousel_items"] == []
+    assert dead_tour_url not in json.dumps(media_payload)
+
+
+def test_property_tour_followup_customer_page_uses_property_style_layout() -> None:
+    principal_id = "cf-email:property-tour-customer-page@example.test"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Follow-up Office")
+    product = ProductService(client.app.state.container)
+
+    task = product._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/sunny-prater-flat-1/",
+        title="Sunny Prater flat",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:sunny-prater-flat-1",
+        external_id="sunny-prater-flat-1",
+        connector_binding_id="",
+        request_kind="tour",
+        run_id="run-sunny-prater-flat-1",
+        candidate_ref="candidate-sunny-prater-flat-1",
+        allow_floorplan_only=True,
+    )
+
+    repo = client.app.state.container.orchestrator._human_tasks
+    stored = repo.get(task.human_task_id)
+    assert stored is not None
+    repo._rows[task.human_task_id] = replace(
+        stored,
+        input_json={
+            **dict(stored.input_json or {}),
+            "title": "Sunny Prater flat",
+            "tour_url": "https://viewer.example.test/tours/sunny-prater-flat",
+            "tour_status": "ready",
+            "property_facts_json": {
+                "price_display": "EUR 1590",
+                "area_m2": 70,
+                "rooms": 2,
+                "address": "1020 Wien",
+            },
+        },
+    )
+
+    page = client.get(f"/app/handoffs/human_task:{task.human_task_id}")
+    assert page.status_code == 200
+    assert "Sunny Prater flat" in page.text
+    assert "EUR 1,590" in page.text
+    assert "1020 Wien" in page.text
+    assert "Quick read" in page.text
+    assert "What stands out" in page.text
+    assert "The 3D tour is available to review." in page.text
+    assert "Open the 3D tour and decide whether this home deserves a viewing." in page.text
+    assert "A real 3D tour is not available for this listing yet." not in page.text
+    assert "Build requested 3D tour for" not in page.text
+    assert "What to do next" not in page.text
+    assert "Current status" not in page.text
+    assert "Property tour" not in page.text
+    assert "Listing" not in page.text
+    assert "Supporting context" not in page.text
+    assert "Attached evidence" not in page.text
+    assert "Recent updates" not in page.text
+    assert "What changed" not in page.text
+    assert "<h2>Actions</h2>" not in page.text
 
 
 def test_property_alert_review_uses_heyy_when_business_whatsapp_is_staged(monkeypatch) -> None:
@@ -8370,6 +8486,161 @@ def test_property_alert_review_handoff_keeps_vendor_360_as_external_action() -> 
     assert 'title="Property 360 review"' not in page.text
     assert "Original tour available" in page.text
     assert "Open original tour" in page.text
+
+
+def test_propertyquarry_candidate_visual_request_ignores_unverified_vendor_tour_url() -> None:
+    assert (
+        landing_objects._propertyquarry_candidate_visual_request_enabled(
+            {
+                "vendor_tour_url": "https://vendor.example.com/tours/fake-gallery-shell",
+                "property_facts": {},
+            }
+        )
+        is False
+    )
+
+
+def test_handoff_property_visual_actions_keep_terminal_retry_state_visible() -> None:
+    actions = landing_objects._handoff_property_visual_actions(
+        candidate={
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/retry-visible-1",
+            "source_ref": "willhaben:retry-visible-1",
+            "candidate_ref": "candidate-retry-visible-1",
+            "tour_status": "blocked",
+            "blocked_reason": "property_tour_execution_failed",
+            "flythrough_status": "skipped",
+        },
+        media_payload={
+            "hosted_ready": False,
+            "walkthrough_href": "",
+        },
+    )
+
+    tour_action = next(action for action in actions if action["kind"] == "tour")
+    walkthrough_action = next(action for action in actions if action["kind"] == "flythrough")
+    assert tour_action["label"] == "Retry 3D tour"
+    assert tour_action["state"] == "blocked"
+    assert str(tour_action["status_detail"] or "").strip()
+    assert walkthrough_action["label"] == "Request walkthrough"
+    assert walkthrough_action["state"] == "skipped"
+    assert str(walkthrough_action["status_detail"] or "").strip()
+
+
+def test_propertyquarry_handoff_media_payload_surfaces_terminal_request_status() -> None:
+    handoff = SimpleNamespace(
+        summary="Retryable handoff loft",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/retryable-handoff-loft",
+        tour_url="",
+        delivery_reason="property_tour_execution_failed",
+    )
+
+    media_payload = landing_objects._propertyquarry_handoff_media_payload(
+        handoff_ref="human_task:retryable-handoff-loft",
+        handoff=handoff,
+        input_json={
+            "property_url": handoff.property_url,
+            "source_ref": "willhaben:retryable-handoff-loft",
+            "candidate_ref": "candidate-retryable-handoff-loft",
+            "tour_status": "blocked",
+            "blocked_reason": "property_tour_execution_failed",
+            "property_facts_json": {"has_floorplan": True},
+        },
+        primary_candidate={},
+        product=None,
+        principal_id="",
+    )
+
+    assert media_payload["request_status_label"] == "Retry 3D tour"
+    assert str(media_payload["request_status_detail"] or "").strip()
+    assert media_payload["request_status_progress_pct"] == 0
+    request_actions = list(media_payload.get("request_actions") or [])
+    assert any(action.get("kind") == "tour" and action.get("state") == "blocked" for action in request_actions)
+
+
+def test_propertyquarry_search_run_payload_keeps_nested_blocked_tour_visible_in_selected_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "pq-search-selected-blocked-tour-payload"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "candidate_ref": "retryable-selected-review-loft",
+        "title": "Retryable selected-review loft",
+        "property_url": "https://example.test/retryable-selected-review-loft",
+        "source_url": "https://example.test/retryable-selected-review-loft",
+        "source_ref": "example:retryable-selected-review-loft",
+        "fit_score": 81,
+        "location_label": "Vienna",
+        "packet_url": "/app/research/retryable-selected-review-loft?run_id=run-selected-review-blocked-tour",
+        "floorplan_url": "https://example.test/retryable-selected-review-loft/floorplan.webp",
+        "tour": {
+            "status": "blocked",
+            "label": "Retry 3D tour",
+            "status_detail": "Tour not available yet.",
+        },
+        "flythrough": {},
+        "property_facts": {
+            "price_eur": 1890.0,
+            "area_m2": 73,
+            "postal_name": "1070 Wien",
+            "rooms": 3,
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "Vienna",
+            },
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | Vienna",
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    status = client.app.state.container.onboarding.status(principal_id=principal_id)
+    property_context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id=principal_id,
+        status=status,
+        run_id="run-selected-review-blocked-tour",
+        surface_mode="search",
+    )
+    payload = landing_routes._property_workspace_payload(
+        "search",
+        status=status,
+        property_state=property_context,
+    )
+
+    decision_workbench = dict(payload.get("decision_workbench") or {})
+    results = list(decision_workbench.get("results") or [])
+    selected = dict(decision_workbench.get("selected") or {})
+    selected_tour = dict(selected.get("tour") or {})
+
+    assert len(results) == 1
+    assert selected.get("candidate_ref") == "retryable-selected-review-loft"
+    assert selected_tour.get("status") == "blocked"
+    assert selected_tour.get("label") == "Retry 3D tour"
+    assert selected_tour.get("status_detail") == "Tour not available yet."
 
 
 def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch) -> None:
@@ -10173,7 +10444,7 @@ def test_property_alert_review_telegram_text_uses_fit_note_language() -> None:
                 "fit_score": 54.0,
                 "recommendation": "ask_for_clarification",
                 "fit_summary": "Personal fit 54/100 · ask for clarification",
-                "compare_reason": "Chosen ahead of the next option because it scored 6 points higher on the current brief.",
+                "compare_reason": "Chosen ahead of the next option because it scored 6 points higher for your search.",
                 "assessment": {"fit_score": 54.0, "recommendation": "ask_for_clarification"},
             },
         ),
@@ -14585,6 +14856,11 @@ def test_willhaben_property_visual_user_request_queues_without_synchronous_rende
     principal_id = "tour-user-queued-route"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    monkeypatch.setattr(
+        ProductService,
+        "_resolve_browseract_property_tour_binding_id",
+        lambda self, **kwargs: "browseract-binding-real-1",
+    )
 
     def _unexpected_packet_load(url: str) -> dict[str, object]:
         raise AssertionError(f"user-triggered visual request should not synchronously load packet for {url}")
@@ -14610,7 +14886,7 @@ def test_willhaben_property_visual_user_request_queues_without_synchronous_rende
     assert body["tour_status"] == ""
     assert body["flythrough_status"] == "queued"
     assert body["status_label"] == "Walkthrough queued"
-    assert body["status_detail"] == "Queued. This page updates automatically."
+    assert body["status_detail"] == "Queued."
     assert body["eta_label"] == "about 10 min"
     assert body["progress_pct"] == 18
     assert body["poll_after_seconds"] == 10
@@ -14618,6 +14894,15 @@ def test_willhaben_property_visual_user_request_queues_without_synchronous_rende
     assert body["candidate_ref"] == "candidate-queued-001"
     assert body["source_ref"] == "willhaben:queued-001"
     assert body["human_task_id"].startswith("human_task:")
+    assert body["connector_binding_id"] == "browseract-binding-real-1"
+
+    queued_task_id = body["human_task_id"].split(":", 1)[1]
+    queued_task = client.app.state.container.orchestrator.fetch_human_task(
+        queued_task_id,
+        principal_id=principal_id,
+    )
+    assert queued_task is not None
+    assert dict(queued_task.input_json or {}).get("connector_binding_id") == "browseract-binding-real-1"
 
     events = client.get(
         "/app/api/events",
@@ -14687,7 +14972,7 @@ def test_property_visual_status_route_returns_current_visual_snapshot(monkeypatc
             "flythrough_status": "processing",
             "blocked_reason": "",
             "status_label": "Walkthrough rendering",
-            "status_detail": "Walkthrough is rendering now and will appear here when it is ready.",
+            "status_detail": "Rendering.",
             "eta_label": "about 5 min",
             "progress_pct": 64,
             "poll_after_seconds": 10,
@@ -14753,7 +15038,7 @@ def test_property_visual_status_falls_back_to_followup_when_run_candidate_identi
                 "property_url": property_url,
                 "source_ref": "willhaben:queued-fallback",
                 "status_label": "3D tour queued",
-                "status_detail": "Queued. This page updates automatically.",
+                "status_detail": "Queued.",
             },
             input_json={
                 "diorama_style_hint": "urban jungle staging with plants",
@@ -15145,7 +15430,7 @@ def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> No
     monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
     monkeypatch.setattr(ProductService, "process_property_tour_followup_tasks", _fake_process)
     monkeypatch.setattr(ProductService, "_existing_property_tour_followup", lambda self, **kwargs: object())
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
+    monkeypatch.setattr(product_service, "_hosted_property_tour_first_party_open_url", lambda tour_url: str(tour_url or "").strip())
 
     response = service.get_property_visual_request_status(
         principal_id=principal_id,
@@ -15593,7 +15878,7 @@ def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source
         }
 
     monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
+    monkeypatch.setattr(product_service, "_hosted_property_tour_first_party_open_url", lambda tour_url: str(tour_url or "").strip())
 
     response = service.get_property_visual_request_status(
         principal_id=principal_id,
@@ -15660,8 +15945,75 @@ def test_property_visual_status_keeps_polling_while_rendering(monkeypatch) -> No
 
     assert response["status"] == "rendering"
     assert response["status_label"] == "3D tour rendering"
+    assert response["status_detail"] == "Rendering."
     assert response["eta_label"]
     assert response["progress_pct"] >= 58
+    assert response["poll_after_seconds"] == 10
+
+
+def test_property_visual_status_uses_minimal_priority_queue_copy(monkeypatch) -> None:
+    principal_id = "property-visual-status-priority-queue"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    queued_candidate = {
+        "title": "Priority queue visual candidate",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/priority-queue-visual-42",
+        "source_ref": "willhaben:priority-queue-visual-42",
+        "tour_status": "queued",
+        "tour_url": "",
+        "tour_eta_minutes": "10",
+        "tour_requested_at": "2026-06-22T10:00:00+00:00",
+        "tour_status_updated_at": "2026-06-22T10:01:00+00:00",
+    }
+
+    monkeypatch.setattr(
+        ProductService,
+        "_snapshot_property_search_run",
+        lambda self, **kwargs: {
+            "run_id": str(kwargs.get("run_id") or ""),
+            "updated_at": "2026-06-22T10:03:00+00:00",
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "top_candidates": [dict(queued_candidate)],
+                    }
+                ]
+            },
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.onboarding,
+        "status",
+        lambda *, principal_id: {
+            "property_search_preferences": {
+                "property_commercial": {
+                    "active_plan_key": "agency_lifetime",
+                    "status": "active",
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(ProductService, "_property_visual_request_is_stale", lambda self, **kwargs: False)
+    monkeypatch.setattr(
+        product_service,
+        "_utcnow",
+        lambda: datetime(2026, 6, 22, 10, 5, tzinfo=timezone.utc),
+    )
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="tour",
+        source_ref="willhaben:priority-queue-visual-42",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/priority-queue-visual-42",
+    )
+
+    assert response["status"] == "queued"
+    assert response["status_label"] == "3D tour queued"
+    assert response["status_detail"] == "Priority queue active. Queued."
     assert response["poll_after_seconds"] == 10
 
 
@@ -15876,7 +16228,7 @@ def test_property_visual_status_uses_latest_followup_without_run_id(monkeypatch)
     assert response["poll_after_seconds"] == 0
 
 
-def test_property_visual_status_rejects_ready_generated_reconstruction_followup(monkeypatch) -> None:
+def test_property_visual_status_keeps_generated_reconstruction_followup_blocked_without_open_viewer(monkeypatch) -> None:
     principal_id = "property-visual-status-ready-generated-reconstruction"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -15967,8 +16319,8 @@ def test_property_visual_status_rejects_ready_generated_reconstruction_followup(
     assert response["poll_after_seconds"] == 0
 
 
-def test_property_visual_status_allows_user_requested_generated_reconstruction_followup(monkeypatch) -> None:
-    principal_id = "property-visual-status-ready-generated-reconstruction-user-requested"
+def test_property_visual_status_keeps_user_requested_generated_reconstruction_followup_blocked(monkeypatch) -> None:
+    principal_id = "property-visual-status-blocked-generated-reconstruction-user-requested"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
     service = product_service.build_product_service(client.app.state.container)
@@ -15997,15 +16349,7 @@ def test_property_visual_status_allows_user_requested_generated_reconstruction_f
         },
     )
     monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
-    monkeypatch.setattr(
-        product_service,
-        "_hosted_property_tour_first_party_open_url",
-        lambda tour_url: (
-            "https://propertyquarry.com/tours/files/generated-reconstruction-followup-2/generated-reconstruction/viewer.html"
-            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/generated-reconstruction-followup-2"
-            else ""
-        ),
-    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_first_party_open_url", lambda _tour_url: "")
     monkeypatch.setattr(
         ProductService,
         "_latest_property_tour_followup",
@@ -16030,12 +16374,14 @@ def test_property_visual_status_allows_user_requested_generated_reconstruction_f
             assignment_source="",
             assigned_at="2026-06-23T19:35:00+00:00",
             assigned_by_actor_id="test",
-            resolution="ready",
+            resolution="blocked",
             resume_session_on_return=False,
             returned_payload_json={
                 "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-followup-2",
+                "open_tour_url": "",
                 "generated_reconstruction_url": "https://propertyquarry.com/tours/generated-reconstruction-followup-2",
-                "tour_status": "ready",
+                "tour_status": "blocked",
+                "blocked_reason": "listing_360_media_missing",
             },
             provenance_json={"source": "test"},
             created_at="2026-06-23T19:34:00+00:00",
@@ -16052,11 +16398,11 @@ def test_property_visual_status_allows_user_requested_generated_reconstruction_f
         property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-followup-2",
     )
 
-    assert response["status"] == "ready"
-    assert response["status_label"] == "Open 3D tour"
-    assert response["tour_url"] == "https://propertyquarry.com/tours/generated-reconstruction-followup-2"
-    assert response["open_tour_url"] == "https://propertyquarry.com/tours/files/generated-reconstruction-followup-2/generated-reconstruction/viewer.html"
-    assert response["generated_reconstruction_url"] == "https://propertyquarry.com/tours/generated-reconstruction-followup-2"
+    assert response["status"] == "blocked"
+    assert response["status_label"] == "3D tour not ready"
+    assert response["tour_url"] == ""
+    assert response["open_tour_url"] == ""
+    assert response.get("generated_reconstruction_url", "") == ""
     assert response["poll_after_seconds"] == 0
 
 
@@ -16768,6 +17114,140 @@ def test_property_tour_followup_tasks_do_not_resolve_unverified_tour_url_as_read
     assert updated_task.resolution != "ready"
 
 
+def test_property_tour_followup_tasks_ignore_stale_generated_reconstruction_open_url(monkeypatch) -> None:
+    principal_id = "property-tour-followup-stale-generated-open-url"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "ready",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Generated reconstruction only",
+            "variant_key": str(kwargs.get("variant_key") or "layout_first"),
+            "request_kind": "tour",
+            "run_id": str(kwargs.get("run_id") or ""),
+            "candidate_ref": str(kwargs.get("candidate_ref") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-followup-worker",
+            "open_tour_url": "https://propertyquarry.com/tours/files/generated-reconstruction-followup-worker/generated-reconstruction/viewer.html",
+            "generated_reconstruction_url": "https://propertyquarry.com/tours/generated-reconstruction-followup-worker",
+            "tour_status": "ready",
+            "status_label": "Open 3D tour",
+        },
+    )
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-followup-worker",
+        title="Generated reconstruction only",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:generated-reconstruction-followup-worker",
+        external_id="generated-reconstruction-followup-worker",
+        connector_binding_id="binding-1",
+        request_kind="tour",
+        run_id="run-generated-reconstruction-followup-worker",
+        candidate_ref="candidate-generated-reconstruction-followup-worker",
+        allow_floorplan_only=True,
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 1
+    assert result["blocked_total"] == 1
+    assert result["resolved"][0]["resolution"] == "blocked"
+    assert result["resolved"][0]["tour_url"] == "https://propertyquarry.com/tours/generated-reconstruction-followup-worker"
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "returned"
+    assert updated_task.resolution == "blocked"
+    assert updated_task.returned_payload_json["open_tour_url"] == ""
+    assert updated_task.returned_payload_json["blocked_reason"] == "listing_360_media_missing"
+
+
+def test_property_tour_followup_tasks_ignore_raw_generated_reconstruction_viewer_tour_url(monkeypatch) -> None:
+    principal_id = "property-tour-followup-raw-generated-viewer-url"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "ready",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Generated reconstruction viewer only",
+            "variant_key": str(kwargs.get("variant_key") or "layout_first"),
+            "request_kind": "tour",
+            "run_id": str(kwargs.get("run_id") or ""),
+            "candidate_ref": str(kwargs.get("candidate_ref") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "tour_url": "https://propertyquarry.com/tours/files/generated-reconstruction-raw-viewer/generated-reconstruction/viewer.html",
+            "generated_reconstruction_url": "https://propertyquarry.com/tours/generated-reconstruction-raw-viewer",
+            "tour_status": "ready",
+            "status_label": "Open 3D tour",
+        },
+    )
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-raw-viewer",
+        title="Generated reconstruction viewer only",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:generated-reconstruction-raw-viewer",
+        external_id="generated-reconstruction-raw-viewer",
+        connector_binding_id="binding-1",
+        request_kind="tour",
+        run_id="run-generated-reconstruction-raw-viewer",
+        candidate_ref="candidate-generated-reconstruction-raw-viewer",
+        allow_floorplan_only=True,
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 1
+    assert result["blocked_total"] == 1
+    assert result["resolved"][0]["resolution"] == "blocked"
+    assert result["resolved"][0]["tour_url"] == "https://propertyquarry.com/tours/generated-reconstruction-raw-viewer"
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "returned"
+    assert updated_task.resolution == "blocked"
+    assert updated_task.returned_payload_json["tour_url"] == "https://propertyquarry.com/tours/generated-reconstruction-raw-viewer"
+    assert updated_task.returned_payload_json["open_tour_url"] == ""
+    assert updated_task.returned_payload_json["blocked_reason"] == "listing_360_media_missing"
+
+
 def test_property_tour_followup_tasks_process_fresh_user_queued_visual(monkeypatch) -> None:
     principal_id = "property-tour-followup-fresh-queued"
     client = build_product_client(principal_id=principal_id)
@@ -17241,7 +17721,7 @@ def test_request_property_visual_asset_blocks_generated_reconstruction_as_3d_tou
     assert result["blocked_reason"] == "listing_360_media_missing"
 
 
-def test_request_property_visual_asset_returns_ready_generated_reconstruction_when_first_party_viewer_exists(monkeypatch) -> None:
+def test_request_property_visual_asset_keeps_generated_reconstruction_blocked_when_only_preview_exists(monkeypatch) -> None:
     principal_id = "property-tour-reuse-existing-generated-reconstruction"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -17253,15 +17733,6 @@ def test_request_property_visual_asset_returns_ready_generated_reconstruction_wh
         lambda **kwargs: "https://propertyquarry.com/tours/existing-generated-reconstruction",
     )
     monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
-    monkeypatch.setattr(
-        product_service,
-        "_hosted_property_tour_first_party_open_url",
-        lambda tour_url: (
-            "https://propertyquarry.com/tours/files/existing-generated-reconstruction/generated-reconstruction/viewer.html"
-            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/existing-generated-reconstruction"
-            else ""
-        ),
-    )
     monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda _tour_url: "")
     monkeypatch.setattr(
         ProductService,
@@ -17301,18 +17772,18 @@ def test_request_property_visual_asset_returns_ready_generated_reconstruction_wh
         diorama_style_hint="Urban jungle",
     )
 
-    assert result["status"] == "ready"
-    assert result["tour_status"] == "ready"
-    assert result["status_label"] == "Open 3D tour"
-    assert result["tour_url"] == "https://propertyquarry.com/tours/existing-generated-reconstruction"
-    assert result["open_tour_url"] == "https://propertyquarry.com/tours/files/existing-generated-reconstruction/generated-reconstruction/viewer.html"
-    assert result["generated_reconstruction_url"] == ""
+    assert result["status"] == "blocked"
+    assert result["tour_status"] == "blocked"
+    assert result["status_label"] == "3D tour not ready"
+    assert result["tour_url"] == ""
+    assert "open_tour_url" not in result
+    assert result["generated_reconstruction_url"] == "https://propertyquarry.com/tours/existing-generated-reconstruction"
     assert result["poll_after_seconds"] == 0
     assert persisted["run_id"] == "run-42"
     assert persisted["candidate_ref"] == "candidate-42"
-    assert dict(persisted["visual_state"])["tour_status"] == "ready"
-    assert dict(persisted["visual_state"])["tour_url"] == "https://propertyquarry.com/tours/existing-generated-reconstruction"
-    assert dict(persisted["visual_state"])["generated_reconstruction_url"] == ""
+    assert dict(persisted["visual_state"])["tour_status"] == "blocked"
+    assert dict(persisted["visual_state"])["tour_url"] == ""
+    assert dict(persisted["visual_state"])["generated_reconstruction_url"] == "https://propertyquarry.com/tours/existing-generated-reconstruction"
 
 
 def test_materialize_property_generated_reconstruction_url_returns_bundle_url_when_viewer_exists(
@@ -17329,7 +17800,96 @@ def test_materialize_property_generated_reconstruction_url_returns_bundle_url_wh
     bundle_dir = tmp_path / slug
     reconstruction_dir = bundle_dir / "generated-reconstruction"
     reconstruction_dir.mkdir(parents=True)
+    walkable_scene = {
+        "kind": "generated_reconstruction_layout",
+        "route": [
+            {
+                "label": "entry/hall",
+                "room": "entry/hall",
+                "name": "entry/hall",
+                "kind": "entry",
+                "sequence": 1,
+                "focus": {"x": -0.8, "y": 1.4, "z": 0.9},
+                "camera": {"x": -0.2, "y": 1.6, "z": 1.5},
+            },
+            {
+                "label": "living room",
+                "room": "living room",
+                "name": "living room",
+                "kind": "living",
+                "sequence": 2,
+                "focus": {"x": 0.4, "y": 1.4, "z": 0.1},
+                "camera": {"x": -0.1, "y": 1.6, "z": 0.8},
+            },
+            {
+                "label": "bedroom",
+                "room": "bedroom",
+                "name": "bedroom",
+                "kind": "bedroom",
+                "sequence": 3,
+                "focus": {"x": 0.7, "y": 1.4, "z": -0.7},
+                "camera": {"x": -0.05, "y": 1.6, "z": -0.1},
+            },
+        ],
+        "rooms": [
+            {
+                "label": "entry/hall",
+                "name": "entry/hall",
+                "kind": "entry",
+                "sequence": 1,
+                "position": {"x": -0.8, "y": 0.0, "z": 0.9},
+                "focus": {"x": -0.8, "y": 1.4, "z": 0.9},
+            },
+            {
+                "label": "living room",
+                "name": "living room",
+                "kind": "living",
+                "sequence": 2,
+                "position": {"x": 0.4, "y": 0.0, "z": 0.1},
+                "focus": {"x": 0.4, "y": 1.4, "z": 0.1},
+            },
+            {
+                "label": "bedroom",
+                "name": "bedroom",
+                "kind": "bedroom",
+                "sequence": 3,
+                "position": {"x": 0.7, "y": 0.0, "z": -0.7},
+                "focus": {"x": 0.7, "y": 1.4, "z": -0.7},
+            },
+        ],
+    }
+    route_labels = ["entry/hall", "living room", "bedroom"]
     (reconstruction_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (reconstruction_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
+    (reconstruction_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
+    (reconstruction_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
+    (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
+    (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo-1")
+    (reconstruction_dir / "reconstruction.json").write_text(
+        json.dumps(
+            {
+                "provider": "propertyquarry_generated_reconstruction",
+                "verified_provider_capture": False,
+                "satisfies_verified_tour_gate": False,
+                "room_dimensions_m": {"width": 8.0, "depth": 5.5, "height": 2.8},
+                "geometry": {"wall_rect_count": 8},
+                "walkable_scene": walkable_scene,
+                "route_labels": route_labels,
+                "viewer": {
+                    "relpath": "viewer.html",
+                    "version": "propertyquarry_3d_tour_viewer_v3",
+                },
+                "model": {
+                    "glb_export": {
+                        "status": "generated",
+                        "glb_relpath": "model.glb",
+                        "glb_size_bytes": 2052,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -17340,6 +17900,13 @@ def test_materialize_property_generated_reconstruction_url_returns_bundle_url_wh
                     "provider": "propertyquarry_generated_reconstruction",
                     "viewer_version": "propertyquarry_3d_tour_viewer_v3",
                     "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "material_relpath": "generated-reconstruction/model.mtl",
+                    "glb_model_relpath": "generated-reconstruction/model.glb",
+                    "glb_export_status": "generated",
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+                    "photo_relpaths": ["generated-reconstruction/photo-01.jpg"],
                     "verified_provider_capture": False,
                 },
             }
@@ -17382,7 +17949,7 @@ def test_materialize_property_generated_reconstruction_url_returns_bundle_url_wh
     assert result == tour_url
 
 
-def test_request_property_visual_asset_does_not_reuse_current_visual_state_generated_reconstruction(monkeypatch) -> None:
+def test_request_property_visual_asset_keeps_current_visual_state_generated_reconstruction_blocked(monkeypatch) -> None:
     principal_id = "property-tour-reuse-current-visual-state-generated-reconstruction"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -17398,15 +17965,7 @@ def test_request_property_visual_asset_does_not_reuse_current_visual_state_gener
     )
     monkeypatch.setattr(product_service, "_existing_hosted_property_tour_url_for_identity", lambda **kwargs: "")
     monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
-    monkeypatch.setattr(
-        product_service,
-        "_hosted_property_tour_first_party_open_url",
-        lambda tour_url: (
-            "https://propertyquarry.com/tours/files/current-visual-state-generated-reconstruction/generated-reconstruction/viewer.html"
-            if str(tour_url or "").strip() == "https://propertyquarry.com/tours/current-visual-state-generated-reconstruction"
-            else ""
-        ),
-    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_first_party_open_url", lambda _tour_url: "")
     monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda _tour_url: "")
     monkeypatch.setattr(
         ProductService,
@@ -17437,7 +17996,9 @@ def test_request_property_visual_asset_does_not_reuse_current_visual_state_gener
     assert result["status"] == "blocked"
     assert result["tour_status"] == "blocked"
     assert result["tour_url"] == ""
-    assert "open_tour_url" not in result
+    assert result.get("open_tour_url", "") == ""
+    assert result["blocked_reason"] == "listing_360_media_missing"
+    assert result.get("generated_reconstruction_url", "") == ""
 
 
 def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available(monkeypatch, tmp_path: Path) -> None:
@@ -26444,10 +27005,8 @@ def test_property_billing_surface_is_not_local_payment_state() -> None:
     assert stored.status_code == 200, stored.text
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
-
-    assert billing.status_code == 503
-    assert "Billing portal unavailable" in billing.text
-    assert "Your PropertyQuarry access stays active from the account page." in billing.text
+    assert billing.status_code == 303
+    assert billing.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_property_payfunnels_webhook_is_public_but_requires_pending_checkout(
@@ -27589,8 +28148,7 @@ def test_public_tour_control_embeds_external_3dvista_url() -> None:
         }
     )
 
-    assert "3D Tour" in html
-    assert "3DVista Control" not in html
+    assert "3DVista Control" in html
     assert 'src="https://example.3dvista.com/tours/top22/index.html"' in html
 
 
@@ -27624,9 +28182,7 @@ def test_public_tour_control_embeds_external_matterport_url() -> None:
         viewer_mode="matterport",
     )
 
-    assert "3D Tour" in html
-    assert "Matterport Control" not in html
-    assert "Matterport control" not in html
+    assert "Matterport Control" in html
     assert 'src="https://my.matterport.com/show/?m=TEST123&amp;mls=2"' in html
 
 
@@ -28120,6 +28676,259 @@ def test_public_tour_page_blocks_photo_gallery_fallback_bundle(monkeypatch: pyte
     assert "This old link no longer opens as a 3D tour." in response.text
 
 
+def test_public_tour_page_keeps_walkthrough_deep_link_on_entry_route(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "public-tour-walkthrough-deep-link"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Walkthrough deep link",
+                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                "video_relpath": "walkthrough.mp4",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "asset_relpath": "living.jpg",
+                    },
+                    {
+                        "name": "Plan",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan.jpg",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-walkthrough-deep-link")
+    response = client.get(f"/tours/{slug}?pane=flythrough-pane&autoplay=1", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "<video id=\"tour-video\"" in response.text
+    assert "/control/matterport" in response.text
+
+
+def test_public_tour_page_keeps_walkthrough_autoplay_on_entry_route_without_pane(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "public-tour-walkthrough-autoplay-only"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Walkthrough autoplay only",
+                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                "video_relpath": "walkthrough.mp4",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "asset_relpath": "living.jpg",
+                    },
+                    {
+                        "name": "Plan",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan.jpg",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-walkthrough-autoplay-only")
+    response = client.get(f"/tours/{slug}?autoplay=1", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "<video id=\"tour-video\"" in response.text
+    assert f"/tours/{slug}/walkthrough" in response.text
+    assert f"/tours/files/{slug}/walkthrough.mp4" not in response.text
+    assert "/control/matterport" in response.text
+
+
+def test_public_tour_control_does_not_embed_walkthrough_when_explicit_floorplan_pane_is_requested(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "public-tour-floorplan-pane-priority"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Floorplan pane priority",
+                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                "video_relpath": "walkthrough.mp4",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "asset_relpath": "living.jpg",
+                    },
+                    {
+                        "name": "Plan",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan.jpg",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-floorplan-pane-priority")
+    response = client.get(f"/tours/{slug}/control/matterport?pane=floorplan-pane&autoplay=1")
+
+    assert response.status_code == 200
+    assert "Matterport Control" in response.text
+    assert 'src="https://my.matterport.com/show/?m=REALBROWSER123"' in response.text
+    assert "<video" not in response.text
+    assert 'id="tour-video"' not in response.text
+    assert f"/tours/{slug}/walkthrough" in response.text
+    assert f"/tours/files/{slug}/walkthrough.mp4" not in response.text
+
+
+def test_public_tour_page_preserves_underlying_walkthrough_mime_type_on_sanitized_route(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "public-tour-walkthrough-webm"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Walkthrough webm",
+                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                "video_relpath": "walkthrough.webm",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "asset_relpath": "living.jpg",
+                    },
+                    {
+                        "name": "Plan",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan.jpg",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-walkthrough-webm")
+    response = client.get(f"/tours/{slug}?pane=flythrough-pane&autoplay=1", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert f'<source src="/tours/{slug}/walkthrough" type="video/webm">' in response.text
+    assert f"/tours/files/{slug}/walkthrough.webm" not in response.text
+
+
+def test_public_tour_control_keeps_walkthrough_deep_link_without_raw_asset_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "public-tour-control-walkthrough-deep-link"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Walkthrough control deep link",
+                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                "video_relpath": "walkthrough.mp4",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "asset_relpath": "living.jpg",
+                    },
+                    {
+                        "name": "Plan",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan.jpg",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-control-walkthrough-deep-link")
+    response = client.get(f"/tours/{slug}/control/matterport?pane=flythrough-pane&autoplay=1", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "<video id=\"tour-video\"" in response.text
+    assert f"/tours/{slug}/walkthrough" in response.text
+    assert f"/tours/files/{slug}/walkthrough.mp4" not in response.text
+
+
+def test_public_tour_control_preserves_underlying_walkthrough_mime_type_on_sanitized_route(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "public-tour-control-walkthrough-webm"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Walkthrough control webm",
+                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                "video_relpath": "walkthrough.webm",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "asset_relpath": "living.jpg",
+                    },
+                    {
+                        "name": "Plan",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan.jpg",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-control-walkthrough-webm")
+    response = client.get(f"/tours/{slug}/control/matterport?pane=flythrough-pane&autoplay=1", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert f'<source src="/tours/{slug}/walkthrough" type="video/webm">' in response.text
+    assert f"/tours/files/{slug}/walkthrough.webm" not in response.text
+
+
 def test_public_tour_control_krpano_route_requires_license(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     slug = "krpano-route-license-missing"
     bundle_dir = tmp_path / slug
@@ -28383,8 +29192,7 @@ def test_public_tour_control_3dvista_route_serves_only_declared_export(
     private_response = client.get(f"/tours/3dvista/{slug}/3dvista/private.json")
 
     assert control_response.status_code == 200
-    assert "3D Tour" in control_response.text
-    assert "3DVista Control" not in control_response.text
+    assert "3DVista Control" in control_response.text
     assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control_response.text
     assert entry_response.status_code == 200
     assert "3DVista" in entry_response.text
@@ -28528,8 +29336,7 @@ def test_public_tour_forced_provider_route_fails_closed_when_provider_missing(
     assert wrong_response.status_code == 404
     assert wrong_response.json()["error"]["code"] == "tour_control_matterport_export_missing"
     assert right_response.status_code == 200
-    assert "3D Tour" in right_response.text
-    assert "3DVista Control" not in right_response.text
+    assert "3DVista Control" in right_response.text
 
 
 def test_public_tour_matterport_control_uses_private_receipt_without_public_json_leak(
@@ -28564,8 +29371,7 @@ def test_public_tour_matterport_control_uses_private_receipt_without_public_json
     assert "matterport_url" not in payload_response.json()
     assert "source_virtual_tour_url" not in payload_response.json()
     assert control_response.status_code == 200
-    assert "3D Tour" in control_response.text
-    assert "Matterport Control" not in control_response.text
+    assert "Matterport Control" in control_response.text
     assert 'src="https://my.matterport.com/show/?m=PRIVATE123&amp;mls=2"' in control_response.text
 
 
@@ -28606,8 +29412,7 @@ def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_le
     assert "three_d_vista_url" not in payload_response.json()
     assert "source_virtual_tour_url" not in payload_response.json()
     assert control_response.status_code == 200
-    assert "3D Tour" in control_response.text
-    assert "3DVista Control" not in control_response.text
+    assert "3DVista Control" in control_response.text
     assert 'src="https://example.3dvista.com/tours/private-receipt/index.html"' in control_response.text
 
 
@@ -28903,6 +29708,41 @@ def test_hosted_property_tour_walkthrough_asset_url_requires_verified_published_
     ) == f"https://propertyquarry.com/tours/files/{verified_slug}/tour.mp4"
 
 
+def test_hosted_property_tour_walkthrough_open_url_prefers_branded_autoplay_entry(monkeypatch, tmp_path: Path) -> None:
+    slug = "verified-walkthrough-open"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.mp4").write_bytes(b"video")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "video_provider": "magicfit",
+                "video_relpath": "tour.mp4",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    branded_tour_url = f"https://propertyquarry.com/tours/{slug}"
+    branded_asset_url = f"https://propertyquarry.com/tours/files/{slug}/tour.mp4"
+    relative_asset_url = f"/tours/files/{slug}/tour.mp4"
+
+    assert property_tour_hosting._hosted_property_tour_walkthrough_open_url(
+        branded_tour_url
+    ) == f"https://propertyquarry.com/tours/{slug}?pane=flythrough-pane&autoplay=1"
+    assert property_tour_hosting._hosted_property_tour_walkthrough_open_url(
+        "",
+        branded_asset_url,
+    ) == f"https://propertyquarry.com/tours/{slug}?pane=flythrough-pane&autoplay=1"
+    assert property_tour_hosting._hosted_property_tour_walkthrough_open_url(
+        "",
+        relative_asset_url,
+    ) == f"/tours/{slug}?pane=flythrough-pane&autoplay=1"
+
+
 def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_from_verified_provider(
     monkeypatch,
     tmp_path: Path,
@@ -28991,43 +29831,137 @@ def test_hosted_property_tour_generated_reconstruction_bundle_ready_requires_vie
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    def _write_generated_reconstruction_bundle(bundle_dir: Path, slug: str, *, include_viewer: bool) -> None:
+        output_dir = bundle_dir / "generated-reconstruction"
+        output_dir.mkdir(parents=True)
+        route_labels = ["entry/hall", "living room", "bedroom"]
+        walkable_scene = {
+            "kind": "generated_reconstruction_layout",
+            "route": [
+                {
+                    "label": "entry/hall",
+                    "room": "entry/hall",
+                    "name": "entry/hall",
+                    "kind": "entry",
+                    "sequence": 1,
+                    "focus": {"x": -0.8, "y": 1.4, "z": 0.9},
+                    "camera": {"x": -0.2, "y": 1.6, "z": 1.5},
+                },
+                {
+                    "label": "living room",
+                    "room": "living room",
+                    "name": "living room",
+                    "kind": "living",
+                    "sequence": 2,
+                    "focus": {"x": 0.4, "y": 1.4, "z": 0.1},
+                    "camera": {"x": -0.1, "y": 1.6, "z": 0.8},
+                },
+                {
+                    "label": "bedroom",
+                    "room": "bedroom",
+                    "name": "bedroom",
+                    "kind": "bedroom",
+                    "sequence": 3,
+                    "focus": {"x": 0.7, "y": 1.4, "z": -0.7},
+                    "camera": {"x": -0.05, "y": 1.6, "z": -0.1},
+                },
+            ],
+            "rooms": [
+                {
+                    "label": "entry/hall",
+                    "name": "entry/hall",
+                    "kind": "entry",
+                    "sequence": 1,
+                    "position": {"x": -0.8, "y": 0.0, "z": 0.9},
+                    "focus": {"x": -0.8, "y": 1.4, "z": 0.9},
+                },
+                {
+                    "label": "living room",
+                    "name": "living room",
+                    "kind": "living",
+                    "sequence": 2,
+                    "position": {"x": 0.4, "y": 0.0, "z": 0.1},
+                    "focus": {"x": 0.4, "y": 1.4, "z": 0.1},
+                },
+                {
+                    "label": "bedroom",
+                    "name": "bedroom",
+                    "kind": "bedroom",
+                    "sequence": 3,
+                    "position": {"x": 0.7, "y": 0.0, "z": -0.7},
+                    "focus": {"x": 0.7, "y": 1.4, "z": -0.7},
+                },
+            ],
+        }
+        if include_viewer:
+            (output_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+        (output_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
+        (output_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
+        (output_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
+        (output_dir / "photo-01.jpg").write_bytes(b"photo-1")
+        (output_dir / "photo-02.jpg").write_bytes(b"photo-2")
+        (output_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
+        (output_dir / "reconstruction.json").write_text(
+            json.dumps(
+                {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "verified_provider_capture": False,
+                    "satisfies_verified_tour_gate": False,
+                    "room_dimensions_m": {"width": 10.0, "depth": 7.2, "height": 2.8},
+                    "geometry": {"wall_rect_count": 8},
+                    "walkable_scene": walkable_scene,
+                    "viewer": {
+                        "relpath": "viewer.html",
+                        "version": "propertyquarry_3d_tour_viewer_v3",
+                    },
+                    "model": {
+                        "glb_export": {
+                            "status": "generated",
+                            "glb_relpath": "model.glb",
+                            "glb_size_bytes": 2052,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (bundle_dir / "tour.json").write_text(
+            json.dumps(
+                {
+                    "slug": slug,
+                    "generated_reconstruction": {
+                        "provider": "propertyquarry_generated_reconstruction",
+                        "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                        "viewer_relpath": "generated-reconstruction/viewer.html",
+                        "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                        "model_relpath": "generated-reconstruction/model.obj",
+                        "material_relpath": "generated-reconstruction/model.mtl",
+                        "glb_model_relpath": "generated-reconstruction/model.glb",
+                        "glb_export_status": "generated",
+                        "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+                        "route_labels": route_labels,
+                        "room_stop_count": len(route_labels),
+                        "walkable_scene": walkable_scene,
+                        "photo_relpaths": [
+                            "generated-reconstruction/photo-01.jpg",
+                            "generated-reconstruction/photo-02.jpg",
+                        ],
+                        "verified_provider_capture": False,
+                        "satisfies_verified_tour_gate": False,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
     ready_slug = "generated-reconstruction-bundle-ready"
     ready_bundle_dir = tmp_path / ready_slug
     ready_bundle_dir.mkdir(parents=True)
-    (ready_bundle_dir / "generated-reconstruction").mkdir()
-    (ready_bundle_dir / "generated-reconstruction" / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
-    (ready_bundle_dir / "tour.json").write_text(
-        json.dumps(
-            {
-                "slug": ready_slug,
-                "generated_reconstruction": {
-                    "provider": "propertyquarry_generated_reconstruction",
-                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
-                    "viewer_relpath": "generated-reconstruction/viewer.html",
-                    "verified_provider_capture": False,
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    _write_generated_reconstruction_bundle(ready_bundle_dir, ready_slug, include_viewer=True)
     missing_slug = "generated-reconstruction-bundle-missing-viewer"
     missing_bundle_dir = tmp_path / missing_slug
     missing_bundle_dir.mkdir(parents=True)
-    (missing_bundle_dir / "generated-reconstruction").mkdir()
-    (missing_bundle_dir / "tour.json").write_text(
-        json.dumps(
-            {
-                "slug": missing_slug,
-                "generated_reconstruction": {
-                    "provider": "propertyquarry_generated_reconstruction",
-                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
-                    "viewer_relpath": "generated-reconstruction/viewer.html",
-                    "verified_provider_capture": False,
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    _write_generated_reconstruction_bundle(missing_bundle_dir, missing_slug, include_viewer=False)
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
     assert property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
@@ -29038,7 +29972,76 @@ def test_hosted_property_tour_generated_reconstruction_bundle_ready_requires_vie
     ) is False
 
 
-def test_hosted_property_tour_first_party_open_url_allows_generated_reconstruction_viewer(
+def test_generated_reconstruction_bundle_ready_rejects_missing_walkable_scene_route(monkeypatch, tmp_path: Path) -> None:
+    slug = "generated-reconstruction-bundle-missing-route"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    output_dir = bundle_dir / "generated-reconstruction"
+    output_dir.mkdir(parents=True)
+    (output_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (output_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
+    (output_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
+    (output_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
+    (output_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
+    (output_dir / "photo-01.jpg").write_bytes(b"photo-1")
+    (output_dir / "reconstruction.json").write_text(
+        json.dumps(
+            {
+                "provider": "propertyquarry_generated_reconstruction",
+                "verified_provider_capture": False,
+                "satisfies_verified_tour_gate": False,
+                "room_dimensions_m": {"width": 10.0, "depth": 7.2, "height": 2.8},
+                "geometry": {"wall_rect_count": 8},
+                "route_labels": ["entry/hall"],
+                "walkable_scene": {"kind": "generated_reconstruction_layout", "route": [], "rooms": []},
+                "viewer": {
+                    "relpath": "viewer.html",
+                    "version": "propertyquarry_3d_tour_viewer_v3",
+                },
+                "model": {
+                    "glb_export": {
+                        "status": "generated",
+                        "glb_relpath": "model.glb",
+                        "glb_size_bytes": 2052,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "material_relpath": "generated-reconstruction/model.mtl",
+                    "glb_model_relpath": "generated-reconstruction/model.glb",
+                    "glb_export_status": "generated",
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+                    "photo_relpaths": ["generated-reconstruction/photo-01.jpg"],
+                    "route_labels": ["entry/hall"],
+                    "room_stop_count": 1,
+                    "walkable_scene": {"kind": "generated_reconstruction_layout", "route": [], "rooms": []},
+                    "verified_provider_capture": False,
+                    "satisfies_verified_tour_gate": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
+        f"https://propertyquarry.com/tours/{slug}"
+    ) is False
+
+
+def test_hosted_property_tour_first_party_open_url_rejects_generated_reconstruction_viewer(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -29067,6 +30070,142 @@ def test_hosted_property_tour_first_party_open_url_allows_generated_reconstructi
         f"https://propertyquarry.com/tours/{slug}"
     ) == ""
     assert property_tour_hosting._hosted_property_tour_first_party_open_url(
+        f"https://propertyquarry.com/tours/{slug}"
+    ) == ""
+
+
+def test_hosted_property_tour_first_party_open_url_rejects_ready_generated_reconstruction_viewer(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-first-party-open-ready"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    walkable_scene = {
+        "kind": "generated_reconstruction_layout",
+        "route": [
+            {
+                "label": "entry/hall",
+                "room": "entry/hall",
+                "name": "entry/hall",
+                "kind": "entry",
+                "sequence": 1,
+                "focus": {"x": -0.8, "y": 1.4, "z": 0.9},
+                "camera": {"x": -0.2, "y": 1.6, "z": 1.5},
+            },
+            {
+                "label": "living room",
+                "room": "living room",
+                "name": "living room",
+                "kind": "living",
+                "sequence": 2,
+                "focus": {"x": 0.4, "y": 1.4, "z": 0.1},
+                "camera": {"x": -0.1, "y": 1.6, "z": 0.8},
+            },
+            {
+                "label": "bedroom",
+                "room": "bedroom",
+                "name": "bedroom",
+                "kind": "bedroom",
+                "sequence": 3,
+                "focus": {"x": 0.7, "y": 1.4, "z": -0.7},
+                "camera": {"x": -0.05, "y": 1.6, "z": -0.1},
+            },
+        ],
+        "rooms": [
+            {
+                "label": "entry/hall",
+                "name": "entry/hall",
+                "kind": "entry",
+                "sequence": 1,
+                "position": {"x": -0.8, "y": 0.0, "z": 0.9},
+                "focus": {"x": -0.8, "y": 1.4, "z": 0.9},
+            },
+            {
+                "label": "living room",
+                "name": "living room",
+                "kind": "living",
+                "sequence": 2,
+                "position": {"x": 0.4, "y": 0.0, "z": 0.1},
+                "focus": {"x": 0.4, "y": 1.4, "z": 0.1},
+            },
+            {
+                "label": "bedroom",
+                "name": "bedroom",
+                "kind": "bedroom",
+                "sequence": 3,
+                "position": {"x": 0.7, "y": 0.0, "z": -0.7},
+                "focus": {"x": 0.7, "y": 1.4, "z": -0.7},
+            },
+        ],
+    }
+    route_labels = ["entry/hall", "living room", "bedroom"]
+    (reconstruction_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (reconstruction_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
+    (reconstruction_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
+    (reconstruction_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
+    (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
+    (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo-1")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "material_relpath": "generated-reconstruction/model.mtl",
+                    "glb_model_relpath": "generated-reconstruction/model.glb",
+                    "glb_export_status": "generated",
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+                    "photo_relpaths": ["generated-reconstruction/photo-01.jpg"],
+                    "route_labels": route_labels,
+                    "room_stop_count": len(route_labels),
+                    "walkable_scene": walkable_scene,
+                    "verified_provider_capture": False,
+                    "satisfies_verified_tour_gate": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reconstruction_dir / "reconstruction.json").write_text(
+        json.dumps(
+            {
+                "provider": "propertyquarry_generated_reconstruction",
+                "verified_provider_capture": False,
+                "satisfies_verified_tour_gate": False,
+                "room_dimensions_m": {"width": 8.0, "depth": 5.5, "height": 2.8},
+                "geometry": {"wall_rect_count": 8},
+                "walkable_scene": walkable_scene,
+                "route_labels": route_labels,
+                "viewer": {
+                    "relpath": "viewer.html",
+                    "version": "propertyquarry_3d_tour_viewer_v3",
+                },
+                "model": {
+                    "glb_export": {
+                        "status": "generated",
+                        "glb_relpath": "model.glb",
+                        "glb_size_bytes": 2052,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(
+        f"https://propertyquarry.com/tours/{slug}"
+    ) == ""
+    assert property_tour_hosting._hosted_property_tour_first_party_open_url(
+        f"https://propertyquarry.com/tours/{slug}"
+    ) == ""
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_open_url(
         f"https://propertyquarry.com/tours/{slug}"
     ) == f"https://propertyquarry.com/tours/files/{slug}/generated-reconstruction/viewer.html"
 

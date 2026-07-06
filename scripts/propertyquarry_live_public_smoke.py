@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Callable
 
 
+PUBLIC_DEMO_RUN_PATH = "/app/shortlist/run/public-demo-run"
+OPAQUE_PUBLIC_SAMPLE_RUN_PATH = "/app/shortlist/run/0a89ead9e0b048288cca22d1aac54fa7"
+PUBLIC_SAMPLE_RUN_PATHS = {PUBLIC_DEMO_RUN_PATH, OPAQUE_PUBLIC_SAMPLE_RUN_PATH}
+
 DEFAULT_ROUTES = (
     "/",
     "/security",
@@ -33,6 +37,8 @@ DEFAULT_ROUTES = (
     "/robots.txt",
     "/sitemap.xml",
     "/app/properties",
+    PUBLIC_DEMO_RUN_PATH,
+    OPAQUE_PUBLIC_SAMPLE_RUN_PATH,
 )
 
 DEFAULT_BILLING_WORKER_ROUTES = (
@@ -55,6 +61,8 @@ PUBLIC_HTML_ROUTES = {
     "/register",
     "/sign-in",
     "/app/properties",
+    PUBLIC_DEMO_RUN_PATH,
+    OPAQUE_PUBLIC_SAMPLE_RUN_PATH,
 }
 
 FORBIDDEN_VISIBLE_INTERNAL_COPY = (
@@ -115,6 +123,7 @@ def _security_header_checks(*, path: str, final_url: str, headers: dict[str, obj
         "/register",
         "/sign-in",
         "/app/properties",
+        *PUBLIC_SAMPLE_RUN_PATHS,
     }
     if path not in html_like_paths:
         return []
@@ -251,7 +260,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             (
                 (
                     "sign_in_minimal_copy",
-                    "Use a saved session, email link, or connected identity." in text
+                    "Use email or one of the sign-in options below." in text
                     and "Identity only" not in text
                     and "Identity-only." not in text
                     and "Google?" not in text
@@ -259,7 +268,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 ),
                 (
                     "sign_in_connected_identity_creates_account",
-                    "First-time connected sign-in" in text
+                    "First sign-in" in text
                     and "creates the account automatically" in text,
                 ),
                 (
@@ -399,6 +408,27 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                     or "/app/properties" in final_url,
                 ),
                 ("not_public_home_leak", "Search once. See the right homes. Decide faster." not in text),
+            )
+        )
+    elif path in PUBLIC_SAMPLE_RUN_PATHS:
+        checks.extend(
+            (
+                ("public_fast_run_sample_copy", "Sample homes" in text),
+                (
+                    "public_fast_run_open_property",
+                    "Open property" in visible_text and "/app/example/shortlist?candidate=" in text,
+                ),
+                (
+                    "public_fast_run_diorama_payload",
+                    bool(
+                        re.search(
+                            r"(?:telegram-preview|diorama-preview|scene-01|example-shortlist-home-1)\.(?:png|jpg)",
+                            text,
+                            re.IGNORECASE,
+                        )
+                    ),
+                ),
+                ("public_fast_run_not_sign_in", "Use email or one of the sign-in options below." not in visible_text),
             )
         )
     return checks

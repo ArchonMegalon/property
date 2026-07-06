@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -12,6 +13,10 @@ from pathlib import Path, PurePosixPath
 
 
 PUBLIC_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
+MAGICFIT_HOSTED_VIDEO_RE = re.compile(
+    r"^https://(?:cdn\.pushowl\.com|media\.powlcdn\.com)/magicfit/[^\"'\s<>]+?\.(?:mp4|webm)(?:[?#][^\"'\s<>]*)?$",
+    re.IGNORECASE,
+)
 
 
 def _public_tour_dir() -> Path:
@@ -134,6 +139,15 @@ def _load_magicfit_receipt(path_value: str, *, source: Path, slug: str, allow_un
             raise SystemExit(f"magicfit_receipt_output_invalid:{type(exc).__name__}") from exc
     if not _receipt_target_matches_slug(payload, slug=slug):
         raise SystemExit("magicfit_receipt_target_mismatch")
+    backend = str(payload.get("provider_backend_key") or "").strip().lower()
+    if backend != "magicfit":
+        raise SystemExit("magicfit_receipt_backend_mismatch")
+    render_status = str(payload.get("render_status") or "").strip().lower()
+    if render_status not in {"completed", "rendered", "success", "succeeded"}:
+        raise SystemExit("magicfit_receipt_render_incomplete")
+    hosted_video_url = str(payload.get("hosted_walkthrough_video_url") or payload.get("video_output_url") or "").strip()
+    if not MAGICFIT_HOSTED_VIDEO_RE.match(hosted_video_url):
+        raise SystemExit("magicfit_receipt_hosted_video_unverified")
     return payload, str(receipt_path)
 
 
@@ -200,10 +214,13 @@ def main() -> int:
     shutil.copy2(source, target)
 
     payload["video_provider"] = "magicfit"
+    payload["video_provider_backend_key"] = "magicfit"
     payload["video_relpath"] = target_relpath
     payload["video_coverage_proof"] = "boundary_verified_frame_continuation"
     magicfit_import = {
         "source": "magicfit_rendered_walkthrough",
+        "provider_backend_key": "magicfit",
+        "proof_status": "pass",
         "imported_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "target_relpath": target_relpath,
         "sha256": _sha256(target),
@@ -224,6 +241,7 @@ def main() -> int:
                 "video_relpath": target_relpath,
                 "video_url": f"/tours/files/{slug}/{target_relpath}",
                 "provider": "magicfit",
+                "provider_backend_key": "magicfit",
             },
             ensure_ascii=False,
         )

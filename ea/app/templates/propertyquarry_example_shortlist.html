@@ -224,8 +224,11 @@
       <p>This is a sample results path. Each row opens the same way a finished search should open: clear title, useful context, then the next action.</p>
       <div class="pq-example-actions">
         <a class="btn primary" href="{{ start_search_href }}">Start your own search</a>
+        {% if selected_example.get('action_href') %}
+        <a class="btn" href="{{ selected_example.get('action_href') }}">{{ selected_example.get('action_label') or 'Open property' }}</a>
+        {% endif %}
         {% if selected_example.get('tour_href') %}
-        <a class="btn" href="{{ selected_example.get('tour_href') }}">Open 3D tour</a>
+        <a class="btn{% if selected_example.get('action_href') %} ghost{% endif %}" href="{{ selected_example.get('tour_href') }}">Open 3D tour</a>
         {% endif %}
         {% if selected_example.get('walkthrough_href') %}
         <a class="btn ghost" href="{{ selected_example.get('walkthrough_href') }}">Open walkthrough</a>
@@ -264,8 +267,11 @@
         <strong><a href="{{ row.get('href') }}">{{ row.get('title') }}</a></strong>
         <span>{{ row.get('detail') }}</span>
         <small>{{ row.get('area_label') }} · {{ row.get('price_label') }} · {{ row.get('layout_label') }}</small>
-        {% if row.get('tour_href') or row.get('walkthrough_href') %}
+        {% if row.get('action_href') or row.get('tour_href') or row.get('walkthrough_href') %}
         <div class="pq-example-row-actions">
+          {% if row.get('action_href') %}
+          <a class="pq-example-soft" href="{{ row.get('action_href') }}">{{ row.get('action_label') or 'Open property' }}</a>
+          {% endif %}
           {% if row.get('tour_href') %}
           <a class="pq-example-soft" href="{{ row.get('tour_href') }}">Open 3D tour</a>
           {% endif %}

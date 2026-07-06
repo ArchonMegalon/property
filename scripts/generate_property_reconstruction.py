@@ -171,6 +171,132 @@ def _reconstruction_walkthrough_route_labels(
     return [f"room stop {index}" for index in range(1, fallback_room_count + 1)]
 
 
+def _route_label_kind(label: object) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(label or "").strip().lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized:
+        return "generic"
+    if any(token in normalized for token in ("entry", "hall", "foyer", "vorraum", "flur")):
+        return "entry"
+    if any(token in normalized for token in ("stair", "treppe", "stiege", "duplex", "maisonette", "mezzanine", "split level")):
+        return "stairs"
+    if any(token in normalized for token in ("bath", "bad", "badezimmer")):
+        return "bath"
+    if any(token in normalized for token in ("toilet", "wc")):
+        return "toilet"
+    if any(token in normalized for token in ("storage", "abstell")):
+        return "storage"
+    if any(token in normalized for token in ("balcony", "terrace", "balkon", "terrasse", "loggia")):
+        return "outdoor"
+    if any(token in normalized for token in ("kitchen", "kuche", "küche", "wohnkuche", "wohnküche")):
+        return "kitchen"
+    if any(token in normalized for token in ("dining", "esszimmer")):
+        return "dining"
+    if any(token in normalized for token in ("bedroom", "schlaf")):
+        return "bedroom"
+    if "living" in normalized or "wohn" in normalized:
+        return "living"
+    return "generic"
+
+
+def _reconstruction_walkable_scene(
+    *,
+    route_labels: list[str] | tuple[str, ...],
+    width_m: float,
+    depth_m: float,
+    height_m: float,
+) -> dict[str, object]:
+    normalized_labels = [
+        _compact_route_label(label)
+        for label in list(route_labels or [])
+        if _compact_route_label(label)
+    ]
+    if not normalized_labels:
+        normalized_labels = ["entry/hall"]
+    inner_width = max(1.2, width_m * 0.34)
+    inner_depth = max(1.2, depth_m * 0.34)
+    semantic_anchors: dict[str, tuple[float, float]] = {
+        "entry": (-0.28, 0.30),
+        "stairs": (-0.08, 0.10),
+        "bath": (-0.26, -0.26),
+        "toilet": (-0.12, -0.28),
+        "storage": (-0.30, -0.10),
+        "kitchen": (0.10, 0.14),
+        "living": (0.20, 0.00),
+        "dining": (0.28, -0.04),
+        "bedroom": (0.24, -0.24),
+        "outdoor": (0.34, -0.34),
+        "generic": (0.00, 0.00),
+    }
+    fallback_anchors: list[tuple[float, float]] = [
+        (-0.28, 0.26),
+        (-0.10, 0.18),
+        (0.14, 0.12),
+        (0.26, 0.00),
+        (0.22, -0.18),
+        (0.00, -0.26),
+        (-0.22, -0.18),
+    ]
+    stop_positions: list[tuple[float, float]] = []
+    used_positions: list[tuple[float, float]] = []
+    for index, label in enumerate(normalized_labels):
+        kind = _route_label_kind(label)
+        base_x, base_z = semantic_anchors.get(kind, semantic_anchors["generic"])
+        if kind == "bedroom":
+            bedroom_offset = min(0.18, 0.12 * sum(1 for prior in normalized_labels[:index] if _route_label_kind(prior) == "bedroom"))
+            base_x = max(-0.32, base_x - bedroom_offset)
+        elif kind == "generic":
+            base_x, base_z = fallback_anchors[index % len(fallback_anchors)]
+        candidate = (base_x, base_z)
+        if any(abs(candidate[0] - used_x) < 0.06 and abs(candidate[1] - used_z) < 0.06 for used_x, used_z in used_positions):
+            fallback_x, fallback_z = fallback_anchors[index % len(fallback_anchors)]
+            candidate = (fallback_x, fallback_z)
+        used_positions.append(candidate)
+        stop_positions.append(candidate)
+
+    def _clamp(value: float, lower: float, upper: float) -> float:
+        return max(lower, min(upper, value))
+
+    route: list[dict[str, object]] = []
+    rooms: list[dict[str, object]] = []
+    eye_y = round(max(1.45, min(height_m * 0.58, height_m - 0.3)), 3)
+    target_y = round(max(1.2, min(height_m * 0.5, eye_y - 0.18)), 3)
+    for index, (label, (nx, nz)) in enumerate(zip(normalized_labels, stop_positions), start=1):
+        kind = _route_label_kind(label)
+        focus_x = round(nx * inner_width, 3)
+        focus_z = round(nz * inner_depth, 3)
+        offset_x = 0.72 if focus_x < 0 else -0.72
+        offset_z = 0.92 if focus_z < 0.18 else 0.58
+        camera_x = round(_clamp(focus_x + offset_x, -(width_m * 0.42), width_m * 0.42), 3)
+        camera_z = round(_clamp(focus_z + offset_z, -(depth_m * 0.42), depth_m * 0.42), 3)
+        stop = {
+            "label": label,
+            "room": label,
+            "name": label,
+            "kind": kind,
+            "sequence": index,
+            "focus": {"x": focus_x, "y": target_y, "z": focus_z},
+            "camera": {"x": camera_x, "y": eye_y, "z": camera_z},
+        }
+        route.append(stop)
+        rooms.append(
+            {
+                "label": label,
+                "name": label,
+                "kind": kind,
+                "sequence": index,
+                "position": {"x": focus_x, "y": 0.0, "z": focus_z},
+                "focus": {"x": focus_x, "y": target_y, "z": focus_z},
+            }
+        )
+    return {
+        "kind": "generated_reconstruction_layout",
+        "bounds": {"width_m": round(width_m, 3), "depth_m": round(depth_m, 3), "height_m": round(height_m, 3)},
+        "rooms": rooms,
+        "route": route,
+    }
+
+
 def _public_tour_dir() -> Path:
     configured = str(os.getenv("EA_PUBLIC_TOUR_DIR") or "").strip()
     if configured:
@@ -726,10 +852,29 @@ def _viewer_html(*, manifest: dict[str, object]) -> str:
     photos = manifest.get("photos") if isinstance(manifest.get("photos"), list) else []
     geometry = dict(manifest.get("geometry") or {}) if isinstance(manifest.get("geometry"), dict) else {}
     wall_rectangles = geometry.get("wall_rectangles") if isinstance(geometry.get("wall_rectangles"), list) else []
+    walkable_scene = dict(manifest.get("walkable_scene") or {}) if isinstance(manifest.get("walkable_scene"), dict) else {}
+    route_stops = list(walkable_scene.get("route") or []) if isinstance(walkable_scene.get("route"), list) else []
     style_label = str(manifest.get("style_label") or "").strip()
     escaped_style = html.escape(style_label)
     style_copy = f'<span>{escaped_style}</span>' if escaped_style else ""
     floorplan_relpath = html.escape(str(dict(manifest.get("floorplan") or {}).get("relpath") or "source-floorplan.jpg"))
+    route_items = "\n".join(
+        f'<button class="route-button" type="button" data-route-index="{index}">{html.escape(str(stop.get("label") or stop.get("room") or stop.get("name") or f"Stop {index + 1}"))}</button>'
+        for index, stop in enumerate(route_stops)
+        if isinstance(stop, dict)
+    )
+    route_section = (
+        f"""
+    <section class="panel" aria-label="Room route">
+      <div class="panel-head">
+        <p>Room route</p>
+        <span>{len(route_stops)}</span>
+      </div>
+      <div class="route-buttons">{route_items}</div>
+    </section>"""
+        if route_items
+        else ""
+    )
     photo_items = "\n".join(
         f'<img src="{html.escape(str(row["relpath"]))}" alt="Room photo {index}" loading="lazy">'
         for index, row in enumerate(photos, start=1)
@@ -838,6 +983,28 @@ def _viewer_html(*, manifest: dict[str, object]) -> str:
     .viewer-chip:hover {{
       border-color:rgba(167,124,43,.42);
     }}
+    .route-buttons {{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }}
+    .route-button {{
+      border:1px solid var(--line);
+      border-radius:999px;
+      background:rgba(255,255,255,.52);
+      color:var(--ink);
+      min-height:38px;
+      padding:0 12px;
+      font:inherit;
+      font-size:13px;
+      font-weight:600;
+      cursor:pointer;
+    }}
+    .route-button[data-active="true"] {{
+      border-color:rgba(167,124,43,.5);
+      background:rgba(167,124,43,.12);
+      color:#6c4c16;
+    }}
     aside {{ display:flex; flex-direction:column; gap:12px; min-width:0; }}
     .panel {{ border:1px solid var(--line); border-radius:24px; background:var(--panel); padding:14px; box-shadow:0 16px 44px rgba(60,40,18,.08); }}
     .panel-head {{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }}
@@ -895,6 +1062,7 @@ def _viewer_html(*, manifest: dict[str, object]) -> str:
       <div><b>{depth_m}</b><span>m deep</span></div>
       <div><b>{height_m}</b><span>m high</span></div>
     </section>
+    {route_section}
     <section class="panel">
       <div class="panel-head">
         <p>Floorplan</p>
@@ -920,6 +1088,9 @@ const viewport = document.getElementById("viewport");
 const overviewButton = document.getElementById("view-overview");
 const insideButton = document.getElementById("view-inside");
 const wallRectangles = {json.dumps(wall_rectangles, ensure_ascii=False)};
+const walkableScene = {json.dumps(walkable_scene, ensure_ascii=False)};
+const routeStops = Array.isArray(walkableScene.route) ? walkableScene.route.filter((stop) => stop && typeof stop === "object") : [];
+const routeButtons = Array.from(document.querySelectorAll(".route-button"));
 const roomWidth = {json.dumps(width_m)};
 const roomDepth = {json.dumps(depth_m)};
 const roomHeight = {json.dumps(height_m)};
@@ -999,6 +1170,40 @@ for (const wall of wallRectangles) {{
   scene.add(edges);
 }}
 
+const routeMarkerGroup = new THREE.Group();
+scene.add(routeMarkerGroup);
+const routeMarkers = [];
+const routeMarkerMaterial = new THREE.MeshStandardMaterial({{
+  color: 0xa77c2b,
+  roughness: 0.36,
+  metalness: 0.04,
+}});
+const routeLinePoints = [];
+for (const stop of routeStops) {{
+  const focus = stop.focus && typeof stop.focus === "object" ? stop.focus : null;
+  if (!focus) continue;
+  const marker = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16, 0.16, 0.028, 28),
+    routeMarkerMaterial.clone(),
+  );
+  marker.position.set(Number(focus.x || 0), 0.016, Number(focus.z || 0));
+  marker.receiveShadow = true;
+  routeMarkerGroup.add(marker);
+  routeMarkers.push(marker);
+  routeLinePoints.push(new THREE.Vector3(Number(focus.x || 0), 0.018, Number(focus.z || 0)));
+}}
+if (routeLinePoints.length >= 2) {{
+  const routeLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(routeLinePoints),
+    new THREE.LineBasicMaterial({{
+      color: 0xc2ab83,
+      transparent: true,
+      opacity: 0.7,
+    }})
+  );
+  routeMarkerGroup.add(routeLine);
+}}
+
 const outline = new THREE.Mesh(
   new THREE.PlaneGeometry(roomWidth * 1.01, roomDepth * 1.01),
   new THREE.MeshBasicMaterial({{
@@ -1019,13 +1224,44 @@ function setOverviewView() {{
 }}
 
 function setInsideView() {{
+  if (routeStops.length) {{
+    setRouteView(0);
+    return;
+  }}
   camera.position.set(-roomWidth * 0.12, roomHeight * 0.78, roomDepth * 0.18);
   controls.target.set(roomWidth * 0.2, roomHeight * 0.66, -roomDepth * 0.28);
   controls.update();
 }}
 
+let activeRouteIndex = -1;
+function setActiveRouteButton(index) {{
+  routeButtons.forEach((button, buttonIndex) => {{
+    button.dataset.active = buttonIndex === index ? "true" : "false";
+  }});
+  routeMarkers.forEach((marker, markerIndex) => {{
+    marker.scale.setScalar(markerIndex === index ? 1.28 : 1.0);
+    marker.material.color.set(markerIndex === index ? 0xb9892f : 0xa77c2b);
+  }});
+  activeRouteIndex = index;
+}}
+
+function setRouteView(index) {{
+  if (!routeStops.length) {{
+    return;
+  }}
+  const boundedIndex = Math.max(0, Math.min(index, routeStops.length - 1));
+  const stop = routeStops[boundedIndex] || routeStops[0];
+  const focus = stop.focus && typeof stop.focus === "object" ? stop.focus : {{}};
+  const cameraStop = stop.camera && typeof stop.camera === "object" ? stop.camera : {{}};
+  camera.position.set(Number(cameraStop.x || 0), Number(cameraStop.y || roomHeight * 0.78), Number(cameraStop.z || 0));
+  controls.target.set(Number(focus.x || 0), Number(focus.y || roomHeight * 0.6), Number(focus.z || 0));
+  controls.update();
+  setActiveRouteButton(boundedIndex);
+}}
+
 overviewButton?.addEventListener("click", setOverviewView);
 insideButton?.addEventListener("click", setInsideView);
+routeButtons.forEach((button, index) => button.addEventListener("click", () => setRouteView(index)));
 
 function resize() {{
   const width = Math.max(320, viewport.clientWidth || 320);
@@ -1038,10 +1274,14 @@ function resize() {{
 window.addEventListener("resize", resize);
 resize();
 setOverviewView();
+if (routeStops.length) {{
+  setActiveRouteButton(0);
+}}
 
 window.__pqReconstructionDebug = {{
   setOverviewView,
   setInsideView,
+  setRouteView,
   getRenderMetrics() {{
     const canvas = renderer.domElement;
     if (!canvas) {{
@@ -1104,6 +1344,8 @@ window.__pqReconstructionDebug = {{
       wallRectCount: Number(wallRectangles.length || 0),
       wallMeshCount: Number(wallMeshes.length || 0),
       visibleWallCount: Number(visibleWallCount || 0),
+      routeStopCount: Number(routeStops.length || 0),
+      activeRouteIndex: Number(activeRouteIndex || 0),
       sceneChildCount: Number(scene.children.length || 0),
       sampleWidth: Number(canvas.width || 0),
       sampleHeight: Number(canvas.height || 0),
@@ -1388,6 +1630,12 @@ def main() -> int:
         explicit_labels=list(args.room_label or []),
         explicit_room_count=int(args.room_count or 0),
     )
+    walkable_scene = _reconstruction_walkable_scene(
+        route_labels=route_labels,
+        width_m=width_m,
+        depth_m=depth_m,
+        height_m=height_m,
+    )
     walkthrough = (
         {"status": "skipped", "reason": "skip_video_requested"}
         if args.skip_video
@@ -1420,6 +1668,7 @@ def main() -> int:
         },
         "floorplan": floorplan_meta,
         "photos": photo_rows,
+        "walkable_scene": walkable_scene,
         "model": {
             "obj_relpath": "model.obj",
             "mtl_relpath": "model.mtl",
@@ -1429,6 +1678,7 @@ def main() -> int:
         },
         "viewer": {"relpath": "viewer.html", "version": VIEWER_VERSION},
         "walkthrough": walkthrough,
+        "route_labels": route_labels,
     }
     if glb_export.get("status") == "generated":
         receipt["model"]["glb_relpath"] = str(glb_export.get("glb_relpath") or "model.glb")
@@ -1452,6 +1702,10 @@ def main() -> int:
         "verified_provider_capture": False,
         "satisfies_verified_tour_gate": False,
         "disclosure": DISCLOSURE,
+        "route_labels": route_labels,
+        "room_stop_count": len(route_labels),
+        "walkable_scene": walkable_scene,
+        "walkable_scene_kind": str(walkable_scene.get("kind") or "").strip(),
     }
     floorplan_relpath = str(dict(receipt.get("floorplan") or {}).get("relpath") or "").strip()
     if floorplan_relpath:
@@ -1473,6 +1727,9 @@ def main() -> int:
             generated_reconstruction["walkthrough_sidecar_relpath"] = f"{base_relpath}/{walkthrough.get('sidecar_relpath')}"
         if isinstance(walkthrough.get("coverage_proof"), dict):
             generated_reconstruction["walkthrough_coverage_proof"] = walkthrough["coverage_proof"]
+    if route_labels:
+        payload["room_visit_plan"] = route_labels
+        payload["covered_route_labels"] = route_labels
     payload["generated_reconstruction"] = generated_reconstruction
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     runtime_publish = _sync_bundle_to_runtime_container(bundle_dir, slug=slug)

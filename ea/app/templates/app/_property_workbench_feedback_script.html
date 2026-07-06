@@ -139,7 +139,7 @@
       if (!normalizedRows.length) {
         const empty = document.createElement('div');
         empty.className = 'pqx-note';
-        empty.textContent = 'No tracked follow-up yet.';
+        empty.textContent = 'No follow-up yet.';
         node.appendChild(empty);
         return;
       }
@@ -187,7 +187,7 @@
       }
       if (candidate.packet_url) {
         appendActionControl(node, {
-          label: 'Open property page',
+          label: 'Open property',
           href: String(candidate.packet_url || ''),
           link: true,
           primary: !tour.url,
@@ -211,10 +211,10 @@
       details.style.marginTop = '12px';
       const summary = document.createElement('summary');
       const summaryTitle = document.createElement('strong');
-      summaryTitle.textContent = 'More actions';
+      summaryTitle.textContent = 'More';
       const summaryNote = document.createElement('span');
       summaryNote.className = 'pqx-note';
-      summaryNote.textContent = 'Open the listing, share the shortlist, or request remote visuals only when you need them.';
+      summaryNote.textContent = 'Open the listing, share it, or request visuals.';
       summary.append(summaryTitle, summaryNote);
       details.appendChild(summary);
       const actions = document.createElement('div');
@@ -290,7 +290,7 @@
       const candidateRef = String(candidate.candidate_ref || '').trim();
       if (candidate.packet_url) {
         appendActionControl(node, {
-          label: 'Open property page',
+          label: 'Open property',
           href: String(candidate.packet_url || ''),
           link: true,
           primary: true,
@@ -325,8 +325,8 @@
       clearNode(clippyAnswerNode);
       appendEventCard(
         clippyAnswerNode,
-        body?.name || 'Property answer',
-        body?.answer || 'No answer returned.',
+        body?.name || 'Answer',
+        body?.answer || 'No answer yet.',
       );
       evidence.forEach((row) => {
         appendEventCard(
@@ -374,7 +374,7 @@
             return;
           }
           if (action === 'ask_agent' && row.question) {
-            if (clippyStatusNode) clippyStatusNode.textContent = 'Writing agent follow-up into the timeline...';
+            if (clippyStatusNode) clippyStatusNode.textContent = 'Saving question...';
             try {
               const response = await fetch('/app/api/property-feedback', {
                 method: 'POST',
@@ -393,10 +393,10 @@
                 }),
               });
               const payload = await response.json().catch(() => ({}));
-              if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not record the agent question.'));
-              if (clippyStatusNode) clippyStatusNode.textContent = 'Agent follow-up recorded in the timeline.';
+              if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not save the question.'));
+              if (clippyStatusNode) clippyStatusNode.textContent = 'Question saved.';
             } catch (error) {
-              if (clippyStatusNode) clippyStatusNode.textContent = error instanceof Error ? error.message : 'Could not record the agent question.';
+              if (clippyStatusNode) clippyStatusNode.textContent = error instanceof Error ? error.message : 'Could not save the question.';
             }
           }
         });
@@ -492,7 +492,7 @@
       if (!rows.length) {
         const empty = document.createElement('div');
         empty.className = 'pqx-note';
-        empty.textContent = 'No agent question generated yet.';
+        empty.textContent = 'No next question yet.';
         feedbackQuestionsNode.appendChild(empty);
         return;
       }
@@ -521,11 +521,11 @@
       const suppression = Array.isArray(body?.suppression_explanation) ? body.suppression_explanation : [];
       const rows = [];
       if (ledger?.decision_state) {
-        rows.push(['Decision state', String(ledger.decision_state).replaceAll('_', ' ')]);
+        rows.push(['Saved decision', String(ledger.decision_state).replaceAll('_', ' ')]);
       }
-      questions.slice(0, 3).forEach((row) => rows.push(['Agent question', row?.question_text || row?.next_action || 'Question drafted.']));
-      documents.slice(0, 3).forEach((row) => rows.push(['Document request', `${String(row?.document_type || 'document').replaceAll('_', ' ')} · ${String(row?.verification_state || 'pending').replaceAll('_', ' ')}`]));
-      suppression.slice(0, 3).forEach((line) => rows.push(['Future search', line]));
+      questions.slice(0, 3).forEach((row) => rows.push(['Question', row?.question_text || row?.next_action || 'Question ready.']));
+      documents.slice(0, 3).forEach((row) => rows.push(['Document', `${String(row?.document_type || 'document').replaceAll('_', ' ')} · ${String(row?.verification_state || 'pending').replaceAll('_', ' ')}`]));
+      suppression.slice(0, 3).forEach((line) => rows.push(['Next search', line]));
       clearNode(feedbackConsequencesNode);
       if (!rows.length) {
         const empty = document.createElement('div');
@@ -547,11 +547,11 @@
       const nextActions = Array.isArray(body?.next_actions) ? body.next_actions : [];
       const rows = [];
       if (latestDecision?.decision_state) {
-        rows.push(['Current state', String(latestDecision.decision_state).replaceAll('_', ' ')]);
+        rows.push(['Saved decision', String(latestDecision.decision_state).replaceAll('_', ' ')]);
       }
       questions.slice(0, 2).forEach((row) => rows.push([
-        `Agent question${row?.status ? ` · ${String(row.status).replaceAll('_', ' ')}` : ''}`,
-        row?.question_text || 'Question drafted.',
+        `Question${row?.status ? ` · ${String(row.status).replaceAll('_', ' ')}` : ''}`,
+        row?.question_text || 'Question ready.',
       ]));
       documents.slice(0, 2).forEach((row) => rows.push([
         `Document${row?.verification_state ? ` · ${String(row.verification_state).replaceAll('_', ' ')}` : ''}`,
@@ -573,14 +573,14 @@
       if (followupsNode) {
         const persistedFollowups = [
           ...questions.slice(0, 3).map((row) => ({
-            title: 'Agent question',
-            detail: row?.question_text || 'Question drafted.',
+            title: 'Question',
+            detail: row?.question_text || 'Question ready.',
             tag: String(row?.status || 'drafted').replaceAll('_', ' '),
             task_id: String(row?.task_id || ''),
             kind: 'agent_question',
           })),
           ...documents.slice(0, 3).map((row) => ({
-            title: 'Document request',
+            title: 'Document',
             detail: String(row?.document_type || 'document').replaceAll('_', ' '),
             tag: String(row?.verification_state || 'pending').replaceAll('_', ' '),
             document_id: String(row?.document_id || ''),
@@ -649,7 +649,7 @@
         if (!response.ok) throw new Error(readableErrorDetail(body.detail || body.error || body, 'Could not update the follow-up.'));
         renderPersistedDecisionState(body);
         if (followupStatusNode) followupStatusNode.textContent = kind === 'agent_question'
-          ? `Agent question marked ${String(nextValue).replaceAll('_', ' ')}.`
+          ? `Question marked ${String(nextValue).replaceAll('_', ' ')}.`
           : `Document marked ${String(nextValue).replaceAll('_', ' ')}.`;
       } catch (error) {
         if (followupStatusNode) followupStatusNode.textContent = error instanceof Error ? error.message : 'Could not update the follow-up.';
@@ -911,26 +911,26 @@
         renderReasonCards(match, candidate.match_reasons, { emptyTitle: 'No match notes yet.', defaultTitle: 'Fit' });
       });
       const objections = root.querySelector('[data-pw-objections]');
-      renderReasonCards(objections, candidate.objection_rows, { emptyTitle: 'No objection captured yet.', defaultTitle: 'Objection' });
-      renderReasonCards(householdNode, candidate.household_rows, { emptyTitle: 'No household vote captured yet.', defaultTitle: 'Stakeholder' });
+      renderReasonCards(objections, candidate.objection_rows, { emptyTitle: 'No saved concerns yet.', defaultTitle: 'Concern' });
+      renderReasonCards(householdNode, candidate.household_rows, { emptyTitle: 'No household note yet.', defaultTitle: 'Household' });
       if (householdScoreNode) householdScoreNode.textContent = `Alignment score ${Number(candidate.household_alignment_score || 0)}/100`;
       if (householdLabelNode) householdLabelNode.textContent = String(candidate.household_alignment_label || 'waiting');
-      renderReasonCards(riskSignalsNode, candidate.risk_signal_rows, { emptyTitle: 'No shared note yet.', defaultTitle: 'Shared watch-out' });
+      renderReasonCards(riskSignalsNode, candidate.risk_signal_rows, { emptyTitle: 'No shared watch-out yet.', defaultTitle: 'Watch-out' });
       renderReasonCards(recentChangesNode, candidate.recent_change_rows, { emptyTitle: 'No new updates yet.', defaultTitle: 'Change' });
       if (officialPostureNode) {
         renderEventCards(
           officialPostureNode,
           candidate.official_posture_rows,
-          'Official check',
-          'No official check has been attached yet for the selected property.',
+          'Public data',
+          'No public-data note has been added yet for this home.',
         );
       }
       if (officialEvidenceNode) {
         renderEventCards(
           officialEvidenceNode,
           candidate.official_evidence_rows,
-          'Official data',
-          'No official local-data row is attached yet for the selected property.',
+          'Public data',
+          'No nearby public-data note has been added yet for this home.',
         );
       }
       if (followupsNode) {
@@ -1018,6 +1018,11 @@
         url.searchParams.set('candidate', candidate.candidate_ref || '');
         window.history.replaceState({}, '', url);
       }
+      if (typeof refreshSelectedCandidatePreview === 'function') {
+        window.setTimeout(() => {
+          refreshSelectedCandidatePreview(String(candidate.candidate_ref || '').trim());
+        }, 0);
+      }
     };
     function bindWorkbenchRows(scope = root) {
       scope.querySelectorAll('[data-workbench-row]').forEach((row) => {
@@ -1103,5 +1108,13 @@
     });
     const urlCandidate = new URL(window.location.href).searchParams.get('candidate');
     if (urlCandidate) selectCandidate(urlCandidate, { updateUrl: false });
+    else if (typeof refreshSelectedCandidatePreview === 'function') {
+      const initialSelectedRef = String(root.querySelector('[data-workbench-row][aria-selected="true"]')?.getAttribute('data-candidate-ref') || candidates[0]?.candidate_ref || '').trim();
+      if (initialSelectedRef) {
+        window.setTimeout(() => {
+          refreshSelectedCandidatePreview(initialSelectedRef);
+        }, 0);
+      }
+    }
     return { applyResearchTaskSnapshot };
     })();

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import re
 import urllib.parse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -14,8 +13,8 @@ from app.api.routes.landing import (
     app_shell,
 )
 from app.api.routes.landing_property_research import (
+    _customer_facing_vendor_tour_url,
     _evidence_detail_rows,
-    _generated_reconstruction_preview_detail,
     _object_detail_row,
     _property_candidate_ref,
     _property_distance_ooda_rows,
@@ -26,7 +25,10 @@ from app.api.routes.landing_property_research import (
     _render_console_object_detail,
 )
 from app.api.routes.landing_content import app_nav_groups_for_brand
-from app.api.routes.landing_view_models import PROPERTY_FURNITURE_STYLE_CATALOG
+from app.api.routes.landing_view_models import (
+    PROPERTY_FURNITURE_STYLE_CATALOG,
+    _clean_property_candidate_copy as _shared_clean_property_candidate_copy,
+)
 from app.container import AppContainer
 from app.product import property_tour_hosting
 from app.product.service import (
@@ -39,6 +41,7 @@ from app.product.service import (
     _property_visual_unavailable_detail,
     build_product_service,
 )
+from app.services.property_customer_copy import summarize_property_description_copy
 from app.services.public_branding import request_brand
 
 router = APIRouter(tags=["landing"])
@@ -80,33 +83,7 @@ def _property_fit_label(assessment: dict[str, object]) -> str:
 
 
 def _propertyquarry_clean_listing_copy(value: object) -> str:
-    text = " ".join(str(value or "").split()).strip()
-    if not text:
-        return ""
-    if " - " in text:
-        head, tail = text.rsplit(" - ", 1)
-        tail_normalized = tail.strip().lower()
-        if tail_normalized and (
-            "." in tail_normalized
-            or any(
-                marker in tail_normalized
-                for marker in (
-                    "willhaben",
-                    "immoscout",
-                    "immobilienscout",
-                    "immowelt",
-                    "idealista",
-                    "remax",
-                    "immobilien",
-                )
-            )
-        ):
-            text = head.strip()
-    text = re.sub(r"\.?\s*Wählen Sie aus .*?$", "", text, flags=re.IGNORECASE).strip()
-    text = re.sub(r"\.?\s*Immobilien suchen und finden auf .*?$", "", text, flags=re.IGNORECASE).strip()
-    text = re.sub(r"\s+\|\s+", " · ", text)
-    text = re.sub(r"\s+I\s+", " · ", text)
-    return text.strip(" -·|")
+    return _shared_clean_property_candidate_copy(value)
 
 
 def _propertyquarry_layout_summary(facts: dict[str, object]) -> str:
@@ -225,11 +202,6 @@ def _handoff_property_visual_actions(
     running_states = {"processing", "running", "in_progress", "started", "rendering", "repairing"}
     terminal_states = {"blocked", "failed", "skipped", "not_applicable"}
     actions: list[dict[str, object]] = []
-    generated_preview_ready = bool(
-        media_payload.get("generated_reconstruction_ready")
-        or list(media_payload.get("carousel_items") or [])
-    )
-
     tour_url = str(candidate.get("tour_url") or "").strip()
     hosted_tour_ready = bool(media_payload.get("hosted_ready"))
     tour_status = str(candidate.get("tour_status") or "").strip().lower()
@@ -268,11 +240,7 @@ def _handoff_property_visual_actions(
                         "state": "idle",
                         "progress_pct": 0,
                         "eta_label": "",
-                        "status_detail": (
-                            _generated_reconstruction_preview_detail()
-                            if generated_preview_ready
-                            else "A real 3D tour is not available yet."
-                        ),
+                        "status_detail": "A real 3D tour is not available yet.",
                         "poll_after_seconds": 0,
                     }
                 )
@@ -286,7 +254,7 @@ def _handoff_property_visual_actions(
                     "progress_pct": max(tour_progress_pct, 14),
                     "eta_label": tour_eta_label,
                     "status_detail": (
-                        "Still queued. Taking longer than usual."
+                        "Still queued."
                         if tour_eta_label.startswith("delayed")
                         else f"Queued{f' · {tour_eta_label}' if tour_eta_label else ''}."
                     ),
@@ -303,7 +271,7 @@ def _handoff_property_visual_actions(
                     "progress_pct": max(tour_progress_pct, 58),
                     "eta_label": tour_eta_label,
                     "status_detail": (
-                        "Still rendering. Taking longer than usual."
+                        "Still rendering."
                         if tour_eta_label.startswith("delayed")
                         else f"Rendering{f' · {tour_eta_label}' if tour_eta_label else ''}."
                     ),
@@ -317,14 +285,10 @@ def _handoff_property_visual_actions(
                         **base,
                         "kind": "tour",
                         "label": "Retry 3D tour" if tour_status in {"blocked", "failed"} else "Request 3D tour",
-                        "state": "idle",
+                        "state": tour_status or "blocked",
                         "progress_pct": 0,
                         "eta_label": "",
-                        "status_detail": (
-                            _generated_reconstruction_preview_detail()
-                            if generated_preview_ready
-                            else _property_visual_unavailable_detail(request_kind="tour", reason=tour_reason)
-                        ),
+                        "status_detail": _property_visual_unavailable_detail(request_kind="tour", reason=tour_reason),
                         "poll_after_seconds": 0,
                     }
                 )
@@ -337,11 +301,7 @@ def _handoff_property_visual_actions(
                     "state": "idle",
                     "progress_pct": 0,
                     "eta_label": "",
-                    "status_detail": (
-                        _generated_reconstruction_preview_detail()
-                        if generated_preview_ready
-                        else "Build from source material."
-                    ),
+                    "status_detail": "Use the floor plan and photos to build one.",
                     "poll_after_seconds": 0,
                 }
             )
@@ -397,7 +357,7 @@ def _handoff_property_visual_actions(
                     "state": "pending",
                     "progress_pct": max(flythrough_progress_pct, 18),
                     "eta_label": flythrough_eta_label,
-                    "status_detail": live_walkthrough_detail or ("Queued. This page updates automatically." if not flythrough_eta_label.startswith("delayed") else "Still queued. Taking longer than usual."),
+                    "status_detail": live_walkthrough_detail or ("Queued." if not flythrough_eta_label.startswith("delayed") else "Still queued."),
                     "poll_after_seconds": 10,
                     "walkthrough_provider": "magicfit",
                 }
@@ -411,7 +371,7 @@ def _handoff_property_visual_actions(
                     "state": "rendering",
                     "progress_pct": max(flythrough_progress_pct, 64),
                     "eta_label": flythrough_eta_label,
-                    "status_detail": live_walkthrough_detail or ("Rendering now. Opens here when ready." if not flythrough_eta_label.startswith("delayed") else "Still rendering. Taking longer than usual."),
+                    "status_detail": live_walkthrough_detail or ("Rendering." if not flythrough_eta_label.startswith("delayed") else "Still rendering."),
                     "poll_after_seconds": 10,
                     "walkthrough_provider": "magicfit",
                 }
@@ -423,7 +383,7 @@ def _handoff_property_visual_actions(
                         **base,
                         "kind": "flythrough",
                         "label": "Retry walkthrough" if flythrough_status in {"blocked", "failed"} else "Request walkthrough",
-                        "state": "idle",
+                        "state": flythrough_status or "blocked",
                         "progress_pct": 0,
                         "eta_label": "",
                         "status_detail": live_walkthrough_detail or _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason),
@@ -440,7 +400,7 @@ def _handoff_property_visual_actions(
                     "state": "idle",
                     "progress_pct": 0,
                     "eta_label": "",
-                    "status_detail": "Build from source material.",
+                    "status_detail": "Use the floor plan and photos to build one.",
                     "poll_after_seconds": 0,
                     "walkthrough_provider": "magicfit",
                 }
@@ -453,6 +413,7 @@ def _propertyquarry_candidate_visual_request_enabled(candidate: dict[str, object
     safe_live_360_url = _safe_provider_live_360_url(
         candidate.get("source_virtual_tour_url") or facts.get("source_virtual_tour_url")
     )
+    customer_vendor_tour_url = _customer_facing_vendor_tour_url(candidate.get("vendor_tour_url"))
     has_floorplan = bool(
         candidate.get("floorplan_url")
         or facts.get("has_floorplan")
@@ -463,7 +424,7 @@ def _propertyquarry_candidate_visual_request_enabled(candidate: dict[str, object
     return bool(
         str(candidate.get("tour_url") or "").strip()
         or str(candidate.get("generated_reconstruction_url") or "").strip()
-        or str(candidate.get("vendor_tour_url") or "").strip()
+        or customer_vendor_tour_url
         or safe_live_360_url
         or has_floorplan
     )
@@ -671,41 +632,8 @@ def _append_propertyquarry_media_item(
     )
 
 
-def _propertyquarry_generated_reconstruction_carousel_items(
-    *,
-    tour_url: str,
-    candidate: dict[str, object],
-) -> list[dict[str, str]]:
+def _propertyquarry_media_carousel_items(candidate: dict[str, object]) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
-    if tour_url:
-        for index, asset_url in enumerate(
-            property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_urls(tour_url),
-            start=1,
-        ):
-            _append_propertyquarry_media_item(
-                items,
-                href=asset_url,
-                label="Diorama" if index == 1 else f"Photo {index}",
-                kind="photo",
-            )
-        floorplan_url = property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
-            tour_url,
-            asset_key="floorplan_relpath",
-        )
-        _append_propertyquarry_media_item(
-            items,
-            href=floorplan_url,
-            label="Floor plan",
-            kind="floorplan",
-        )
-        preview_url = property_tour_hosting._hosted_property_tour_preview_image_url(tour_url)
-        _append_propertyquarry_media_item(
-            items,
-            href=preview_url,
-            label="Preview",
-            kind="preview",
-        )
-
     for key in ("image_url", "thumbnail_url", "preview_image_url", "primary_image_url"):
         _append_propertyquarry_media_item(
             items,
@@ -812,9 +740,6 @@ def _propertyquarry_handoff_media_payload(
         candidate=media_candidate,
     )
     if _property_hosted_tour_disabled_fallback(media_candidate.get("tour_url")):
-        media_candidate["generated_reconstruction_url"] = str(
-            media_candidate.get("generated_reconstruction_url") or media_candidate.get("tour_url") or ""
-        ).strip()
         media_candidate["tour_url"] = ""
         if str(media_candidate.get("tour_status") or "").strip().lower() in {
             "",
@@ -827,19 +752,43 @@ def _propertyquarry_handoff_media_payload(
             media_candidate["tour_status"] = "blocked"
     media_payload = dict(_property_tour_media_payload(media_candidate))
     resolved_tour_url = str(media_candidate.get("tour_url") or "").strip()
+    ready_tour_href = ""
     if resolved_tour_url:
-        media_payload["primary_href"] = str(
-            property_tour_hosting._hosted_property_tour_first_party_open_url(resolved_tour_url) or resolved_tour_url
-        ).strip()
+        if property_tour_hosting._is_branded_public_tour_url(resolved_tour_url):
+            ready_tour_href = str(property_tour_hosting._hosted_property_tour_first_party_open_url(resolved_tour_url) or "").strip()
+        else:
+            ready_tour_href = resolved_tour_url
+    if ready_tour_href:
+        media_payload["primary_href"] = ready_tour_href
         media_payload["primary_label"] = "Open 3D tour"
         media_payload["status_label"] = "3D tour available"
+        media_payload["status_detail"] = (
+            "3D tour is ready."
+            if property_tour_hosting._is_branded_public_tour_url(resolved_tour_url)
+            else "3D tour is ready to review."
+        )
     elif property_url and str(media_payload.get("primary_href") or "").strip() == f"/app/handoffs/{handoff_ref}":
         media_payload["primary_href"] = property_url
         media_payload["primary_label"] = "Open listing"
-    media_payload["carousel_items"] = _propertyquarry_generated_reconstruction_carousel_items(
-        tour_url=str(media_candidate.get("generated_reconstruction_url") or media_candidate.get("tour_url") or tour_url).strip(),
-        candidate=media_candidate,
-    )
+    current_handoff_href = f"/app/handoffs/{handoff_ref}"
+    if str(media_payload.get("secondary_href") or "").strip() == current_handoff_href:
+        media_payload["secondary_href"] = ""
+        media_payload["secondary_label"] = ""
+    if str(media_payload.get("primary_href") or "").strip() == property_url and property_url:
+        media_payload["primary_label"] = "Open listing"
+    primary_href = str(media_payload.get("primary_href") or "").strip()
+    secondary_href = str(media_payload.get("secondary_href") or "").strip()
+    tertiary_href = str(media_payload.get("tertiary_href") or "").strip()
+    if secondary_href and secondary_href == primary_href:
+        media_payload["secondary_href"] = ""
+        media_payload["secondary_label"] = ""
+        secondary_href = ""
+    if tertiary_href and tertiary_href in {primary_href, secondary_href}:
+        media_payload["tertiary_href"] = ""
+        media_payload["tertiary_label"] = ""
+    media_payload["generated_reconstruction_ready"] = False
+    media_payload["generated_reconstruction_href"] = ""
+    media_payload["carousel_items"] = _propertyquarry_media_carousel_items(media_candidate)
     tour_request_enabled = _propertyquarry_candidate_visual_request_enabled(media_candidate)
     flythrough_request_enabled = bool(str(media_candidate.get("tour_url") or "").strip()) or tour_request_enabled
     request_actions = _handoff_property_visual_actions(
@@ -852,7 +801,20 @@ def _propertyquarry_handoff_media_payload(
         (
             action
             for action in request_actions
-            if str(action.get("state") or "").strip().lower() in {"pending", "queued", "rendering", "processing", "running", "in_progress", "started"}
+            if str(action.get("state") or "").strip().lower() in {
+                "pending",
+                "queued",
+                "rendering",
+                "processing",
+                "running",
+                "in_progress",
+                "started",
+                "blocked",
+                "failed",
+                "skipped",
+                "not_applicable",
+                "unavailable",
+            }
         ),
         None,
     )
@@ -953,7 +915,7 @@ def commitment_detail(
         page_title=f"PropertyQuarry {commitment.statement}",
         current_nav="queue",
         console_title=commitment.statement,
-        console_summary="Commitment source, owner, due date, risk, and recent ledger activity.",
+        console_summary="Commitment source, owner, due date, risk, and recent activity.",
         object_kind="Commitment ledger",
         object_title=commitment.statement,
         object_summary=f"{commitment.counterparty or 'Office loop'} · {commitment.status.replace('_', ' ')}",
@@ -974,8 +936,8 @@ def commitment_detail(
         ],
         object_sections=[
             {
-                "eyebrow": "Evidence",
-                "title": "Supporting evidence",
+                "eyebrow": "Sources",
+                "title": "Linked sources",
                 "items": _evidence_detail_rows(commitment.proof_refs),
             },
             {
@@ -1067,7 +1029,7 @@ def decision_detail(
         page_title=f"PropertyQuarry {decision.title}",
         current_nav="queue",
         console_title=decision.title,
-        console_summary="Decision context, ownership, deadline pressure, and supporting evidence.",
+        console_summary="Decision context, ownership, deadline pressure, and linked sources.",
         object_kind="Decision queue",
         object_title=decision.title,
         object_summary=decision.summary or "This decision is open in the office loop.",
@@ -1079,20 +1041,20 @@ def decision_detail(
             {"label": "Status", "value": str(decision.status or "open").replace("_", " ").title()},
             {"label": "Schedule", "value": str(decision.sla_status or "unscheduled").replace("_", " ").title()},
         ],
-        object_sidebar_title="Decision context",
-        object_sidebar_copy="Owner, timing, next step, and supporting notes stay in one place.",
+        object_sidebar_title="Current state",
+        object_sidebar_copy="Owner, timing, next step, and linked notes stay in one place.",
         object_sidebar_rows=[
             _object_detail_row("Recommendation", decision.recommendation or "No recommendation projected yet.", "Recommend"),
             _object_detail_row("Next action", decision.next_action or "No next action projected yet.", "Next"),
             _object_detail_row("Impact", decision.impact_summary or "Impact has not been projected yet.", "Impact"),
             _object_detail_row("Rationale", decision.rationale or "No rationale projected yet.", "Why"),
-            _object_detail_row("Evidence attached", f"{len(decision.evidence_refs or [])} supporting refs attached to this decision.", "Evidence"),
+            _object_detail_row("Sources attached", f"{len(decision.evidence_refs or [])} linked sources attached to this decision.", "Sources"),
             _object_detail_row("Schedule", str(decision.sla_status or "unscheduled").replace("_", " ").title(), "Timing"),
             _object_detail_row("Timing", decision.summary or "This decision is still active.", "Priority"),
         ],
         object_sections=[
             {
-                "eyebrow": "Decision summary",
+                "eyebrow": "Summary",
                 "title": "Next step",
                 "items": [
                     _object_detail_row(
@@ -1110,8 +1072,8 @@ def decision_detail(
                 ],
             },
             {
-                "eyebrow": "Evidence",
-                "title": "Supporting evidence",
+                "eyebrow": "Sources",
+                "title": "Linked sources",
                 "items": _evidence_detail_rows(decision.evidence_refs),
             },
             {
@@ -1407,7 +1369,7 @@ def handoff_detail(
             or handoff.summary
             or "Property review"
         ) or "Property review"
-        clean_summary = _propertyquarry_clean_listing_copy(
+        clean_summary = summarize_property_description_copy(
             input_json.get("summary")
             or primary_candidate.get("summary")
             or handoff.summary
@@ -1416,7 +1378,7 @@ def handoff_detail(
         object_summary = _propertyquarry_summary_line(property_facts)
         object_meta = _propertyquarry_meta_rows(property_facts)
         why_consider_detail = match_reasons[0] if match_reasons else (
-            clean_summary or "This home lines up well enough with the current brief for a closer look."
+            clean_summary or "This home lines up well enough with your search for a closer look."
         )
         check_details: list[str] = []
         for detail in (mismatch_reasons[:1] + unknowns[:1]):
@@ -1430,7 +1392,7 @@ def handoff_detail(
             else "Open the listing and photos, then decide whether this deserves a viewing."
         )
         ooda_rows = [
-            _object_detail_row("Why it may suit you", why_consider_detail, ""),
+            _object_detail_row("Why it works", why_consider_detail, ""),
             _object_detail_row(
                 "Check before deciding",
                 " ".join(check_details) if check_details else "No clear blocker is standing out yet.",
@@ -1467,8 +1429,8 @@ def handoff_detail(
                 principal_id=context.principal_id,
             ),
             object_meta=object_meta,
-            object_ooda_kicker="At a glance",
-            object_ooda_title="Why it may suit you",
+            object_ooda_kicker="Quick read",
+            object_ooda_title="Why choose it",
             object_ooda_copy="",
             object_ooda_rows=ooda_rows,
             object_sidebar_title="",
@@ -1485,7 +1447,7 @@ def handoff_detail(
             retry_detail=retry_detail,
         )
         tour_url = str(handoff.tour_url or input_json.get("tour_url") or "").strip()
-        vendor_tour_url = str(input_json.get("vendor_tour_url") or "").strip()
+        vendor_tour_url = _customer_facing_vendor_tour_url(input_json.get("vendor_tour_url"))
         property_url = str(handoff.property_url or input_json.get("property_url") or "").strip()
         media_candidate = {
             "title": handoff.summary,
@@ -1510,8 +1472,79 @@ def handoff_detail(
             "flythrough_status_updated_at": input_json.get("flythrough_status_updated_at") or "",
             "flythrough_progress_pct": input_json.get("flythrough_progress_pct") or "",
         }
+        property_facts = (
+            dict(input_json.get("property_facts_json") or {})
+            if isinstance(input_json.get("property_facts_json"), dict)
+            else {}
+        )
+        if isinstance(media_candidate.get("property_facts"), dict):
+            property_facts = {**dict(media_candidate.get("property_facts") or {}), **property_facts}
+        if str(handoff.task_type or "").strip() == "property_tour_followup" and property_url:
+            clean_title = _propertyquarry_clean_listing_copy(input_json.get("title") or handoff.summary or "Property") or "Property"
+            media_payload = _propertyquarry_handoff_media_payload(
+                handoff_ref=handoff_ref,
+                handoff=handoff,
+                input_json=input_json,
+                primary_candidate=media_candidate,
+                product=product,
+                principal_id=context.principal_id,
+            )
+            object_summary = _propertyquarry_summary_line(property_facts) or customer_status_label
+            object_meta = _propertyquarry_meta_rows(property_facts)
+            request_kind = str(input_json.get("request_kind") or "").strip().lower()
+            request_label = "Walkthrough" if request_kind == "flythrough" else "3D tour"
+            visual_status_detail = customer_status_detail
+            if not visual_status_detail:
+                visual_status_detail = (
+                    str(media_payload.get("request_status_detail") or "").strip()
+                    or str(media_payload.get("status_detail") or "").strip()
+                )
+            next_step_detail = (
+                "Open the 3D tour and decide whether this home deserves a viewing."
+                if tour_url
+                else "Open the listing while the visual is being prepared."
+            )
+            ooda_rows = [
+                _object_detail_row(
+                    request_label,
+                    visual_status_detail or customer_status_detail,
+                    "",
+                ),
+                _object_detail_row(
+                    "Next",
+                    next_step_detail,
+                    "",
+                    href=tour_url or property_url or f"/app/handoffs/{handoff_ref}",
+                    secondary_action_href=property_url if tour_url and property_url else "",
+                    secondary_action_label="Open listing" if tour_url and property_url else "",
+                    secondary_action_method="get" if tour_url and property_url else "",
+                ),
+            ]
+            ooda_rows.extend(_property_distance_ooda_rows(property_facts))
+            return _render_console_object_detail(
+                request=request,
+                context=context,
+                workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
+                page_title=f"PropertyQuarry {clean_title}",
+                current_nav="research",
+                console_title=clean_title,
+                console_summary="",
+                object_kind="Home",
+                object_title=clean_title,
+                object_summary=object_summary,
+                object_media=media_payload,
+                object_meta=object_meta,
+                object_ooda_kicker="Quick read",
+                object_ooda_title="What stands out",
+                object_ooda_copy="",
+                object_ooda_rows=ooda_rows,
+                object_sidebar_title="",
+                object_sidebar_copy="",
+                object_sidebar_rows=[],
+                object_sections=[],
+            )
         next_step_detail = customer_status_detail
-        next_step_label = "What to do next"
+        next_step_label = "Next"
         primary_action_href = ""
         primary_action_label = ""
         secondary_action_href = ""
@@ -1558,10 +1591,10 @@ def handoff_detail(
                 {"label": "Type", "value": str(handoff.task_type or "follow_up").replace("_", " ").title()},
                 {"label": "Due", "value": str(handoff.due_time or "")[:10] or "No due date"},
             ],
-            object_sidebar_title="What to do next",
+            object_sidebar_title="Open now",
             object_sidebar_copy="",
             object_sidebar_rows=[
-                _object_detail_row("Current status", customer_status_detail, "Status"),
+                _object_detail_row("Status", customer_status_detail, "Status"),
                 _object_detail_row(
                     next_step_label,
                     next_step_detail,
@@ -1612,38 +1645,7 @@ def handoff_detail(
                     else []
                 ),
             ],
-            object_sections=[
-                *(
-                    [
-                        {
-                            "eyebrow": "Supporting context",
-                            "title": "Attached evidence",
-                            "items": _evidence_detail_rows(handoff.evidence_refs),
-                        }
-                    ]
-                    if handoff.evidence_refs
-                    else []
-                ),
-                *(
-                    [
-                        {
-                            "eyebrow": "Recent updates",
-                            "title": "What changed",
-                            "items": [
-                                _object_detail_row(
-                                    str(getattr(item, "event_name", "") or "update").replace("_", " ").title(),
-                                    " · ".join(part for part in (str(item.detail or "").strip(), str(item.created_at or "")[:10]) if part)
-                                    or "Update recorded.",
-                                    "Update",
-                                )
-                                for item in history_rows[:5]
-                            ],
-                        }
-                    ]
-                    if history_rows
-                    else []
-                ),
-            ],
+            object_sections=[],
         )
     return _render_console_object_detail(
         request=request,
@@ -1652,7 +1654,7 @@ def handoff_detail(
         page_title=f"PropertyQuarry {handoff.summary}",
         current_nav="settings",
         console_title=handoff.summary,
-        console_summary="Assignment state, escalation pressure, evidence, and recent handoff routing history.",
+        console_summary="Assignment state, escalation pressure, linked sources, and recent routing history.",
         object_kind="Handoffs",
         object_title=handoff.summary,
         object_summary=f"{handoff.owner or 'Office'} · {handoff.status.replace('_', ' ')}",
@@ -1663,8 +1665,8 @@ def handoff_detail(
             {"label": "Escalation", "value": str(handoff.escalation_status or "normal").title()},
             {"label": "Status", "value": str(handoff.status or "pending").replace("_", " ").title()},
         ],
-        object_sidebar_title="Operator workflow",
-        object_sidebar_copy="A handoff shows who owns it, whether it is waiting on the principal, and what evidence supports the transfer.",
+        object_sidebar_title="Current state",
+        object_sidebar_copy="This page shows who owns it, what is blocked, and what happens next.",
         object_sidebar_rows=[
             _object_detail_row("Queue item", handoff.queue_item_ref or "No queue item ref attached.", "Queue"),
             _object_detail_row("Draft ref", handoff.draft_ref or "No draft is attached to this handoff.", "Draft"),
@@ -1726,13 +1728,13 @@ def handoff_detail(
                 action_method="post" if property_tour_followup_open else "",
                 return_to=f"/app/handoffs/{handoff_ref}" if property_tour_followup_open else "",
             ),
-            _object_detail_row("Evidence attached", f"{len(handoff.evidence_refs or [])} evidence refs attached to this handoff.", "Evidence"),
+            _object_detail_row("Sources attached", f"{len(handoff.evidence_refs or [])} linked sources attached to this follow-up.", "Sources"),
             _object_detail_row("Assignment state", str(handoff.status or "pending").replace("_", " "), "Status"),
         ],
         object_sections=[
             {
-                "eyebrow": "Evidence",
-                "title": "Supporting evidence",
+                "eyebrow": "Sources",
+                "title": "Linked sources",
                 "items": _evidence_detail_rows(handoff.evidence_refs),
             },
             {
@@ -1952,8 +1954,8 @@ def thread_detail(
                 ],
             },
             {
-                "eyebrow": "Evidence",
-                "title": "Supporting evidence",
+                "eyebrow": "Sources",
+                "title": "Linked sources",
                 "items": _evidence_detail_rows(thread.evidence_refs),
             },
             {

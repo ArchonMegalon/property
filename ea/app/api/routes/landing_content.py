@@ -257,7 +257,7 @@ PUBLIC_TRUST_PAGES = {
         "faqs": (
             {
                 "question": "Is a score a recommendation to buy or rent?",
-                "answer": "No. A score is a ranking signal based on the current brief and available listing details. The final decision remains with the user.",
+                "answer": "No. A score is a ranking signal based on your search and the available listing details. The final decision remains with the user.",
             },
             {
                 "question": "Can generated tours replace a viewing?",
@@ -298,7 +298,7 @@ PUBLIC_TRUST_PAGES = {
                 "body": "PropertyQuarry is a property research product. Listing-site content, public data, generated media, and investment views stay bound to their origin, observation date, and disclosure limits.",
                 "items": (
                     "Generated tours and summaries are screening aids, not measured surveys.",
-                    "Scores rank fit against the current brief; they are not legal, financial, valuation, or safety advice.",
+                    "Scores rank fit against your search; they are not legal, financial, valuation, or safety advice.",
                     "Listing-site rights, availability, and market readiness can limit which sites appear in a search.",
                 ),
             },
@@ -462,7 +462,7 @@ PUBLIC_TRUST_PAGES = {
         "band": (
             {
                 "title": "Generated visualization",
-                "body": "Tours and furnished previews are illustrative unless they come from a live provider embed. Check dimensions, finishes, and condition in the real property.",
+                "body": "Tours and furnished images are illustrative unless they come from a live provider embed. Check dimensions, finishes, and condition in the real property.",
             },
             {
                 "title": "Investment research",

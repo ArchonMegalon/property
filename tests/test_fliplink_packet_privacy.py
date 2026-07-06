@@ -7,6 +7,7 @@ from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, Prop
 from app.services.fliplink.pdf_renderer import (
     _claim_bound_dossier_sections,
     _localize_compare_reason,
+    _localize_fit_summary,
     render_property_packet_pdf,
     render_property_packet_pdf_legacy,
 )
@@ -97,6 +98,17 @@ def test_fliplink_compare_reason_localizer_uses_fit_note_language() -> None:
 
     assert "nächstbesten Alternative" not in text
     assert "Ein brauchbarer Grundriss liegt bereits vor." in text
+
+
+def test_fliplink_fit_summary_localizer_strips_provider_marketing_copy() -> None:
+    text = _localize_fit_summary(
+        "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+        "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+    )
+
+    assert text == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert "Wählen Sie aus" not in text
+    assert "Immobilien suchen und finden" not in text
 
 
 def test_claim_bound_dossier_sections_omit_internal_writer_status() -> None:

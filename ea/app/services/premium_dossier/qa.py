@@ -1,10 +1,125 @@
 from __future__ import annotations
 
+import base64
 from io import BytesIO
+import json
+import os
 from pathlib import Path
 import re
+import subprocess
+import sys
+import tempfile
 
 from app.services.premium_dossier.models import PremiumDossierQualityReport
+
+
+def _helper_python() -> str:
+    explicit = str(os.getenv("PROPERTYQUARRY_DOSSIER_QA_PYTHON") or os.getenv("PROPERTYQUARRY_PLAYWRIGHT_PYTHON") or "").strip()
+    if explicit:
+        return explicit
+    for candidate in ("/docker/property/.venv/bin/python", "/tmp/pq-playwright/bin/python"):
+        if Path(candidate).exists():
+            return candidate
+    return sys.executable
+
+
+def _qa_helper_code() -> str:
+    return """
+import base64
+import json
+import sys
+from io import BytesIO
+from pathlib import Path
+
+mode = sys.argv[1]
+pdf_path = Path(sys.argv[2])
+payload = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
+artifact_bytes = pdf_path.read_bytes()
+
+def extract_text(artifact_bytes):
+    if not artifact_bytes.startswith(b"%PDF"):
+        return ""
+    try:
+        import pypdfium2 as pdfium
+
+        pdf = pdfium.PdfDocument(BytesIO(artifact_bytes))
+        pages_text = []
+        for index, page in enumerate(pdf):
+            if index >= 20:
+                break
+            pages_text.append(str(page.get_textpage().get_text_range() or ""))
+        return "\\n".join(pages_text)
+    except Exception:
+        pass
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(artifact_bytes))
+        text = "\\n".join(str(page.extract_text() or "") for page in reader.pages[:20])
+        return text.strip() and text or ""
+    except Exception:
+        return ""
+
+def render_preview(artifact_bytes, output_path):
+    if not artifact_bytes.startswith(b"%PDF"):
+        return {"png_b64": "", "width": 0, "height": 0}
+    try:
+        import pypdfium2 as pdfium
+
+        pdf = pdfium.PdfDocument(BytesIO(artifact_bytes))
+        if len(pdf) < 1:
+            return {"png_b64": "", "width": 0, "height": 0}
+        page = pdf[0]
+        bitmap = page.render(scale=1.5)
+        image = bitmap.to_pil()
+        width, height = image.size
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        png_bytes = buffer.getvalue()
+        if output_path:
+            target = Path(output_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(png_bytes)
+        return {"png_b64": base64.b64encode(png_bytes).decode("ascii"), "width": width, "height": height}
+    except Exception as exc:
+        return {"png_b64": "", "width": 0, "height": 0, "error": str(exc)}
+
+if mode == "text":
+    print(json.dumps({"text": extract_text(artifact_bytes)}))
+elif mode == "preview":
+    print(json.dumps(render_preview(artifact_bytes, str(payload.get("output_path") or "").strip())))
+else:
+    raise SystemExit(f"unsupported mode: {mode}")
+"""
+
+
+def _run_helper(mode: str, artifact_bytes: bytes, *, output_path: str | Path | None = None) -> dict[str, object]:
+    helper_python = _helper_python()
+    helper_candidate = Path(helper_python).expanduser().absolute()
+    current_python = Path(sys.executable).expanduser().absolute()
+    if str(helper_candidate) == str(current_python):
+        return {}
+    with tempfile.TemporaryDirectory(prefix="pq-premium-dossier-qa-") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        pdf_path = tmp_path / "artifact.pdf"
+        request_path = tmp_path / "request.json"
+        pdf_path.write_bytes(artifact_bytes)
+        request_path.write_text(
+            json.dumps({"output_path": str(output_path or "")}, sort_keys=True),
+            encoding="utf-8",
+        )
+        completed = subprocess.run(
+            [helper_python, "-c", _qa_helper_code(), mode, str(pdf_path), str(request_path)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            return {}
+        try:
+            return json.loads(completed.stdout.strip() or "{}")
+        except Exception:
+            return {}
 
 
 def _pdf_page_count(artifact_bytes: bytes) -> int:
@@ -36,6 +151,10 @@ def _extract_pdf_text(artifact_bytes: bytes) -> str:
             return text
     except Exception:
         pass
+    helper_payload = _run_helper("text", artifact_bytes)
+    helper_text = str(helper_payload.get("text") or "")
+    if helper_text.strip():
+        return helper_text
     return ""
 
 
@@ -61,7 +180,15 @@ def _render_pdf_first_page_png(artifact_bytes: bytes, *, output_path: str | Path
             target.write_bytes(png_bytes)
         return png_bytes, int(width), int(height)
     except Exception:
-        return b"", 0, 0
+        helper_payload = _run_helper("preview", artifact_bytes, output_path=output_path)
+        png_b64 = str(helper_payload.get("png_b64") or "")
+        if not png_b64:
+            return b"", 0, 0
+        try:
+            png_bytes = base64.b64decode(png_b64.encode("ascii"))
+        except Exception:
+            return b"", 0, 0
+        return png_bytes, int(helper_payload.get("width") or 0), int(helper_payload.get("height") or 0)
 
 
 def _png_visual_metrics(png_bytes: bytes) -> tuple[float, float, float]:

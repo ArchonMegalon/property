@@ -314,11 +314,15 @@
 <section class="access-grid">
   <section class="access-panel">
     {% set missing_current_session = request.query_params.get("current_session") == "missing" %}
+    {% set show_google_provider = sign_in_google_enabled %}
+    {% set show_facebook_provider = sign_in_facebook_enabled %}
+    {% set show_id_austria_provider = sign_in_id_austria_visible and sign_in_id_austria_enabled %}
+    {% set has_enabled_sign_in_provider = show_google_provider or show_facebook_provider or show_id_austria_provider %}
     <div class="kicker">Sign in</div>
     <div class="access-shell">
       <div class="access-intro">
         <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
-        <p class="lead">Use a saved session, email link, or connected identity. First-time connected sign-in also creates the account automatically.</p>
+        <p class="lead">Use email or one of the sign-in options below. First sign-in creates the account automatically.</p>
       </div>
         <div class="access-entry">
         <div class="access-entry-block access-entry-block-cta">
@@ -330,32 +334,22 @@
               <button class="btn" type="submit">Log out</button>
             </form>
             {% else %}
-            {% if missing_current_session %}
-            <a class="btn primary" href="/register">{{ brand.create_label }}</a>
             {% if sign_in_link_enabled %}
-            <button class="btn" type="button" data-focus-sign-in-email>Use email link</button>
-            {% endif %}
-            {% else %}
-            <a class="btn primary" href="/sign-in/current-session">Open current session</a>
-            <a class="btn" href="/register">{{ brand.create_label }}</a>
+            <button class="btn primary" type="button" data-focus-sign-in-email>Email sign-in</button>
             {% endif %}
             {% endif %}
           </div>
         </div>
-        {% set show_google_provider = sign_in_google_enabled %}
-        {% set show_facebook_provider = sign_in_facebook_enabled %}
-        {% set show_id_austria_provider = sign_in_id_austria_visible and sign_in_id_austria_enabled %}
-        {% set has_enabled_sign_in_provider = show_google_provider or show_facebook_provider or show_id_austria_provider %}
         {% if has_enabled_sign_in_provider %}
         <div class="access-entry-block">
-          <p class="access-entry-copy">Any connected identity reopens the same account or creates it automatically on first use.</p>
+          <p class="access-entry-copy">Provider sign-in opens the same account and creates it if needed.</p>
           <div class="auth-provider-stack" aria-label="Sign-in providers">
             {% if show_google_provider %}
             <div class="auth-provider-card" data-auth-provider-card data-auth-provider="google" data-auth-provider-state="enabled">
               <span class="auth-provider-icon" aria-hidden="true">G</span>
               <span>
                 <strong>Google</strong>
-                <p>Saved Google account or automatic first account creation</p>
+                <p>Creates account if needed</p>
               </span>
               <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Continue with Google</a>
             </div>
@@ -365,7 +359,7 @@
               <span class="auth-provider-icon" aria-hidden="true">f</span>
               <span>
                 <strong>Facebook</strong>
-                <p>Saved Facebook identity or automatic first account creation</p>
+                <p>Creates account if needed</p>
               </span>
               <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
             </div>
@@ -375,7 +369,7 @@
               <span class="auth-provider-icon" aria-hidden="true">ID</span>
               <span>
                 <strong>ID Austria</strong>
-                <p>Saved Austrian identity or automatic first account creation</p>
+                <p>Creates account if needed</p>
               </span>
               <a class="btn" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>
             </div>
@@ -392,13 +386,13 @@
               <input id="sign_in_email" name="email" type="email" value="{{ sign_in_google_prefill_email or sign_in_link_email or '' }}" placeholder="you@company.com" required>
             </div>
             <div class="cta-row">
-              <button class="btn" type="submit">Email me a sign-in link</button>
+              <button class="btn" type="submit">Send sign-in link</button>
             </div>
           </form>
         {% else %}
           <div class="access-feedback">
-            <strong>Email link delivery needs setup.</strong>
-            <p class="copy">Use Google, Facebook, ID Austria, an existing invite, or a saved access link. First-time connected sign-in still creates the account automatically.</p>
+            <strong>Email sign-in is not available right now.</strong>
+            <p class="copy">{% if has_enabled_sign_in_provider %}Use another sign-in option instead.{% else %}Try again later or ask the account owner for a fresh access link.{% endif %}</p>
           </div>
           {% endif %}
         </div>
@@ -407,39 +401,33 @@
     {% if sign_in_connected_provider %}
     <div class="access-feedback" data-sign-in-provider-connected>
       <strong>{{ sign_in_connected_provider }} returned to PropertyQuarry.</strong>
-      <p class="copy">Use the email link for this account.</p>
+      <p class="copy">Use email if you prefer.</p>
       <div class="cta-row">
-        <button class="btn primary" type="button" data-focus-sign-in-email>Use email link</button>
+        <button class="btn primary" type="button" data-focus-sign-in-email>Email sign-in</button>
       </div>
     </div>
     {% endif %}
     {% if missing_current_session %}
     <div class="access-feedback">
-      <strong>No active PropertyQuarry session was found.</strong>
-      <p class="copy">Use the secure email link or a connected identity to sign in.</p>
+      <strong>You are signed out.</strong>
+      <p class="copy">Sign in below.</p>
     </div>
     {% endif %}
     {% if sign_in_google_error %}
     <div class="access-feedback">
-      <strong>Google sign-in could not complete.</strong>
+      <strong>Google could not open on this attempt.</strong>
       <p class="copy">
         {% if sign_in_google_error == 'workspace_google_sign_in_not_found' %}
-        PropertyQuarry could not reopen a saved workspace for
-        {% if sign_in_google_prefill_email %}
-        <strong>{{ sign_in_google_prefill_email }}</strong>
-        {% else %}
-        that Google account
-        {% endif %}
-        yet. Retry Google sign-in and PropertyQuarry will start the account automatically.
+        Retry Google, or use a secure email link for the same account.
         {% elif sign_in_google_error == 'google_identity_only' or "identity-only" in (sign_in_google_error or "").lower() %}
-        Google returned identity-only access. That is valid for sign-in, but we could not match this account to an active PropertyQuarry workspace yet.
-        Use the email you used during workspace onboarding, or request a secure sign-in link instead.
-        {% elif sign_in_google_error.startswith('google_oauth_') %}
-        Google could not open on this attempt. Retry Google, or use a secure email link for the same account. First-time Google sign-in still creates the account automatically.
+        Retry Google, or use a secure email link for the same account.
+        {% elif sign_in_google_error.startswith('google_oauth_') or sign_in_google_error.endswith('config_missing') %}
+        Retry Google, or use a secure email link for the same account.
         {% else %}
         {{ sign_in_google_error }}
         {% endif %}
       </p>
+      <p class="copy">Google opens the same account and creates it if needed.</p>
       <div class="cta-row">
         <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Retry Google sign-in</a>
       </div>
@@ -447,32 +435,34 @@
     {% endif %}
     {% if sign_in_facebook_error %}
     <div class="access-feedback">
-      <strong>Facebook sign-in could not start.</strong>
+      <strong>Facebook could not open on this attempt.</strong>
       <p class="copy">
         {% if sign_in_facebook_error == 'facebook_sign_in_not_found' %}
-        This Facebook identity did not reopen a saved PropertyQuarry workspace. Retry Facebook sign-in and PropertyQuarry will start the account automatically.
-        {% elif sign_in_facebook_error.startswith('facebook_oauth_') %}
-        Facebook could not open on this attempt. Retry Facebook, or use a secure email link for the same account. First-time Facebook sign-in still creates the account automatically.
+        Retry Facebook, or use a secure email link for the same account.
+        {% elif sign_in_facebook_error.startswith('facebook_oauth_') or sign_in_facebook_error.endswith('config_missing') %}
+        Retry Facebook, or use a secure email link for the same account.
         {% else %}
         {{ sign_in_facebook_error }}
         {% endif %}
       </p>
+      <p class="copy">Facebook opens the same account and creates it if needed.</p>
     </div>
     {% endif %}
     {% if sign_in_id_austria_error %}
     <div class="access-feedback">
-      <strong>ID Austria sign-in could not complete.</strong>
+      <strong>ID Austria could not open on this attempt.</strong>
       <p class="copy">
         {% if sign_in_id_austria_error == 'id_austria_sign_in_not_found' %}
-        This ID Austria identity did not reopen a saved PropertyQuarry workspace. Retry ID Austria sign-in and PropertyQuarry will start the account automatically.
+        Retry ID Austria, or use a secure email link for the same account.
         {% elif sign_in_id_austria_error == 'id_austria_austria_ip_required' %}
         ID Austria sign-in is offered only when this request is detected from Austria.
         {% elif sign_in_id_austria_error.startswith('id_austria_') %}
-        ID Austria could not open on this attempt. Retry ID Austria, or use a secure email link for the same account. First-time ID Austria sign-in still creates the account automatically.
+        Retry ID Austria, or use a secure email link for the same account.
         {% else %}
         {{ sign_in_id_austria_error }}
         {% endif %}
       </p>
+      <p class="copy">ID Austria opens the same account and creates it if needed.</p>
       <div class="cta-row">
         <a class="btn primary" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Retry ID Austria sign-in</a>
       </div>
@@ -490,7 +480,7 @@
       <strong>We could not send a sign-in link.</strong>
       <p class="copy">
         {% if sign_in_link_error == 'workspace_sign_in_email_delivery_not_configured' %}
-        Email link delivery needs setup. Continue with Google, Facebook, ID Austria, an existing invite, or a saved access link. First-time connected sign-in still creates the account automatically.
+        Email sign-in is not available right now. {% if has_enabled_sign_in_provider %}Use another sign-in option instead.{% else %}Ask the account owner for a fresh access link.{% endif %}
         {% else %}
         {{ sign_in_link_error or 'Use an existing invite or ask the account owner to issue a new link.' }}
         {% endif %}
@@ -515,13 +505,13 @@
       link.setAttribute('aria-busy', 'true');
       const provider = (link.textContent || link.dataset.submittingLabel || 'Sign-in provider').replace(/\.\.\.$/, '').trim();
       const status = document.querySelector('[data-auth-provider-status]');
-      if (status) status.textContent = `${provider}. If the provider does not open, use the secure email link or try again.`;
+      if (status) status.textContent = `${provider}. If nothing opens, use email instead.`;
       window.setTimeout(() => {
         if (document.visibilityState === 'visible' && link.getAttribute('aria-busy') === 'true') {
           link.textContent = link.dataset.originalLabel || 'Try again';
           link.removeAttribute('aria-busy');
           if (card) card.classList.remove('is-submitting');
-          if (status) status.textContent = 'Still here. Try the provider again, or use the secure email link.';
+          if (status) status.textContent = 'Still here. Try again or use email instead.';
         }
       }, 3500);
     });

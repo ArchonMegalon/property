@@ -131,7 +131,7 @@ def _candidate_external_listing_url(
 
 
 def _hosted_tour_unavailable_detail() -> str:
-    return "A real 3D tour is not available yet."
+    return "For now, no usable 3D tour is available yet."
 
 
 def _property_workbench_lightweight_image_url(value: object, *, max_data_url_chars: int = 4096) -> str:
@@ -251,6 +251,7 @@ def _property_workbench_client_tour_payload(value: object) -> dict[str, object]:
             "provider",
             "label",
             "detail",
+            "status_detail",
             "eta_label",
             "progress_pct",
         )
@@ -274,9 +275,23 @@ def _property_workbench_client_route_rows(value: object) -> list[dict[str, objec
     return rows
 
 
-def _property_workbench_client_candidate_payload(candidate: dict[str, object]) -> dict[str, object]:
+def _property_workbench_client_candidate_payload(
+    candidate: dict[str, object],
+    *,
+    preserve_preview_media_facts: bool = False,
+) -> dict[str, object]:
     raw = dict(candidate or {})
     facts = _property_workbench_client_facts(raw.get("property_facts"))
+    raw_facts = dict(raw.get("property_facts") or {}) if isinstance(raw.get("property_facts"), dict) else {}
+    if preserve_preview_media_facts:
+        for key in ("floorplan_urls_json", "media_urls_json"):
+            value = raw_facts.get(key)
+            if value in (None, "", [], {}):
+                value = raw.get(key)
+            if isinstance(value, tuple):
+                value = list(value)
+            if isinstance(value, list) and value:
+                facts[key] = [str(item or "").strip() for item in value if str(item or "").strip()]
     compact: dict[str, object] = {
         key: raw.get(key)
         for key in (
@@ -313,6 +328,16 @@ def _property_workbench_client_candidate_payload(candidate: dict[str, object]) -
         )
         if raw.get(key) not in (None, "", [], {})
     }
+    if "source_virtual_tour_url" in raw and "source_virtual_tour_url" not in compact:
+        explicit_source_virtual_tour_url = str(raw.get("source_virtual_tour_url") or "").strip()
+        if explicit_source_virtual_tour_url:
+            compact["source_virtual_tour_url"] = explicit_source_virtual_tour_url
+    derived_floorplan_url = _property_candidate_floorplan_url(raw, facts=facts)
+    if derived_floorplan_url and "floorplan_url" not in compact:
+        compact["floorplan_url"] = derived_floorplan_url
+    derived_source_virtual_tour_url = _property_candidate_source_virtual_tour_url(raw, facts=facts)
+    if derived_source_virtual_tour_url and "source_virtual_tour_url" not in compact:
+        compact["source_virtual_tour_url"] = derived_source_virtual_tour_url
     preview_image_url = _property_workbench_client_image_url(raw.get("preview_image_url"))
     if preview_image_url:
         compact["preview_image_url"] = preview_image_url
@@ -773,8 +798,8 @@ def _property_source_scope_mismatch_notice(
         "title": "Search used an older area",
         "rule_key": "Brief scope changed",
         "detail": (
-            f"This search checked {checked_label}. Your current brief is {target_label}. "
-            "Start an updated search so the results are fetched with the current area."
+            f"This search checked {checked_label}. Your search is {target_label}. "
+            "Start an updated search so the results are fetched for the right area."
         ),
         "tag": "Updated brief",
         "affected_total": 0,
@@ -847,6 +872,7 @@ def property_workspace_payload(
 ) -> dict[str, object]:
     from app.api.routes.landing_view_models import (
         _clean_property_candidate_copy,
+        _clean_property_candidate_detail_copy,
         _csv_values,
         _normalize_property_type_values,
         _property_customer_run_summary,
@@ -867,6 +893,7 @@ def property_workspace_payload(
         default_timezone_for_country,
         supported_currency_codes,
     )
+    from app.services.property_customer_copy import summarize_property_description_copy
 
     surface_scope = PropertySurfaceScope.for_section(section)
     normalized_section = surface_scope.section
@@ -932,11 +959,7 @@ def property_workspace_payload(
     billing_handoff_available = bool(billing_handoff.get("available"))
     billing_handoff_status = str(billing_handoff.get("status") or "").strip().lower()
     billing_handoff_bridge_only = billing_handoff_status in {"bridge_ready", "member_token_ready"}
-    billing_primary_action_label = (
-        "Continue billing sign-in"
-        if billing_handoff_available and billing_handoff_bridge_only
-        else ("Open billing account" if billing_handoff_available else "Billing account")
-    )
+    billing_primary_action_label = "Open billing" if billing_handoff_available else "Billing"
     saved_property_preferences = dict(property_state.get("preferences") or {})
     preference_bundle = dict(property_state.get("preference_bundle") or {})
     if (wants_agent_views or (wants_search_runs and requested_property_agent_id)) and not property_search_agents:
@@ -1282,9 +1305,15 @@ def property_workspace_payload(
                 candidate.setdefault("source_label", source_label)
                 synthesized_ranked_candidates.append(candidate)
         synthesized_ranked_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
-    active_run_candidates = ranked_candidates or synthesized_ranked_candidates
     explicit_run_surface = bool(str(run_payload.get("run_id") or "").strip())
-    if normalized_section in {"properties", "shortlist", "research"} and active_run_candidates:
+    active_run_candidates = ranked_candidates or synthesized_ranked_candidates
+    if normalized_section == "search" and explicit_run_surface and not active_run_candidates:
+        active_run_candidates = [
+            {**dict(candidate), "_active_run_ranked": True}
+            for candidate in list(raw_run_summary.get("ranked_candidates") or [])
+            if isinstance(candidate, dict)
+        ]
+    if normalized_section in {"properties", "search", "shortlist", "research"} and active_run_candidates:
         if explicit_run_surface:
             shortlist_candidates = list(active_run_candidates)
         else:
@@ -1320,6 +1349,7 @@ def property_workspace_payload(
             if tour_payload:
                 normalized["tour"] = tour_payload
             return normalized
+        normalized["tour_runtime_url"] = raw_tour_url
         try:
             from app.product import property_tour_hosting
 
@@ -1334,11 +1364,12 @@ def property_workspace_payload(
             elif "embed_url" not in tour_payload:
                 tour_payload["embed_url"] = verified_tour_url
             normalized["tour"] = tour_payload
-        elif "/tours/" in raw_tour_url:
-            normalized["tour_url"] = raw_tour_url
+        elif property_tour_hosting._is_branded_public_tour_url(raw_tour_url):  # type: ignore[attr-defined]
+            normalized["tour_url"] = ""
             if tour_payload:
-                tour_payload["url"] = raw_tour_url
-                tour_payload["embed_url"] = ""
+                tour_payload["url"] = ""
+                if "embed_url" in tour_payload:
+                    tour_payload["embed_url"] = ""
                 normalized["tour"] = tour_payload
         elif tour_payload:
             normalized["tour"] = tour_payload
@@ -1732,9 +1763,9 @@ def property_workspace_payload(
                         "href": f"/app/search{run_suffix}",
                     },
                     {
-                        "label": "Sites",
+                        "label": "Providers",
                         "value": str(len(selected_platforms) or 0),
-                        "detail": "Listing sites selected for the next search.",
+                        "detail": "Providers selected for the next search.",
                         "href": f"/app/search{run_suffix}",
                     },
                 ],
@@ -1908,9 +1939,10 @@ def property_workspace_payload(
         normalized_status = str(status or "").strip().lower()
         ready_href = str(ready_url or "").strip()
         normalized_reason = str(reason or "").strip()
+        progress_tour_url = str(candidate.get("tour_runtime_url") or candidate.get("tour_url") or "").strip()
         live_progress = (
-            _hosted_property_visual_progress_snapshot(candidate.get("tour_url"), request_kind=normalized_kind)
-            if str(candidate.get("tour_url") or "").strip()
+            _hosted_property_visual_progress_snapshot(progress_tour_url, request_kind=normalized_kind)
+            if progress_tour_url
             else {}
         )
         live_progress_status = str(live_progress.get("status") or "").strip().lower()
@@ -2031,6 +2063,8 @@ def property_workspace_payload(
 
     def _rooms_layout_part(facts: dict[str, object]) -> str:
         label = str(facts.get("rooms_label") or "").strip()
+        if "under research" in label.lower():
+            label = ""
         if label:
             return label
         raw_value = facts.get("rooms") or facts.get("room_count")
@@ -2038,7 +2072,10 @@ def property_workspace_payload(
             return f"{raw_value} rooms"
         item = _missing_fact_item(facts, "rooms")
         if item:
-            return str(item.get("display_value") or "Rooms under research").strip() or "Rooms under research"
+            display_value = str(item.get("display_value") or "").strip()
+            if "under research" in display_value.lower():
+                return ""
+            return display_value
         return ""
 
     def _risk_summary(candidate: dict[str, object], facts: dict[str, object]) -> dict[str, str]:
@@ -2106,7 +2143,7 @@ def property_workspace_payload(
             {
                 "label": "Decide",
                 "value": str(candidate.get("recommendation") or candidate.get("tag") or "Home").strip().replace("_", " ").title(),
-                "detail": match_reasons[0] if match_reasons else (mismatch_reasons[0] if mismatch_reasons else "Open the property page for the full decision read."),
+                "detail": match_reasons[0] if match_reasons else (mismatch_reasons[0] if mismatch_reasons else "Open the home for more detail."),
             },
         )
         for item in _missing_fact_items(facts):
@@ -2211,7 +2248,8 @@ def property_workspace_payload(
             },
             {
                 "title": "Fit",
-                "detail": _clean_property_candidate_copy(candidate.get("fit_summary") or candidate.get("recommendation") or "Home selected for review."),
+                "detail": _clean_property_candidate_detail_copy(candidate.get("fit_summary") or "")
+                or _clean_property_candidate_copy(candidate.get("recommendation") or "Home selected for review."),
                 "tag": "Fit",
             },
             {
@@ -2338,7 +2376,9 @@ def property_workspace_payload(
         return "3D tour" if normalized else ""
 
     def _tour_payload(candidate: dict[str, object]) -> dict[str, object]:
+        raw_tour_payload = dict(candidate.get("tour") or {}) if isinstance(candidate.get("tour"), dict) else {}
         tour_url = str(candidate.get("tour_url") or "").strip()
+        runtime_tour_url = str(candidate.get("tour_runtime_url") or "").strip()
         property_facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         if not tour_url:
             try:
@@ -2360,10 +2400,11 @@ def property_workspace_payload(
                 ).strip()
             except Exception:
                 tour_url = ""
+        runtime_tour_url = runtime_tour_url or tour_url
         provider_tour_url = _property_candidate_source_virtual_tour_url(candidate, facts=property_facts)
-        status = str(candidate.get("tour_status") or "").strip().lower()
-        eta_minutes = str(candidate.get("tour_eta_minutes") or "").strip()
-        reason = str(candidate.get("blocked_reason") or "").strip()
+        status = str(candidate.get("tour_status") or raw_tour_payload.get("status") or "").strip().lower()
+        eta_minutes = str(candidate.get("tour_eta_minutes") or raw_tour_payload.get("eta_minutes") or "").strip()
+        reason = str(candidate.get("blocked_reason") or raw_tour_payload.get("reason") or "").strip()
         terminal_status = _property_visual_terminal_status_for_reason(request_kind="tour", reason=reason)
         if terminal_status and status in _pending_visual_states:
             status = terminal_status
@@ -2383,7 +2424,7 @@ def property_workspace_payload(
             ready_tour_url = verified_tour_url
             if ready_tour_url:
                 verified_provider_keys = {"matterport", "3dvista"}
-                status_detail = "3D tour is available on this page."
+                status_detail = "3D tour is ready."
                 visual_runtime = _visual_runtime_payload(
                     candidate,
                     request_kind="tour",
@@ -2416,6 +2457,35 @@ def property_workspace_payload(
                 "recovery_label": "Request a 3D tour",
                 "control_label": "",
             }
+        if runtime_tour_url:
+            try:
+                from app.product import property_tour_hosting
+
+                runtime_is_branded_tour = property_tour_hosting._is_branded_public_tour_url(runtime_tour_url)  # type: ignore[attr-defined]
+                provider_key = (
+                    property_tour_hosting._hosted_property_tour_verified_provider(runtime_tour_url)  # type: ignore[attr-defined]
+                    if runtime_is_branded_tour
+                    else ""
+                )
+            except Exception:
+                runtime_is_branded_tour = False
+                provider_key = ""
+            runtime_host = str(urllib.parse.urlparse(runtime_tour_url).hostname or "").strip().lower()
+            if runtime_is_branded_tour and runtime_host and not runtime_host.endswith("propertyquarry.com"):
+                provider_label = _visual_provider_label(provider_key) if provider_key else "3D tour"
+                return {
+                    "status": "blocked",
+                    "label": "3D tour unavailable",
+                    "url": "",
+                    "embed_url": "",
+                    "eta_label": _hosted_tour_unavailable_detail(),
+                    "progress_pct": 0,
+                    "provider_label": provider_label,
+                    "provider_key": provider_key,
+                    "status_detail": _hosted_tour_unavailable_detail(),
+                    "recovery_label": "Request a 3D tour",
+                    "control_label": "",
+                }
         if provider_tour_url:
             try:
                 from app.product import property_tour_hosting
@@ -2513,17 +2583,25 @@ def property_workspace_payload(
                 eta_minutes=eta_minutes,
                 reason=_tour_source_gap_detail(candidate),
             )
+            terminal_label = str(raw_tour_payload.get("label") or "").strip() or (
+                "Retry 3D tour" if status in {"blocked", "failed"} else "Request 3D tour"
+            )
+            terminal_detail = (
+                str(raw_tour_payload.get("status_detail") or raw_tour_payload.get("detail") or "").strip()
+                or str(visual_runtime.get("status_detail") or "").strip()
+                or _tour_source_gap_detail(candidate)
+            )
             return {
                 "status": "blocked",
-                "label": "3D tour unavailable",
+                "label": terminal_label,
                 "url": "",
                 "embed_url": "",
                 "eta_label": _tour_source_gap_detail(candidate),
                 "progress_pct": 0,
                 "provider_label": "",
                 "provider_key": "",
-                "status_detail": str(visual_runtime.get("status_detail") or "").strip() or _tour_source_gap_detail(candidate),
-                "recovery_label": "Waiting for stronger source media",
+                "status_detail": terminal_detail,
+                "recovery_label": terminal_label,
                 "control_label": "",
             }
         gap_detail = _tour_source_gap_detail(candidate)
@@ -2542,9 +2620,10 @@ def property_workspace_payload(
         }
 
     def _flythrough_payload(candidate: dict[str, object]) -> dict[str, object]:
+        raw_flythrough_payload = dict(candidate.get("flythrough") or {}) if isinstance(candidate.get("flythrough"), dict) else {}
         flythrough_url = str(candidate.get("flythrough_url") or "").strip()
-        status = str(candidate.get("flythrough_status") or "").strip().lower()
-        reason = str(candidate.get("flythrough_reason") or "").strip()
+        status = str(candidate.get("flythrough_status") or raw_flythrough_payload.get("status") or "").strip().lower()
+        reason = str(candidate.get("flythrough_reason") or raw_flythrough_payload.get("reason") or "").strip()
         terminal_status = _property_visual_terminal_status_for_reason(request_kind="flythrough", reason=reason)
         if terminal_status and status in _pending_visual_states:
             status = terminal_status
@@ -2553,13 +2632,14 @@ def property_workspace_payload(
         try:
             from app.product import property_tour_hosting
 
-            verified_flythrough_url = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(candidate.get("tour_url"))  # type: ignore[attr-defined]
-            published_flythrough_url = property_tour_hosting._published_walkthrough_asset_url(flythrough_url)  # type: ignore[attr-defined]
+            open_flythrough_url = property_tour_hosting._hosted_property_tour_walkthrough_open_url(  # type: ignore[attr-defined]
+                candidate.get("tour_url"),
+                flythrough_url,
+            )
         except Exception:
-            verified_flythrough_url = ""
-            published_flythrough_url = ""
-        if verified_flythrough_url or published_flythrough_url:
-            open_url = verified_flythrough_url or published_flythrough_url
+            open_flythrough_url = ""
+        if open_flythrough_url:
+            open_url = open_flythrough_url
             visual_runtime = _visual_runtime_payload(
                 candidate,
                 request_kind="flythrough",
@@ -2576,7 +2656,7 @@ def property_workspace_payload(
                 "eta_label": visual_runtime["eta_label"],
                 "provider_label": provider_label,
                 "provider_key": provider,
-                "status_detail": "Walkthrough is available on this page.",
+                "status_detail": "Walkthrough is ready.",
                 "recovery_label": "",
             }
         if status in {"queued", "pending"}:
@@ -2584,7 +2664,7 @@ def property_workspace_payload(
                 candidate,
                 request_kind="flythrough",
                 status=status,
-                eta_minutes=str(candidate.get("flythrough_eta_minutes") or "").strip(),
+                eta_minutes=str(candidate.get("flythrough_eta_minutes") or raw_flythrough_payload.get("eta_minutes") or "").strip(),
                 reason=reason,
             )
             return {
@@ -2608,7 +2688,7 @@ def property_workspace_payload(
                 candidate,
                 request_kind="flythrough",
                 status=status,
-                eta_minutes=str(candidate.get("flythrough_eta_minutes") or "").strip(),
+                eta_minutes=str(candidate.get("flythrough_eta_minutes") or raw_flythrough_payload.get("eta_minutes") or "").strip(),
                 reason=reason,
             )
             return {
@@ -2628,7 +2708,7 @@ def property_workspace_payload(
                 candidate,
                 request_kind="flythrough",
                 status=status,
-                eta_minutes=str(candidate.get("flythrough_eta_minutes") or "").strip(),
+                eta_minutes=str(candidate.get("flythrough_eta_minutes") or raw_flythrough_payload.get("eta_minutes") or "").strip(),
                 reason=reason,
             )
             return {
@@ -2648,16 +2728,24 @@ def property_workspace_payload(
                 candidate,
                 request_kind="flythrough",
                 status=status,
-                eta_minutes=str(candidate.get("flythrough_eta_minutes") or "").strip(),
+                eta_minutes=str(candidate.get("flythrough_eta_minutes") or raw_flythrough_payload.get("eta_minutes") or "").strip(),
                 reason=reason,
             )
             unavailable_detail = (
-                str(visual_runtime.get("status_detail") or "").strip()
+                str(raw_flythrough_payload.get("status_detail") or raw_flythrough_payload.get("detail") or "").strip()
+                or str(visual_runtime.get("status_detail") or "").strip()
                 or _property_visual_unavailable_detail(request_kind="flythrough", reason=reason)
+            )
+            raw_terminal_label = str(raw_flythrough_payload.get("label") or "").strip()
+            terminal_label = raw_terminal_label if "not ready" in raw_terminal_label.lower() else "Walkthrough not ready"
+            recovery_label = (
+                str(raw_flythrough_payload.get("recovery_label") or "").strip()
+                or (raw_terminal_label if raw_terminal_label and raw_terminal_label != terminal_label else "")
+                or ("Retry walkthrough" if status in {"blocked", "failed"} else "Request walkthrough")
             )
             return {
                 "status": "blocked",
-                "label": "Walkthrough not ready",
+                "label": terminal_label,
                 "url": "",
                 "detail": unavailable_detail,
                 "progress_pct": 0,
@@ -2665,7 +2753,7 @@ def property_workspace_payload(
                 "provider_label": provider_label,
                 "provider_key": provider,
                 "status_detail": unavailable_detail,
-                "recovery_label": "Waiting for stronger source media",
+                "recovery_label": recovery_label,
             }
         return {
             "status": "missing",
@@ -2858,11 +2946,13 @@ def property_workspace_payload(
                     return value
         else:
             for key in (
+                "price_display",
                 "rent_display",
                 "monthly_rent_display",
                 "warm_rent_display",
                 "cold_rent_display",
                 "total_rent_display",
+                "price_eur",
                 "rent_eur",
                 "monthly_rent_eur",
                 "warm_rent_eur",
@@ -3121,22 +3211,14 @@ def property_workspace_payload(
     first_paint_candidates = [] if management_surface else list(shortlist_candidates)
     if normalized_section in {"properties", "shortlist"}:
         first_paint_candidates = first_paint_candidates[:_PROPERTY_PROPERTIES_FIRST_PAINT_RESULT_LIMIT]
-    for candidate in first_paint_candidates:
-        facts = _property_candidate_display_facts(candidate)
-        provider_tour_url = _property_candidate_source_virtual_tour_url(candidate, facts=facts)
-        if (
-            not bool(candidate.get("_active_run_ranked"))
-            and run_has_explicit_listing_context
-            and _obvious_listing_mode_mismatch(facts, listing_mode=effective_listing_mode)
-        ):
-            continue
-        if not _candidate_is_shortlist_admissible(
-            candidate,
-            facts,
-            listing_mode=effective_listing_mode,
-            selected_locations=review_scope_locations,
-        ):
-            continue
+    search_surface_fallback_candidates: list[tuple[dict[str, object], dict[str, object], str]] = []
+
+    def _append_workbench_candidate(
+        candidate: dict[str, object],
+        facts: dict[str, object],
+        *,
+        provider_tour_url: str,
+    ) -> None:
         admitted_shortlist_candidates.append(candidate)
         price_line = str(
             facts.get("price_display")
@@ -3229,6 +3311,9 @@ def property_workspace_payload(
             selected_locations=review_scope_locations,
         )
         external_listing_url = _candidate_external_listing_url(candidate, facts=facts)
+        fit_summary = _clean_property_candidate_detail_copy(candidate.get("fit_summary") or "")
+        if not fit_summary:
+            fit_summary = summarize_property_description_copy(_clean_property_candidate_copy(candidate.get("summary") or ""))
         workbench_results.append(
             build_property_workbench_candidate_snapshot(
                 candidate_ref=candidate_ref,
@@ -3252,12 +3337,12 @@ def property_workspace_payload(
                 layout_verification_label="verified" if layout_verified else "unverified",
                 fit_score=fit_score,
                 fit_label=str(candidate.get("recommendation") or candidate.get("tag") or "Home").strip().replace("_", " ").title(),
-                fit_summary=_clean_property_candidate_copy(candidate.get("fit_summary") or ""),
+                fit_summary=fit_summary,
                 tour=tour_payload,
                 flythrough=_flythrough_payload(candidate),
                 orientation_preview=orientation_preview,
                 ooda={
-                    "summary": ooda_detail or (match_reasons[0] if match_reasons else "Open the property page to inspect the decision read."),
+                    "summary": ooda_detail or (match_reasons[0] if match_reasons else fit_summary or "Open the home for the details."),
                     "rows": ooda_rows,
                 },
                 risk=risk_payload,
@@ -3329,8 +3414,17 @@ def property_workspace_payload(
             {
                 "cells": [
                     {"title": "Open 3D tour" if str(tour_payload.get("url") or "").strip() else tour_status_line, "detail": "Hosted 3D tour" if str(tour_payload.get("url") or "").strip() else "", "href": str(tour_payload.get("url") or "").strip()},
-                    {"title": f"#{len(results_table_rows) + 1} {str(candidate.get('title') or 'Home').strip() or 'Home'}", "detail": str(candidate.get("source_label") or "").strip()},
-                    {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Home").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
+                    {
+                        "title": f"#{len(results_table_rows) + 1} {_property_result_title_display(candidate.get('title') or 'Home') or 'Home'}",
+                        "detail": str(candidate.get("source_label") or "").strip(),
+                    },
+                    {
+                        "title": str(candidate.get("recommendation") or candidate.get("tag") or "Home").strip().replace("_", " ").title(),
+                        "detail": (
+                            _clean_property_candidate_detail_copy(candidate.get("fit_summary") or "")
+                            or summarize_property_description_copy(_clean_property_candidate_copy(candidate.get("summary") or ""))
+                        ),
+                    },
                     {"title": "Open map" if map_url else "Map pending", "detail": "", "href": map_url},
                     {"title": price_line, "detail": ""},
                     {"title": " | ".join(part for part in layout_parts if part) or "n/a", "detail": ""},
@@ -3343,6 +3437,38 @@ def property_workspace_payload(
                 "source_url": external_listing_url,
             }
         )
+
+    for candidate in first_paint_candidates:
+        facts = _property_candidate_display_facts(candidate)
+        provider_tour_url = _property_candidate_source_virtual_tour_url(candidate, facts=facts)
+        if (
+            not bool(candidate.get("_active_run_ranked"))
+            and run_has_explicit_listing_context
+            and _obvious_listing_mode_mismatch(facts, listing_mode=effective_listing_mode)
+        ):
+            continue
+        if not _candidate_is_shortlist_admissible(
+            candidate,
+            facts,
+            listing_mode=effective_listing_mode,
+            selected_locations=review_scope_locations,
+        ):
+            if normalized_section == "search" and bool(candidate.get("_active_run_ranked")) and not review_scope_locations:
+                search_surface_fallback_candidates.append((candidate, facts, provider_tour_url))
+            continue
+        _append_workbench_candidate(
+            candidate,
+            facts,
+            provider_tour_url=provider_tour_url,
+        )
+
+    if not workbench_results and search_surface_fallback_candidates:
+        for candidate, facts, provider_tour_url in search_surface_fallback_candidates:
+            _append_workbench_candidate(
+                candidate,
+                facts,
+                provider_tour_url=provider_tour_url,
+            )
 
     packet_ready_total = sum(
         1
@@ -3448,7 +3574,7 @@ def property_workspace_payload(
         "billing": [
             {
                 "href": signed_in_billing_href,
-                "label": billing_primary_action_label if billing_handoff.get("available") else "Billing account",
+                "label": billing_primary_action_label if billing_handoff.get("available") else "Billing",
                 "tone": "primary",
             },
             {"href": f"/app/properties{run_suffix}", "label": "Open run"},
@@ -3457,7 +3583,7 @@ def property_workspace_payload(
         "settings": [
             {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
             {"href": "/how-it-works", "label": "How it works"},
-            {"href": signed_in_billing_href, "label": billing_primary_action_label or "Billing account"},
+            {"href": signed_in_billing_href, "label": billing_primary_action_label or "Billing"},
         ],
     }
     hero_highlights = {
@@ -3470,7 +3596,7 @@ def property_workspace_payload(
             },
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target areas.", "href": f"/app/properties{run_suffix}"},
             {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "Record what should matter most.", "href": f"/app/properties{run_suffix}"},
-            {"label": "Sites", "value": str(len(selected_platforms) or 0), "detail": "Listing sites selected for the next search.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Providers selected for the next search.", "href": f"/app/properties{run_suffix}"},
         ],
         "shortlist": [
             {"label": "Homes", "value": str(len(admitted_shortlist_candidates)), "detail": "Ranked properties worth direct review now.", "href": f"/app/shortlist{run_suffix}"},
@@ -3487,13 +3613,13 @@ def property_workspace_payload(
         "profile": [
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "No areas saved yet.", "href": f"/app/search{run_suffix}"},
             {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "No search brief saved yet.", "href": f"/app/search{run_suffix}"},
-            {"label": "Lists", "value": str(len(selected_platforms) or 0), "detail": "Current active list set.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Current active provider set.", "href": f"/app/properties{run_suffix}"},
             {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": signed_in_billing_href},
         ],
         "alerts": [
             {"label": "Delivered", "value": str(len(recent_matches_card.get("items") or [])), "detail": "Hosted pages already sent.", "href": f"/app/alerts{run_suffix}"},
             {"label": "Recent updates", "value": str(len(run_events[-4:])), "detail": "Latest search updates.", "href": f"/app/alerts{run_suffix}"},
-            {"label": "Sites", "value": str(len(selected_platforms) or 0), "detail": "Selected sites for saved-search alerts.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Selected providers for saved-search alerts.", "href": f"/app/properties{run_suffix}"},
             {"label": "Search status", "value": run_status_label, "detail": run_message or "Latest saved-search sweep.", "href": f"/app/properties{run_suffix}"},
         ],
         "agents": [
@@ -3505,7 +3631,7 @@ def property_workspace_payload(
         "billing": [
             {"label": "Plan", "value": current_plan_label, "detail": "Active plan.", "href": signed_in_billing_href},
             {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "Research depth for each property.", "href": signed_in_billing_href},
-            {"label": "Sites", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Search-site allowance for the active plan.", "href": signed_in_billing_href},
+            {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Provider allowance for the active plan.", "href": signed_in_billing_href},
             {"label": "Saved searches", "value": ("Unlimited" if int(commercial.get("search_agent_limit") or 0) <= 0 else str(commercial.get("search_agent_limit") or 1)), "detail": "Briefs that can keep running in the background.", "href": signed_in_billing_href},
         ],
         "settings": [
@@ -3735,30 +3861,30 @@ def property_workspace_payload(
         else ("Active" if has_active_paid_plan else "Inactive")
     )
     billing_account_title = (
-        "Billing account"
+        "Billing"
         if billing_handoff_available
-        else ("Access status" if has_active_paid_plan else "Billing account")
+        else ("Plan status" if has_active_paid_plan else "Billing")
     )
     billing_account_detail = (
-        "Use the same email for the billing portal."
+        "Opens with this account."
         if billing_handoff_available and billing_handoff_bridge_only
         else (
-            "Open the billing portal."
+            "Open billing."
             if billing_handoff_available
         else (
-            "Billing is paused until PropertyQuarry can open the account without another sign-in."
+            "Waiting for direct account access."
             if billing_handoff_status == "bridge_ready"
             else (
-            "Billing is paused until the account opens directly from PropertyQuarry."
+            "Waiting for direct account access."
             if billing_handoff_status == "login_required"
             else (
-                "Billing is paused until the account host is ready."
+                "Waiting for the billing host."
                 if billing_handoff_status == "unresolved"
                 else (
-            "Your current access is active. Billing management appears here as soon as the portal is connected."
+            "Access stays active. Billing appears here when connected."
             if has_active_paid_plan
             else (
-                "Review limits before the next upgrade."
+                "Upgrade when you need more research."
                 if bool(property_state.get("billing_checkout_enabled"))
                 else "Payments are not enabled for this workspace yet."
             )
@@ -3877,7 +4003,7 @@ def property_workspace_payload(
         billing_upgrade_rows = [
             row_item(
                 "No live upgrade catalog available",
-                "Payment metadata is not loaded yet. The current plan still governs list coverage, saved searches, and research depth.",
+                "Plan options are not loaded yet. Your current plan still applies.",
                 "Catalog",
             )
         ]
@@ -3983,8 +4109,12 @@ def property_workspace_payload(
     )
     research_rows = []
     for candidate in admitted_shortlist_candidates[:6]:
-        title = str(candidate.get("title") or "Property page").strip() or "Property page"
-        reasons = list(candidate.get("match_reasons") or [])[:2]
+        title = _property_result_title_display(candidate.get("title") or "Property page")
+        reasons = [
+            _clean_property_candidate_copy(item)
+            for item in list(candidate.get("match_reasons") or [])[:2]
+            if _clean_property_candidate_copy(item)
+        ]
         candidate_facts = _property_candidate_display_facts(candidate)
         mismatches = _property_normalized_mismatch_reasons(
             [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)],
@@ -3995,8 +4125,11 @@ def property_workspace_payload(
         detail_parts = []
         external_listing_url = _candidate_external_listing_url(candidate)
         tour_url = str(_tour_payload(candidate).get("url") or "").strip()
-        if candidate.get("fit_summary"):
-            detail_parts.append(str(candidate.get("fit_summary") or "").strip())
+        fit_summary = _clean_property_candidate_detail_copy(candidate.get("fit_summary") or "")
+        if not fit_summary:
+            fit_summary = summarize_property_description_copy(_clean_property_candidate_copy(candidate.get("summary") or ""))
+        if fit_summary:
+            detail_parts.append(fit_summary)
         if reasons:
             detail_parts.append("; ".join(str(reason).strip() for reason in reasons if str(reason).strip()))
         if mismatches:
@@ -4008,7 +4141,7 @@ def property_workspace_payload(
                 "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Page").strip() or "Page",
                 "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
                 "action_method": "get",
-                "action_label": "Open property page",
+                "action_label": "Open property",
                 "secondary_action_href": str(external_listing_url or tour_url or "").strip(),
                 "secondary_action_method": "get" if (external_listing_url or tour_url) else "",
                 "secondary_action_label": "Open listing" if external_listing_url else ("Open 3D tour" if tour_url else ""),
@@ -4029,7 +4162,7 @@ def property_workspace_payload(
                 part for part in (
                     str(property_state.get("country_label") or "").strip(),
                     f"{len(selected_locations)} target area(s)" if selected_locations else "",
-                    f"{len(selected_platforms)} site(s)" if selected_platforms else "",
+                    f"{len(selected_platforms)} provider(s)" if selected_platforms else "",
                 ) if part
             ) or "No saved search brief yet.",
             "tag": "Saved",
@@ -4135,7 +4268,7 @@ def property_workspace_payload(
             "show_run_panel": run_in_progress,
             "show_shortlist_cards": False,
             "show_results_table": run_status_value in {"processed", "completed"} and bool(results_table_rows),
-            "results_table_headers": ["360", "Home", "Fit", "Map", "Price", "Layout", "Quick read", "Review"],
+            "results_table_headers": ["360", "Home", "Fit", "Map", "Price", "Layout", "Summary", "Review"],
             "results_table_rows": results_table_rows,
         },
         "shortlist": {
@@ -4352,10 +4485,10 @@ def property_workspace_payload(
         },
         "billing": {
             "title": "Billing",
-            "summary": "Current access and billing account.",
+            "summary": "Plan, payments, and invoices.",
             "hero_kicker": "Billing",
-            "hero_title": "Billing.",
-            "hero_summary": "Current access and billing account.",
+            "hero_title": "Plan and payments.",
+            "hero_summary": "Plan, payments, and invoices.",
             "hero_actions": hero_actions["billing"],
             "hero_highlights": hero_highlights["billing"],
             "primary_cards": [
@@ -4405,10 +4538,10 @@ def property_workspace_payload(
         },
         "account": {
             "title": "Account",
-            "summary": "Saved defaults, notifications, billing, and access.",
+            "summary": "Search, notifications, plan, and access.",
             "hero_kicker": "Account",
             "hero_title": "Account.",
-            "hero_summary": "Saved defaults, notifications, billing, and access.",
+            "hero_summary": "Search, notifications, plan, and access.",
             "hero_actions": [],
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account?settings_view=google#connected-services"},
@@ -4481,14 +4614,14 @@ def property_workspace_payload(
         },
         "settings": {
             "title": "Account",
-            "summary": "Saved defaults, notifications, billing, and access.",
+            "summary": "Search, notifications, plan, and access.",
             "hero_kicker": "Account",
             "hero_title": "Account.",
-            "hero_summary": "Saved defaults, notifications, billing, and access.",
+            "hero_summary": "Search, notifications, plan, and access.",
             "hero_actions": [
                 {"href": f"/app/search{run_suffix}", "label": "Edit search", "tone": "primary"},
                 {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
-                {"href": signed_in_billing_href, "label": billing_primary_action_label or "Billing account"},
+                {"href": signed_in_billing_href, "label": billing_primary_action_label or "Billing"},
             ],
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account?settings_view=google#connected-services"},
@@ -4534,12 +4667,12 @@ def property_workspace_payload(
                 "body": "",
                 "items": [
                     {
-                        "title": "Billing account",
+                        "title": "Billing",
                         "detail": billing_account_detail or "Open the billing portal when it is connected.",
                         "tag": "Public",
                         "action_href": signed_in_billing_href,
                         "action_method": "get",
-                        "action_label": billing_account_action_label or "Billing account",
+                        "action_label": billing_account_action_label or "Billing",
                     },
                     {
                         "title": "How it works",
@@ -4603,13 +4736,19 @@ def property_workspace_payload(
         or workbench_filtered_total
         or 0
     )
-    client_results = [
-        _property_workbench_client_candidate_payload(candidate)
-        for candidate in workbench_results
-        if isinstance(candidate, dict)
-    ]
+    client_results = []
+    for candidate in workbench_results:
+        if not isinstance(candidate, dict):
+            continue
+        candidate_ref = str(candidate.get("candidate_ref") or "").strip()
+        client_results.append(
+            _property_workbench_client_candidate_payload(
+                candidate,
+                preserve_preview_media_facts=bool(selected_candidate_ref) and candidate_ref == selected_candidate_ref,
+            )
+        )
     client_selected = (
-        _property_workbench_client_candidate_payload(selected_result)
+        _property_workbench_client_candidate_payload(selected_result, preserve_preview_media_facts=True)
         if selected_result
         else (client_results[0] if client_results else {})
     )

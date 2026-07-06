@@ -35,6 +35,16 @@ except ModuleNotFoundError:
 
 PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
 PUBLIC_REQUIRED_PROVIDER_MODES = ("matterport", "3dvista", "magicfit")
+OPTIONAL_PROVIDER_CONFIGURED_BLOCKER_REASONS = {
+    "krpano": {
+        "missing_krpano_license_environment",
+        "walkable_scene_asset_missing_or_not_360",
+    },
+    "pano2vr": {
+        "pano2vr_entry_missing_or_not_verified",
+        "pano2vr_placeholder_field_empty_or_unusable",
+    },
+}
 PROVIDER_DELIVERY_REQUIREMENTS = {
     "matterport": [
         "A public Matterport model URL on my.matterport.com or matterport.com",
@@ -825,6 +835,15 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
     return rows
 
 
+def _missing_evidence_blocks_public_tour(row: dict[str, str]) -> bool:
+    provider = str(row.get("provider") or "").strip().lower()
+    if provider in PUBLIC_REQUIRED_PROVIDER_MODES:
+        return True
+    configured_reasons = OPTIONAL_PROVIDER_CONFIGURED_BLOCKER_REASONS.get(provider) or set()
+    reason = str(row.get("reason") or "").strip().lower()
+    return reason in configured_reasons
+
+
 def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, object]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     if _tour_payload_is_disabled_fallback(payload):
@@ -1066,9 +1085,35 @@ def _probe_url(url: str, *, timeout_seconds: float, provider: str = "", host_hea
                 },
             }
     except urllib.error.HTTPError as exc:
-        return {"http_status": int(exc.code), "error": str(exc.reason or exc)}
+        payload = {"http_status": int(exc.code), "error": str(exc.reason or exc)}
+        try:
+            body = exc.read(8_000).decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        if body:
+            try:
+                parsed = json.loads(body)
+            except Exception:
+                parsed = {}
+            error_block = dict(parsed.get("error") or {}) if isinstance(parsed, dict) and isinstance(parsed.get("error"), dict) else {}
+            error_code = str(error_block.get("code") or "").strip()
+            if error_code:
+                payload["error_code"] = error_code
+        return payload
     except Exception as exc:
         return {"http_status": 0, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _optional_hidden_probe_is_acceptable(control: dict[str, object], probe: dict[str, object]) -> bool:
+    provider = str(control.get("provider") or "").strip().lower()
+    if provider not in {"pano2vr", "krpano"}:
+        return False
+    if int(probe.get("http_status") or 0) != 404:
+        return False
+    if str(probe.get("error_code") or "").strip() != "tour_control_panorama_export_hidden":
+        return False
+    evidence = str(control.get("evidence") or "").strip().lower()
+    return evidence in {"local_pano2vr_export_entry", "licensed_krpano_walkable_scene"}
 
 
 def build_property_tour_control_receipt(
@@ -1088,6 +1133,7 @@ def build_property_tour_control_receipt(
         action_counts = {provider: 0 for provider in PROVIDER_MODES}
         provider_blocker_reason_counts: dict[str, dict[str, dict[str, object]]] = {provider: {} for provider in PROVIDER_MODES}
         provider_ready_controls: dict[str, list[dict[str, object]]] = {provider: [] for provider in PROVIDER_MODES}
+        provider_hidden_counts = {provider: 0 for provider in PROVIDER_MODES}
         three_d_vista_white_label_evidence: list[dict[str, object]] = []
         magicfit_playback_evidence_count = 0
         magicfit_playback_evidence: list[dict[str, object]] = []
@@ -1124,7 +1170,11 @@ def build_property_tour_control_receipt(
                     playback_failed = bool(playback_markers) and not all(bool(value) for value in playback_markers.values())
                     body_markers = dict(probe.get("body_markers") or {})
                     marker_failed = bool(body_markers) and provider in body_markers and not bool(body_markers.get(provider))
-                    if int(probe.get("http_status") or 0) != 200 or playback_failed or marker_failed:
+                    hidden_optional_ready = _optional_hidden_probe_is_acceptable(control, probe)
+                    if hidden_optional_ready:
+                        control["route_visibility"] = "hidden_by_product_boundary"
+                        control["customer_visible"] = False
+                    elif int(probe.get("http_status") or 0) != 200 or playback_failed or marker_failed:
                         if provider in PUBLIC_REQUIRED_PROVIDER_MODES:
                             control["status"] = "probe_failed"
                             failed_probes += 1
@@ -1136,12 +1186,15 @@ def build_property_tour_control_receipt(
                             control["evidence"] = "live_probed_magicfit_video_url"
                 if provider in provider_counts and str(control.get("status") or "").strip().lower() == "ready":
                     provider_counts[provider] += 1
+                    if str(control.get("route_visibility") or "").strip() == "hidden_by_product_boundary":
+                        provider_hidden_counts[provider] += 1
                     provider_ready_controls[provider].append(
                         {
                             "slug": slug,
                             "title": str(payload.get("display_title") or payload.get("title") or slug).strip()[:160],
                             "control_path": str(control.get("control_path") or "").strip(),
                             "evidence": str(control.get("evidence") or "").strip(),
+                            "route_visibility": str(control.get("route_visibility") or "").strip() or "public",
                         }
                     )
                     if provider == "3dvista":
@@ -1186,7 +1239,7 @@ def build_property_tour_control_receipt(
             required_missing_evidence = [
                 row
                 for row in missing_evidence
-                if str(row.get("provider") or "").strip().lower() in PUBLIC_REQUIRED_PROVIDER_MODES
+                if _missing_evidence_blocks_public_tour(row)
             ]
             missing_public_evidence = required_missing_evidence if require_all_provider_modes else ([] if ready_controls else required_missing_evidence)
             tour_missing_provider_modes = sorted(
@@ -1207,6 +1260,7 @@ def build_property_tour_control_receipt(
                             "status": str(control.get("status") or "").strip(),
                             "control_path": str(control.get("control_path") or "").strip(),
                             "evidence": str(control.get("evidence") or "").strip(),
+                            "route_visibility": str(control.get("route_visibility") or "").strip(),
                         }
                         for control in controls
                     ],
@@ -1215,6 +1269,7 @@ def build_property_tour_control_receipt(
                 }
             )
         ready_provider_modes = sorted(provider for provider, count in provider_counts.items() if count > 0)
+        hidden_ready_provider_modes = sorted(provider for provider, count in provider_hidden_counts.items() if count > 0)
         missing_provider_modes = [provider for provider in PUBLIC_REQUIRED_PROVIDER_MODES if provider not in ready_provider_modes]
         provider_blockers = _summarize_provider_blockers(provider_blocker_reason_counts)
         status = (
@@ -1252,6 +1307,7 @@ def build_property_tour_control_receipt(
                 "evidence": magicfit_playback_evidence[:12],
             },
             "ready_provider_modes": ready_provider_modes,
+            "hidden_ready_provider_modes": hidden_ready_provider_modes,
             "required_provider_modes": list(PUBLIC_REQUIRED_PROVIDER_MODES),
             "optional_provider_modes": [provider for provider in PROVIDER_MODES if provider not in PUBLIC_REQUIRED_PROVIDER_MODES],
             "missing_provider_modes": missing_provider_modes,
@@ -1278,6 +1334,7 @@ def build_property_tour_control_receipt(
             "notes": [
                 "Matterport, 3DVista, and krpano are ready only when a hosted control route can be justified from manifest evidence.",
                 "Pano2VR is tracked as an optional/internal export lane and does not block the public tour-control gold gate.",
+                "Optional panorama export lanes can count as ready from verified local evidence even when the panorama control shell stays intentionally hidden on the public route.",
                 "MagicFit is ready only when the manifest points to a local playable video asset or a live-probed allowlisted hosted video URL with provider=magicfit.",
                 "The receipt intentionally omits raw external provider URLs and private listing/source fields.",
             ],
@@ -1318,6 +1375,24 @@ def _runtime_container_live_probe_receipt(
     if not docker_bin:
         return None, None
     container = _runtime_container_name()
+    requested_base_url = str(base_url or "").strip()
+    container_base_url = requested_base_url
+    if requested_base_url:
+        parsed = urllib.parse.urlparse(requested_base_url)
+        host = str(parsed.hostname or "").strip().lower()
+        if host in {"127.0.0.1", "localhost", "0.0.0.0"}:
+            container_base_url = urllib.parse.urlunparse(
+                (
+                    parsed.scheme or "http",
+                    "127.0.0.1:8090",
+                    parsed.path or "",
+                    "",
+                    parsed.query or "",
+                    "",
+                )
+            )
+    else:
+        container_base_url = "http://127.0.0.1:8090"
     command = [
         docker_bin,
         "exec",
@@ -1329,7 +1404,7 @@ def _runtime_container_live_probe_receipt(
         "--tour-root",
         "/data/public_property_tours",
         "--base-url",
-        base_url,
+        container_base_url,
         "--host-header",
         host_header,
         "--live-probe",
@@ -1359,6 +1434,8 @@ def _runtime_container_live_probe_receipt(
         return None, completed.returncode
     receipt["host_runtime_probe_via"] = "docker_exec_runtime_container"
     receipt["host_runtime_probe_command"] = " ".join(shlex.quote(part) for part in command)
+    receipt["host_requested_base_url"] = requested_base_url
+    receipt["container_probe_base_url"] = container_base_url
     return receipt, completed.returncode
 
 
@@ -1380,15 +1457,8 @@ def main() -> int:
     )
     args = parser.parse_args()
     explicit_tour_root = Path(args.tour_root) if str(args.tour_root or "").strip() else None
-    delegated_receipt: dict[str, object] | None = None
-    if bool(args.live_probe) and explicit_tour_root is None and _running_container_public_tour_dir(_runtime_container_name()) is None:
-        delegated_receipt, _ = _runtime_container_live_probe_receipt(
-            base_url=str(args.base_url or "").strip(),
-            host_header=str(args.host_header or "").strip(),
-            timeout_seconds=float(args.timeout_seconds),
-            require_all_provider_modes=bool(args.require_all_provider_modes),
-        )
-    receipt = delegated_receipt or build_property_tour_control_receipt(
+    needs_runtime_fallback = bool(args.live_probe) and explicit_tour_root is None and _running_container_public_tour_dir(_runtime_container_name()) is None
+    receipt = build_property_tour_control_receipt(
         tour_root=explicit_tour_root,
         base_url=str(args.base_url or "").strip(),
         host_header=str(args.host_header or "").strip(),
@@ -1396,6 +1466,15 @@ def main() -> int:
         timeout_seconds=float(args.timeout_seconds),
         require_all_provider_modes=bool(args.require_all_provider_modes),
     )
+    if needs_runtime_fallback and str(receipt.get("tour_root_source") or "").strip() == "preferred":
+        delegated_receipt, _ = _runtime_container_live_probe_receipt(
+            base_url=str(args.base_url or "").strip(),
+            host_header=str(args.host_header or "").strip(),
+            timeout_seconds=float(args.timeout_seconds),
+            require_all_provider_modes=bool(args.require_all_provider_modes),
+        )
+        if delegated_receipt is not None:
+            receipt = delegated_receipt
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:
         Path(args.write).parent.mkdir(parents=True, exist_ok=True)

@@ -124,6 +124,78 @@ def test_scene_video_readiness_verifier_cli_fails_on_missing_action(tmp_path: Pa
     assert "next_action_missing:magicfit:provider_account_visibility_gap" in body["blockers"]
 
 
+def test_scene_video_readiness_verifier_requires_action_for_missing_omagic_adapter_target() -> None:
+    module = _load_script()
+    receipt = _receipt()
+    receipt["providers"][2]["blockers"] = ["omagic_model_upload_endpoint_missing"]  # type: ignore[index]
+    receipt["providers"][3]["blockers"] = ["omagic_model_upload_endpoint_missing"]  # type: ignore[index]
+    receipt["next_actions"] = [
+        action
+        for action in receipt["next_actions"]  # type: ignore[index]
+        if not (isinstance(action, dict) and action.get("reason") == "omagic_model_upload_adapter_missing")
+    ]
+
+    result = module.validate_receipt(receipt)
+
+    assert result["status"] == "fail"
+    assert "next_action_missing:omagic:omagic_model_upload_endpoint_missing" in result["blockers"]
+
+
+def test_scene_video_readiness_verifier_requires_action_for_disabled_omagic_adapter() -> None:
+    module = _load_script()
+    receipt = _receipt()
+    receipt["providers"][2]["blockers"] = ["omagic_model_upload_adapter_disabled"]  # type: ignore[index]
+    receipt["providers"][3]["blockers"] = ["omagic_model_upload_adapter_disabled"]  # type: ignore[index]
+    receipt["next_actions"] = [
+        action
+        for action in receipt["next_actions"]  # type: ignore[index]
+        if not (isinstance(action, dict) and action.get("reason") == "omagic_model_upload_adapter_missing")
+    ]
+
+    result = module.validate_receipt(receipt)
+
+    assert result["status"] == "fail"
+    assert "next_action_missing:omagic:omagic_model_upload_adapter_disabled" in result["blockers"]
+
+
+def test_scene_video_readiness_verifier_requires_actions_for_missing_mootion_remote_lane() -> None:
+    module = _load_script()
+    receipt = _receipt()
+    mootion = receipt["providers"][0]  # type: ignore[index]
+    mootion.pop("execution_lane", None)  # type: ignore[union-attr]
+    mootion["checks"] = {"mootion_browseract_remote": {"ready": False, "target_count": 0}}  # type: ignore[index]
+
+    result = module.validate_receipt(receipt)
+
+    assert result["status"] == "fail"
+    assert "mootion_browseract_remote_lane_missing" in result["blockers"]
+    assert "mootion_browseract_bridge_not_ready" in result["blockers"]
+    assert "next_action_missing:mootion:mootion_browseract_remote_lane_missing" in result["blockers"]
+    assert "next_action_missing:mootion:mootion_browseract_bridge_not_ready" in result["blockers"]
+
+
+def test_scene_video_readiness_verifier_accepts_actions_for_missing_mootion_remote_lane() -> None:
+    module = _load_script()
+    receipt = _receipt()
+    mootion = receipt["providers"][0]  # type: ignore[index]
+    mootion.pop("execution_lane", None)  # type: ignore[union-attr]
+    mootion["checks"] = {"mootion_browseract_remote": {"ready": False, "target_count": 0}}  # type: ignore[index]
+    receipt["next_actions"].extend(  # type: ignore[union-attr]
+        [
+            {"provider": "mootion", "reason": "mootion_browseract_remote_lane_missing"},
+            {"provider": "mootion", "reason": "mootion_browseract_bridge_not_ready"},
+        ]
+    )
+
+    result = module.validate_receipt(receipt)
+
+    assert result["status"] == "fail"
+    assert "mootion_browseract_remote_lane_missing" in result["blockers"]
+    assert "mootion_browseract_bridge_not_ready" in result["blockers"]
+    assert "next_action_missing:mootion:mootion_browseract_remote_lane_missing" not in result["blockers"]
+    assert "next_action_missing:mootion:mootion_browseract_bridge_not_ready" not in result["blockers"]
+
+
 def test_property_release_gate_runs_scene_video_readiness_report_and_verifier() -> None:
     release_gate = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
 

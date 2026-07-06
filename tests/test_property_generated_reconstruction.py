@@ -9,6 +9,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from app.api.routes.public_tour_payloads import public_tour_allowed_asset_paths
+from app.product import property_tour_hosting
+from app.product import service as product_service
 from scripts.verify_property_tour_controls import build_property_tour_control_receipt
 
 
@@ -55,9 +57,13 @@ def _run_generator(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[st
     )
 
 
-def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthrough(tmp_path: Path) -> None:
+def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthrough(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     slug = "generated-reconstruction-target"
     bundle_dir = _write_base_tour(tmp_path, slug)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path / "public_tours"))
     floorplan = tmp_path / "floorplan.jpg"
     photo_a = tmp_path / "living.jpg"
     photo_b = tmp_path / "kitchen.jpg"
@@ -114,6 +120,8 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert "Download OBJ" not in viewer_html
     assert "Download GLB" not in viewer_html
     assert "receipt stored" not in viewer_html
+    assert "Room route" in viewer_html
+    assert "routeButtons" in viewer_html
     assert "propertyquarry_generated_layout" in (output_dir / "model.obj").read_text(encoding="utf-8")
     receipt = json.loads((output_dir / "reconstruction.json").read_text(encoding="utf-8"))
     assert receipt["verified_provider_capture"] is False
@@ -126,6 +134,9 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert receipt["room_dimensions_m"]["depth"] < 10.0
     assert receipt["geometry"]["wall_rect_count"] > 0
     assert len(receipt["geometry"]["wall_rectangles"]) == receipt["geometry"]["wall_rect_count"]
+    assert receipt["walkable_scene"]["kind"] == "generated_reconstruction_layout"
+    assert len(receipt["walkable_scene"]["route"]) >= 1
+    assert len(receipt["walkable_scene"]["rooms"]) == len(receipt["walkable_scene"]["route"])
     assert receipt["geometry"]["content_size_px"]["width"] < receipt["floorplan"]["width"]
     assert receipt["geometry"]["content_size_px"]["height"] < receipt["floorplan"]["height"]
     assert len(receipt["photos"]) == 2
@@ -157,6 +168,9 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     if generated_reconstruction["glb_export_status"] == "generated":
         assert generated_reconstruction["glb_model_relpath"] == "generated-reconstruction/model.glb"
     assert generated_reconstruction["viewer_version"] == "propertyquarry_3d_tour_viewer_v3"
+    assert generated_reconstruction["walkable_scene_kind"] == "generated_reconstruction_layout"
+    assert generated_reconstruction["walkable_scene"]["kind"] == "generated_reconstruction_layout"
+    assert len(generated_reconstruction["walkable_scene"]["route"]) >= 1
     if receipt["walkthrough"]["status"] == "generated":
         assert generated_reconstruction["walkthrough_sidecar_relpath"] == "generated-reconstruction/generated-walkthrough.quality.json"
         assert generated_reconstruction["walkthrough_coverage_proof"]["status"] == "pass"
@@ -169,6 +183,10 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert "video_provider" not in manifest
     assert "video_relpath" not in manifest
     assert "walkable_scene" not in manifest
+    expected_ready = receipt["model"]["glb_export"]["status"] == "generated"
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
+        f"https://propertyquarry.com/tours/{slug}"
+    ) is expected_ready
 
 
 def test_generated_reconstruction_does_not_satisfy_verified_provider_gate(tmp_path: Path, monkeypatch) -> None:
@@ -300,8 +318,20 @@ def test_generated_reconstruction_walkthrough_uses_explicit_room_labels_for_dura
     )
 
     assert generated.returncode == 0, generated.stderr
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["generated_reconstruction"]["route_labels"] == ["entry/hall", "living room", "bedroom"]
+    assert manifest["generated_reconstruction"]["room_stop_count"] == 3
+    assert [stop["label"] for stop in manifest["generated_reconstruction"]["walkable_scene"]["route"]] == [
+        "entry/hall",
+        "living room",
+        "bedroom",
+    ]
+    assert manifest["room_visit_plan"] == ["entry/hall", "living room", "bedroom"]
+    assert manifest["covered_route_labels"] == ["entry/hall", "living room", "bedroom"]
     output_dir = bundle_dir / "generated-reconstruction"
     receipt = json.loads((output_dir / "reconstruction.json").read_text(encoding="utf-8"))
+    assert receipt["route_labels"] == ["entry/hall", "living room", "bedroom"]
+    assert [stop["label"] for stop in receipt["walkable_scene"]["route"]] == ["entry/hall", "living room", "bedroom"]
     if receipt["walkthrough"]["status"] != "generated":
         return
 
@@ -316,3 +346,61 @@ def test_generated_reconstruction_walkthrough_uses_explicit_room_labels_for_dura
         {"segment": "living room", "index": 2, "start": 15.0, "end": 30.0},
         {"segment": "bedroom", "index": 3, "start": 30.0, "end": 45.0},
     ]
+
+
+def test_service_generated_reconstruction_bundle_persists_multi_floor_route_labels(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    public_root = tmp_path / "public_tours"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_root))
+    floorplan = tmp_path / "floorplan.jpg"
+    photo_a = tmp_path / "living.jpg"
+    photo_b = tmp_path / "bedroom.jpg"
+    _write_floorplan(floorplan)
+    _write_photo(photo_a, (126, 108, 82))
+    _write_photo(photo_b, (86, 104, 112))
+
+    asset_map = {
+        "https://img.example.test/floorplan.jpg": floorplan,
+        "https://img.example.test/living.jpg": photo_a,
+        "https://img.example.test/bedroom.jpg": photo_b,
+    }
+
+    monkeypatch.setattr(
+        product_service,
+        "_download_property_reconstruction_image",
+        lambda url, target_dir, *, stem: asset_map.get(str(url or "").strip()),
+    )
+
+    payload = product_service._write_generated_reconstruction_property_tour_bundle(
+        principal_id="property-tour-route-proof",
+        title="Maisonette with balcony",
+        listing_id="listing-route-proof-1",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/maisonette-route-proof-1",
+        variant_key="layout_first",
+        media_urls=["https://img.example.test/living.jpg", "https://img.example.test/bedroom.jpg"],
+        floorplan_urls=["https://img.example.test/floorplan.jpg"],
+        property_facts_json={
+            "rooms": 3,
+            "description": "Maisonette mit Treppe, Balkon und separatem WC.",
+        },
+        source_host="www.willhaben.at",
+        source_ref="willhaben:maisonette-route-proof-1",
+        external_id="maisonette-route-proof-1",
+        recipient_email="owner@example.test",
+        diorama_style_hint="Ikea",
+    )
+
+    generated_reconstruction = dict(payload.get("generated_reconstruction") or {})
+    route_labels = list(generated_reconstruction.get("route_labels") or [])
+    assert "staircase" in route_labels
+    assert "balcony/terrace" in route_labels
+    assert generated_reconstruction["room_stop_count"] == len(route_labels)
+    assert [stop["label"] for stop in generated_reconstruction["walkable_scene"]["route"]] == route_labels
+
+    context = product_service._property_walkthrough_scene_video_context(
+        f"https://propertyquarry.com/tours/{payload['slug']}"
+    )
+    assert "staircase" in context["route_labels"]
+    assert "balcony/terrace" in context["route_labels"]

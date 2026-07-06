@@ -478,6 +478,8 @@ def _hosted_property_tour_slug_from_url(value: object) -> str:
     path_parts = [part for part in str(parsed.path or "").split("/") if part]
     for index, part in enumerate(path_parts):
         if part == "tours" and index + 1 < len(path_parts):
+            if path_parts[index + 1] == "files" and index + 2 < len(path_parts):
+                return str(path_parts[index + 2] or "").strip()
             return str(path_parts[index + 1] or "").strip()
     return ""
 
@@ -739,20 +741,10 @@ def _hosted_property_tour_generated_reconstruction_open_url(tour_url: object) ->
     generated_reconstruction = payload.get("generated_reconstruction")
     if not isinstance(generated_reconstruction, dict):
         return ""
-    provider = str(generated_reconstruction.get("provider") or "").strip().lower()
-    if provider != "propertyquarry_generated_reconstruction":
+    contract = _hosted_property_tour_generated_reconstruction_contract(bundle_dir=bundle_dir, payload=payload)
+    if not contract.get("ready"):
         return ""
-    if bool(generated_reconstruction.get("verified_provider_capture")):
-        return ""
-    viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
-    if viewer_version != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
-        return ""
-    viewer_relpath = str(generated_reconstruction.get("viewer_relpath") or "").strip().lstrip("/")
-    if not viewer_relpath:
-        return ""
-    viewer_path = (bundle_dir / viewer_relpath).resolve()
-    if bundle_dir.resolve() not in viewer_path.parents or not viewer_path.exists() or not viewer_path.is_file():
-        return ""
+    viewer_relpath = str(contract.get("viewer_relpath") or "").strip()
     return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=viewer_relpath)
 
 
@@ -760,10 +752,7 @@ def _hosted_property_tour_first_party_open_url(tour_url: object) -> str:
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
         return ""
-    verified_open_url = _hosted_property_tour_verified_open_url(normalized_url)
-    if verified_open_url:
-        return verified_open_url
-    return _hosted_property_tour_generated_reconstruction_open_url(normalized_url)
+    return _hosted_property_tour_verified_open_url(normalized_url)
 
 
 def _hosted_property_tour_walkthrough_asset_url(tour_url: object) -> str:
@@ -799,6 +788,212 @@ def _hosted_property_tour_walkthrough_asset_url(tour_url: object) -> str:
     if provider_key in generated_video_providers and coverage_proof != "boundary_verified_frame_continuation":
         return ""
     return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=video_relpath)
+
+
+def _hosted_property_tour_walkthrough_open_url(tour_url: object, walkthrough_url: object = "") -> str:
+    normalized_tour_url = str(tour_url or "").strip()
+    normalized_walkthrough_url = str(walkthrough_url or "").strip()
+    verified_walkthrough_url = _hosted_property_tour_walkthrough_asset_url(normalized_tour_url) if normalized_tour_url else ""
+    published_walkthrough_url = _published_walkthrough_asset_url(normalized_walkthrough_url)
+    if not published_walkthrough_url and normalized_walkthrough_url.startswith("/tours/"):
+        published_walkthrough_url = normalized_walkthrough_url
+    canonical_walkthrough_url = verified_walkthrough_url or published_walkthrough_url
+    if not canonical_walkthrough_url:
+        return ""
+    slug = _hosted_property_tour_slug_from_url(normalized_tour_url) or _hosted_property_tour_slug_from_url(canonical_walkthrough_url)
+    if not slug:
+        return canonical_walkthrough_url
+    for source_url in (normalized_tour_url, canonical_walkthrough_url):
+        normalized_source = str(source_url or "").strip()
+        if not normalized_source:
+            continue
+        parsed = urllib.parse.urlparse(normalized_source)
+        if not parsed.scheme and not parsed.netloc and str(parsed.path or "").startswith("/tours/"):
+            return f"/tours/{slug}?pane=flythrough-pane&autoplay=1"
+        if not parsed.scheme or not parsed.netloc:
+            continue
+        branded_tour_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, f"/tours/{slug}", "", "", ""))
+        if _is_branded_public_tour_url(branded_tour_url):
+            return urllib.parse.urlunparse(
+                (
+                    parsed.scheme,
+                    parsed.netloc,
+                    f"/tours/{slug}",
+                    "",
+                    "pane=flythrough-pane&autoplay=1",
+                    "",
+                )
+            )
+    return canonical_walkthrough_url
+
+
+def _generated_reconstruction_relpath_file(bundle_dir: Path, relpath: object) -> Path | None:
+    normalized = str(relpath or "").strip().lstrip("/")
+    if not normalized:
+        return None
+    try:
+        asset_path = (bundle_dir / normalized).resolve()
+    except OSError:
+        return None
+    if bundle_dir.resolve() not in asset_path.parents or not asset_path.is_file():
+        return None
+    return asset_path
+
+
+def _hosted_property_tour_generated_reconstruction_contract(
+    *,
+    bundle_dir: Path,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return {"ready": False}
+    provider = str(generated_reconstruction.get("provider") or "").strip().lower()
+    if provider != "propertyquarry_generated_reconstruction":
+        return {"ready": False}
+    if _truthy(generated_reconstruction.get("verified_provider_capture")):
+        return {"ready": False}
+    viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
+    if viewer_version != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
+        return {"ready": False}
+    viewer_relpath = str(generated_reconstruction.get("viewer_relpath") or "").strip().lstrip("/")
+    viewer_path = _generated_reconstruction_relpath_file(bundle_dir, viewer_relpath)
+    if not viewer_path:
+        return {"ready": False}
+    manifest_relpath = str(generated_reconstruction.get("manifest_relpath") or "").strip().lstrip("/")
+    manifest_path = _generated_reconstruction_relpath_file(bundle_dir, manifest_relpath)
+    if not manifest_path:
+        return {"ready": False}
+    try:
+        receipt = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"ready": False}
+    if not isinstance(receipt, dict):
+        return {"ready": False}
+    if str(receipt.get("provider") or "").strip().lower() != "propertyquarry_generated_reconstruction":
+        return {"ready": False}
+    if _truthy(receipt.get("verified_provider_capture")) or _truthy(receipt.get("satisfies_verified_tour_gate")):
+        return {"ready": False}
+    receipt_viewer = dict(receipt.get("viewer") or {}) if isinstance(receipt.get("viewer"), dict) else {}
+    if str(receipt_viewer.get("version") or "").strip() != viewer_version:
+        return {"ready": False}
+    model_relpath = str(generated_reconstruction.get("model_relpath") or "").strip().lstrip("/")
+    material_relpath = str(generated_reconstruction.get("material_relpath") or "").strip().lstrip("/")
+    model_path = _generated_reconstruction_relpath_file(bundle_dir, model_relpath)
+    material_path = _generated_reconstruction_relpath_file(bundle_dir, material_relpath)
+    if not model_path or not material_path:
+        return {"ready": False}
+    if str(generated_reconstruction.get("glb_export_status") or "").strip().lower() != "generated":
+        return {"ready": False}
+    model_receipt = dict(receipt.get("model") or {}) if isinstance(receipt.get("model"), dict) else {}
+    glb_export = dict(model_receipt.get("glb_export") or {}) if isinstance(model_receipt.get("glb_export"), dict) else {}
+    if str(glb_export.get("status") or "").strip().lower() != "generated":
+        return {"ready": False}
+    glb_model_relpath = str(generated_reconstruction.get("glb_model_relpath") or "").strip().lstrip("/")
+    glb_model_path = _generated_reconstruction_relpath_file(bundle_dir, glb_model_relpath)
+    if not glb_model_path:
+        return {"ready": False}
+    try:
+        if glb_model_path.stat().st_size <= 1024:
+            return {"ready": False}
+    except OSError:
+        return {"ready": False}
+    photo_paths = [
+        path
+        for path in (
+            _generated_reconstruction_relpath_file(bundle_dir, raw_relpath)
+            for raw_relpath in list(generated_reconstruction.get("photo_relpaths") or [])
+        )
+        if path is not None
+    ]
+    if not photo_paths:
+        return {"ready": False}
+    floorplan_relpath = str(generated_reconstruction.get("floorplan_relpath") or "").strip().lstrip("/")
+    floorplan_path = _generated_reconstruction_relpath_file(bundle_dir, floorplan_relpath)
+    if not floorplan_path and len(photo_paths) < 2:
+        return {"ready": False}
+    geometry = dict(receipt.get("geometry") or {}) if isinstance(receipt.get("geometry"), dict) else {}
+    try:
+        wall_rect_count = int(geometry.get("wall_rect_count") or 0)
+    except Exception:
+        wall_rect_count = 0
+    if wall_rect_count < 4:
+        return {"ready": False}
+    room_dimensions = (
+        dict(receipt.get("room_dimensions_m") or {})
+        if isinstance(receipt.get("room_dimensions_m"), dict)
+        else {}
+    )
+    try:
+        width_m = float(room_dimensions.get("width") or 0.0)
+        depth_m = float(room_dimensions.get("depth") or 0.0)
+        height_m = float(room_dimensions.get("height") or 0.0)
+    except Exception:
+        return {"ready": False}
+    if width_m <= 0.0 or depth_m <= 0.0 or height_m <= 0.0:
+        return {"ready": False}
+    route_labels = [
+        str(label or "").strip()
+        for label in list(generated_reconstruction.get("route_labels") or receipt.get("route_labels") or [])
+        if str(label or "").strip()
+    ]
+    if not route_labels:
+        return {"ready": False}
+    try:
+        room_stop_count = int(generated_reconstruction.get("room_stop_count") or len(route_labels))
+    except Exception:
+        return {"ready": False}
+    if room_stop_count <= 0 or room_stop_count != len(route_labels):
+        return {"ready": False}
+    walkable_scene = (
+        dict(generated_reconstruction.get("walkable_scene") or {})
+        if isinstance(generated_reconstruction.get("walkable_scene"), dict)
+        else {}
+    )
+    if not walkable_scene and isinstance(receipt.get("walkable_scene"), dict):
+        walkable_scene = dict(receipt.get("walkable_scene") or {})
+    if str(walkable_scene.get("kind") or "").strip() != "generated_reconstruction_layout":
+        return {"ready": False}
+    route_stops = list(walkable_scene.get("route") or []) if isinstance(walkable_scene.get("route"), list) else []
+    room_stops = list(walkable_scene.get("rooms") or []) if isinstance(walkable_scene.get("rooms"), list) else []
+    if len(route_stops) != room_stop_count or len(room_stops) != room_stop_count:
+        return {"ready": False}
+    route_stop_labels: list[str] = []
+    room_stop_labels: list[str] = []
+    for stop in route_stops:
+        if not isinstance(stop, dict):
+            return {"ready": False}
+        label = str(stop.get("label") or stop.get("room") or stop.get("name") or "").strip()
+        focus = dict(stop.get("focus") or {}) if isinstance(stop.get("focus"), dict) else {}
+        camera = dict(stop.get("camera") or {}) if isinstance(stop.get("camera"), dict) else {}
+        if not label or not focus or not camera:
+            return {"ready": False}
+        route_stop_labels.append(label)
+    for room in room_stops:
+        if not isinstance(room, dict):
+            return {"ready": False}
+        label = str(room.get("label") or room.get("room") or room.get("name") or "").strip()
+        position = dict(room.get("position") or {}) if isinstance(room.get("position"), dict) else {}
+        focus = dict(room.get("focus") or {}) if isinstance(room.get("focus"), dict) else {}
+        if not label or not position or not focus:
+            return {"ready": False}
+        room_stop_labels.append(label)
+    if [label.lower() for label in route_stop_labels] != [label.lower() for label in route_labels]:
+        return {"ready": False}
+    if [label.lower() for label in room_stop_labels] != [label.lower() for label in route_labels]:
+        return {"ready": False}
+    return {
+        "ready": True,
+        "viewer_relpath": viewer_relpath,
+        "manifest_relpath": manifest_relpath,
+        "model_relpath": model_relpath,
+        "material_relpath": material_relpath,
+        "glb_model_relpath": glb_model_relpath,
+        "floorplan_relpath": floorplan_relpath,
+        "photo_relpaths": [str(path.relative_to(bundle_dir)).replace("\\", "/") for path in photo_paths],
+        "route_labels": route_labels,
+        "room_stop_count": room_stop_count,
+    }
 
 
 def _hosted_property_tour_generated_reconstruction_asset_url(tour_url: object, *, asset_key: str = "viewer_relpath") -> str:
@@ -859,22 +1054,7 @@ def _hosted_property_tour_generated_reconstruction_bundle_ready(tour_url: object
     payload = _load_hosted_property_tour_payload(bundle_dir)
     if not payload or not isinstance(payload, dict):
         return False
-    generated_reconstruction = payload.get("generated_reconstruction")
-    if not isinstance(generated_reconstruction, dict):
-        return False
-    provider = str(generated_reconstruction.get("provider") or "").strip().lower()
-    if provider != "propertyquarry_generated_reconstruction":
-        return False
-    if bool(generated_reconstruction.get("verified_provider_capture")):
-        return False
-    viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
-    if viewer_version != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
-        return False
-    viewer_relpath = str(generated_reconstruction.get("viewer_relpath") or "").strip().lstrip("/")
-    if not viewer_relpath:
-        return False
-    viewer_path = (bundle_dir / viewer_relpath).resolve()
-    return bundle_dir.resolve() in viewer_path.parents and viewer_path.exists() and viewer_path.is_file()
+    return bool(_hosted_property_tour_generated_reconstruction_contract(bundle_dir=bundle_dir, payload=payload).get("ready"))
 
 
 def _hosted_property_tour_generated_reconstruction_asset_urls(

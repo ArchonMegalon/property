@@ -7,6 +7,7 @@ import json
 import os
 import signal
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -50,6 +51,11 @@ _TARGET_CONTEXT_BY_COUNTRY = {
     "US": ("Brooklyn", "Austin"),
 }
 
+DOTENV_PATHS = (
+    ROOT / ".env",
+    ROOT / ".env.local",
+)
+
 
 class _WallClockTimeout(RuntimeError):
     pass
@@ -87,6 +93,73 @@ def _enabled() -> bool:
         "enabled",
         "live",
     }
+
+
+def _env_value(name: str) -> str:
+    return str(os.getenv(name) or "").strip()
+
+
+def _dotenv_value(name: str, *, dotenv_paths: tuple[Path, ...] = DOTENV_PATHS) -> str:
+    normalized_name = str(name or "").strip()
+    if not normalized_name:
+        return ""
+    for path in dotenv_paths:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for raw_line in lines:
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            if key.strip() != normalized_name:
+                continue
+            normalized_value = value.strip().strip('"').strip("'")
+            if normalized_value:
+                return normalized_value
+    return ""
+
+
+def _default_api_token(*, dotenv_paths: tuple[Path, ...] = DOTENV_PATHS) -> str:
+    return (
+        _env_value("PROPERTYQUARRY_LIVE_API_TOKEN")
+        or _env_value("EA_API_TOKEN")
+        or _dotenv_value("PROPERTYQUARRY_LIVE_API_TOKEN", dotenv_paths=dotenv_paths)
+        or _dotenv_value("EA_API_TOKEN", dotenv_paths=dotenv_paths)
+    )
+
+
+def _default_principal_id() -> str:
+    return str(
+        os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID")
+        or os.getenv("EA_PRINCIPAL_ID")
+        or "cf-email:person@example.test"
+    ).strip()
+
+
+def _request_headers(
+    *,
+    user_agent: str,
+    principal_id: str,
+    api_token: str,
+    host_header: str = "propertyquarry.com",
+    content_type: str = "",
+) -> dict[str, str]:
+    headers = {
+        "User-Agent": user_agent,
+        "Accept": "application/json,text/html,*/*",
+        "Host": host_header,
+        "X-EA-Principal-ID": principal_id,
+    }
+    if content_type:
+        headers["Content-Type"] = content_type
+    normalized_token = str(api_token or "").strip()
+    if normalized_token:
+        headers["Authorization"] = f"Bearer {normalized_token}"
+        headers["X-EA-API-Token"] = normalized_token
+        headers["X-API-Token"] = normalized_token
+    return headers
 
 
 def _dry_run() -> bool:
@@ -353,29 +426,29 @@ def _select_targeted_provider_options(
     return selected
 
 
-def _post_search_run_payload(*, base_url: str, payload: dict[str, object], timeout_seconds: float) -> dict[str, object]:
+def _post_search_run_payload(
+    *,
+    base_url: str,
+    payload: dict[str, object],
+    timeout_seconds: float,
+    api_token: str = "",
+    principal_id: str = "",
+) -> dict[str, object]:
     url = urllib.parse.urljoin(base_url.rstrip("/") + "/", "app/api/property/search-runs")
-    api_token = str(os.getenv("EA_API_TOKEN") or "").strip()
-    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:person@example.test").strip()
+    normalized_api_token = str(api_token or "").strip() or _default_api_token()
+    normalized_principal_id = str(principal_id or "").strip() or _default_principal_id()
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         method="POST",
         headers={
-            "User-Agent": "PropertyQuarry-live-provider-search-matrix/1.0",
-            "Accept": "application/json,text/html,*/*",
-            "Content-Type": "application/json",
-            "Host": "propertyquarry.com",
-            "X-EA-Principal-ID": principal_id,
-            "X-PropertyQuarry-Dispatch-Probe": "1",
-            **(
-                {
-                    "Authorization": f"Bearer {api_token}",
-                    "X-EA-API-Token": api_token,
-                }
-                if api_token
-                else {}
+            **_request_headers(
+                user_agent="PropertyQuarry-live-provider-search-matrix/1.0",
+                principal_id=normalized_principal_id,
+                api_token=normalized_api_token,
+                content_type="application/json",
             ),
+            "X-PropertyQuarry-Dispatch-Probe": "1",
         },
     )
     with _wall_clock_timeout(timeout_seconds):
@@ -508,31 +581,30 @@ def _build_cross_country_sanitization_checks(
     return rows
 
 
-def _fetch_search_run_status_payload(*, base_url: str, status_url: str, run_id: str, timeout_seconds: float) -> dict[str, object]:
+def _fetch_search_run_status_payload(
+    *,
+    base_url: str,
+    status_url: str,
+    run_id: str,
+    timeout_seconds: float,
+    api_token: str = "",
+    principal_id: str = "",
+) -> dict[str, object]:
     raw_status_url = str(status_url or "").strip()
     if raw_status_url:
         url = urllib.parse.urljoin(base_url.rstrip("/") + "/", raw_status_url.lstrip("/"))
     else:
         url = urllib.parse.urljoin(base_url.rstrip("/") + "/", f"app/api/property/search-runs/{urllib.parse.quote(str(run_id or '').strip())}?lightweight=true")
-    api_token = str(os.getenv("EA_API_TOKEN") or "").strip()
-    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:person@example.test").strip()
+    normalized_api_token = str(api_token or "").strip() or _default_api_token()
+    normalized_principal_id = str(principal_id or "").strip() or _default_principal_id()
     request = urllib.request.Request(
         url,
         method="GET",
-        headers={
-            "User-Agent": "PropertyQuarry-live-provider-search-status/1.0",
-            "Accept": "application/json,text/html,*/*",
-            "Host": "propertyquarry.com",
-            "X-EA-Principal-ID": principal_id,
-            **(
-                {
-                    "Authorization": f"Bearer {api_token}",
-                    "X-EA-API-Token": api_token,
-                }
-                if api_token
-                else {}
-            ),
-        },
+        headers=_request_headers(
+            user_agent="PropertyQuarry-live-provider-search-status/1.0",
+            principal_id=normalized_principal_id,
+            api_token=normalized_api_token,
+        ),
     )
     with _wall_clock_timeout(timeout_seconds):
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
@@ -880,30 +952,33 @@ def _targeted_search_matrix_summary(
     }
 
 
-def _fetch_provider_payload(*, base_url: str, country_code: str, timeout_seconds: float) -> dict[str, object]:
+def _fetch_provider_payload(
+    *,
+    base_url: str,
+    country_code: str,
+    timeout_seconds: float,
+    api_token: str = "",
+    principal_id: str = "",
+) -> dict[str, object]:
     params = urllib.parse.urlencode({"country": country_code})
     url = urllib.parse.urljoin(base_url.rstrip("/") + "/", f"app/api/property/providers?{params}")
-    api_token = str(os.getenv("EA_API_TOKEN") or "").strip()
-    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:person@example.test").strip()
+    normalized_api_token = str(api_token or "").strip() or _default_api_token()
+    normalized_principal_id = str(principal_id or "").strip() or _default_principal_id()
     request = urllib.request.Request(
         url,
-        headers={
-            "User-Agent": "PropertyQuarry-live-provider-smoke/1.0",
-            "Accept": "application/json,text/html,*/*",
-            "Host": "propertyquarry.com",
-            "X-EA-Principal-ID": principal_id,
-            **(
-                {
-                    "Authorization": f"Bearer {api_token}",
-                    "X-EA-API-Token": api_token,
-                }
-                if api_token
-                else {}
-            ),
-        },
+        headers=_request_headers(
+            user_agent="PropertyQuarry-live-provider-smoke/1.0",
+            principal_id=normalized_principal_id,
+            api_token=normalized_api_token,
+        ),
     )
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        body = response.read(220_000)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            body = response.read(220_000)
+    except urllib.error.HTTPError as exc:
+        exc.read(220_000)
+        auth_suffix = ": api token missing or rejected" if int(exc.code or 0) == 401 and not normalized_api_token else ""
+        raise RuntimeError(f"provider_catalog_http_{int(exc.code or 0)}{auth_suffix}") from exc
     return json.loads(body.decode("utf-8", errors="replace"))
 
 
@@ -922,6 +997,8 @@ def build_live_provider_smoke_receipt(
     status_fetcher: Callable[[str, str, float], dict[str, object]] | None = None,
     checkpoint_path: str | Path = "",
     resume_checkpoint_path: str | Path = "",
+    api_token: str = "",
+    principal_id: str = "",
 ) -> dict[str, object]:
     requested_countries = tuple(dict.fromkeys(str(country or "").strip().upper() for country in countries if str(country or "").strip()))
     all_search_ready_scope = _all_search_ready_countries_enabled() if all_search_ready_countries is None else bool(all_search_ready_countries)
@@ -930,6 +1007,8 @@ def build_live_provider_smoke_receipt(
         normalized_countries = ("AT", "CR")
     enabled = _enabled()
     dry_run = _dry_run()
+    normalized_api_token = str(api_token or "").strip() or _default_api_token()
+    normalized_principal_id = str(principal_id or "").strip() or _default_principal_id()
     should_execute_search_matrix = _execute_search_matrix_enabled() if execute_search_matrix is None else bool(execute_search_matrix)
     effective_search_run_timeout_seconds = _effective_search_run_timeout_seconds(
         timeout_seconds,
@@ -938,7 +1017,15 @@ def build_live_provider_smoke_receipt(
         search_run_timeout_seconds=search_run_timeout_seconds,
     )
     checks: list[dict[str, object]] = []
-    effective_fetcher = fetcher or (lambda country, timeout: _fetch_provider_payload(base_url=base_url, country_code=country, timeout_seconds=timeout))
+    effective_fetcher = fetcher or (
+        lambda country, timeout: _fetch_provider_payload(
+            base_url=base_url,
+            country_code=country,
+            timeout_seconds=timeout,
+            api_token=normalized_api_token,
+            principal_id=normalized_principal_id,
+        )
+    )
     for country in normalized_countries:
         options = provider_options(country_code=country)
         defaults = set(default_platforms_for_country_listing_mode(country, "rent"))
@@ -1083,8 +1170,27 @@ def build_live_provider_smoke_receipt(
         timeout_seconds=effective_search_run_timeout_seconds,
         provider_keys=provider_keys,
         max_providers=max_providers,
-        search_executor=search_executor,
-        status_fetcher=status_fetcher,
+        search_executor=search_executor
+        or (
+            lambda payload, timeout: _post_search_run_payload(
+                base_url=base_url,
+                payload=payload,
+                timeout_seconds=timeout,
+                api_token=normalized_api_token,
+                principal_id=normalized_principal_id,
+            )
+        ),
+        status_fetcher=status_fetcher
+        or (
+            lambda run_id, status_url, timeout: _fetch_search_run_status_payload(
+                base_url=base_url,
+                run_id=run_id,
+                status_url=status_url,
+                timeout_seconds=timeout,
+                api_token=normalized_api_token,
+                principal_id=normalized_principal_id,
+            )
+        ),
         checkpoint_writer=_write_checkpoint if should_execute_search_matrix and enabled and not dry_run else None,
         resume_rows=resume_rows if should_execute_search_matrix and enabled and not dry_run else (),
     )
@@ -1094,7 +1200,16 @@ def build_live_provider_smoke_receipt(
         enabled=enabled,
         dry_run=dry_run,
         timeout_seconds=effective_search_run_timeout_seconds,
-        search_executor=search_executor,
+        search_executor=search_executor
+        or (
+            lambda payload, timeout: _post_search_run_payload(
+                base_url=base_url,
+                payload=payload,
+                timeout_seconds=timeout,
+                api_token=normalized_api_token,
+                principal_id=normalized_principal_id,
+            )
+        ),
     )
     search_matrix_summary = _targeted_search_matrix_summary(
         search_matrix,
@@ -1129,6 +1244,7 @@ def build_live_provider_smoke_receipt(
         "base_url": base_url,
         "provider_catalog_timeout_seconds": timeout_seconds,
         "search_run_timeout_seconds": effective_search_run_timeout_seconds,
+        "api_token_configured": bool(normalized_api_token),
         "resume_source": resume_source,
         "country_scope": "all_search_ready" if all_search_ready_scope else "explicit",
         "checks": checks,
@@ -1192,6 +1308,8 @@ def main() -> int:
     parser.add_argument("--write", default="", help="Optional JSON receipt output path.")
     parser.add_argument("--resume-from", default="", help="Optional checkpoint/final receipt whose passed targeted search rows should be reused.")
     parser.add_argument("--base-url", default=os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_BASE_URL") or "http://localhost:8097")
+    parser.add_argument("--api-token", default=_default_api_token(), help="Optional API token. Defaults to PROPERTYQUARRY_LIVE_API_TOKEN or EA_API_TOKEN from env/.env.")
+    parser.add_argument("--principal-id", default=_default_principal_id(), help="Optional principal id for authenticated live probes.")
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
     parser.add_argument(
         "--search-run-timeout-seconds",
@@ -1234,6 +1352,8 @@ def main() -> int:
             all_search_ready_countries=bool(args.all_search_ready_countries and not args.country),
             checkpoint_path=args.write,
             resume_checkpoint_path=args.resume_from,
+            api_token=str(args.api_token or "").strip(),
+            principal_id=str(args.principal_id or "").strip(),
         )
     except KeyboardInterrupt:
         if args.write and Path(args.write).exists():

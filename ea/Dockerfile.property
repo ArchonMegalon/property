@@ -25,6 +25,7 @@ COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py
 COPY scripts/mootion_movie_worker.py /app/scripts/mootion_movie_worker.py
 COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py
 COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py
+COPY scripts/render_omagic_property_model_walkthrough.py /app/scripts/render_omagic_property_model_walkthrough.py
 COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py
 COPY scripts/verify_property_scene_video_readiness.py /app/scripts/verify_property_scene_video_readiness.py
 COPY scripts/materialize_scene_video_provider_refresh_packet.py /app/scripts/materialize_scene_video_provider_refresh_packet.py

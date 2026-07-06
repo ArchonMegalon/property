@@ -200,6 +200,97 @@ def test_vendor_tooling_reports_magicfit_renderer_credentials_from_process_suffi
     assert "chummer-secret" not in serialized
 
 
+def test_vendor_tooling_reports_missing_omagic_runtime_adapter(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / "scripts").mkdir(parents=True)
+    monkeypatch.setattr("scripts.verify_property_tour_vendor_tooling._repo_root", lambda: repo_root)
+
+    receipt = build_vendor_tooling_receipt(
+        drop_dir=tmp_path / "incoming",
+        tour_root=tmp_path / "public_tours",
+        wine_prefix=tmp_path / "wine",
+        installer_roots=[],
+        runtime_container="",
+        runtime_only=True,
+    )
+
+    assert receipt["omagic_adapter"]["runtime_checked"] is True
+    assert receipt["omagic_adapter"]["ready"] is False
+    assert receipt["omagic_adapter"]["status"] == "blocked_source_script_missing"
+    assert any(row["area"] == "omagic_model_upload_adapter_deploy" for row in receipt["next_actions"])
+
+
+def test_vendor_tooling_reports_omagic_adapter_config_env_names_without_leaking_values(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / "scripts").mkdir(parents=True)
+    (repo_root / "scripts" / "render_omagic_property_model_walkthrough.py").write_text(
+        "#!/usr/bin/env python3\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("scripts.verify_property_tour_vendor_tooling._repo_root", lambda: repo_root)
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_RENDER_COMMAND", "secret-render-command")
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_API_KEY", "secret-api-key")
+
+    receipt = build_vendor_tooling_receipt(
+        drop_dir=tmp_path / "incoming",
+        tour_root=tmp_path / "public_tours",
+        wine_prefix=tmp_path / "wine",
+        installer_roots=[],
+        runtime_container="",
+        runtime_only=True,
+    )
+    serialized = json.dumps(receipt)
+
+    assert receipt["omagic_adapter"]["ready"] is True
+    assert receipt["omagic_adapter"]["status"] == "pass"
+    assert receipt["omagic_adapter"]["model_upload_adapter_enabled"] is True
+    assert receipt["omagic_adapter"]["render_command_env_names"] == ["PROPERTYQUARRY_OMAGIC_RENDER_COMMAND"]
+    assert receipt["omagic_adapter"]["credential_env_names"] == ["PROPERTYQUARRY_OMAGIC_API_KEY"]
+    assert "secret-render-command" not in serialized
+    assert "secret-api-key" not in serialized
+
+
+def test_vendor_tooling_runtime_only_checks_target_container_for_omagic_adapter(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / "scripts").mkdir(parents=True)
+    (repo_root / "scripts" / "render_omagic_property_model_walkthrough.py").write_text(
+        "#!/usr/bin/env python3\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("scripts.verify_property_tour_vendor_tooling._repo_root", lambda: repo_root)
+    monkeypatch.setattr(
+        "scripts.verify_property_tour_vendor_tooling._container_file_available",
+        lambda container, path: {
+            "available": False,
+            "container": container,
+            "path": path,
+            "returncode": 1,
+        },
+    )
+
+    receipt = build_vendor_tooling_receipt(
+        drop_dir=tmp_path / "incoming",
+        tour_root=tmp_path / "public_tours",
+        wine_prefix=tmp_path / "wine",
+        installer_roots=[],
+        runtime_container="propertyquarry-api",
+        runtime_only=True,
+    )
+
+    assert receipt["omagic_adapter"]["script_ready"] is True
+    assert receipt["omagic_adapter"]["runtime_checked"] is True
+    assert receipt["omagic_adapter"]["runtime_script_ready"] is False
+    assert receipt["omagic_adapter"]["runtime_script"]["container"] == "propertyquarry-api"
+    assert receipt["omagic_adapter"]["status"] == "blocked_runtime_script_missing"
+
+
 def test_vendor_tooling_detects_local_desktop_installers(tmp_path: Path) -> None:
     installer_root = tmp_path / "installers"
     installer_root.mkdir()

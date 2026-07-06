@@ -64,6 +64,7 @@ from app.api.routes.product_api_contracts import (
     now_iso,
 )
 from app.api.routes.landing_property_research import _property_candidate_ref
+from app.api.routes.landing_view_models import _property_customer_candidate_summary
 from app.container import AppContainer
 from app.product.property_surface_state import (
     normalize_property_search_run_snapshot,
@@ -526,7 +527,7 @@ def _property_search_lightweight_candidate_payload(
     run_id: str,
     index: int,
 ) -> dict[str, object]:
-    raw = dict(candidate or {})
+    raw = _property_customer_candidate_summary(dict(candidate or {}))
     candidate_ref = str(raw.get("candidate_ref") or "").strip()
     if not candidate_ref:
         candidate_ref = _property_candidate_ref(
@@ -569,6 +570,8 @@ def _property_search_lightweight_candidate_payload(
         "personal_fit_score",
         "fit_label",
         "fit_summary",
+        "summary",
+        "compare_reason",
         "property_url",
         "source_url",
         "listing_url",

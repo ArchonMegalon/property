@@ -1372,10 +1372,11 @@
             </div>
             <div class="console-row-actions">
               {% if candidate.get('review_url') %}
-              <a class="console-action" href="{{ candidate.get('review_url') }}">Open property page</a>
+              <a class="console-action" href="{{ candidate.get('review_url') }}">Open property</a>
               {% endif %}
-              {% if candidate.get('tour_url') %}
-              <a class="console-action" href="{{ candidate.get('tour_url') }}">Open 3D tour</a>
+              {% set console_tour_url = candidate.get('verified_tour_url') or candidate.get('open_tour_url') or candidate.get('tour', {}).get('url') or '' %}
+              {% if console_tour_url %}
+              <a class="console-action" href="{{ console_tour_url }}">Open 3D tour</a>
               {% endif %}
               {% if candidate.get('property_url') %}
               <a class="console-action" href="{{ candidate.get('property_url') }}">Open listing</a>

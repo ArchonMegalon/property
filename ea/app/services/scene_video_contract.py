@@ -240,6 +240,10 @@ def _scene_video_truthy_env(name: str) -> bool:
     return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _scene_video_configured_env_names(*names: str) -> list[str]:
+    return [name for name in names if str(os.getenv(name) or "").strip()]
+
+
 def record_scene_video_magicfit_failure(reason: object, detail: object = "") -> dict[str, object] | None:
     combined = f"{reason or ''} {detail or ''}".lower()
     if "magicfit_not_enough_credits" not in combined and "not enough credit" not in combined:
@@ -457,6 +461,19 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
         script_path = resolve_scene_video_script_path("render_omagic_property_model_walkthrough.py")
         runtime_account_pairs = _scene_video_omagic_runtime_account_pairs()
         adapter_enabled = _scene_video_truthy_env("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED")
+        endpoint_env_names = _scene_video_configured_env_names(
+            "PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT",
+            "OMAGIC_RENDER_ENDPOINT",
+            "PROPERTYQUARRY_MAGIC_RENDER_ENDPOINT",
+            "MAGIC_RENDER_ENDPOINT",
+        )
+        command_env_names = _scene_video_configured_env_names(
+            "PROPERTYQUARRY_OMAGIC_RENDER_COMMAND",
+            "OMAGIC_RENDER_COMMAND",
+            "PROPERTYQUARRY_MAGIC_RENDER_COMMAND",
+            "MAGIC_RENDER_COMMAND",
+        )
+        adapter_target_configured = bool(endpoint_env_names or command_env_names)
         api_key_env_names = [
             name
             for name in (
@@ -490,12 +507,18 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
                 if str(os.getenv(name) or "").strip()
             ],
             "model_upload_adapter_enabled": adapter_enabled,
-            "model_upload_supported": script_path.exists() and adapter_enabled,
+            "model_upload_endpoint_env_names": endpoint_env_names,
+            "model_upload_command_env_names": command_env_names,
+            "model_upload_adapter_target_configured": adapter_target_configured,
+            "model_upload_supported": script_path.exists() and adapter_enabled and adapter_target_configured,
         }
         if not checks["script_exists"]:
             blockers.append("omagic_model_upload_adapter_missing")
-        elif not adapter_enabled:
-            blockers.append("omagic_model_upload_adapter_disabled")
+        else:
+            if not adapter_enabled:
+                blockers.append("omagic_model_upload_adapter_disabled")
+            if not adapter_target_configured:
+                blockers.append("omagic_model_upload_endpoint_missing")
         if not credentials_ready:
             blockers.append("omagic_credentials_missing")
     elif contract_provider_key == "onemin_i2v":

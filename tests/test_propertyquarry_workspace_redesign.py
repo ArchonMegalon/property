@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-from app.api.dependencies import RequestContext, get_request_context
+from app.api.dependencies import RequestContext, get_request_context, get_request_context_if_available
 from app.api.routes import landing as landing_routes
 from app.api.routes.landing_property_surface_contracts import PropertySurfaceScope
 from app.api.routes import landing_property_workspace_helpers
@@ -150,6 +150,20 @@ def test_property_tour_detail_line_does_not_treat_generated_reconstruction_as_re
         )
         == "3D tour not ready yet. More source media is still needed."
     )
+
+
+def test_property_workbench_scripts_do_not_fall_back_to_raw_branded_tour_slugs() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    object_detail = (repo_root / "ea/app/templates/app/object_detail.html").read_text(encoding="utf-8")
+    research_detail = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
+    workbench = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+
+    assert "if (rawHostedTourControlBase(url)) continue;" in workbench_script
+    assert "if (rawHostedTourControlBase(url)) continue;" in object_detail
+    assert "rawTourState === 'ready' && rawReadyTourUrl && !isRawHostedTourBase(rawReadyTourUrl) ? rawReadyTourUrl : ''" in research_detail
+    assert "{% set hosted_tour_url = candidate.get('verified_tour_url') or candidate.get('open_tour_url') or candidate.get('tour', {}).get('url') or '' %}" in workbench
+    assert "{% set hosted_tour_url = candidate.get('tour_url') or candidate.get('tour', {}).get('url') or '' %}" not in workbench
 
 
 def test_property_results_empty_state_keeps_shortlist_minimal() -> None:
@@ -320,11 +334,13 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert "Signal later" not in account
     assert "PropertyQuarry bot <small>Telegram</small>" not in account
     assert "<h2>Notifications</h2>" in account
-    assert ">Save notification routing</button>" in account
+    assert ">Save notifications</button>" in account
     assert "preferred_notification_channel and preferred_notification_channel not in selected_notification_channels" in account
     assert "preferred_notification_channel == 'telegram' and preferred_notification_channel not in selected_notification_channels" not in account
     assert "pqx-account-logout-strip" in account
-    assert 'aria-label="Current session"' in account
+    assert 'aria-label="Signed-in session"' in account
+    assert 'Session · Signed in' not in account
+    assert 'Use the button to leave this account.</small>' in account
     assert ".pqx-account-logout-strip-form .pqx-link-button" in workbench
     assert "min-height: 46px;" in workbench
     assert "pqx-mobile-fold" in account
@@ -335,10 +351,11 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert "pqxMobileFoldCaptureBound" in workbench_script
     assert "pqxMobileFoldCaptureBound" in static_surface_script
 
-    assert "<h2>Billing</h2>" in billing
+    assert "<h2>Plan and payments</h2>" in billing
     assert "<h2>{{ card.get('title') }}</h2>" in billing
     assert "Plan access" not in billing
-    assert "See current access here. Billing opens in your billing account." in billing
+    assert "Current access, payments, and invoices." in billing
+    assert '<details class="pqx-billing-more pqx-mobile-fold">' in billing
     assert "Compare plans" not in billing
     assert ">Open</a>" not in billing
 
@@ -389,11 +406,18 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     feedback_script = (repo_root / "ea/app/templates/app/_property_workbench_feedback_script.html").read_text(encoding="utf-8")
 
     assert "loop.first and brief.get('plan_key') == 'agent'" not in results
-    assert "Request walkthrough" in results
-    assert "Open walkthrough" in results
-    assert "Walkthrough available" in results
-    assert "tour.get('url') and not shortlist_compact_actions" in results
-    assert "walkthrough.get('url') and not shortlist_compact_actions" in results
+    assert ">Walkthrough</a>" in results
+    assert ">3D tour</a>" in results
+    assert 'class="pqx-result-fact pqx-result-tour-link"' in results
+    assert "tour.get('url')" in results
+    assert "walkthrough.get('url')" in results
+    assert '>Request walkthrough</button>' not in results
+    assert '>Request 3D tour</button>' not in results
+    assert '>Open walkthrough</a>' not in results
+    assert '>Open 3D tour</a>' not in results
+    assert '>Map</a>' not in results
+    assert 'pqx-thumb-atlas-label">Map<' in results
+    assert "Open properties first." not in results
     assert "pqx_visual_provider_label" in review
     assert "pqx_visual_provider_label" in workbench
     assert "visualProviderLabel" in script
@@ -513,7 +537,7 @@ def test_property_research_detail_places_visual_console_under_media_stage() -> N
     assert media_stack_index < visual_console_index < hero_side_index < quick_take_index
     assert research.count('<section class="prd-visual-console"') == 1
     assert ".prd-visual-console {" in research
-    assert 'aria-label="Overview"' in research
+    assert 'aria-label="At a glance"' in research
     assert ".prd-headline-read {" in research
 
 
@@ -772,16 +796,93 @@ def test_property_result_title_display_cleans_provider_url_garbage() -> None:
     assert "\\n" not in display
 
 
+def test_property_result_title_display_strips_provider_marketing_noise() -> None:
+    raw_title = (
+        "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+        "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+    )
+
+    display = landing_view_models._property_result_title_display(raw_title)
+
+    assert display == "Unbefristete Mietdauer · Mitten in der Stadt · 3 Zimmer"
+    assert "Wählen Sie aus" not in display
+    assert "Immobilien suchen und finden" not in display
+
+
+def test_property_detail_sections_summarize_provider_marketing_headlines() -> None:
+    sections = landing_property_workspace_helpers._candidate_detail_sections(
+        {
+            "description": (
+                "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+            )
+        }
+    )
+
+    assert sections["description_text"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert "Wählen Sie aus" not in sections["description_text"]
+    assert "Immobilien suchen und finden" not in sections["description_text"]
+
+
+def test_property_enriched_candidate_facts_summarize_marketing_title_for_description_fallback() -> None:
+    facts = landing_property_research._property_enriched_candidate_facts(
+        candidate={
+            "title": (
+                "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+            )
+        }
+    )
+
+    assert facts["description"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+
+
 def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tools() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
     body = template_path.read_text(encoding="utf-8")
     assert "{% set object_query_suffix = ('?run_id=' ~ (object_run_id|urlencode)) if object_run_id else '' %}" in body
-    assert "Ask about this home" in body
-    assert "Preview furnished living" in body
+    assert "Ask a question" in body
+    assert "Next to check" in body
+    assert "Ask next" not in body
+    assert "Furnished look" in body
     assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
-    assert "Attach the generated still to the review PDF" in body
+    assert "Include this image in the PDF." in body
+    assert "Question helper" not in body
+    assert "What changed?" not in body
     assert 'href="{{ object_feedback.get(\'profile_href\') or (\'/app/search\' ~ object_query_suffix) }}">Edit search</a>' in body
+
+
+def test_property_detail_feedback_scripts_use_calm_followup_copy() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    object_detail_body = (repo_root / "ea/app/templates/app/object_detail.html").read_text(encoding="utf-8")
+    feedback_script_body = (repo_root / "ea/app/templates/app/object_detail_feedback_script.html").read_text(encoding="utf-8")
+    workbench_feedback_script_body = (repo_root / "ea/app/templates/app/_property_workbench_feedback_script.html").read_text(encoding="utf-8")
+
+    assert "No tracked question yet" not in object_detail_body
+    assert "No tracked question yet" not in feedback_script_body
+    assert "No tracked follow-up yet." not in workbench_feedback_script_body
+    assert "Question helper" not in feedback_script_body
+    assert "No follow-up yet" in object_detail_body
+    assert "No follow-up yet" in feedback_script_body
+    assert "No follow-up yet." in workbench_feedback_script_body
+    assert "Saved decision" in workbench_feedback_script_body
+    assert "No answer returned." not in object_detail_body
+    assert "No answer returned." not in feedback_script_body
+    assert "No answer returned." not in workbench_feedback_script_body
+    assert "Grounded" not in object_detail_body
+    assert "Could not record the agent question." not in object_detail_body
+    assert "Could not record the agent question." not in feedback_script_body
+    assert "Could not record the agent question." not in workbench_feedback_script_body
+    assert "Google Photos session" not in object_detail_body
+    assert "Google Photos session" not in feedback_script_body
+    assert "No references selected yet" not in object_detail_body
+    assert "No references selected yet" not in feedback_script_body
+    assert "Could not save the question." in object_detail_body
+    assert "Could not save the question." in feedback_script_body
+    assert "Could not save the question." in workbench_feedback_script_body
+    assert "No references yet" in object_detail_body
+    assert "No references yet" in feedback_script_body
 
 
 def test_propertyquarry_object_detail_template_wires_visual_request_console() -> None:
@@ -796,7 +897,7 @@ def test_propertyquarry_object_detail_template_wires_visual_request_console() ->
     assert "/app/api/signals/property/visual-status?" in body
     assert "Open 3D tour" in body
     assert "Request walkthrough" in body
-    assert 'data-obj-walkthrough-provider="{{' not in body
+    assert 'data-obj-walkthrough-provider="{{ action.get(\'walkthrough_provider\') or \'\' }}"' in body
     assert "defaultWalkthroughProviderKey" in body
     assert "{% if loop.first %}data-selected aria-current=\"true\"{% else %}aria-current=\"false\"{% endif %}" in body
     assert "option.toggleAttribute('data-selected', isSelected);" in body
@@ -988,10 +1089,10 @@ def test_propertyquarry_research_rows_use_auto_confirmed_listing_facts() -> None
     )
 
     tags_by_title = {row["title"]: row["tag"] for row in rows}
-    assert tags_by_title["Location fit"] == "Listed"
-    assert tags_by_title["Budget signal"] == "Listed"
-    assert tags_by_title["Layout signal"] == "Listed"
-    assert tags_by_title["Listing facts"] == "Listed"
+    assert tags_by_title["Location fit"] == "From listing"
+    assert tags_by_title["Budget signal"] == "From listing"
+    assert tags_by_title["Layout signal"] == "From listing"
+    assert tags_by_title["Listing facts"] == "From listing"
 
 
 def test_propertyquarry_research_everyday_fit_rows_use_named_confirmed_distances() -> None:
@@ -1090,11 +1191,11 @@ def test_propertyquarry_research_missing_rows_use_concrete_open_check_copy() -> 
     )
 
     details_by_title = {row["title"]: row["detail"] for row in rows}
-    assert details_by_title["Lift status"] == "Lift status still missing."
-    assert details_by_title["Supermarket distance"] == "Supermarket distance still missing."
-    assert details_by_title["Playground distance"] == "Playground distance still missing."
-    assert details_by_title["Underground distance"] == "Underground distance still missing."
-    assert details_by_title["Air-quality risk"] == "Air-quality read still missing."
+    assert details_by_title["Lift status"] == "Lift status not listed yet."
+    assert details_by_title["Supermarket distance"] == "Supermarket distance not listed yet."
+    assert details_by_title["Playground distance"] == "Playground distance not listed yet."
+    assert details_by_title["Underground distance"] == "Underground distance not listed yet."
+    assert details_by_title["Air-quality risk"] == "Air-quality read not listed yet."
     assert "Needed to" not in json.dumps(details_by_title)
 
 
@@ -1139,6 +1240,38 @@ def test_propertyquarry_research_missing_rows_hide_unspecified_distance_noise() 
     assert "Playground distance" not in titles
     assert "Zoo distance" not in titles
     assert "Underground distance" not in titles
+
+
+def test_propertyquarry_research_missing_rows_hide_rooms_when_not_part_of_the_brief() -> None:
+    facts = landing_property_research._property_enrich_missing_fact_research(
+        facts={"has_floorplan": True},
+        property_url="https://example.test/floorplan.zip",
+        title="Floorplan bundle",
+        summary="No structured room count.",
+    )
+
+    rows = landing_property_research._property_packet_missing_rows(
+        facts=facts,
+        preferences={},
+    )
+
+    assert all(row["title"] != "Rooms" for row in rows)
+
+
+def test_propertyquarry_research_missing_rows_keep_rooms_when_room_count_is_requested() -> None:
+    facts = landing_property_research._property_enrich_missing_fact_research(
+        facts={"has_floorplan": True},
+        property_url="https://example.test/floorplan.zip",
+        title="Floorplan bundle",
+        summary="No structured room count.",
+    )
+
+    rows = landing_property_research._property_packet_missing_rows(
+        facts=facts,
+        preferences={"min_rooms": 4},
+    )
+
+    assert any(row["title"] == "Rooms" and row["tag"] == "To check" for row in rows)
 
 
 def test_propertyquarry_scout_source_labels_strip_search_scope_for_any_postal_code() -> None:
@@ -1327,7 +1460,8 @@ def test_propertyquarry_visual_requests_stay_user_initiated_and_idempotent() -> 
     assert "const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];" in research_detail
     assert "const isWaiting = visualPendingStates.includes(nextState);" in research_detail
     assert "button.disabled = isWaiting;" in research_detail
-    assert "const retryableTerminal = visualTerminalStates.includes(state) && !String(payload?.flythrough_url || '').trim();" in research_detail
+    assert "const resolvedFlythroughUrl = directHostedWalkthroughUrl(" in research_detail
+    assert "const retryableTerminal = visualTerminalStates.includes(state) && !resolvedFlythroughUrl;" in research_detail
     assert "const openTourUrl = String(" in research_detail
     assert "const state = String(openTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();" in research_detail
     assert "const retryableTerminal = visualTerminalStates.includes(state) && !openTourUrl;" in research_detail
@@ -1353,14 +1487,19 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Finish setup and start the first search" in page.text
     assert 'href="/app/search"' in page.text
     assert 'href="/app/search"' not in sign_in.text
-    assert 'href="/sign-in/current-session"' in sign_in.text
-    assert "Open current session" in sign_in.text
+    assert 'href="/sign-in/current-session"' not in sign_in.text
+    assert "Open current session" not in sign_in.text
     assert ">Log out<" not in sign_in.text
     assert 'href="/app/search"' in signed_in_sign_in.text
     assert "Open search" in signed_in_sign_in.text
     assert 'href="/app/search"' in pricing.text
     assert "Your account is already active." in pricing.text
-    assert 'href="/app/account?billing=1#delivery"' in pricing.text
+    assert (
+        'href="/app/billing"' in pricing.text
+        or 'data-pricing-upgrade="plus"' in pricing.text
+        or 'data-pricing-upgrade="agent"' in pricing.text
+        or 'href="https://billing.propertyquarry.com/account"' in pricing.text
+    )
     assert 'href="/register"' not in pricing.text
     assert "Create account" not in pricing.text
     assert "Start free" in public_pricing.text
@@ -1371,9 +1510,8 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert ">Log out<" in signed_in_sign_in.text
     assert signed_in_sign_in.text.count('action="/app/actions/sign-out"') == 1
     assert signed_in_sign_in.text.count(">Log out<") == 1
-    assert 'href="/register">Use email instead</a>' not in signed_in_sign_in.text
+    assert 'href="/register">Email sign-in</a>' not in signed_in_sign_in.text
     assert 'href="/app/properties">Open current session</a>' not in sign_in.text
-    assert sign_in.text.count('href="/sign-in/current-session"') == 1
     assert "Open current session" not in signed_in_sign_in.text
     assert signed_in_sign_in.text.count("Open search") == 1
     assert "Google?" not in sign_in.text
@@ -1381,9 +1519,18 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Use the path that matches how you joined" not in sign_in.text
     assert "Identity only" not in sign_in.text
     assert "Identity-only." not in sign_in.text
-    assert "Use a saved session, email link, or connected identity." in sign_in.text
-    assert "First-time connected sign-in also creates the account automatically." in sign_in.text
+    assert "Use email or one of the sign-in options below." in sign_in.text
+    assert "First sign-in creates the account automatically." in sign_in.text
     assert "Any provider below reopens the same account or creates it automatically on first use." not in sign_in.text
+    assert "Connected sign-in opens the same account or creates it the first time." not in sign_in.text
+    if (
+        "Continue with Google" in sign_in.text
+        or "Continue with Facebook" in sign_in.text
+        or "ID Austria" in sign_in.text
+    ):
+        assert "Provider sign-in opens the same account and creates it if needed." in sign_in.text
+    else:
+        assert "Provider sign-in opens the same account and creates it if needed." not in sign_in.text
     assert "Trusted device" not in sign_in.text
     assert "Private hardware access stays limited to approved devices." not in sign_in.text
     assert "Private hardware sign-in lane for approved devices." not in sign_in.text
@@ -1403,12 +1550,12 @@ def test_propertyquarry_sign_in_missing_current_session_hides_unusable_saved_ses
     response = public_client.get("/sign-in?current_session=missing", headers={"host": "propertyquarry.com"})
 
     assert response.status_code == 200
-    assert "No active PropertyQuarry session was found." in response.text
-    assert "Use the secure email link or a connected identity to sign in." in response.text
+    assert "You are signed out." in response.text
+    assert "Sign in below." in response.text
     assert 'href="/sign-in/current-session"' not in response.text
     assert "Open current session" not in response.text
-    assert 'href="/register"' in response.text
-    assert "Use email instead" in response.text
+    assert 'href="/register"' not in response.text
+    assert "Email sign-in" in response.text
 
     get_started_template = (
         Path(__file__).resolve().parents[1] / "ea/app/templates/get_started.html"
@@ -1479,8 +1626,8 @@ def test_propertyquarry_signed_in_pricing_uses_bridge_language_when_direct_accou
     pricing = client.get("/pricing", headers={"host": "propertyquarry.com"})
 
     assert pricing.status_code == 200
-    assert "Continue billing sign-in" in pricing.text
-    assert "Use the same email for the billing portal." in pricing.text
+    assert "Open billing" in pricing.text
+    assert "Opens with this account." in pricing.text
     assert 'href="/app/api/property/billing/bridge-launch"' in pricing.text
 
 
@@ -1516,19 +1663,19 @@ def test_propertyquarry_provider_sign_in_errors_use_customer_safe_language() -> 
 
     assert "Facebook could not open on this attempt." in facebook.text
     assert "Retry Facebook, or use a secure email link for the same account." in facebook.text
-    assert "First-time Facebook sign-in still creates the account automatically." in facebook.text
+    assert "Facebook opens the same account and creates it if needed." in facebook.text
     assert "Facebook sign-in is not ready on this deployment yet." not in facebook.text
     assert "Facebook sign-in is temporarily unavailable." not in facebook.text
 
     assert "ID Austria could not open on this attempt." in id_austria.text
     assert "Retry ID Austria, or use a secure email link for the same account." in id_austria.text
-    assert "First-time ID Austria sign-in still creates the account automatically." in id_austria.text
+    assert "ID Austria opens the same account and creates it if needed." in id_austria.text
     assert "ID Austria sign-in is not ready on this deployment yet." not in id_austria.text
     assert "ID Austria sign-in is temporarily unavailable." not in id_austria.text
 
     assert "Google could not open on this attempt." in google.text
     assert "Retry Google, or use a secure email link for the same account." in google.text
-    assert "First-time Google sign-in still creates the account automatically." in google.text
+    assert "Google opens the same account and creates it if needed." in google.text
     assert "Google sign-in is temporarily unavailable." not in google.text
 
     combined = "\n".join([facebook.text, id_austria.text, google.text]).lower()
@@ -1549,8 +1696,8 @@ def test_propertyquarry_email_link_unavailable_uses_live_service_language() -> N
     )
 
     assert response.status_code == 200
-    assert "Email link delivery needs setup." in response.text
-    assert "First-time connected sign-in still creates the account automatically." in response.text
+    assert "Email sign-in is not available right now." in response.text
+    assert "Try again later or ask the account owner for a fresh access link." in response.text
     assert "Email sign-in links are temporarily unavailable." not in response.text
     assert "email delivery is unavailable" not in response.text
     assert "Email return links are not enabled on this deployment yet." not in response.text
@@ -1788,8 +1935,12 @@ def test_propertyquarry_search_surface_prewarm_touches_templates_and_catalogs(mo
 
     assert landing_routes.prewarm_property_search_surface_cache() is True
 
+    assert "base_console.html" in loaded_templates
     assert "propertyquarry_home.html" in loaded_templates
+    assert "sign_in.html" in loaded_templates
     assert "app/property_decision_workbench.html" in loaded_templates
+    assert "app/_property_account_panel.html" in loaded_templates
+    assert "app/property_research_detail.html" in loaded_templates
     assert ("regions", ("AT",)) in catalog_calls
     assert ("locations", ("AT",)) in catalog_calls
     assert ("providers", "AT") in provider_calls
@@ -2366,6 +2517,10 @@ def test_propertyquarry_workbench_asks_for_furniture_style_at_visual_request_tim
     assert "const readableErrorDetail = (detail, fallback) => {" in research
     assert "throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not request the visual.'))" in research
     assert "const rememberVisualStatusDetail = (requestKind, detail) => {" in research
+    assert "const rememberVisualButtonState = (requestKind, state) => {" in research
+    assert "const restoreRememberedVisualButtonStates = () => {" in research
+    assert "const restoredVisualButtonStateOnLoad = restoreRememberedVisualButtonStates();" in research
+    assert "restoreRememberedVisualButtonStates();" in research
     assert "restoreRememberedVisualStatus();" in research
 
 
@@ -2540,7 +2695,7 @@ def test_propertyquarry_shortlist_surfaces_filtered_control_when_run_has_held_ba
     response = client.get("/app/shortlist", params={"run_id": "run-probe"}, headers={"host": "propertyquarry.com"})
 
     assert response.status_code == 200
-    assert "7 outside brief" in response.text
+    assert "7 not shown yet" in response.text
     assert 'data-pqx-filtered-open' in response.text
     assert "Probe flat" in response.text
 
@@ -2789,11 +2944,11 @@ def test_propertyquarry_shortlist_backfill_scrubs_willhaben_tracking_tour_link(m
         for row in list(shortlist_payload.get("results") or [])
         if str(row.get("candidate_ref") or "").strip() == "cand-tracking-link"
     )
-    assert shortlist_result["source_virtual_tour_url"] == ""
-    assert shortlist_result["property_facts"]["source_virtual_tour_url"] == ""
+    assert "source_virtual_tour_url" not in shortlist_result
+    assert "source_virtual_tour_url" not in shortlist_result["property_facts"]
 
 
-def test_propertyquarry_shortlist_open_recovers_detailed_preview_for_selected_candidate(monkeypatch) -> None:
+def test_propertyquarry_shortlist_selected_preview_refresh_endpoint_recovers_detailed_preview(monkeypatch) -> None:
     principal_id = "pq-shortlist-detailed-preview-recovery"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -2830,7 +2985,14 @@ def test_propertyquarry_shortlist_open_recovers_detailed_preview_for_selected_ca
             "fit_score": 81,
             "fit_summary": "Quiet street and strong layout potential.",
             "source_label": "DER STANDARD Immobilien | Austria | Rent | 1180 Vienna",
-            "property_facts": {"has_floorplan": False, "media_count": 20},
+            "property_facts": {
+                "has_floorplan": False,
+                "media_count": 20,
+                "price_display": "EUR 1,980",
+                "rooms": 2,
+                "area_m2": 72,
+                "postal_name": "1180 Vienna",
+            },
         }
         return {
             "run_id": run_id,
@@ -2886,10 +3048,22 @@ def test_propertyquarry_shortlist_open_recovers_detailed_preview_for_selected_ca
         for row in list(shortlist_payload.get("results") or [])
         if str(row.get("candidate_ref") or "").strip() == "cand-preview"
     )
-    assert shortlist_result["title"] == "Recovered selected preview title"
-    assert shortlist_result["property_facts"]["has_floorplan"] is True
-    assert shortlist_result["property_facts"]["floorplan_urls_json"] == [floorplan_url]
-    assert shortlist_result["floorplan_url"] == floorplan_url
+    assert shortlist_result["title"] != "Recovered selected preview title"
+    assert shortlist_result.get("floorplan_url") in (None, "")
+    assert preview_calls == []
+
+    preview_refresh = client.get(
+        "/app/api/property/candidates/cand-preview/preview-refresh",
+        params={"run_id": "run-preview"},
+        headers=headers,
+    )
+
+    assert preview_refresh.status_code == 200
+    refreshed_candidate = preview_refresh.json()["candidate"]
+    assert refreshed_candidate["title"] == "Recovered selected preview title"
+    assert refreshed_candidate["property_facts"]["has_floorplan"] is True
+    assert refreshed_candidate["property_facts"]["floorplan_urls_json"] == [floorplan_url]
+    assert refreshed_candidate["floorplan_url"] == floorplan_url
     assert preview_calls == [(property_url, False)]
 
     research_detail = client.get("/app/research/cand-preview", params={"run_id": "run-preview"}, headers=headers)
@@ -3274,7 +3448,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "Could not load property search status." not in visible_message
-    assert "179 homes found · all found homes reviewed" in visible_message
+    assert "179 homes found · all found homes are checked" in visible_message
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
         response.text,
@@ -3283,11 +3457,11 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
     assert "Could not load property search status." not in visible_source
-    assert "Found" in visible_source
+    assert "Homes" in visible_source
     assert "179" in visible_source
-    assert "29 sites selected" in visible_source
-    assert "Found" in visible_source
-    assert "all found homes reviewed" in visible_source
+    assert "29 providers selected" in visible_source
+    assert "Homes" in visible_source
+    assert "all found homes are checked" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
 
 
@@ -3328,7 +3502,7 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "70 homes found · 180 search pages left" in visible_message
+    assert "70 homes found · 180 checks left" in visible_message
 
     source_match = re.search(
         r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
@@ -3337,11 +3511,11 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     )
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
-    assert "70 / 250 search pages" in visible_source
+    assert "70 / 250 checks" in visible_source
     assert "70 / 250 checked" not in visible_source
-    assert "Found" in visible_source
+    assert "Homes" in visible_source
     assert "70" in visible_source
-    assert "Pages left" in visible_source
+    assert "Checks left" in visible_source
     assert "180" in visible_source
     assert "0 to review" not in visible_source.lower()
     assert "Reviewed" not in visible_source
@@ -3385,7 +3559,7 @@ def test_propertyquarry_running_panel_replaces_stale_zero_review_copy_while_page
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "4097 homes found · 6 search pages left" in visible_message
+    assert "4097 homes found · 6 checks left" in visible_message
     assert "0 to review" not in visible_message.lower()
 
     source_match = re.search(
@@ -3395,8 +3569,8 @@ def test_propertyquarry_running_panel_replaces_stale_zero_review_copy_while_page
     )
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
-    assert "279 / 285 search pages" in visible_source
-    assert "Pages left" in visible_source
+    assert "279 / 285 checks" in visible_source
+    assert "Checks left" in visible_source
     assert "6" in visible_source
     assert "0 to review" not in visible_source.lower()
 
@@ -3445,12 +3619,12 @@ def test_propertyquarry_running_panel_explains_page_preparation_queue_without_ov
 
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
-    assert "30 homes found · property pages are still being prepared · 8 search pages left" in visible
-    assert "Pages left" in visible
+    assert "30 homes found · home details are still loading · 8 checks left" in visible
+    assert "Checks left" in visible
     eta_match = re.search(r'<span class="pqx-small pqx-progress-eta"[^>]*>(?P<eta>.*?)</span>', response.text, re.S)
     assert eta_match
     assert html.unescape(re.sub(r"<[^>]+>", " ", eta_match.group("eta"))).strip() == "93% · details updating"
-    assert "223 / 231 search pages" in visible
+    assert "223 / 231 checks" in visible
     assert "provider checks left" not in visible
     assert "Review page preparation timed out" not in visible
     assert "Lists open" not in visible
@@ -3491,7 +3665,7 @@ def test_propertyquarry_running_panel_does_not_treat_listing_total_as_reviewed(m
 
     assert response.status_code == 200
     visible = html.unescape(re.sub(r"<[^>]+>", " ", response.text))
-    assert "70 homes found · 70 to review · 180 search pages left" in visible
+    assert "70 homes found · 70 to review · 180 checks left" in visible
     assert "Reviewed" not in visible
 
 
@@ -3527,7 +3701,7 @@ def test_propertyquarry_running_panel_uses_compact_provider_fraction_summary(mon
     message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
     assert message_match
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
-    assert "102 homes found · all found homes reviewed" in visible_message
+    assert "102 homes found · all found homes are checked" in visible_message
     assert "Now: RE/MAX Austria" not in visible_message
 
 
@@ -3573,7 +3747,7 @@ def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_ra
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
     assert "Searching" in rendered_html
     assert "179 homes found" in rendered_html
-    assert "Found" in rendered_html
+    assert "Homes" in rendered_html
     assert "To review" in rendered_html
     assert "Altbau near U6" not in rendered_html
     assert "Leading right now. Can still change before the search finishes." not in rendered_html
@@ -4159,6 +4333,68 @@ def test_propertyquarry_shortlist_server_first_paint_bounds_rendered_rows(monkey
     assert "<b>40</b> saved homes" in response.text
 
 
+def test_propertyquarry_shortlist_first_paint_bounds_preview_cache_scan_window(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-preview-scan-bound")
+    start_workspace(client, mode="personal", workspace_name="Shortlist Preview Scan Office")
+    ranked_candidates = [
+        {
+            "candidate_ref": f"candidate-{index}",
+            "title": f"https://example.test/listing/{index}",
+            "property_url": f"https://example.test/listing/{index}",
+            "source_label": "Willhaben",
+            "fit_score": 100 - index,
+            "fit_summary": f"Candidate {index} still needs richer preview media.",
+            "property_facts": {
+                "price_display": "EUR 1,200",
+                "rooms": 2,
+                "area_m2": 54,
+                "postal_name": "1060 Vienna",
+                "media_count": 12,
+            },
+        }
+        for index in range(40)
+    ]
+    preview_limit_calls: list[int] = []
+
+    def _fake_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        assert lightweight is True
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "message": "Results are ready.",
+            "summary": {
+                "status": "processed",
+                "provider_total": 1,
+                "source_variant_total": 1,
+                "sources_total": 1,
+                "sources_completed": 1,
+                "ranked_total": 40,
+                "ranked_candidates": ranked_candidates,
+                "sources": [],
+            },
+            "events": [],
+        }
+
+    def _fake_preview_cache_index(self, *, limit: int = 4000):
+        preview_limit_calls.append(int(limit))
+        return {}
+
+    def _fake_preview_cache_lookup(self, *, cache_index: dict[str, dict[str, object]], property_url: str):
+        return {}
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+    monkeypatch.setattr(ProductService, "_property_public_preview_cache_index", _fake_preview_cache_index)
+    monkeypatch.setattr(ProductService, "_property_public_preview_cache_lookup", _fake_preview_cache_lookup)
+
+    response = client.get("/app/shortlist", params={"run_id": "run-first-paint"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert preview_limit_calls
+    assert preview_limit_calls[0] <= 512
+
+
 def test_propertyquarry_properties_route_bootstraps_full_run_trail(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-properties-full-run-trail")
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -4562,12 +4798,915 @@ def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint()
     assert 'href="/app/shortlist?run_id=run-fast-42&amp;full=1#results-list"' not in response.text
     assert "Full view" not in response.text
     assert "Open full view" not in response.text
-    assert "Loading homes" in response.text
-    assert "Usually a few seconds." in response.text
+    assert "Checking providers" not in response.text
+    assert "Checking the selected providers." in response.text
     assert "Checking more homes" in response.text
     assert "The page remains usable" not in response.text
     assert "property_decision_workbench" not in response.text
     assert "data-property-decision-workbench" not in response.text
+
+
+def test_propertyquarry_fast_ranked_run_renders_sample_homes_for_anonymous_visitors() -> None:
+    client = build_property_client(principal_id="pq-fast-ranked-run-public")
+    client.headers.pop("X-EA-Principal-ID", None)
+
+    response = client.get("/app/shortlist/run/public-demo-run", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert 'data-pq-fast-ranked-run' in response.text
+    assert 'data-auth-handoff-url="/app/api/property/landing-handoff"' in response.text
+    assert 'data-status-url=""' in response.text
+    assert "Sample homes" in response.text
+    assert 'href="/app/example/shortlist"' in response.text
+    assert 'href="/app/account"' not in response.text
+    assert 'href="/app/agents#search-history"' not in response.text
+
+    payload_match = re.search(
+        r'<script type="application/json" data-pq-fast-initial-payload>(.*?)</script>',
+        response.text,
+        re.S,
+    )
+    assert payload_match
+    payload = json.loads(html.unescape(payload_match.group(1)))
+    candidates = payload["summary"]["ranked_candidates"]
+    assert candidates
+    assert candidates[0]["packet_url"].startswith("/app/example/shortlist?candidate=")
+    assert candidates[0]["diorama_preview_url"] == "/static/property/home/example-shortlist-home-1.png"
+    assert candidates[1]["diorama_preview_url"] == "/static/property/home/example-shortlist-home-2.png"
+    assert candidates[2]["diorama_preview_url"] == "/static/property/home/example-shortlist-home-3.png"
+
+
+def test_propertyquarry_fast_ranked_run_opaque_public_url_still_renders_sample_homes_for_anonymous_visitors() -> None:
+    client = build_property_client(principal_id="pq-fast-ranked-run-public-opaque")
+    client.headers.pop("X-EA-Principal-ID", None)
+    shared_run_id = "0a89ead9e0b048288cca22d1aac54fa7"
+
+    response = client.get(f"/app/shortlist/run/{shared_run_id}", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert 'data-auth-handoff-url="/app/api/property/landing-handoff"' in response.text
+    assert 'data-status-url=""' in response.text
+    assert "Sample homes" in response.text
+    assert "/static/property/home/example-shortlist-home-1.png" in response.text
+
+    payload_match = re.search(
+        r'<script type="application/json" data-pq-fast-initial-payload>(.*?)</script>',
+        response.text,
+        re.S,
+    )
+    assert payload_match
+    payload = json.loads(html.unescape(payload_match.group(1)))
+    candidates = payload["summary"]["ranked_candidates"]
+    assert candidates[0]["packet_url"].startswith("/app/example/shortlist?candidate=")
+    assert candidates[0]["diorama_preview_url"] == "/static/property/home/example-shortlist-home-1.png"
+
+
+def test_propertyquarry_prepare_run_payload_synthesizes_first_party_packet_for_listing_only_candidate() -> None:
+    run_payload = {
+        "run_id": "run-listing-only-fast",
+        "status": "completed",
+        "summary": {
+            "status": "completed",
+            "ranked_candidates": [
+                {
+                    "title": "Listing-only loft",
+                    "property_url": "https://www.immobilienscout24.de/expose/listing-only-loft",
+                    "source_label": "ImmoScout24",
+                    "price_display": "EUR 420,000",
+                    "postal_name": "1020 Vienna",
+                }
+            ],
+        },
+    }
+
+    normalized = landing_routes._propertyquarry_prepare_run_payload(
+        product=object(),
+        run_payload=run_payload,
+        backfill_cached_previews=False,
+    )
+
+    candidate = normalized["summary"]["ranked_candidates"][0]
+    assert candidate["candidate_ref"]
+    assert candidate["packet_url"].startswith(f"/app/research/{candidate['candidate_ref']}")
+    assert candidate["packet_url"].endswith("?run_id=run-listing-only-fast")
+    assert candidate["detail_href"] == candidate["packet_url"]
+    assert candidate["property_url"] == "https://www.immobilienscout24.de/expose/listing-only-loft"
+
+
+def test_propertyquarry_fast_ranked_run_open_property_stays_first_party_for_listing_only_candidates(
+    monkeypatch,
+) -> None:
+    principal_id = "pq-fast-ranked-run-listing-only"
+    run_id = "run-listing-only-fast"
+    external_listing = "https://www.immobilienscout24.de/expose/listing-only-loft"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Fast Ranked Listing Office")
+
+    class _Product:
+        def get_property_search_run_status(
+            self,
+            *,
+            principal_id: str,
+            run_id: str,
+            lightweight: bool = False,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-fast-ranked-run-listing-only"
+            assert run_id == "run-listing-only-fast"
+            assert lightweight is True
+            assert account_email == ""
+            return {
+                "run_id": run_id,
+                "status": "completed",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "title": "Listing-only loft",
+                            "property_url": external_listing,
+                            "source_label": "ImmoScout24",
+                            "price_display": "EUR 420,000",
+                            "postal_name": "1020 Vienna",
+                            "preview_image_url": "https://img.example.test/listing-only-loft.jpg",
+                        }
+                    ],
+                },
+            }
+
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-fast-ranked-run-listing-only"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": run_id,
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [{"title": "Listing-only loft", "property_url": external_listing}],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(f"/app/shortlist/run/{run_id}", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "Listing-only loft" in response.text
+    assert 'href="https://www.immobilienscout24.de/expose/listing-only-loft">Open property</a>' not in response.text
+    assert re.search(r'href="/app/research/[^"]+\?run_id=run-listing-only-fast">Open property</a>', response.text)
+    assert f'href="{external_listing}" target="_blank" rel="noopener noreferrer">Open listing</a>' in response.text
+    assert 'data-visual-kind="placeholder"' in response.text
+    assert '<img src="https://img.example.test/listing-only-loft.jpg"' not in response.text
+
+
+def test_propertyquarry_fast_ranked_run_stays_public_without_auth_headers_when_api_token_is_configured(
+    monkeypatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.api.app import create_app
+
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
+    monkeypatch.setenv("EA_API_TOKEN", "test-token")
+    monkeypatch.delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
+
+    client = TestClient(create_app(), base_url="https://propertyquarry.com")
+    response = client.get(
+        "/app/shortlist/run/public-demo-run",
+        headers={"host": "propertyquarry.com", "accept": "text/html"},
+    )
+
+    assert response.status_code == 200
+    assert "Sample homes" in response.text
+    assert 'data-status-url=""' in response.text
+    assert "/static/property/home/example-shortlist-home-1.png" in response.text
+    assert "Sign in to continue your property search." not in response.text
+
+
+def test_propertyquarry_fast_ranked_run_redirects_token_authenticated_visitors_away_from_sample_payloads(
+    monkeypatch,
+) -> None:
+    principal_id = "pq-fast-ranked-run-token-sample"
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
+    monkeypatch.setenv("EA_API_TOKEN", "test-token")
+    monkeypatch.setenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", "1")
+
+    from fastapi.testclient import TestClient
+
+    from app.api.app import create_app
+
+    class _Product:
+        def get_property_search_run_status(
+            self,
+            *,
+            principal_id: str,
+            run_id: str,
+            lightweight: bool = False,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-fast-ranked-run-token-sample"
+            assert run_id == "shared-public-run"
+            assert lightweight is True
+            assert account_email == ""
+            return {
+                "run_id": "sample-homes",
+                "status": "completed",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "sample-home-1",
+                            "title": "Danube Flats demo",
+                            "packet_url": "/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo",
+                        }
+                    ],
+                },
+            }
+
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-fast-ranked-run-token-sample"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": "run-token-latest-real",
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "cand-auth-real-1",
+                                "title": "Latest real home",
+                                "packet_url": "/app/research/latest-real-home?run_id=run-token-latest-real",
+                                "property_url": "https://example.test/latest-real-home",
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    client = TestClient(create_app(), base_url="https://propertyquarry.com")
+    response = client.get(
+        "/app/shortlist/run/shared-public-run",
+        headers={
+            "host": "propertyquarry.com",
+            "Authorization": "Bearer test-token",
+            "X-EA-Principal-ID": principal_id,
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/shortlist/run/run-token-latest-real"
+
+
+def test_propertyquarry_fast_ranked_run_redirects_authenticated_visitors_to_latest_real_results(monkeypatch) -> None:
+    principal_id = "pq-fast-ranked-run-auth-fallback"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Fast Ranked Run Redirect Office")
+
+    class _Product:
+        def get_property_search_run_status(
+            self,
+            *,
+            principal_id: str,
+            run_id: str,
+            lightweight: bool = False,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-fast-ranked-run-auth-fallback"
+            assert run_id == "shared-public-run"
+            assert lightweight is True
+            assert account_email == ""
+            return {}
+
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-fast-ranked-run-auth-fallback"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": "run-ranked-terminal",
+                    "status": "completed_partial",
+                    "summary": {
+                        "status": "completed_partial",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "cand-1",
+                                "title": "Latest real home",
+                                "packet_url": "/app/research/latest-real-home?run_id=run-ranked-terminal",
+                                "property_url": "https://example.test/latest-real-home",
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(
+        "/app/shortlist/run/shared-public-run",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/shortlist/run/run-ranked-terminal"
+
+
+def test_propertyquarry_fast_ranked_run_redirects_authenticated_visitors_away_from_sample_payloads(monkeypatch) -> None:
+    principal_id = "pq-fast-ranked-run-auth-sample"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Fast Ranked Run Sample Guard Office")
+
+    class _Product:
+        def get_property_search_run_status(
+            self,
+            *,
+            principal_id: str,
+            run_id: str,
+            lightweight: bool = False,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-fast-ranked-run-auth-sample"
+            assert run_id == "shared-public-run"
+            assert lightweight is True
+            assert account_email == ""
+            return {
+                "run_id": "sample-homes",
+                "status": "completed",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "sample-home-1",
+                            "title": "Danube Flats demo",
+                            "packet_url": "/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo",
+                        }
+                    ],
+                },
+            }
+
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-fast-ranked-run-auth-sample"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": "run-auth-latest-real",
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "cand-auth-real-1",
+                                "title": "Latest real home",
+                                "packet_url": "/app/research/latest-real-home?run_id=run-auth-latest-real",
+                                "property_url": "https://example.test/latest-real-home",
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(
+        "/app/shortlist/run/shared-public-run",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/shortlist/run/run-auth-latest-real"
+
+
+def test_propertyquarry_fast_ranked_run_opaque_public_url_redirects_authenticated_visitors_to_latest_results(monkeypatch) -> None:
+    principal_id = "pq-fast-ranked-run-auth-opaque"
+    shared_run_id = "0a89ead9e0b048288cca22d1aac54fa7"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Fast Ranked Run Opaque Guard Office")
+
+    class _Product:
+        def get_property_search_run_status(
+            self,
+            *,
+            principal_id: str,
+            run_id: str,
+            lightweight: bool = False,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-fast-ranked-run-auth-opaque"
+            assert run_id == shared_run_id
+            assert lightweight is True
+            assert account_email == ""
+            return {
+                "run_id": "sample-homes",
+                "status": "completed",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "sample-home-1",
+                            "title": "Danube Flats demo",
+                            "packet_url": "/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo",
+                        }
+                    ],
+                },
+            }
+
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-fast-ranked-run-auth-opaque"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": "run-auth-latest-real",
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "cand-auth-real-1",
+                                "title": "Latest real home",
+                                "packet_url": "/app/research/latest-real-home?run_id=run-auth-latest-real",
+                                "property_url": "https://example.test/latest-real-home",
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(
+        f"/app/shortlist/run/{shared_run_id}",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/shortlist/run/run-auth-latest-real"
+
+
+def test_propertyquarry_fast_ranked_run_opaque_public_url_prefers_latest_real_results_over_public_entrypoint_history(
+    monkeypatch,
+) -> None:
+    principal_id = "pq-fast-ranked-run-auth-opaque-history"
+    shared_run_id = "0a89ead9e0b048288cca22d1aac54fa7"
+    latest_run_id = "run-auth-latest-real"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Fast Ranked Run Opaque Latest Office")
+
+    class _Product:
+        def get_property_search_run_status(
+            self,
+            *,
+            principal_id: str,
+            run_id: str,
+            lightweight: bool = False,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-fast-ranked-run-auth-opaque-history"
+            assert run_id == shared_run_id
+            assert lightweight is True
+            assert account_email == ""
+            return {
+                "run_id": shared_run_id,
+                "status": "completed",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "cand-shared-public-1",
+                            "title": "Shared public home",
+                            "packet_url": f"/app/research/shared-public-home?run_id={shared_run_id}",
+                            "property_url": "https://example.test/shared-public-home",
+                            "diorama_preview_url": "https://cdn.example.test/shared-public-home-diorama.png",
+                        }
+                    ],
+                },
+            }
+
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-fast-ranked-run-auth-opaque-history"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": shared_run_id,
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "cand-shared-public-1",
+                                "title": "Shared public home",
+                                "packet_url": f"/app/research/shared-public-home?run_id={shared_run_id}",
+                                "property_url": "https://example.test/shared-public-home",
+                                "diorama_preview_url": "https://cdn.example.test/shared-public-home-diorama.png",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "run_id": latest_run_id,
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "cand-auth-real-1",
+                                "title": "Latest real home",
+                                "packet_url": f"/app/research/latest-real-home?run_id={latest_run_id}",
+                                "property_url": "https://example.test/latest-real-home",
+                                "diorama_preview_url": "https://cdn.example.test/latest-real-home-diorama.png",
+                            }
+                        ],
+                    },
+                },
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(
+        f"/app/shortlist/run/{shared_run_id}",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/app/shortlist/run/{latest_run_id}"
+
+
+def test_propertyquarry_fast_ranked_run_uses_authenticated_request_context_for_shared_results(monkeypatch) -> None:
+    principal_id = "pq-fast-ranked-run-context-auth"
+    shared_run_id = "0a89ead9e0b048288cca22d1aac54fa7"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Fast Ranked Run Context Guard Office")
+
+    class _Product:
+        def get_property_search_run_status(
+            self,
+            *,
+            principal_id: str,
+            run_id: str,
+            lightweight: bool = False,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-fast-ranked-run-context-auth"
+            assert run_id == shared_run_id
+            assert lightweight is True
+            assert account_email == ""
+            return {
+                "run_id": "sample-homes",
+                "status": "completed",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "sample-home-1",
+                            "title": "Danube Flats demo",
+                            "packet_url": "/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo",
+                        }
+                    ],
+                },
+            }
+
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-fast-ranked-run-context-auth"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": "run-context-latest-real",
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "cand-context-real-1",
+                                "title": "Latest real home",
+                                "packet_url": "/app/research/latest-real-home?run_id=run-context-latest-real",
+                                "property_url": "https://example.test/latest-real-home",
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+    monkeypatch.setattr(
+        landing_routes,
+        "_landing_authenticated_principal",
+        lambda **kwargs: "",
+    )
+    client.app.dependency_overrides[get_request_context_if_available] = lambda: RequestContext(
+        principal_id=principal_id,
+        authenticated=True,
+        auth_source="workspace_access_session",
+    )
+    try:
+        response = client.get(
+            f"/app/shortlist/run/{shared_run_id}",
+            headers={"host": "propertyquarry.com"},
+            follow_redirects=False,
+        )
+    finally:
+        client.app.dependency_overrides.pop(get_request_context_if_available, None)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/shortlist/run/run-context-latest-real"
+
+
+def test_propertyquarry_fast_ranked_run_opaque_public_url_hides_sample_homes_for_authenticated_visitors(monkeypatch) -> None:
+    principal_id = "pq-fast-ranked-run-auth-opaque-follow"
+    shared_run_id = "0a89ead9e0b048288cca22d1aac54fa7"
+    latest_run_id = "run-auth-latest-real"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Fast Ranked Run Opaque Follow Office")
+
+    class _Product:
+        def get_property_search_run_status(
+            self,
+            *,
+            principal_id: str,
+            run_id: str,
+            lightweight: bool = False,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-fast-ranked-run-auth-opaque-follow"
+            assert lightweight is True
+            assert account_email == ""
+            if run_id == shared_run_id:
+                return {
+                    "run_id": "sample-homes",
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "sample-home-1",
+                                "title": "Danube Flats demo",
+                                "packet_url": "/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo",
+                                "diorama_preview_url": "/static/property/home/example-shortlist-home-1.png",
+                            }
+                        ],
+                    },
+                }
+            assert run_id == latest_run_id
+            return {
+                "run_id": latest_run_id,
+                "status": "completed",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "cand-auth-real-1",
+                            "title": "Latest real home",
+                            "packet_url": f"/app/research/latest-real-home?run_id={latest_run_id}",
+                            "property_url": "https://example.test/latest-real-home",
+                            "diorama_preview_url": "https://cdn.example.test/latest-real-home-diorama.png",
+                        }
+                    ],
+                },
+            }
+
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-fast-ranked-run-auth-opaque-follow"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": latest_run_id,
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "cand-auth-real-1",
+                                "title": "Latest real home",
+                                "packet_url": f"/app/research/latest-real-home?run_id={latest_run_id}",
+                                "property_url": "https://example.test/latest-real-home",
+                                "diorama_preview_url": "https://cdn.example.test/latest-real-home-diorama.png",
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(
+        f"/app/shortlist/run/{shared_run_id}",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert str(response.url).endswith(f"/app/shortlist/run/{latest_run_id}")
+    assert "Latest real home" in response.text
+    assert "Sample homes" not in response.text
+    assert "/app/example/shortlist?candidate=danube-flats-demo" not in response.text
+    assert "/static/property/home/example-shortlist-home-1.png" not in response.text
+    assert "latest-real-home-diorama.png" in response.text
+
+
+def test_propertyquarry_fast_ranked_run_opaque_public_url_does_not_show_samples_for_authenticated_users_with_no_real_runs(
+    monkeypatch,
+) -> None:
+    principal_id = "pq-fast-ranked-run-auth-opaque-empty"
+    shared_run_id = "0a89ead9e0b048288cca22d1aac54fa7"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Fast Ranked Run Opaque Empty Office")
+
+    class _Product:
+        def get_property_search_run_status(
+            self,
+            *,
+            principal_id: str,
+            run_id: str,
+            lightweight: bool = False,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-fast-ranked-run-auth-opaque-empty"
+            assert lightweight is True
+            assert account_email == ""
+            assert run_id == shared_run_id
+            return {
+                "run_id": "sample-homes",
+                "status": "completed",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "sample-home-1",
+                            "title": "Danube Flats demo",
+                            "packet_url": "/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo",
+                            "diorama_preview_url": "/static/property/home/example-shortlist-home-1.png",
+                        }
+                    ],
+                },
+            }
+
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-fast-ranked-run-auth-opaque-empty"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": shared_run_id,
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "sample-home-1",
+                                "title": "Danube Flats demo",
+                                "packet_url": "/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo",
+                                "diorama_preview_url": "/static/property/home/example-shortlist-home-1.png",
+                            }
+                        ],
+                    },
+                },
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(
+        f"/app/shortlist/run/{shared_run_id}",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Matching homes" in response.text
+    assert "No matching homes yet" in response.text
+    assert "Sample homes" not in response.text
+    assert "Danube Flats demo" not in response.text
+    assert "/app/example/shortlist?candidate=danube-flats-demo" not in response.text
+    assert "/static/property/home/example-shortlist-home-1.png" not in response.text
+
+
+def test_propertyquarry_fast_ranked_run_redirects_authenticated_visitors_away_from_non_recent_shared_results(monkeypatch) -> None:
+    principal_id = "pq-fast-ranked-run-auth-shared"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Fast Ranked Run Shared Guard Office")
+
+    class _Product:
+        def get_property_search_run_status(
+            self,
+            *,
+            principal_id: str,
+            run_id: str,
+            lightweight: bool = False,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-fast-ranked-run-auth-shared"
+            assert run_id == "shared-public-run"
+            assert lightweight is True
+            assert account_email == ""
+            return {
+                "run_id": "shared-public-run",
+                "status": "completed",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "cand-shared-public-1",
+                            "title": "Shared public home",
+                            "packet_url": "/app/research/shared-public-home?run_id=shared-public-run",
+                            "property_url": "https://example.test/shared-public-home",
+                        }
+                    ],
+                },
+            }
+
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-fast-ranked-run-auth-shared"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": "run-auth-latest-real",
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "cand-auth-real-1",
+                                "title": "Latest real home",
+                                "packet_url": "/app/research/latest-real-home?run_id=run-auth-latest-real",
+                                "property_url": "https://example.test/latest-real-home",
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get(
+        "/app/shortlist/run/shared-public-run",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/shortlist/run/run-auth-latest-real"
+
+
+def test_propertyquarry_fast_ranked_run_shell_sanitizes_initial_candidate_marketing_copy(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-fast-ranked-run-copy")
+    start_workspace(client, mode="personal", workspace_name="Fast Copy Office")
+
+    class _Product:
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False, account_email: str = ""):
+            assert principal_id == "pq-fast-ranked-run-copy"
+            assert lightweight is True
+            return {
+                "run_id": run_id,
+                "status": "completed_partial",
+                "status_url": f"/app/api/signals/property/search/run/{run_id}",
+                "summary": {
+                    "status": "completed_partial",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "ranked-copy-1",
+                            "title": "Charmante Altbauwohnung - willhaben",
+                            "summary": (
+                                "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                                "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+                            ),
+                            "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
+                        }
+                    ],
+                },
+            }
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    response = client.get("/app/shortlist/run/run-fast-copy", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    payload_match = re.search(
+        r'<script type="application/json" data-pq-fast-initial-payload>(.*?)</script>',
+        response.text,
+        re.S,
+    )
+    assert payload_match
+    payload = json.loads(html.unescape(payload_match.group(1)))
+    candidate = payload["summary"]["ranked_candidates"][0]
+    assert candidate["title"] == "Charmante Altbauwohnung"
+    assert candidate["summary"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert "Wählen Sie aus 113.283 Angeboten" not in payload_match.group(1)
+    assert "Immobilien suchen und finden auf willhaben" not in payload_match.group(1)
 
 
 def test_property_action_cards_filter_legacy_full_view_buttons() -> None:
@@ -4596,13 +5735,31 @@ def test_property_action_cards_filter_legacy_full_view_buttons() -> None:
     )
     assert "action_label|lower not in ['full view', 'open full view']" in results_template
     assert "_is_redundant_property_action_label(cleaned.get(label_key))" in payload_builder
-    assert "cleanCandidateCopy(candidate.compare_reason)" in fast_results_template
+    assert "summarizeCandidateCopy(candidate.compare_reason)" in fast_results_template
     assert "text(candidate.compare_reason)" not in fast_results_template
     assert "cleanCandidateCopy(candidate?.fit_summary" in workbench_script
     assert "Open the source" not in workbench_script
     surface_state = (repo_root / "ea/app/product/property_surface_state.py").read_text(encoding="utf-8")
-    assert "ordered_results = [_strip_hidden_property_action_slots(row)" in surface_state
+    assert "ordered_results = [" in surface_state
+    assert "_clean_property_shortlist_row(_strip_hidden_property_action_slots(row))" in surface_state
     assert "research_actions=_clean_property_action_rows(actions)" in surface_state
+
+
+def test_property_client_scripts_summarize_compact_candidate_copy_for_quiet_refreshes() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    fast_results_template = (repo_root / "ea/app/templates/app/property_ranked_run_fast.html").read_text(encoding="utf-8")
+    workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+
+    assert "const summarizeCandidateCopy = (value) => {" in fast_results_template
+    assert "return summarizeCandidateCopy(candidate.fit_summary)" in fast_results_template
+    assert "|| summarizeCandidateCopy(candidate.summary)" in fast_results_template
+    assert "|| summarizeCandidateCopy(candidate.compare_reason)" in fast_results_template
+
+    assert "const summarizeCandidateCopy = (value) => {" in workbench_script
+    assert "fit_summary: summarizeCandidateCopy(candidate?.fit_summary || candidate?.summary || candidate?.compare_reason || '')," in workbench_script
+    assert "compare_reason: summarizeCandidateCopy(candidate.fit_summary || candidate.summary || candidate.compare_reason ||" in workbench_script
+    assert "const fitSummary = summarizeCandidateCopy(" in workbench_script
+    assert "fit_summary: cleanCandidateCopy(candidate?.fit_summary || candidate?.summary || candidate?.compare_reason || '')," not in workbench_script
 
 
 def test_propertyquarry_customer_copy_uses_sources_not_provider_coverage() -> None:
@@ -4648,7 +5805,7 @@ def test_propertyquarry_fast_ranked_run_status_copy_uses_found_and_to_review_cou
     assert "const listingCounts = (payload, candidates = []) => {" in template
     assert "const { found, toReview } = listingCounts(payload, candidates);" in template
     assert "parts.push(`${found} homes found`);" in template
-    assert "providerLeft > 0 ? `${providerLeft} ${sourceUnit} left` : 'all found homes reviewed'" in template
+    assert "providerLeft > 0 ? `${providerLeft} ${sourceUnit} left` : 'all found homes are checked'" in template
     assert "parts.push(`${listings} checked`);" not in template
     assert "statusDetail.textContent = copy.detail || (terminal ? copy.status : 'More homes can still appear.');" in template
     assert "if (isTerminalPayload(initialPayload)) return;" in template
@@ -4672,14 +5829,29 @@ def test_propertyquarry_fast_ranked_run_rows_show_thumbnail_and_title_property_l
         Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_ranked_run_fast.html"
     ).read_text(encoding="utf-8")
 
+    assert "const candidateDioramaHref = (candidate) => {" in template
+    assert "candidate.diorama_preview_url" in template
+    assert "const dioramaHref = candidateDioramaHref(candidate);" in template
+    assert "const thumbHref = dioramaHref;" in template
+    assert "const thumbVisualKind = dioramaHref ? 'diorama' : 'placeholder';" in template
+    assert "const openHref = propertyHref;" in template
+    assert "const openHref = propertyHref || listingHref;" not in template
     assert "const candidatePreviewHref = (candidate) => {" in template
     assert "candidate.preview_image_url" in template
     assert "orientation.thumb_image_url" in template
     assert "facts.media_urls_json" in template
-    assert "const media = document.createElement(propertyHref ? 'a' : 'div');" in template
-    assert "media.className = `pq-fast-thumb${previewHref ? '' : ' no-thumb'}`;" in template
+    assert "const media = document.createElement(openHref ? 'a' : 'div');" in template
+    assert "media.className = `pq-fast-thumb pq-fast-diorama${thumbHref ? '' : ' no-thumb'}`;" in template
+    assert "media.setAttribute('data-visual-kind', thumbVisualKind);" in template
+    assert "room-main" in template
+    assert "pq-fast-diorama-label" in template
     assert "titleLink.className = 'pq-fast-title-link';" in template
-    assert "titleLink.href = propertyHref;" in template
+    assert "titleLink.href = openHref;" in template
+    assert "titleLink.setAttribute('aria-label', `Open property: ${titleText}`);" in template
+    assert "const authHandoffUrl = String(root.dataset.authHandoffUrl || '').trim();" in template
+    assert "const maybeRedirectSignedInViewer = async () => {" in template
+    assert "const target = String(payload.latest_results_target || payload.target || '').trim();" in template
+    assert "window.location.replace(target);" in template
 
 
 def test_propertyquarry_root_redirects_signed_in_users_to_search(monkeypatch) -> None:
@@ -4727,6 +5899,37 @@ def test_propertyquarry_root_redirects_token_authenticated_users_but_keeps_home_
     assert response.status_code == 307
     assert response.headers["location"] == "/app/search"
 
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-root-token-search-redirect"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": "run-home-token-latest",
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_total": 1,
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "token-home-result",
+                                "title": "Token Home Result",
+                                "fit_summary": "Personal fit 81/100. Quiet street, better layout.",
+                                "packet_url": "/app/research/token-home-result",
+                                "diorama_preview_url": "https://cdn.example.test/token-home-result-diorama.png",
+                                "fit_score": 81,
+                                "property_facts": {
+                                    "postal_name": "1020 Vienna",
+                                    "price_display": "EUR 1,850",
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
     public_home = client.get("/?home=1", headers=headers, follow_redirects=False)
     assert public_home.status_code == 200
     assert "Search once. See the right homes. Decide faster." in public_home.text
@@ -4739,6 +5942,11 @@ def test_propertyquarry_root_redirects_token_authenticated_users_but_keeps_home_
     assert "home_sign_in" not in public_home.text
     assert "Signing you in" not in public_home.text
     assert 'data-target-endpoint="/app/api/property/landing-handoff"' not in public_home.text
+    assert "Last results" in public_home.text
+    assert "Token Home Result" in public_home.text
+    assert "Sample homes" not in public_home.text
+    assert 'href="/app/research/token-home-result?run_id=run-home-token-latest"' in public_home.text
+    assert "token-home-result-diorama.png" in public_home.text
 
 
 def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monkeypatch) -> None:
@@ -4746,11 +5954,37 @@ def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monke
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Root Public Home Office")
 
-    monkeypatch.setattr(
-        landing_routes,
-        "build_product_service",
-        lambda container: (_ for _ in ()).throw(AssertionError("propertyquarry public home should not build the product service")),
-    )
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-root-public-home"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": "run-root-home-latest",
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_total": 2,
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "root-home-result",
+                                "title": "Root Home Result",
+                                "fit_summary": "Personal fit 84/100. Strong layout, quieter block.",
+                                "packet_url": "/app/research/root-home-result",
+                                "diorama_preview_url": "https://cdn.example.test/root-home-result-diorama.png",
+                                "fit_score": 84,
+                                "property_facts": {
+                                    "postal_name": "1030 Vienna",
+                                    "price_display": "EUR 2,050",
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
     monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
     monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
 
@@ -4765,9 +5999,91 @@ def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monke
     assert "home_sign_in" not in response.text
     assert "Signing you in" not in response.text
     assert 'data-target-endpoint="/app/api/property/landing-handoff"' not in response.text
-    assert response.text.count("/app/api/property/map-previews/") >= 3
+    assert "Last results" in response.text
+    assert "Root Home Result" in response.text
+    assert "Sample homes" not in response.text
+    assert 'href="/app/research/root-home-result?run_id=run-root-home-latest"' in response.text
+    assert "root-home-result-diorama.png" in response.text
     assert "/static/property/home/example-shortlist-home-" not in response.text
     assert "/static/property/home/example-shortlist-collage.png" not in response.text
+
+
+def test_propertyquarry_root_redirect_uses_authenticated_request_context(monkeypatch) -> None:
+    principal_id = "pq-root-context-redirect"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Root Context Redirect Office")
+
+    monkeypatch.setattr(landing_routes, "_landing_authenticated_principal", lambda **kwargs: "")
+    monkeypatch.setattr(landing_routes, "_principal_for_page", lambda **kwargs: "")
+    client.app.dependency_overrides[get_request_context_if_available] = lambda: RequestContext(
+        principal_id=principal_id,
+        authenticated=True,
+        auth_source="workspace_access_session",
+    )
+    try:
+        response = client.get("/", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    finally:
+        client.app.dependency_overrides.pop(get_request_context_if_available, None)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/search"
+
+
+def test_propertyquarry_home_shortlist_uses_authenticated_request_context(monkeypatch) -> None:
+    principal_id = "pq-home-shortlist-context-auth"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Home Shortlist Context Office")
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-home-shortlist-context-auth"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": "run-home-context-latest",
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_total": 2,
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "context-home-result",
+                                "title": "Context Home Result",
+                                "fit_summary": "Personal fit 84/100. Quieter block, better daylight.",
+                                "packet_url": "/app/research/context-home-result",
+                                "diorama_preview_url": "https://cdn.example.test/context-home-result-diorama.png",
+                                "fit_score": 84,
+                                "property_facts": {
+                                    "postal_name": "1050 Vienna",
+                                    "price_display": "EUR 2,040",
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+    monkeypatch.setattr(landing_routes, "_landing_authenticated_principal", lambda **kwargs: "")
+    monkeypatch.setattr(landing_routes, "_principal_for_page", lambda **kwargs: "")
+    client.app.dependency_overrides[get_request_context_if_available] = lambda: RequestContext(
+        principal_id=principal_id,
+        authenticated=True,
+        auth_source="workspace_access_session",
+    )
+    try:
+        response = client.get("/?home=1", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    finally:
+        client.app.dependency_overrides.pop(get_request_context_if_available, None)
+
+    assert response.status_code == 200
+    assert "Last results" in response.text
+    assert "Context Home Result" in response.text
+    assert "Sample homes" not in response.text
+    assert 'href="/app/research/context-home-result?run_id=run-home-context-latest"' in response.text
+    assert "context-home-result-diorama.png" in response.text
+    assert "/static/property/home/example-shortlist-home-" not in response.text
 
 
 def test_propertyquarry_static_assets_are_served_with_cache_headers() -> None:
@@ -4911,8 +6227,12 @@ def test_propertyquarry_home_example_shortlist_labels_are_clickable(monkeypatch)
     assert "Tap any row to open the example." in public_home.text
     assert "Sample homes" in public_home.text
     assert "Good fit. Parking still unclear." in public_home.text
+    assert "Open property" in public_home.text
     assert "/app/example/shortlist?candidate=quiet-layout-near-transit#quiet-layout-near-transit" in public_home.text
     assert "Danube Flats demo" in public_home.text
+    assert "/static/property/home/example-shortlist-home-1.png" in public_home.text
+    assert "/static/property/home/example-shortlist-home-2.png" in public_home.text
+    assert "/static/property/home/example-shortlist-home-3.png" in public_home.text
     assert "Search result, presentation, 3D tour, walkthrough." not in public_home.text
     assert "Parking evidence missing" not in public_home.text
     assert "/app/shortlist?example=1#tour-preview" not in public_home.text
@@ -4921,17 +6241,147 @@ def test_propertyquarry_home_example_shortlist_labels_are_clickable(monkeypatch)
     principal_id = "pq-home-shortlist-authed"
     authed_client = build_property_client(principal_id=principal_id)
     start_workspace(authed_client, mode="personal", workspace_name="Home Shortlist Audit Office")
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-home-shortlist-authed"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": "run-home-shortlist-latest",
+                    "status": "completed_partial",
+                    "summary": {
+                        "status": "completed_partial",
+                        "ranked_total": 2,
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "latest-real-home",
+                                "title": "Latest real home",
+                                "fit_summary": "Personal fit 83/100. Strong light, calmer side street.",
+                                "packet_url": "/app/research/latest-real-home",
+                                "diorama_preview_url": "https://cdn.example.test/latest-real-home-diorama.png",
+                                "fit_score": 83,
+                                "property_facts": {
+                                    "postal_name": "1040 Vienna",
+                                    "price_display": "EUR 1,980",
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
     monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
     monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
     authed_home = authed_client.get("/?home=1", headers={"host": "propertyquarry.com"})
     assert authed_home.status_code == 200
-    assert "Tap any row to open the example." in authed_home.text
-    assert "Sample homes" in authed_home.text
-    assert "/app/example/shortlist?candidate=quiet-layout-near-transit#quiet-layout-near-transit" in authed_home.text
-    assert "Danube Flats demo" in authed_home.text
-    assert "Search result, presentation, 3D tour, walkthrough." not in authed_home.text
-    assert "/app/shortlist?example=1#tour-preview" not in authed_home.text
-    assert "/app/shortlist?example=1#walkthrough-preview" not in authed_home.text
+    assert "Open the last finished shortlist." in authed_home.text
+    assert "Last results" in authed_home.text
+    assert "Latest real home" in authed_home.text
+    assert "Open property" in authed_home.text
+    assert "Sample homes" not in authed_home.text
+    assert "/app/example/shortlist?candidate=quiet-layout-near-transit#quiet-layout-near-transit" not in authed_home.text
+    assert "Danube Flats demo" not in authed_home.text
+    assert 'href="/app/research/latest-real-home?run_id=run-home-shortlist-latest"' in authed_home.text
+    assert "latest-real-home-diorama.png" in authed_home.text
+
+
+def test_propertyquarry_home_shortlist_never_falls_back_to_sample_homes_for_signed_in_users(
+    monkeypatch,
+) -> None:
+    principal_id = "pq-home-shortlist-authed-fallback"
+    authed_client = build_property_client(principal_id=principal_id)
+    start_workspace(authed_client, mode="personal", workspace_name="Home Shortlist Fail Closed Office")
+
+    def _raise_product_service(container):
+        raise RuntimeError("product_service_unavailable")
+
+    monkeypatch.setattr(landing_routes, "build_product_service", _raise_product_service)
+    monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
+    monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
+
+    response = authed_client.get("/?home=1", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "Last results" in response.text
+    assert "No finished shortlist yet" in response.text
+    assert "Open search" in response.text
+    assert "Sample homes" not in response.text
+    assert "Danube Flats demo" not in response.text
+    assert "/app/example/shortlist?candidate=quiet-layout-near-transit#quiet-layout-near-transit" not in response.text
+
+
+def test_propertyquarry_home_shortlist_prefers_non_public_entrypoint_results_for_signed_in_users(monkeypatch) -> None:
+    principal_id = "pq-home-shortlist-public-entrypoint"
+    shared_run_id = "0a89ead9e0b048288cca22d1aac54fa7"
+    authed_client = build_property_client(principal_id=principal_id)
+    start_workspace(authed_client, mode="personal", workspace_name="Home Shortlist Latest Real Office")
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+            assert principal_id == "pq-home-shortlist-public-entrypoint"
+            assert limit == 24
+            assert hydrate is False
+            return [
+                {
+                    "run_id": shared_run_id,
+                    "status": "completed",
+                    "summary": {
+                        "status": "completed",
+                        "ranked_total": 1,
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "shared-public-home",
+                                "title": "Shared public home",
+                                "fit_summary": "Personal fit 79/100. Public showcase shortlist.",
+                                "packet_url": f"/app/research/shared-public-home?run_id={shared_run_id}",
+                                "diorama_preview_url": "https://cdn.example.test/shared-public-home-diorama.png",
+                                "fit_score": 79,
+                                "property_facts": {
+                                    "postal_name": "1020 Vienna",
+                                    "price_display": "EUR 1,920",
+                                },
+                            }
+                        ],
+                    },
+                },
+                {
+                    "run_id": "run-home-shortlist-latest",
+                    "status": "completed_partial",
+                    "summary": {
+                        "status": "completed_partial",
+                        "ranked_total": 2,
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "latest-real-home",
+                                "title": "Latest real home",
+                                "fit_summary": "Personal fit 83/100. Strong light, calmer side street.",
+                                "packet_url": "/app/research/latest-real-home",
+                                "diorama_preview_url": "https://cdn.example.test/latest-real-home-diorama.png",
+                                "fit_score": 83,
+                                "property_facts": {
+                                    "postal_name": "1040 Vienna",
+                                    "price_display": "EUR 1,980",
+                                },
+                            }
+                        ],
+                    },
+                },
+            ]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+    monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
+    monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
+
+    authed_home = authed_client.get("/?home=1", headers={"host": "propertyquarry.com"})
+
+    assert authed_home.status_code == 200
+    assert "Last results" in authed_home.text
+    assert "Latest real home" in authed_home.text
+    assert "latest-real-home-diorama.png" in authed_home.text
+    assert "Shared public home" not in authed_home.text
+    assert "shared-public-home-diorama.png" not in authed_home.text
 
 
 def test_propertyquarry_example_shortlist_page_opens_sample_without_internal_language() -> None:
@@ -4947,6 +6397,8 @@ def test_propertyquarry_example_shortlist_page_opens_sample_without_internal_lan
     assert "Example shortlist" in response.text
     assert "Quiet layout near transit" in response.text
     assert "Good fit. Parking still unclear." in response.text
+    assert "Open property" in response.text
+    assert "/static/property/home/example-shortlist-home-2.png" in response.text
     assert "/sign-in?return_to=%2Fapp%2Fsearch" in response.text
     assert "Parking evidence missing" not in response.text
     assert "proof" not in response.text.lower()
@@ -5010,9 +6462,56 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
         "demo_href": "/tours/demo-home-tour",
         "tour_href": "/tours/demo-home-tour/control/matterport",
         "tour_label": "3D tour available",
-        "walkthrough_href": "/tours/files/demo-home-tour/tour.mp4",
+        "walkthrough_href": "/tours/demo-home-tour?pane=flythrough-pane&autoplay=1",
         "walkthrough_label": "Walkthrough available",
     }
+
+
+def test_propertyquarry_example_shortlist_rows_keep_static_diorama_preview_when_live_tour_assets_exist(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / "public_tours" / "demo-home-tour"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.mp4").write_bytes(b"video")
+    (bundle_dir / "scene-01.png").write_bytes(b"png")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "demo-home-tour",
+                "public_url": "/tours/demo-home-tour",
+                "hosted_url": "/tours/demo-home-tour",
+                "matterport_url": "https://my.matterport.com/show/?m=DemoHomeTour",
+                "scene_strategy": "layout_first",
+                "creation_mode": "hosted_floorplan_tour",
+                "video_relpath": "tour.mp4",
+                "video_provider": "manual_upload",
+                "scenes": [
+                    {
+                        "scene_id": "panorama-1",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.png",
+                    },
+                    {
+                        "scene_id": "floorplan-1",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.png",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+
+    rows = landing_routes._propertyquarry_example_shortlist_rows()
+
+    assert rows[0]["tour_href"] == "/tours/demo-home-tour/control/matterport"
+    assert rows[0]["walkthrough_href"] == "/tours/demo-home-tour?pane=flythrough-pane&autoplay=1"
+    assert rows[0]["scope_preview"]["image_url"] == "/static/property/home/example-shortlist-home-1.png"
+    assert rows[0]["scope_preview"]["preview_image_url"] == "/static/property/home/example-shortlist-home-1.png"
 
 
 def test_propertyquarry_example_media_targets_prefer_propertyquarry_3dvista_private_viewer(
@@ -5072,7 +6571,7 @@ def test_propertyquarry_example_media_targets_prefer_propertyquarry_3dvista_priv
         "demo_href": "/tours/demo-3dvista-propertyquarry",
         "tour_href": "/tours/demo-3dvista-propertyquarry/control/3dvista",
         "tour_label": "3D tour available",
-        "walkthrough_href": "/tours/files/demo-3dvista-propertyquarry/walkthrough.mp4",
+        "walkthrough_href": "/tours/demo-3dvista-propertyquarry?pane=flythrough-pane&autoplay=1",
         "walkthrough_label": "Walkthrough available",
     }
 
@@ -5266,6 +6765,60 @@ def test_propertyquarry_landing_handoff_prefers_active_run(monkeypatch) -> None:
     response = client.get("/app/api/property/landing-handoff", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
     assert response.json()["target"] == "/app/properties?run_id=run-live-42"
+
+
+def test_propertyquarry_landing_handoff_exposes_latest_non_public_results_target(monkeypatch) -> None:
+    principal_id = "pq-landing-handoff-latest-results"
+    shared_run_id = "0a89ead9e0b048288cca22d1aac54fa7"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Landing Handoff Latest Results Office")
+
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", lambda self, *, principal_id, limit=8: {})
+
+    def _fake_list_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+        assert principal_id == "pq-landing-handoff-latest-results"
+        assert limit == 24
+        assert hydrate is False
+        return [
+            {
+                "run_id": shared_run_id,
+                "status": "completed",
+                "summary": {
+                    "status": "completed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "shared-public-home",
+                            "title": "Shared public home",
+                            "packet_url": f"/app/research/shared-public-home?run_id={shared_run_id}",
+                        }
+                    ],
+                },
+            },
+            {
+                "run_id": "run-latest-real-home",
+                "status": "completed_partial",
+                "summary": {
+                    "status": "completed_partial",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "latest-real-home",
+                            "title": "Latest real home",
+                            "packet_url": "/app/research/latest-real-home?run_id=run-latest-real-home",
+                        }
+                    ],
+                },
+            },
+        ]
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+    monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
+    monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
+
+    response = client.get("/app/api/property/landing-handoff", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert response.json()["target"] == "/app/search"
+    assert response.json()["latest_results_target"] == "/app/shortlist/run/run-latest-real-home"
 
 
 def test_propertyquarry_landing_handoff_falls_back_to_search(monkeypatch) -> None:
@@ -5619,7 +7172,7 @@ def test_property_workspace_payload_keeps_saved_brief_when_run_snapshot_is_old()
     assert workbench["suppression_rows"][0]["rule_key"] == "Older search snapshot"
     assert workbench["counterfactual_rows"][0]["adjustments"] == {}
     assert workbench["empty_outcome"]["active_rule"] == "Older search"
-    assert "current saved brief" in workbench["empty_outcome"]["next_move"]
+    assert "current search settings" in workbench["empty_outcome"]["next_move"]
 
 
 def test_property_workspace_previous_search_marks_old_snapshot_without_filter_action() -> None:
@@ -5653,7 +7206,7 @@ def test_property_workspace_previous_search_marks_old_snapshot_without_filter_ac
                         "status": "processed",
                         "brief_preferences_stale": True,
                         "brief_snapshot_status": "old_run",
-                        "brief_stale_message": "This search used an earlier brief. Start an updated search.",
+                        "brief_stale_message": "This search used older search settings. Start an updated search.",
                         "previous_ranked_total": 3,
                         "previous_filtered_total": 9,
                         "filtered_total": 9,
@@ -5682,7 +7235,7 @@ def test_property_workspace_previous_search_marks_old_snapshot_without_filter_ac
     assert previous["held_back_total"] == 0
     assert previous["previous_filtered_total"] == 9
     assert previous["previous_ranked_total"] == 3
-    assert "earlier brief" in previous["status_note"]
+    assert "older search settings" in previous["status_note"]
 
 
 def test_property_workspace_payload_shows_budget_revalidated_saved_candidate_as_current_result() -> None:
@@ -5826,11 +7379,11 @@ def test_property_workspace_payload_marks_full_region_run_with_stale_district_so
 
     assert run["filtered_total"] == 0
     assert run["held_back_total"] == 0
-    assert "This run checked 1010 Vienna" in run["message"]
+    assert "This search checked 1010 Vienna" in run["message"]
     assert run_summary["previous_filtered_total"] == 20
-    assert run_summary["brief_scope_mismatch"]["title"] == "Run used an older area"
+    assert run_summary["brief_scope_mismatch"]["title"] == "Search used an older area"
     assert "1010 Vienna" in counterfactual["detail"]
-    assert "Your current brief is Vienna" in counterfactual["detail"]
+    assert "Your search is Vienna" in counterfactual["detail"]
     assert counterfactual["adjustments"] == {}
 
 
@@ -5949,7 +7502,7 @@ def test_property_workspace_payload_agents_cards_use_outside_brief_language() ->
     ]
     joined = " || ".join(card_details)
 
-    assert "Outside brief 8" in joined
+    assert "Outside this search 8" in joined
     assert "Filtered 8" not in joined
 
 
@@ -6029,8 +7582,8 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     )
 
     assert snapshot["status_label"] == "Running"
-    assert snapshot["status_note"] == "102 homes found · all found homes reviewed"
-    assert snapshot["message"] == "102 homes found · all found homes reviewed"
+    assert snapshot["status_note"] == "102 homes found · all found homes are checked"
+    assert snapshot["message"] == "102 homes found · all found homes are checked"
 
 
 def test_property_surface_state_builds_filtered_total_from_summary_components() -> None:
@@ -6437,6 +7990,33 @@ def test_property_surface_state_builds_shortlist_snapshot_and_preserves_rank_ord
     assert [row["candidate_ref"] for row in snapshot["results"]] == ["a", "b", "c"]
     assert snapshot["results_total"] == 3
     assert snapshot["has_results"] is True
+
+
+def test_property_surface_state_shortlist_snapshot_sanitizes_provider_marketing_in_detail_copy() -> None:
+    raw_description = (
+        "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+        "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+    )
+    raw_location = (
+        "RUHELAGE | U1 NAH | HOFSEITIG. "
+        "Wählen Sie aus 15.000 Immobilien. Immobilien suchen und finden auf willhaben."
+    )
+    snapshot = property_surface_state.build_property_shortlist_snapshot(
+        [
+            {
+                "candidate_ref": "ad-copy",
+                "title": "A",
+                "description_text": raw_description,
+                "location_text": raw_location,
+                "summary": raw_description,
+            }
+        ]
+    )
+
+    selected = snapshot["selected"]
+    assert selected["description_text"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert selected["location_text"] == "Ruhelage · U1 Nah · Hofseitig."
+    assert selected["summary"] == "Unbefristete Mietdauer · Mitten in der Stadt · 3 Zimmer."
 
 
 def test_property_search_agent_selection_snapshot_is_typed_and_linked() -> None:
@@ -7432,7 +9012,7 @@ def test_property_research_packet_renders_cached_evidence_overlays(monkeypatch, 
     packet = client.get(f"/app/research/{packet_ref}", params={"run_id": "run-overlays"}, headers={"host": "propertyquarry.com"})
 
     assert packet.status_code == 200
-    assert "Map layers and local notes appear here when available." in packet.text
+    assert "Map and context" in packet.text
     assert "Media attention" in packet.text
     assert "12 local articles in the last 90 days" in packet.text
     assert "Media index" in packet.text
@@ -7606,6 +9186,62 @@ def test_property_candidate_orientation_preview_reuses_boundary_projection_when_
 def test_property_research_title_display_strips_provider_price_and_fact_noise() -> None:
     raw = "Super nette 2 Zimmer Wohnung (ideal für WG) in bester Lage für Unis, 60 m², € 1.150,-, (1090 Wien) - willhaben"
     assert landing_routes._property_research_title_display(raw) == "Super nette 2 Zimmer Wohnung (ideal für WG) in bester Lage für Unis"
+
+
+def test_property_research_title_display_strips_provider_marketing_noise() -> None:
+    raw = (
+        "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+        "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+    )
+
+    assert landing_routes._property_research_title_display(raw) == "Unbefristete Mietdauer · Mitten in der Stadt · 3 Zimmer"
+
+
+def test_property_research_compact_fact_hides_under_research_placeholders() -> None:
+    assert landing_routes._property_research_compact_fact("Rooms under research") == ""
+    assert landing_routes._property_research_compact_fact("3 rooms") == "3 rooms"
+
+
+def test_property_workspace_payload_hides_rooms_under_research_in_layout_summary() -> None:
+    payload = landing_routes._property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Room Placeholder"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "rent", "location_query": "1020 Vienna"},
+            "commercial": {"current_plan_label": "Agent", "current_plan_key": "agent"},
+            "preference_bundle": {},
+            "run": {
+                "run_id": "run-rooms-hidden",
+                "status": "completed",
+                "progress": 100,
+                "summary": {
+                    "status": "completed",
+                    "listing_total": 1,
+                    "ranked_total": 1,
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "candidate-1",
+                            "title": "Candidate 1",
+                            "fit_score": 91,
+                            "property_url": "https://example.test/listing/1",
+                            "source_label": "Willhaben",
+                            "property_facts": {
+                                "price_display": "EUR 1,200",
+                                "area_m2": 72,
+                                "rooms_label": "Rooms under research",
+                                "postal_name": "1020 Vienna",
+                            },
+                        }
+                    ],
+                },
+            },
+        },
+    )
+
+    workbench = dict(payload.get("decision_workbench") or {})
+    results = [dict(row) for row in list(workbench.get("results") or []) if isinstance(row, dict)]
+
+    assert results[0]["layout_display"] == "72 m2"
 
 
 def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) -> None:
@@ -8407,6 +10043,238 @@ def test_property_workspace_payload_excludes_ranked_candidates_without_concrete_
     assert payload["decision_workbench"]["results"] == []
 
 
+def test_property_workspace_payload_sanitizes_marketing_copy_in_results_and_research_rows() -> None:
+    properties_payload = landing_property_workspace_payload.property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Marketing Copy Office"}, "channels": {}},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-marketing-copy",
+                "status": "processed",
+                "property_search_preferences": {
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "status": "processed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "cand-marketing-copy",
+                            "title": "Charmante Altbauwohnung - willhaben",
+                            "summary": (
+                                "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                                "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+                            ),
+                            "property_url": "https://example.test/source/marketing-copy",
+                            "source_label": "Willhaben",
+                            "recommendation": "shortlist",
+                            "fit_score": 72,
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "rent_display": "EUR 1,590",
+                                "monthly_rent_eur": 1590,
+                                "area_sqm": 70,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+            "run_health": {"status": "processed", "status_label": "Finished"},
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    research_payload = landing_property_workspace_payload.property_workspace_payload(
+        "research",
+        status={"workspace": {"name": "Marketing Copy Office"}, "channels": {}},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-marketing-copy",
+                "status": "processed",
+                "property_search_preferences": {
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "status": "processed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "cand-marketing-copy",
+                            "title": "Charmante Altbauwohnung - willhaben",
+                            "summary": (
+                                "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                                "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+                            ),
+                            "property_url": "https://example.test/source/marketing-copy",
+                            "source_label": "Willhaben",
+                            "recommendation": "shortlist",
+                            "fit_score": 72,
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "rent_display": "EUR 1,590",
+                                "monthly_rent_eur": 1590,
+                                "area_sqm": 70,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+            "run_health": {"status": "processed", "status_label": "Finished"},
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    results_row = properties_payload["results_table_rows"][0]
+    research_row = research_payload["primary_cards"][0]["items"][0]
+
+    assert results_row["cells"][1]["title"] == "#1 Charmante Altbauwohnung"
+    assert results_row["cells"][2]["detail"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert research_row["title"] == "Charmante Altbauwohnung"
+    assert research_row["detail"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+
+
+def test_property_workspace_payload_summarizes_selected_review_fit_summary_from_summary_copy() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Marketing Copy Office"}, "channels": {}},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-marketing-copy-selected",
+                "status": "processed",
+                "property_search_preferences": {
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "status": "processed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "cand-marketing-copy-selected",
+                            "title": "Charmante Altbauwohnung - willhaben",
+                            "summary": (
+                                "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                                "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+                            ),
+                            "property_url": "https://example.test/source/marketing-copy",
+                            "source_label": "Willhaben",
+                            "recommendation": "shortlist",
+                            "fit_score": 72,
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "rent_display": "EUR 1,590",
+                                "monthly_rent_eur": 1590,
+                                "area_sqm": 70,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+            "run_health": {"status": "processed", "status_label": "Finished"},
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    selected = payload["decision_workbench"]["selected"]
+
+    assert selected["fit_summary"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert selected["ooda"]["summary"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+
+
+def test_property_research_detail_summarizes_marketing_copy_when_fit_summary_is_missing(monkeypatch) -> None:
+    principal_id = "pq-research-detail-marketing-copy"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Marketing Copy Detail Office")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-marketing-copy-detail",
+                        "title": "Charmante Altbauwohnung - willhaben",
+                        "summary": (
+                            "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                            "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+                        ),
+                        "recommendation": "shortlist",
+                        "review_url": "/app/research/cand-marketing-copy-detail",
+                        "property_url": "https://example.test/source/marketing-copy",
+                        "source_label": "Willhaben",
+                        "fit_score": 72,
+                        "property_facts": {
+                            "price_display": "EUR 1,590",
+                            "monthly_rent_eur": 1590,
+                            "area_m2": 70,
+                            "rooms": 3,
+                            "postal_name": "1010 Wien",
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    page = client.get("/app/research/cand-marketing-copy-detail", params={"run_id": "run-marketing-copy-detail"}, headers=headers)
+
+    assert page.status_code == 200
+    assert "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer." in page.text
+    assert "Wählen Sie aus 113.283 Angeboten" not in page.text
+    assert "Immobilien suchen und finden auf willhaben" not in page.text
+
+
 def test_property_workspace_payload_drops_oversized_inline_candidate_previews() -> None:
     oversized_preview = "data:image/png;base64," + ("a" * 10000)
     payload = landing_property_workspace_payload.property_workspace_payload(
@@ -8823,6 +10691,62 @@ def test_propertyquarry_prepare_run_payload_synthesizes_tour_payload_for_verifie
     assert source_candidate["tour"]["embed_url"] == verified_url
 
 
+def test_propertyquarry_prepare_run_payload_clears_stale_first_party_tour_links(
+    monkeypatch,
+) -> None:
+    from app.product import property_tour_hosting
+
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url: "",
+    )
+
+    normalized = landing_routes._propertyquarry_prepare_run_payload(
+        product=object(),
+        run_payload={
+            "run_id": "run-stale-tour-normalization",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "ranked-stale-tour",
+                        "tour_url": "https://propertyquarry.com/tours/stale-tour",
+                        "tour": {
+                            "url": "https://propertyquarry.com/tours/stale-tour",
+                            "embed_url": "https://propertyquarry.com/tours/stale-tour",
+                        },
+                    }
+                ],
+                "sources": [
+                    {
+                        "top_candidates": [
+                            {
+                                "candidate_ref": "source-stale-tour",
+                                "tour_url": "https://propertyquarry.com/tours/stale-tour",
+                                "tour": {
+                                    "url": "https://propertyquarry.com/tours/stale-tour",
+                                    "embed_url": "https://propertyquarry.com/tours/stale-tour",
+                                },
+                            }
+                        ]
+                    }
+                ],
+            },
+        },
+        backfill_cached_previews=False,
+    )
+
+    ranked_candidate = normalized["summary"]["ranked_candidates"][0]
+    source_candidate = normalized["summary"]["sources"][0]["top_candidates"][0]
+
+    assert ranked_candidate["tour_url"] == ""
+    assert ranked_candidate["tour"]["url"] == ""
+    assert ranked_candidate["tour"]["embed_url"] == ""
+    assert source_candidate["tour_url"] == ""
+    assert source_candidate["tour"]["url"] == ""
+    assert source_candidate["tour"]["embed_url"] == ""
+
+
 def test_property_workspace_payload_ready_tour_snapshot_includes_nested_tour_without_existing_tour_object(
     monkeypatch,
 ) -> None:
@@ -8950,11 +10874,75 @@ def test_property_workspace_payload_generated_reconstruction_snapshot_does_not_i
 
     result = payload["decision_workbench"]["results"][0]
 
-    assert result["tour"]["status"] == "blocked"
+    assert result["tour"]["status"] == "missing"
     assert result["tour"]["url"] == ""
     assert result["tour"]["embed_url"] == ""
     assert result["tour"]["control_label"] == ""
-    assert result["tour"]["status_detail"] == "A real 3D tour is not available yet."
+    assert result["tour"]["status_detail"] == "Tour not available yet."
+
+
+def test_property_workspace_payload_clears_stale_first_party_tour_snapshot(monkeypatch) -> None:
+    from app.product import property_tour_hosting
+
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url: "",
+    )
+
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-workspace-stale-tour",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "workspace-stale-tour",
+                            "title": "Workspace stale tour",
+                            "property_url": "https://example.test/workspace-stale-tour",
+                            "tour_url": "https://propertyquarry.com/tours/workspace-stale-tour",
+                            "tour": {
+                                "url": "https://propertyquarry.com/tours/workspace-stale-tour",
+                                "embed_url": "https://propertyquarry.com/tours/workspace-stale-tour",
+                            },
+                            "fit_score": 84,
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "price_display": "EUR 2,100",
+                                "area_m2": 74,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    result = payload["decision_workbench"]["results"][0]
+
+    assert result["tour"]["status"] == "missing"
+    assert result["tour"]["url"] == ""
+    assert result["tour"]["embed_url"] == ""
+    assert result["tour"]["control_label"] == ""
+    assert result["tour"]["status_detail"] == "Tour not available yet."
 
 
 def test_property_workspace_payload_recovers_ready_tour_from_hosted_identity(
@@ -9381,19 +11369,31 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
     assert "Decision call" not in body
     assert "Open Magic Fit" not in body
     assert "Request missing documents" in body
-    assert "Ask about this home" in body
+    assert "Ask a question" in body
+    assert "Next question" in body
+    assert "Ask next" not in body
     assert "data-prd-map-overlay" in body
-    assert "Question helper" in body
+    assert "Ask from this page" in body
+    assert "What changed?" not in body
     assert "data-object-lifestyle-toggle" in body
     assert "data-object-magicfit" not in body
     assert "object-magicfit" not in body
     assert "renderMagicFit" not in body
-    assert "3D tour queued" in body
-    assert "Walkthrough queued" in body
+    assert "Preparing 3D tour" in body
+    assert "Preparing walkthrough" in body
     assert ".prd-actions .console-action.is-processing::before" in body
     assert "prd-media-image-failed" in body
+    assert "Preview unavailable" not in body
+    assert "Image unavailable" in body
     assert "img[data-prd-hero-image]" in body
     assert "data-prd-hero-fallback-src" in body
+    assert "Check before deciding" not in body
+    assert "Still open" in body
+    assert "Area notes" not in body
+    assert "Map and context" in body
+    assert "underwriting read" not in body
+    assert "Opt-in" not in body
+    assert "Include this image in the PDF." in body
 
 
 def test_property_research_detail_collapses_secondary_mobile_sections() -> None:
@@ -9445,15 +11445,19 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert 'data-prd-visual-card="{{ visual_card.get(\'key\') }}"' in body
     assert 'href="{{ research_feedback.get(\'profile_href\') or (\'/app/search\' ~ research_query_suffix) }}">Edit search</a>' in body
     assert "prd-hero-gallery" in body
-    assert ".prd-hero-gallery {\n    display: none;" in body
+    assert ".prd-hero-gallery {\n    display: grid;" in body
     assert ".prd-hero-gallery .prd-gallery-label" in body
+    assert 'data-prd-gallery-track' in body
+    assert 'data-prd-gallery-nav="prev"' in body
+    assert 'data-prd-gallery-nav="next"' in body
+    assert "research_gallery_items[:4]" not in body
     assert "-webkit-line-clamp: 3;" in body
     assert "max-height: min(calc(100vh - 440px), 202px);" not in body
     assert body.index('<header class="prd-topbar pqx-topbar" data-property-research-topnav') < body.index(
         '<section class="prd-shell" data-property-research-detail>'
     )
-    assert body.index("data-object-media-stage") < body.index("Overview")
-    assert body.index("Visuals") < body.index("Property details")
+    assert body.index("data-object-media-stage") < body.index("At a glance")
+    assert body.index("Visuals") < body.index("Home")
     assert "OODA" not in body
     assert "operator notes" not in body
 
@@ -9488,6 +11492,8 @@ def test_property_research_detail_mobile_open_property_layout_is_compact() -> No
     assert ".prd-decision-advanced > summary {\n      display: none;" in mobile_block
     assert ".prd-visual-card {\n      grid-template-columns: minmax(0, 1fr) auto;\n      grid-template-areas: \"header action\";" in mobile_block
     assert ".prd-visual-evidence {\n      display: none;" in mobile_block
+    assert ".prd-hero-gallery {\n      display: grid;" in mobile_block
+    assert ".prd-gallery-shell {\n      grid-template-columns: auto minmax(0, 1fr) auto;" in mobile_block
     assert "-webkit-line-clamp: 2;" in mobile_block
 
 
@@ -9497,11 +11503,22 @@ def test_property_research_detail_uses_explicit_tour_evidence_copy() -> None:
 
     assert "Tour: {{ verified_provider_label }}." not in body
     assert "Tour: available." not in body
-    assert "3D tour available." in body
-    assert "3D tour not available yet." in body
-    assert "Walkthrough available." in body
-    assert "Walkthrough not available yet." in body
+    assert "Open now." in body
+    assert "On request." in body
     assert "No 3D tour is published yet." not in body
+
+
+def test_property_research_detail_gallery_is_scrollable_and_arrow_driven() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "const galleryTrack = document.querySelector('[data-prd-gallery-track]');" in body
+    assert "const galleryNavButtons = Array.from(document.querySelectorAll('[data-prd-gallery-nav]'));" in body
+    assert "galleryTrack.scrollBy({ left: direction * galleryScrollAmount(), behavior: 'smooth' });" in body
+    assert "button.disabled = atStart;" in body
+    assert "button.disabled = atEnd;" in body
+    assert "button.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });" in body
+    assert "galleryCount.textContent = `${selectedGalleryIndex() + 1} / ${galleryThumbs.length}`;" in body
 
 
 def test_property_research_packet_keeps_shared_mobile_navigation_dock(monkeypatch) -> None:
@@ -9720,8 +11737,8 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert ready_payload["primary_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
     assert ready_payload["primary_label"] == "Open 3D tour"
     assert ready_payload["status_label"] == "3D tour available"
-    assert ready_payload["status_detail"] == "3D tour is available on this page."
-    assert ready_payload["walkthrough_status_detail"] == "Walkthrough is available on this page."
+    assert ready_payload["status_detail"] == "3D tour is ready."
+    assert ready_payload["walkthrough_status_detail"] == "Walkthrough is ready."
 
 
 def test_property_research_media_ignores_disabled_fallback_tour_record(monkeypatch) -> None:
@@ -9776,7 +11793,7 @@ def test_property_research_media_uses_generic_label_for_verified_controls(monkey
     assert payload["provider_label"] == "3D tour"
     assert payload["primary_label"] == "Open 3D tour"
     assert payload["status_label"] == "3D tour available"
-    assert payload["status_detail"] == "3D tour is available on this page."
+    assert payload["status_detail"] == "3D tour is ready."
 
 
 def test_property_research_media_treats_krpano_only_bundle_as_needing_rebuild(monkeypatch) -> None:
@@ -9832,7 +11849,7 @@ def test_property_research_media_never_uses_generated_reconstruction_as_tour(mon
     assert payload["status_label"] == "3D tour unavailable"
 
 
-def test_property_research_media_surfaces_generated_reconstruction_preview_honestly(monkeypatch) -> None:
+def test_property_research_media_keeps_generated_reconstruction_off_customer_surface(monkeypatch) -> None:
     monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
@@ -9862,14 +11879,14 @@ def test_property_research_media_surfaces_generated_reconstruction_preview_hones
     )
 
     assert payload["hosted_ready"] is False
-    assert payload["generated_reconstruction_ready"] is True
-    assert payload["generated_reconstruction_href"] == "https://propertyquarry.com/tours/files/generated-preview/photo-01.webp"
+    assert payload["generated_reconstruction_ready"] is False
+    assert payload["generated_reconstruction_href"] == ""
     assert payload["has_live_viewer"] is False
     assert payload["embed_href"] == ""
     assert payload["status_label"] == "3D tour unavailable"
-    assert payload["status_detail"] == "A layout preview is ready below. A real 3D tour is not available for this listing yet."
-    assert payload["show_status_line"] is True
-    assert payload["primary_label"] == "Open property page"
+    assert payload["status_detail"] == "3D tour generation is waiting for a floor plan or usable room photos."
+    assert payload["show_status_line"] is False
+    assert payload["primary_label"] == "Open property"
     assert payload["primary_href"] == "https://propertyquarry.com/app/research/generated-preview"
 
 
@@ -9884,6 +11901,21 @@ def test_property_research_media_uses_generic_vendor_tour_copy(monkeypatch) -> N
     assert payload["status_label"] == "Original tour available"
     assert payload["status_detail"] == "The original tour is available. Open it directly while the in-page 3D tour is still missing."
     assert payload["primary_label"] == "Open original tour"
+
+
+def test_property_research_media_ignores_unverified_vendor_tour_url() -> None:
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "vendor_tour_url": "https://vendor.example.com/tours/fake-gallery-shell",
+            "review_url": "https://propertyquarry.com/app/research/unverified-vendor-tour",
+        }
+    )
+
+    assert payload["status_label"] == "3D tour unavailable"
+    assert payload["show_status_line"] is False
+    assert payload["primary_label"] == "Open property"
+    assert payload["primary_href"] == "https://propertyquarry.com/app/research/unverified-vendor-tour"
+    assert payload["provider_label"] == ""
 
 
 def test_property_research_media_uses_delayed_eta_copy_for_stale_tour_requests(monkeypatch) -> None:
@@ -9904,7 +11936,7 @@ def test_property_research_media_uses_delayed_eta_copy_for_stale_tour_requests(m
     )
 
     assert payload["status_label"] == "3D tour queued"
-    assert payload["status_detail"] == "Tour generation is still queued. Taking longer than usual."
+    assert payload["status_detail"] == "Still queued."
 
 
 def test_property_research_media_uses_live_eta_copy_while_render_is_fresh(monkeypatch) -> None:
@@ -9925,7 +11957,7 @@ def test_property_research_media_uses_live_eta_copy_while_render_is_fresh(monkey
     )
 
     assert payload["status_label"] == "3D tour rendering"
-    assert payload["status_detail"] == "Tour generation is running. ETA about 10 min."
+    assert payload["status_detail"] == "Rendering."
 
 
 def test_base_public_template_exposes_public_seo_contract() -> None:
@@ -10402,8 +12434,8 @@ def test_property_run_live_board_replaces_stale_zero_review_copy_while_pages_rem
         plan_key="agent",
     )
 
-    assert snapshot["aggregate_label"] == "4097 homes found · 6 search pages left"
-    assert snapshot["phase_label"] == "Checking remaining search pages"
+    assert snapshot["aggregate_label"] == "4097 homes found · 6 checks left"
+    assert snapshot["phase_label"] == "Checking remaining checks"
     assert "0 to review" not in snapshot["summary_label"].lower()
 
 
@@ -10422,7 +12454,7 @@ def test_property_run_safe_status_replaces_stale_zero_review_copy() -> None:
         },
     )
 
-    assert message == "4097 homes found · 6 search pages left"
+    assert message == "4097 homes found · 6 checks left"
     assert "0 to review" not in message.lower()
 
 
@@ -10456,6 +12488,38 @@ def test_property_run_live_board_distinguishes_found_from_reviewed_candidates() 
 
     assert "30 homes found" in snapshot["aggregate_label"]
     assert "30 homes reviewed" not in snapshot["aggregate_label"]
+
+
+def test_property_run_live_board_does_not_inflate_to_review_from_small_shortlist_fraction() -> None:
+    snapshot = property_surface_state.build_property_run_live_board_snapshot(
+        {
+            "status": "running",
+            "progress": 42,
+            "message": "Scoring enriched candidate 2 of 4 for Willhaben | Austria | Buy | Wien.",
+            "summary": {
+                "sources_total": 117,
+                "source_variant_total": 117,
+                "sources_completed": 20,
+                "provider_total": 29,
+                "listing_total": 179,
+                "reviewed_listing_total": 179,
+                "sources": [],
+            },
+            "events": [
+                {
+                    "step": "source_assessing",
+                    "message": "Scoring enriched candidate 2 of 4 for Willhaben | Austria | Buy | Wien.",
+                    "status": "in_progress",
+                }
+            ],
+        },
+        plan_key="agent",
+    )
+
+    assert snapshot["provider_label"] == "Willhaben"
+    assert snapshot["fraction_label"] == "2 / 4"
+    assert snapshot["aggregate_label"] == "179 homes found · 97 checks left"
+    assert "177 to review" not in snapshot["aggregate_label"]
 
 
 def test_property_run_live_board_shows_four_real_provider_lanes_for_agent_runs() -> None:
@@ -10670,8 +12734,8 @@ def test_property_run_live_board_uses_selected_total_when_only_active_rows_mater
         plan_key="agent",
     )
 
-    assert snapshot["source_count_label"] == "2/29 sites"
-    assert snapshot["summary_label"] == "29 sites"
+    assert snapshot["source_count_label"] == "2/29 providers"
+    assert snapshot["summary_label"] == "29 providers"
 
 
 def test_property_run_live_board_sanitizes_stale_source_counts_without_source_rows() -> None:
@@ -10692,7 +12756,7 @@ def test_property_run_live_board_sanitizes_stale_source_counts_without_source_ro
     )
 
     assert "156" not in snapshot["source_count_label"]
-    assert snapshot["source_count_label"] in {"0/3 sites", "waiting for sites"}
+    assert snapshot["source_count_label"] in {"0/3 providers", "waiting for providers"}
     assert "selected sources" not in snapshot["source_count_label"]
 
 
@@ -10903,14 +12967,14 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
         results_total=3,
     )
     assert reliability["health_label"] == "Checking again"
-    assert reliability["repair_step_label"] == "Refreshing 1 site"
-    assert reliability["coverage_label"] == "2/4 sites · 2 still running"
+    assert reliability["repair_step_label"] == "Refreshing 1 provider"
+    assert reliability["coverage_label"] == "2/4 providers · 2 still running"
     assert "provider check" not in reliability["coverage_label"].lower()
     assert "selected source" not in reliability["repair_step_label"].lower()
     assert "selected sources" not in reliability["customer_status_message"].lower()
-    assert reliability["customer_status_message"] == "Refreshing one site while the shortlist stays visible."
+    assert reliability["customer_status_message"] == "Refreshing one provider while the shortlist stays visible."
     assert reliability["result_label"] == "3 matching results ready"
-    assert reliability["filtered_label"] == "7 outside the current brief"
+    assert reliability["filtered_label"] == "7 outside this search"
     assert reliability["repair"]["repair_status"] == "repairing"
     assert reliability["repair"]["can_auto_repair"] is True
 
@@ -10935,7 +12999,7 @@ def test_property_run_reliability_summary_surfaces_completed_partial_state() -> 
 
     assert reliability["health_label"] == "Partial coverage"
     assert reliability["health_tone"] == "warn"
-    assert reliability["customer_status_message"] == "One site stayed degraded."
+    assert reliability["customer_status_message"] == "One provider stayed degraded."
     assert reliability["repair"]["repair_status"] == "degraded"
     assert reliability["repair"]["repair_status_label"] == "Partial coverage"
 
@@ -10958,8 +13022,8 @@ def test_property_surface_state_builds_run_repair_snapshot() -> None:
 
     assert repair["repair_status"] == "repairing"
     assert repair["repair_status_label"] == "Checking again"
-    assert repair["repair_step_label"] == "Refreshing 1 site"
-    assert repair["repair_outcome_summary"] == "Some sites are retrying, but the current shortlist is still available."
+    assert repair["repair_step_label"] == "Refreshing 1 provider"
+    assert repair["repair_outcome_summary"] == "Some providers are retrying, but the current shortlist is still available."
     assert "selected sources" not in " ".join(str(value) for value in repair.values()).lower()
     assert repair["eta_confidence_label"] == "Medium"
     assert repair["can_auto_repair"] is True
@@ -10984,9 +13048,9 @@ def test_property_surface_state_builds_run_reliability_snapshot() -> None:
     )
 
     assert reliability["health_label"] == "Partial coverage"
-    assert reliability["repair_step_label"] == "Refreshing 1 site"
+    assert reliability["repair_step_label"] == "Refreshing 1 provider"
     assert reliability["repair"]["repair_status"] == "degraded"
-    assert reliability["customer_status_message"] == "One site stayed degraded."
+    assert reliability["customer_status_message"] == "One provider stayed degraded."
 
 
 def test_property_surface_state_builds_search_form_state_snapshot() -> None:
@@ -11082,7 +13146,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
         "title": "Altbau near U6",
         "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
         "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
-        "compare_reason": "Chosen ahead of the next option because it scored 5 points higher on the current brief; it includes a floorplan while the next option does not.",
+        "compare_reason": "Chosen ahead of the next option because it scored 5 points higher for your search; it includes a floorplan while the next option does not.",
         "recommendation": "shortlist",
         "review_url": "https://propertyquarry.com/app/handoffs/human_task:review-1",
         "tour_url": "https://propertyquarry.com/tours/altbau-u6",
@@ -11384,14 +13448,14 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'grid-template-rows: auto minmax(0, 1fr);' in template
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
-    assert "Select sites" in setup.text
+    assert "Select providers" in setup.text
     assert "Court and auction listings" in setup.text
     assert "Justiz Edikte" in setup.text
     assert 'data-property-advanced-panel="commute"' in setup.text
     assert 'class="pqx-disclosure-summary"' in setup.text
     assert 'class="pqx-disclosure-icon" aria-hidden="true">+</span>' in setup.text
     assert ">What matters<" in setup.text
-    assert ">Sites<" in setup.text
+    assert ">Providers<" in setup.text
     assert 'data-pqx-save-what-matters' in setup.text
     assert 'data-pqx-load-what-matters' in setup.text
     assert ">Strategy<" not in setup.text
@@ -11413,8 +13477,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Playground nearby means" not in setup.text
     assert "Library nearby means" not in setup.text
     assert "Supermarket radius" in setup.text
-    assert "providers: { label: 'Providers'" not in template
-    assert "providers: { label: 'Sites', detail: 'Choose listing sites.' }" in template
+    assert "providers: { label: 'Providers', detail: 'Choose providers.' }" in template
     assert "If good matches are scarce" in setup.text
     assert 'name="max_distance_to_zoo_m"' in setup.text
     assert 'name="max_distance_to_market_m"' in setup.text
@@ -11488,7 +13551,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert '<article class="pqx-result pqx-card"' in search.text
     assert "matching homes" in search.text
     assert "Match" in search.text
-    assert "Sites" in search.text
+    assert "Providers" in search.text
     assert "Map" in search.text
     assert 'data-pqx-route-preview-strip' in search.text
     assert "Your route" in search.text
@@ -11500,7 +13563,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert '<span hidden data-pqx-progress-board></span>' in search.text
     assert '<span hidden data-pqx-progress-eta></span>' in search.text
     assert "Filtered floorplans pending These homes are still being checked for a floorplan Floorplan still missing" not in search.text
-    assert "Official data" in search.text or "Supermarket" in search.text
+    assert "Local data" in search.text or "Supermarket" in search.text
     assert "Supermarket" in search.text
     assert "280 m" in search.text
     assert 'class="pqx-route-evidence"' in search.text
@@ -11508,7 +13571,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "matching homes" in search.text
     assert "Altbau near U6" in search.text
     assert "Family flat near Tiergarten" in search.text
-    assert "3D tour queued" in search.text
+    assert "Preparing 3D tour" in search.text
     assert "about 12 min" in search.text
     assert 'data-tour-status="queued"' in search.text
     assert 'data-tour-eta="about 12 min"' in search.text
@@ -11592,11 +13655,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "360 review first" not in packet.text
     assert 'data-object-media-stage' in packet.text
     assert ("data-prd-inline-viewer-" + "launch") not in packet.text
-    assert packet.text.index("data-object-media-stage") < packet.text.index("Overview")
+    assert packet.text.index("data-object-media-stage") < packet.text.index("At a glance")
     assert "3D tour unavailable" in packet.text
     assert "Request 3D tour" in packet.text
     assert 'data-property-research-detail' in packet.text
-    assert "Overview" in packet.text
+    assert "At a glance" in packet.text
     assert "Current recommendation" not in packet.text
     assert "Why this was selected" not in packet.text
     assert "Supermarket" in packet.text
@@ -11604,21 +13667,22 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Open navigation" not in packet.text
     assert "Library" in packet.text
     assert "Underground" in packet.text
-    assert "Overview" in packet.text
+    assert "At a glance" in packet.text
     assert "Next step" in packet.text
     assert ">Preferences<" not in packet.text
     assert "Saved defaults" in packet.text
     assert "prd-decision-workspace" in packet.text
     assert re.search(r"\.prd-decision-workspace\s*\{[^}]*order:\s*-1;", packet.text, re.S)
     assert "What to do next" not in packet.text
-    assert "Map layers and local notes appear here when available." in packet.text
+    assert "Map and context" in packet.text
     assert "Public sources still missing" not in packet.text
     assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
     assert "Area" in packet.text
+    assert "Map and context" in packet.text
     assert "Summer heat" in packet.text
     assert "School context" in packet.text
     assert "Gymnasium progression" in packet.text
-    assert "Return and costs" in packet.text
+    assert "Costs" in packet.text
     assert "Gross yield" in packet.text
     assert "Expected monthly rent" in packet.text
     assert "Compare" not in packet.text
@@ -11631,7 +13695,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-research-ranking-list' in packet.text
     assert " · Score " not in packet.text
     assert "Family flat near Tiergarten" in packet.text
-    assert "Listing" in packet.text
+    assert "Facts" in packet.text
+    assert "About the home" in packet.text
     assert "Review page" not in packet.text
     assert "Useful links" not in packet.text
     assert "Open listing" in packet.text
@@ -11640,14 +13705,18 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Viewing requested" in packet.text
     assert "Request missing documents" in packet.text
     assert "Offer candidate" in packet.text
-    assert "Optional tools" in packet.text
-    assert "Ask about this home" in packet.text
+    assert "Your take" in packet.text
+    assert "Adjust next search" in packet.text
+    assert "At a glance" in packet.text
+    assert "Why it works and next step" in packet.text
+    assert "More" in packet.text
+    assert "Ask a question" in packet.text
     assert "Ask agent next" not in packet.text
-    assert "Follow-up" in packet.text
-    assert "What changed" in packet.text
-    assert "What others flagged" in packet.text
-    assert "Household alignment" in packet.text
-    assert "Shared watch-outs" in packet.text
+    assert "Next to check" in packet.text
+    assert "What changed" not in packet.text
+    assert "Past notes" in packet.text
+    assert "Household notes" in packet.text
+    assert "Things to watch" in packet.text
     assert "Contradicted" in packet.text
     assert "Resolved" in packet.text
     assert 'data-object-feedback-reaction="like"' in packet.text
@@ -11662,7 +13731,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=headers)
     assert profile.status_code == 200
     assert "Account" in profile.text
-    assert "Saved defaults, notifications, billing, and access." in profile.text
+    assert "Search, notifications, plan, and access." in profile.text
     assert 'href="/app/properties?run_id=run-42"' in profile.text
 
     alerts = client.get("/app/alerts", params={"run_id": "run-42"}, headers=headers)
@@ -11845,7 +13914,7 @@ def test_property_search_status_replaces_internal_suppression_only_compact_event
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert "Willhaben: suppressed_generic_listing_page." not in messages
-    assert any("179 homes found" in message and "all found homes reviewed" in message for message in messages)
+    assert any("179 homes found" in message and "all found homes are checked" in message for message in messages)
 
 
 def test_property_search_status_replaces_stale_status_refresh_noise(monkeypatch) -> None:
@@ -11932,7 +14001,7 @@ def test_property_search_status_hides_active_source_fetch_suppression_receipt_no
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert not any("suppressed_source_fetch_forbidden" in message for message in messages)
-    assert "12 sites · 42 homes found · all found homes reviewed" in messages
+    assert "12 providers · 42 homes found · all found homes are checked" in messages
 
 
 def test_property_search_status_replaces_raw_provider_failure_with_repair_copy(monkeypatch) -> None:
@@ -12017,7 +14086,7 @@ def test_property_search_status_avoids_zero_provider_copy_when_count_unknown(mon
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Could not load property search status." not in messages
     assert not any("0 lists" in message for message in messages)
-    assert "Looking for the first listings." in messages
+    assert "Looking for the first homes." in messages
 
 
 def test_property_run_public_eta_label_suppresses_too_precise_one_minute() -> None:
@@ -12043,8 +14112,8 @@ def test_property_run_customer_visible_events_adds_useful_synthetic_progress() -
     )
 
     messages = [str(event.get("message") or "") for event in events]
-    assert "9 sites selected for this search." in messages
-    assert "Looking for the first listings." in messages
+    assert "9 providers selected for this search." in messages
+    assert "Looking for the first homes." in messages
     assert "Preparing search." in messages
 
 
@@ -12071,10 +14140,10 @@ def test_property_run_customer_visible_events_summarizes_real_listing_progress()
     )
 
     messages = [str(event.get("message") or "") for event in events]
-    assert "9 sites selected for this search." in messages
-    assert "Sites: 1 checked, 1 running, 7 waiting of 9." in messages
-    assert "42 homes found · 30 to review · 8 sites left." in messages
-    assert "3 homes outside the current brief." in messages
+    assert "9 providers selected for this search." in messages
+    assert "Providers: 1 checked, 1 running, 7 waiting of 9." in messages
+    assert "42 homes found · 30 to review · 8 providers left." in messages
+    assert "3 homes outside this search." in messages
 
 
 def test_property_run_customer_visible_events_rewrite_stale_zero_review_history() -> None:
@@ -12106,7 +14175,7 @@ def test_property_run_customer_visible_events_rewrite_stale_zero_review_history(
     )
 
     messages = [str(event.get("message") or "") for event in events]
-    assert "4097 homes found · 6 search pages left" in messages
+    assert "4097 homes found · 6 checks left" in messages
     assert all("0 to review" not in message.lower() for message in messages)
 
 
@@ -12177,7 +14246,7 @@ def test_property_search_status_appends_current_progress_event_after_stale_start
     assert response.status_code == 200
     messages = [str(event.get("message") or "") for event in response.json()["events"]]
     assert "Starting property search run." not in messages
-    assert "179 homes found · property pages are still being prepared" in messages
+    assert "179 homes found · home details are still loading" in messages
 
 
 def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources(monkeypatch) -> None:
@@ -12246,8 +14315,8 @@ def test_property_search_status_terminal_partial_clears_eta_and_compacts_sources
     assert len(summary["sources"]) == 24
     assert {row["status"] for row in summary["sources"]} == {"completed_partial"}
     messages = [str(event.get("message") or "") for event in payload["events"]]
-    assert "3 sites selected for this search." in messages
-    assert "Search pages: 30 checked of 30." in messages
+    assert "3 providers selected for this search." in messages
+    assert "Checks: 30 checked of 30." in messages
     assert not any("queued" in message.lower() or "running" in message.lower() for message in messages)
 
 
@@ -12415,7 +14484,7 @@ def test_property_research_decision_rows_remove_clarification_noise() -> None:
     assert "Clear up the missing details before spending more time on it" in text
     assert "BILLA Praterstern is about 400 m away for daily errands." in text
     assert "Donaukanal is about 260 m away and helps the local cooling corridor." in text
-    assert "Heating type is still missing." in text
+    assert "Heating type is not listed yet." in text
 
 
 def test_property_counterfactual_budget_action_uses_market_currency() -> None:
@@ -12448,16 +14517,17 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     body = template_path.read_text(encoding="utf-8")
 
     assert "Share property pages and keep the replies together." in body
-    assert "<title>PropertyQuarry Shared Pages</title>" in body
+    assert "<title>PropertyQuarry Shared Homes</title>" in body
     assert "Packet sharing" not in body
     assert "PropertyQuarry Packets" not in body
-    assert "Shared pages" in body
-    assert "Ready to send" in body
+    assert "Shared homes" in body
     assert "Ready to share" in body
     assert "Ready to share · PDF ready · sharing active" not in body
-    assert "Paste shared page link" in body
-    assert "Copy response endpoint" in body
-    assert "Pages that are ready to share" in body
+    assert "Paste shared link" in body
+    assert "Copy reply link" in body
+    assert "Homes that are ready to share" in body
+    assert "Read replies here before they change the search" in body
+    assert "Review replies before they change the search" not in body
     assert 'href="/app/account{{ packet_query_suffix or \'\' }}" data-pqx-nav-account>Account</a>' in body
     assert 'href="/app/profile">Preferences</a>' not in body
     assert "https://packets.propertyquarry.com/p/..." not in body
@@ -12466,12 +14536,12 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "Publication queue" not in body
     assert "source_pdf_sha256" not in body
     assert "renderer_version" not in body
-    assert "Share page" in body
+    assert ">Share</button>" in body
     assert "Share packet" not in body
     assert "Back to run" not in body
     assert "Back to search" in body
     assert "No property packet is ready" not in body
-    assert "No shared page is ready yet." in body
+    assert "No shared home is ready yet." in body
     assert "{{ item.property_ref }} · Shared page · {{ item.created_at[:19] }}" in body
     assert "Reactions" in body
     assert "Household reactions" not in body
@@ -12486,6 +14556,7 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert 'href="/app/account{{ packet_query_suffix or \'\' }}" data-pqx-nav-account>Account</a>' in body
     assert 'aria-label="Account navigation"' in body
     assert "Packet posture" not in body
+    assert "<h2>Property pages</h2>" not in body
 
 
 def test_property_packets_dashboard_keeps_mobile_shell_compact() -> None:
@@ -12513,10 +14584,10 @@ def test_property_decision_workbench_uses_shared_research_shell_contract() -> No
     assert 'href="/?home=1" aria-label="PropertyQuarry public home"' in body
     assert 'href="/app/properties{{ topnav_query_suffix }}">Search</a>' in body
     assert '<span class="pqx-brand-copy">Research desk</span>' in body
-    assert 'href="/app/properties/packets{{ topnav_query_suffix }}">Review</a>' in body
+    assert 'href="/app/properties/packets{{ topnav_query_suffix }}">Saved pages</a>' in body
     assert 'href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Edit search</a>' in body
     assert 'href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>{{ pqx_calm_ui_label(row.get(\'action_label\'), \'Adjust search\') }}</a>' in body
-    assert 'href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Review what matters</a>' in body
+    assert 'href="/app/search{{ topnav_query_suffix }}" data-pqx-loading-link>Adjust what matters</a>' in body
     assert 'href="/app/search">New search</a>' in body
     nav_start = body.index('<nav class="pqx-primary-nav"')
     nav_end = body.index("</nav>", nav_start)
@@ -12760,9 +14831,41 @@ def test_property_search_agents_can_load_saved_filters_into_form() -> None:
     assert "propertyDecisionStateEndpoint" in script_body
     assert '{% include "app/_property_workbench_feedback_script.html" %}' in script_body
     assert "No saved decision yet. Choose Yes, Maybe, No, or Hide to start the decision trail." in feedback_script_body
-    assert "Current state" in feedback_script_body
+    assert "Saved decision" in feedback_script_body
+    assert "No next question yet." in feedback_script_body
+    assert "Decision state" not in feedback_script_body
+    assert "Agent question" not in feedback_script_body
+    assert "Document request" not in feedback_script_body
+    assert "Future search" not in feedback_script_body
+    assert "Question drafted." not in feedback_script_body
     assert "data-pw-agent-question-id" in feedback_script_body
     assert "data-pw-document-id" in feedback_script_body
+
+
+def test_property_research_route_uses_calm_empty_state_labels() -> None:
+    body = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing.py").read_text(encoding="utf-8")
+
+    for legacy in (
+        "No recorded objections yet",
+        "No household votes yet",
+        "No published risk signal yet",
+        "No generated question yet",
+        "No tracked question yet",
+        "Check before deciding",
+        "Area notes",
+    ):
+        assert legacy not in body
+    for current in (
+        "No saved concerns yet",
+        "No household notes yet",
+        "No shared watch-out yet",
+        "No next question yet",
+        "No follow-up yet",
+        "Still open",
+        "Map and context",
+        "Next to check",
+    ):
+        assert current in body
 
 
 def test_property_workspace_search_form_exposes_austria_evidence_and_eligibility_controls() -> None:
@@ -12806,7 +14909,7 @@ def test_property_workspace_templates_expose_account_navigation() -> None:
     for body in (console_shell, workbench):
         assert "Account navigation" in body
         assert ">Saved defaults<" in body
-        assert ">Billing account<" in body or "account_nav.billing_label or 'Billing account'" in body
+        assert ">Billing<" in body or "account_nav.billing_label or 'Billing'" in body
         assert ">Access<" in body
         assert ">Settings<" not in body
         assert ">Log out<" in body
@@ -13431,7 +15534,7 @@ def test_property_search_history_and_reopen_follow_workspace_access_email_aliase
 
         search = client.get("/app/search", headers=headers)
         assert search.status_code == 200
-        assert "Search history" in search.text
+        assert "Recent searches" in search.text
         assert "1020 Vienna" in search.text
         assert "No previous searches yet" not in search.text
     finally:
@@ -13492,9 +15595,9 @@ def test_propertyquarry_search_surface_exposes_full_history_fold_when_recent_run
     response = client.get("/app/search", headers=headers)
 
     assert response.status_code == 200
-    assert "Search history" in response.text
+    assert "Recent searches" in response.text
     assert 'data-pqx-previous-search-history-fold' in response.text
-    assert "All recent searches" in response.text
+    assert "Search history" in response.text
     assert response.text.count('data-pqx-previous-search-card') >= 4
     assert response.text.count('data-pqx-previous-search-history-row') == 3
     assert "1010 Vienna" in response.text
@@ -14899,12 +17002,15 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert '<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open' not in body
     assert "pqx-results-filter-link" in body
     assert "filtered" in body
-    assert "What to widen" in body
+    assert "Not shown yet" in body
+    assert "What to widen" not in body
     assert "Widen the shortlist" not in body
     assert "Adjust filters" not in body.split("data-pqx-filtered-open", 1)[1].split("</section>", 1)[0]
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
     assert "const openFilteredDialog = () => {" in body
-    assert "Requirements" in body
+    assert "See what was left out" in body
+    filtered_summary_block = body.split('id="pqx-filtered-breakdown"', 1)[1].split("</summary>", 1)[0]
+    assert "Requirements" not in filtered_summary_block
     assert "Hard rules and score-only context" not in body
     assert "Estimated homes that may appear after searching again." in body
     assert "refreshCurrentSurface(localStatusNode);" in body
@@ -14940,7 +17046,8 @@ def test_property_live_run_has_no_manual_refresh_controls() -> None:
     assert "Refresh status" not in body
     assert ">Refresh<" not in running_panel
     assert "Refresh the provider step" not in body
-    assert "Stop this live search?" in running_panel
+    assert "Stop this live search?" in body
+    assert "Stop this live search?" not in running_panel
     assert 'href="/app/search">Start new search</a>' in running_panel
     assert 'href="/app/properties">Start new search</a>' not in running_panel
     assert 'href="/app/properties">New search</a>' not in running_panel
@@ -15006,7 +17113,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "runListingQueueMessage(found, toReview)" in script_body
     assert "lowered.includes('0 to review')" in script_body
     assert "const detailQueueIsSourceBacklog = !(toReview > 0) && Number(sourceWork.total || 0) > 0 && sourceLeft > 0;" in script_body
-    assert "detailQueueIsSourceBacklog ? 'Pages left' : 'To review'" in script_body
+    assert "detailQueueIsSourceBacklog ? 'Checks left' : 'To review'" in script_body
     assert "Nothing waiting to review" not in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body
@@ -15016,23 +17123,23 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert '<script src="{{ property_workbench_script_asset_url() }}" defer></script>' in body
     assert running_body.count("{{ progress_board(run, run_sources, research_task_counts) }}") == 1
     assert 'data-pqx-running-details' in running_body
-    assert "Recent" in running_body
+    assert "Latest updates" not in running_body
     assert "Latest 10" not in running_body
-    assert "<summary><strong>Recent</strong></summary>" in running_body
+    assert "<summary><strong>Updates</strong></summary>" in running_body
     assert "visible_event_count.value < 10" in running_body
     assert "suppressed_generic_listing_page" in running_body
     assert "could not load property search status" in running_body
     assert "checking run status" in running_body
     assert "starting property search run" in running_body
-    assert "event_label = 'Preparing search'" in running_body
-    assert "event_label = 'Checking details'" in running_body
-    assert "event_label = 'Checking listings'" in running_body
-    assert "event_label = 'Matching homes'" in running_body
-    assert "event_label = 'First shortlist'" in running_body
-    assert "event_label = 'Property page ready'" in running_body
-    assert "event_label = 'Checking requirements'" in running_body
-    assert "event_label = 'List finished'" in running_body
-    assert "event_label = 'Recovery'" in running_body
+    assert "event_label = 'Preparing'" in running_body
+    assert "event_label = 'Details'" in running_body
+    assert "event_label = 'Checks'" in running_body
+    assert "event_label = 'Reviewing'" in running_body
+    assert "event_label = 'Shortlist'" in running_body
+    assert "event_label = 'Property page'" in running_body
+    assert "event_label = 'Search rules'" in running_body
+    assert "event_label = 'Done'" in running_body
+    assert "event_label = 'Checking again'" in running_body
     assert "progress_message_display" in body
     assert "reliability_message_display" in body
     landing_body = (repo_root / "ea/app/api/routes/landing.py").read_text(encoding="utf-8")
@@ -15040,15 +17147,16 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert 'allowed.update({"properties", "search", "shortlist", "agents", "alerts", "billing", "account"})' in landing_body
     assert ".reverse().slice(0, 10)" in script_body
     assert "const labelRunEvent = (event) => {" in script_body
-    assert "return 'Preparing search';" in script_body
-    assert "return 'Checking details';" in script_body
-    assert "return 'Checking listings';" in script_body
-    assert "return 'Matching homes';" in script_body
-    assert "return 'First shortlist';" in script_body
-    assert "return 'Property page ready';" in script_body
-    assert "return 'Checking requirements';" in script_body
-    assert "return 'List finished';" in script_body
-    assert "return 'Recovery';" in script_body
+    assert "return 'Preparing';" in script_body
+    assert "return 'Details';" in script_body
+    assert "return 'Checks';" in script_body
+    assert "return 'Reviewing';" in script_body
+    assert "return 'Shortlist';" in script_body
+    assert "return 'Property page';" in script_body
+    assert "return 'Search rules';" in script_body
+    assert "return 'Done';" in script_body
+    assert "return 'Checking again';" in script_body
+    assert "['Reviewing', 'Search rules'].includes(label)" in script_body
     assert "message.includes('suppressed_generic_listing_page')" in script_body
     assert "message.includes('checking run status')" in script_body
     assert "message.includes('could not load property search status')" in script_body
@@ -15110,11 +17218,25 @@ def test_property_current_best_omits_unknown_fact_placeholders() -> None:
     assert "No detail yet." not in legacy_landing
     assert "{% if live_preview_price %}" in workbench_body
     assert "Search is still running." in workbench_body
+    assert "Preview</strong>" not in workbench_body
+    assert "Open the current leading listing while the rest of the search continues." not in workbench_body
+    current_run_card = re.search(
+        r'<section class="pqx-card pqx-current-run-card">(?P<section>.*?)</section>',
+        workbench_body,
+        re.S,
+    )
+    assert current_run_card
+    current_run_html = current_run_card.group("section")
+    assert 'class="pqx-current-run-facts"' in current_run_html
+    assert "Status</strong>" not in current_run_html
+    assert "Search</strong>" not in current_run_html
+    assert "Open this home" not in current_run_html
+    assert "Search continues in the background." not in current_run_html
     assert "provisional_price_display" not in running_body
     assert "data-pqx-live-best-match" not in running_body
     assert "Leading right now. Can still change before the search finishes." not in running_body
     assert "Leading right now. Can still change before the search finishes." not in script_body
-    assert "<div class=\"prd-kicker\">Listing facts</div>" in research_detail
+    assert "<div class=\"prd-kicker\">Confirmed</div>" in research_detail
     assert "Listing evidence" not in research_detail
     generated_copy = "\n".join([workspace_payload, research_payload, product_service])
     assert "current listing evidence" not in generated_copy
@@ -15339,7 +17461,8 @@ def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> N
     assert what_matters_panel_match is not None
     what_matters_panel_block = what_matters_panel_match.group("body")
     assert "position: static;" in what_matters_panel_block
-    assert "overflow: visible;" in what_matters_panel_block
+    assert "max-height: calc(100svh - 28px);" in what_matters_panel_block
+    assert "overflow: hidden;" in what_matters_panel_block
     assert "padding: 0;" in what_matters_panel_block
     assert "position: fixed;" not in what_matters_panel_block
 
@@ -15354,6 +17477,20 @@ def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> N
     assert "min-height: 0;" in brief_panel_block
     assert "max-height: none;" in brief_panel_block
     assert "overflow: visible;" in brief_panel_block
+
+    advanced_grid_match = re.search(
+        r'@media \(max-width: 760px\).*?'
+        r'\.pqx-surface-search \.pqx-form\[data-property-active-step="children"\] '
+        r'\.pqx-what-matters-panel \.pqx-advanced-panel-grid\s*\{(?P<body>.*?)\}',
+        body,
+        re.S,
+    )
+    assert advanced_grid_match is not None
+    advanced_grid_block = advanced_grid_match.group("body")
+    assert "max-height: 100%;" in advanced_grid_block
+    assert "overflow-y: auto;" in advanced_grid_block
+    assert "overscroll-behavior: contain;" in advanced_grid_block
+    assert "-webkit-overflow-scrolling: touch;" in advanced_grid_block
 
     active_group_match = re.search(
         r'@media \(max-width: 760px\).*?'
@@ -15444,7 +17581,7 @@ def test_property_delivery_rows_are_customer_outcomes_not_provider_receipts() ->
 
     assert "Writing: ready" in text
     assert "Messages use titled links instead of long URLs." in text
-    assert "2 review pages, 1 tour, 3 sent updates." in text
+    assert "2 saved pages, 1 tour, 3 sent updates." in text
     assert "NeuronWriter" not in text
     assert "Telegram notification receipts" not in text
     assert "packet receipts" not in text
@@ -15634,8 +17771,8 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert "Searching" in live.text
     assert 'data-pqx-progress-board' in live.text
     assert 'data-pqx-progress-eta' in live.text
-    assert "20 / 117 search pages" in live.text
-    assert "Sites" in live.text
+    assert "20 / 117 checks" in live.text
+    assert "29 providers" in live.text
     assert "20 / 117 checked" not in live.text
     assert "179 homes found" in live.text
     assert 'class="pqx-live-review-bars"' in live.text
@@ -15644,6 +17781,7 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'class="pqx-route-preview-strip"' in live.text
     rendered_live = re.sub(r"<script\b[^>]*>.*?</script>", " ", live.text, flags=re.IGNORECASE | re.DOTALL)
     assert "Scoring enriched candidate 2 of 4" not in rendered_live
+    assert "Checking home details 2 / 4" in rendered_live
     assert re.search(r"<button[^>]+data-property-start-top[^>]*>\\s*Launch search\\s*</button>", live.text) is None
     assert ">Save defaults</button>" not in live.text
     assert "Test a wider budget ceiling" not in live.text
@@ -15887,7 +18025,7 @@ def test_propertyquarry_running_surface_exposes_full_history_fold_when_recent_ru
     assert response.status_code == 200
     assert 'data-pqx-inline-run-history' in response.text
     assert 'data-pqx-run-history-fold' in response.text
-    assert "All recent searches" in response.text
+    assert "Search history" in response.text
     assert response.text.count('data-pqx-run-history-row') >= 6
     assert "1010 Vienna" in response.text
     assert "1060 Vienna" in response.text
@@ -15978,8 +18116,8 @@ def test_property_research_packet_prefers_saved_shortlist_before_cross_run_scan(
 
     assert response.status_code == 200
     assert "Saved shortlist home" in response.text
-    assert "Opened the latest result" in response.text
-    assert "This saved link was stale" in response.text
+    assert "Opened the current match" in response.text
+    assert "This link moved" in response.text
     assert ">run-shortlist-1<" not in response.text
 
 
@@ -16470,11 +18608,11 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     response = client.get("/app/properties", params={"run_id": "run-variant-heavy"}, headers=headers)
 
     assert response.status_code == 200
-    assert re.search(r"<span>Sites</span><strong>\s*3\s*</strong>", response.text)
+    assert re.search(r"<span>Providers</span><strong>\s*3\s*</strong>", response.text)
     assert re.search(r"<span>Listings</span><strong>\s*2160\s*</strong>", response.text)
-    assert "<span>Sites</span><strong>156</strong>" not in response.text
+    assert "<span>Providers</span><strong>156</strong>" not in response.text
     assert "<span>Source checks</span>" not in response.text
-    assert "Selected sites searched 2160 listings." in response.text
+    assert "Selected providers searched 2160 listings." in response.text
     assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
@@ -18056,11 +20194,82 @@ def test_propertyquarry_shortlist_shows_media_ready_status_without_direct_media_
     visible_text = re.sub(r"<[^>]+>", " ", visible_text)
 
     assert shortlist.status_code == 200
-    assert "3D tour available" in visible_text
-    assert "Walkthrough available" in visible_text
+    assert "3D tour" in visible_text
+    assert "Walkthrough" in visible_text
     assert "Open 3D tour" in visible_text
     assert "Open walkthrough" in visible_text
     assert "Open property" in visible_text
+
+
+def test_propertyquarry_results_selected_review_keeps_blocked_tour_retry_state_on_first_paint(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-results-selected-review-blocked-tour")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "candidate_ref": "retryable-selected-review-loft",
+        "title": "Retryable selected-review loft",
+        "property_url": "https://example.test/retryable-selected-review-loft",
+        "source_url": "https://example.test/retryable-selected-review-loft",
+        "source_ref": "example:retryable-selected-review-loft",
+        "fit_score": 81,
+        "location_label": "Vienna",
+        "packet_url": "/app/research/retryable-selected-review-loft?run_id=run-selected-review-blocked-tour",
+        "floorplan_url": "https://example.test/retryable-selected-review-loft/floorplan.webp",
+        "tour": {
+            "status": "blocked",
+            "label": "Retry 3D tour",
+            "status_detail": "Tour not available yet.",
+        },
+        "flythrough": {},
+        "property_facts": {
+            "price_eur": 1890.0,
+            "area_m2": 73,
+            "postal_name": "1070 Wien",
+            "rooms": 3,
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "Vienna",
+            },
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | Vienna",
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/search", params={"run_id": "run-selected-review-blocked-tour"}, headers={"host": "propertyquarry.com"})
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<[^>]+>", " ", rendered_html)
+
+    assert response.status_code == 200
+    assert "Retryable selected-review loft" in response.text
+    assert "Retry 3D tour" in visible_text
+    assert 'data-pw-visual-request="tour"' in rendered_html
+    assert 'data-pw-visual-state="blocked"' in rendered_html
+    assert "Tour not available yet." in visible_text
+    assert 'disabled aria-disabled="true"' not in rendered_html
 
 
 def test_propertyquarry_shortlist_fails_honestly_when_ranked_candidates_are_not_admissible(monkeypatch) -> None:
@@ -18130,7 +20339,7 @@ def test_propertyquarry_shortlist_fails_honestly_when_ranked_candidates_are_not_
     assert workbench_match
     workbench_payload = json.loads(html.unescape(workbench_match.group(1)))
     assert workbench_payload["results"] == []
-    assert workbench_payload["run"]["summary"]["ranked_candidates"] == []
+    assert "ranked_candidates" not in workbench_payload["run"].get("summary", {})
 
 
 def test_property_selected_review_panel_stays_compact_without_old_decision_noise() -> None:
@@ -18147,18 +20356,39 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
     assert "Use this as the short decision read before you contact the agent, request documents, or move on." not in body
     assert "Pick the answer that matches your real-world next step. Add only the reasons that matter." not in body
     assert "<strong>This will</strong>" not in body
+    assert "Highlights" not in body
+    assert "More details" not in body
+    assert "Why?" not in body
+    assert "Ask next" not in body
+    assert "<h2>At a glance</h2>" in body
     assert "<h2>Next step</h2>" in body
+    assert "<h2>Why it works</h2>" in body
+    assert "<h2>Why it fits</h2>" not in body
     assert "<h2>Decision</h2>" not in body
     assert '<span class="pqx-pill">Decision</span>' not in body
     assert "<summary><strong>Next step</strong></summary>" not in body
     assert body.index("<h2>Next step</h2>") < body.index("data-pw-finetune-panel hidden")
     assert body.index("data-pw-finetune-panel hidden") < body.index('data-pw-feedback-reaction="like"')
     assert 'href="/app/search{{ review_query_suffix }}">Edit search</a>' in body
-    assert "Pick one to tune future results." in body
+    assert "Adjust search" in body
+    assert "Choose one so the next search gets better." in body
+    assert "Loading the next things to check." in body
+    assert "What should change next time?" in body
+    assert "Keep in mind" in body
+    assert "Next question" in body
+    assert "Next to confirm" not in body
+    assert "What worked" in body
+    assert "<h2>Facts</h2>" in body
+    assert "<h2>About the home</h2>" in body
+    assert "<h2>Around it</h2>" in body
+    assert "<h2>Listing</h2>" not in body
+    assert "<h2>Description</h2>" not in body
+    assert "<h2>Area</h2>" not in body
     assert "Request visuals only when this home is worth a deeper review." not in body
-    assert "Request when you want a closer look." in body
+    assert 'data-pw-visual-request-status{% if not selected_visual_status %} hidden{% endif %}' in body
     assert "No 3D tour is published yet." not in body
     assert "No playable walkthrough is published yet." not in body
+    assert 'aria-label="Visual status"' not in body
     assert 'class="pqx-actions pqx-decision-state-grid"' in body
     assert 'class="pqx-actions pqx-decision-feedback-actions"' in body
     assert body.count("pqx-mobile-fold") >= 4
@@ -18166,6 +20396,9 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
     assert '<details class="pqx-card pqx-mobile-fold">' in body
     assert ".pqx-shell[data-pqx-surface=\"properties\"] .pqx-main," in workbench
     assert "width: min(100%, 1328px);" in workbench
+    assert "<th>Why it works</th>" in workbench
+    assert "<th>Why it fits</th>" not in workbench
+    assert "<th>Highlights</th>" not in workbench
     assert ".pqx-review-stack {" in workbench
     assert ".pqx-decision-state-grid {" in workbench
     assert "grid-template-columns: minmax(320px, 0.82fr) minmax(540px, 1.18fr);" in workbench
@@ -18184,6 +20417,7 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
     assert "data-pw-mobile-visuals" in workbench
     assert ".pqx-mobile-property-panel .pqx-mobile-review-preview {" in workbench
     assert ".pqx-mobile-property-panel .pqx-result-facts {\n        max-height: none;" in workbench
+    assert "pqx-mobile-visual-facts" not in workbench
     assert '.pqx-shell[data-pqx-surface="shortlist"] .pqx-mobile-property-panel,' in workbench
     assert '.pqx-shell[data-pqx-surface="properties"] .pqx-mobile-property-panel {\n        display: none;' in workbench
     assert ".pqx-mobile-nav-menu {\n        display: contents;" in workbench
@@ -18197,11 +20431,16 @@ def test_property_research_detail_decision_fits_one_screen_by_default() -> None:
     )
 
     assert "Save the state now. Tune the reasoning only when it helps the next search." not in body
-    assert "<h3>Shortlist decision</h3>" in body
+    assert "<h3>Your take</h3>" in body
     assert "<summary>Next step</summary>" not in body
     assert "<summary>Add an optional note</summary>" not in body
     assert "Tune search" not in body
     assert "<summary>Refine decision</summary>" not in body
+    assert "<summary>At a glance</summary>" in body
+    assert "<summary>Adjust next search</summary>" in body
+    assert "<summary>Why it works and next step</summary>" in body
+    assert "Optional tools" not in body
+    assert "More" in body
 
 
 def test_property_research_detail_keeps_long_open_checks_behind_a_compact_more_toggle() -> None:
@@ -18211,11 +20450,11 @@ def test_property_research_detail_keeps_long_open_checks_behind_a_compact_more_t
 
     assert "{% for item in open_check_rows[:3] %}" in body
     assert '<details class="prd-open-checks-more">' in body
-    assert "Show {{ open_check_rows|length - 3 }} more checks" in body
+    assert "Show {{ open_check_rows|length - 3 }} more" in body
     assert "Why this is ranked here" not in body
-    assert body.index("<h3>Shortlist decision</h3>") < body.index("<summary>Fine-tune preferences</summary>")
-    assert body.index("<summary>Fine-tune preferences</summary>") < body.index("<h3>Update state</h3>")
-    assert body.index("<summary>Fine-tune preferences</summary>") < body.index("<h3>Add note</h3>")
+    assert body.index("<h3>Your take</h3>") < body.index("<summary>Adjust next search</summary>")
+    assert body.index("<summary>Adjust next search</summary>") < body.index("<h3>Mark next step</h3>")
+    assert body.index("<summary>Adjust next search</summary>") < body.index("<h3>Note</h3>")
     assert "overflow-y: visible;" in body
     assert "max-height: min(420px, calc(100svh - 48px));" not in body
     assert "grid-template-columns: minmax(0, 1fr);" in body
@@ -18267,7 +20506,7 @@ def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
 
     assert len(rows) == 1
     assert len(cards) == 1
-    assert rows[0]["action_label"] == "Open property page"
+    assert rows[0]["action_label"] == "Open property"
     assert rows[0]["secondary_action_label"] == "Open listing"
     assert rows[0]["secondary_action_href"] == "https://example.test/source"
     assert rows[0]["tertiary_action_label"] == "Open 3D tour"
@@ -18449,7 +20688,7 @@ def test_property_shortlist_panel_omits_open_listing_when_external_listing_url_m
     )
 
     assert len(rows) == 1
-    assert rows[0]["action_label"] == "Open property page"
+    assert rows[0]["action_label"] == "Open property"
     assert rows[0]["secondary_action_label"] == "Open 3D tour"
     assert rows[0]["secondary_action_href"] == "https://example.test/360-only"
     assert "Open listing" not in rows[0].values()
@@ -18489,6 +20728,43 @@ def test_property_shortlist_panel_omits_open_listing_for_search_result_placehold
     assert len(rows) == 1
     assert "Open listing" not in rows[0].values()
     assert cards[0].get("property_url") == ""
+
+
+def test_property_shortlist_panel_sanitizes_provider_marketing_in_title_and_fit_summary() -> None:
+    def _priority_reason(match_reasons: list[str], mismatch_reasons: list[str], fit_summary: str) -> str:
+        return ""
+
+    rows, cards = landing_property_shortlist_panel.build_property_shortlist_panel(
+        property_summary={
+            "ranked_candidates": [
+                {
+                    "title": "Charmante Altbauwohnung - willhaben",
+                    "fit_summary": (
+                        "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                        "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+                    ),
+                    "summary": (
+                        "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                        "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+                    ),
+                    "recommendation": "shortlist",
+                    "review_url": "https://propertyquarry.com/app/research/marketing-copy",
+                    "property_url": "https://example.test/source/marketing-copy",
+                }
+            ]
+        },
+        property_preferences={},
+        active_run_id="run-marketing-copy",
+        wants_run_views=True,
+        clean_candidate_copy=landing_view_models._clean_property_candidate_copy,
+        candidate_priority_reason=_priority_reason,
+        property_candidate_ref=landing_view_models._property_candidate_ref,
+    )
+
+    assert rows[0]["title"] == "Charmante Altbauwohnung"
+    assert rows[0]["detail"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert cards[0]["title"] == "Charmante Altbauwohnung"
+    assert cards[0]["fit_summary"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
 
 
 def test_property_search_analysis_cap_defaults_to_top_k_slice(monkeypatch) -> None:
@@ -18662,8 +20938,8 @@ def test_propertyquarry_workspace_exposes_investment_goal_and_guardrails() -> No
 def test_propertyquarry_workspace_uses_plain_investment_language() -> None:
     bundle = _read_workbench_bundle()
     lowered = bundle.lower()
-    assert "Numbers" in bundle
-    assert "compact read on price, rent, costs, demand, liquidity, and effort" in lowered
+    assert "Financial picture" in bundle
+    assert "compact view of price, rent, costs, demand, liquidity, and effort" in lowered
     assert "Underwriting summary" not in bundle
     assert "Model status" not in bundle
 
@@ -19353,10 +21629,10 @@ def test_property_customer_copy_uses_home_language_instead_of_candidate() -> Non
         assert cleaned == "Included because no stronger fit cleared the shortlist."
         assert "candidate" not in cleaned.lower()
 
-    assert landing_property_research._property_review_detail_line({}) == "No property page exists for this home yet."
+    assert landing_property_research._property_review_detail_line({}) == "No property page yet."
 
     rank_note = (
-        "Chosen ahead of the next option because it scored 6 points higher on the current brief; "
+        "Chosen ahead of the next option because it scored 6 points higher for your search; "
         "it stays meaningfully cheaper than the next option."
     )
     cleaned_rank_note = landing_view_models._clean_property_candidate_copy(rank_note)
@@ -19394,6 +21670,103 @@ def test_property_customer_copy_uses_home_language_instead_of_candidate() -> Non
         '"Candidate"',
     ):
         assert removed not in f"{product_copy}\n{template_copy}"
+
+
+def test_property_candidate_copy_strips_provider_marketing_and_caps_noise() -> None:
+    from app.api.routes import landing
+    from app.services.property_customer_copy import normalize_property_fit_note
+
+    raw = (
+        "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+        "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+    )
+    cleaned_workspace = landing_view_models._clean_property_candidate_copy(raw)
+    cleaned_marketing = landing._clean_property_candidate_copy(raw)
+
+    for cleaned in (cleaned_workspace, cleaned_marketing):
+        assert "Wählen Sie aus" not in cleaned
+        assert "Immobilien suchen und finden" not in cleaned
+        assert cleaned == "Unbefristete Mietdauer · Mitten in der Stadt · 3 Zimmer."
+
+    normalized_fit = normalize_property_fit_note(raw)
+    assert normalized_fit == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert "Wählen Sie aus" not in normalized_fit
+    assert "Immobilien suchen und finden" not in normalized_fit
+
+
+def test_candidate_detail_sections_strip_provider_marketing_from_description_and_area_copy() -> None:
+    from app.api.routes.landing_property_workspace_helpers import _candidate_detail_sections
+
+    detail_sections = _candidate_detail_sections(
+        {
+            "description": (
+                "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+            ),
+            "location_description": (
+                "RUHELAGE | U1 NAH | HOFSEITIG. "
+                "Wählen Sie aus 15.000 Immobilien. Immobilien suchen und finden auf willhaben."
+            ),
+        }
+    )
+
+    assert detail_sections["description_text"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert detail_sections["location_text"] == "Ruhelage · U1 Nah · Hofseitig."
+
+
+def test_candidate_display_facts_reuse_top_level_detail_copy_for_sanitized_sections() -> None:
+    from app.api.routes.landing_property_workspace_helpers import (
+        _candidate_detail_sections,
+        _property_candidate_display_facts,
+    )
+
+    facts = _property_candidate_display_facts(
+        {
+            "description_text": (
+                "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+                "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+            ),
+            "location_text": (
+                "RUHELAGE | U1 NAH | HOFSEITIG. "
+                "Wählen Sie aus 15.000 Immobilien. Immobilien suchen und finden auf willhaben."
+            ),
+        }
+    )
+    detail_sections = _candidate_detail_sections(facts)
+
+    assert detail_sections["description_text"] == "Unbefristete Mietdauer · Mitten in der Stadt · 3 Zimmer."
+    assert detail_sections["location_text"] == "Ruhelage · U1 Nah · Hofseitig."
+
+
+def test_property_enriched_candidate_facts_fall_back_to_title_for_packet_description() -> None:
+    from app.api.routes.landing_property_research import (
+        _candidate_detail_sections,
+        _property_enriched_candidate_facts,
+    )
+
+    facts = _property_enriched_candidate_facts(
+        candidate={
+            "title": "Altbau near U6",
+            "summary": "",
+            "property_facts": {},
+        }
+    )
+    detail_sections = _candidate_detail_sections(facts)
+
+    assert facts["description"] == "Altbau near U6"
+    assert detail_sections["description_text"] == "Altbau near U6"
+
+
+def test_property_object_detail_source_rows_use_linked_source_language() -> None:
+    from app.api.routes import landing_property_research
+
+    rows = landing_property_research._evidence_detail_rows([])
+    text = " ".join(" ".join(str(row.get(key) or "") for key in ("title", "detail", "tag")) for row in rows)
+
+    assert "No linked sources yet" in text
+    assert "Nothing extra is attached here yet." in text
+    assert "supporting evidence" not in text.lower()
+    assert "supporting detail" not in text.lower()
 
 
 def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> None:
@@ -19469,7 +21842,7 @@ def test_property_run_customer_visible_events_collapses_failed_parent_replacemen
             "run_id": "failed-parent",
             "status": "failed",
             "current_step": "failed",
-            "message": "This search used an earlier brief.",
+            "message": "This search used older search settings.",
             "summary": {
                 "status": "failed",
                 "provider_total": 27,
@@ -19539,7 +21912,7 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
 
     combined = " ".join(str(value) for value in summary.values())
     assert summary["happened"] == "PropertyQuarry is checking the saved search again."
-    assert "The brief and selected sites were still saved." in combined
+    assert "The brief and selected providers were still saved." in combined
     assert "PropertyQuarry started a fresh check before any listing inspection completed." in combined
     assert "repair receipt" not in combined.lower()
     assert "run receipts" not in combined.lower()
@@ -19846,7 +22219,7 @@ def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     )
 
     assert summary["happened"] == "Nothing landed in the selected area yet."
-    assert "361 homes returned by the selected sites" in summary["still_worked"]
+    assert "361 homes returned by the selected providers" in summary["still_worked"]
     assert "Widen the selected districts" in summary["next_move"]
     assert "overview pages" in summary["eta_feedback"]
     assert "receipts" not in " ".join(summary.values()).lower()
@@ -20341,8 +22714,7 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     assert rendered_html.count('data-pw-visual-style-required="1"') >= 2
     assert "Mootion" not in rendered_html
     assert "omagic" not in rendered_html
-    assert "3D tour not available yet." in rendered_html
-    assert "Walkthrough not available yet." in rendered_html
+    assert rendered_html.count("On request.") >= 2
     assert '>Open 3D tour</a>' not in rendered_html
 
 
@@ -20491,9 +22863,13 @@ def test_property_research_packet_terminal_walkthrough_reason_is_not_rendered_as
         flags=re.IGNORECASE | re.DOTALL,
     )
     assert rail_match is not None
-    assert "is-active" not in rail_match.group("class_suffix")
-    assert "Walkthrough not available yet." not in rail_match.group("status")
-    assert 'data-pw-visual-state="idle"' in rendered_html
+    assert "is-active" in rail_match.group("class_suffix")
+    assert any(
+        message in rail_match.group("status")
+        for message in ("Walkthrough not available yet.", "Tour not available yet.")
+    )
+    assert 'data-prd-visual-state="skipped"' in packet.text
+    assert 'data-pw-visual-state="skipped"' in rendered_html
     assert 'disabled aria-disabled="true"' not in rendered_html
     assert "fit_below_threshold" not in rendered_html
 
@@ -20563,7 +22939,15 @@ def test_property_research_packet_terminal_tour_reason_keeps_manual_request_acti
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert "Retry 3D tour" in rendered_html
     assert 'data-pw-visual-request="tour"' in rendered_html
-    assert 'data-pw-visual-state="idle"' in rendered_html
+    rail_match = re.search(
+        r'<div\s+class="prd-visual-rail(?P<class_suffix>[^"]*)".*?<p class="prd-visual-status"[^>]*>(?P<status>.*?)</p>',
+        packet.text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert rail_match is not None
+    assert "is-active" in rail_match.group("class_suffix")
+    assert 'data-prd-visual-state="blocked"' in packet.text
+    assert 'data-pw-visual-state="blocked"' in rendered_html
     assert 'disabled aria-disabled="true"' not in rendered_html
     assert "property_tour_execution_failed" not in rendered_html
 
@@ -20640,8 +23024,8 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
     assert '>Open 3D tour</a>' in rendered_html
-    assert "3D tour is available on this page." in rendered_html
-    assert "3D tour available." in rendered_html
+    assert "3D tour is ready." in rendered_html
+    assert "Open now." in rendered_html
     assert 'data-prd-visual-card="tour"' in packet.text
     assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html
     assert 'data-pw-visual-request="tour"' not in rendered_html
@@ -20780,11 +23164,11 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
         "_hosted_property_tour_verified_provider",
         lambda _url: "matterport",
     )
-    verified_walkthrough_href = "https://propertyquarry.com/tours/files/walkthrough-ready-loft/walkthrough.mp4"
+    verified_walkthrough_href = "https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&autoplay=1"
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_walkthrough_asset_url",
-        lambda _url: verified_walkthrough_href,
+        lambda _url: "https://propertyquarry.com/tours/files/walkthrough-ready-loft/walkthrough.mp4",
     )
 
     packet_ref = landing_property_research._property_candidate_ref(
@@ -20802,11 +23186,11 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
-    assert f'href="{verified_walkthrough_href}"' in rendered_html
+    assert f'href="{verified_walkthrough_href.replace("&", "&amp;")}"' in rendered_html
     assert '>Open 3D tour</a>' in rendered_html
     assert '>Open walkthrough</a>' in rendered_html
-    assert "Walkthrough is available on this page." in rendered_html
-    assert "Walkthrough available." in rendered_html
+    assert "Walkthrough is ready." in rendered_html
+    assert "Open now." in rendered_html
     assert 'data-prd-visual-card="walkthrough"' in packet.text
     assert 'data-pw-visual-request="tour"' not in rendered_html
     assert 'data-pw-visual-request="flythrough"' not in rendered_html
@@ -20888,7 +23272,7 @@ def test_property_research_packet_keeps_ready_tour_in_visual_rail_while_walkthro
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
     assert '>Open 3D tour</a>' in rendered_html
-    assert "Walkthrough queued" in rendered_html
+    assert "Preparing walkthrough" in rendered_html
     rail_match = re.search(
         r'<div\s+class="prd-visual-rail(?P<class_suffix>[^"]*)".*?<strong data-prd-visual-label>(?P<label>.*?)</strong>.*?<p class="prd-visual-status"[^>]*>(?P<status>.*?)</p>',
         packet.text,
@@ -20896,8 +23280,8 @@ def test_property_research_packet_keeps_ready_tour_in_visual_rail_while_walkthro
     )
     assert rail_match is not None
     assert "is-active" in rail_match.group("class_suffix")
-    assert "3D tour available" in rail_match.group("label")
-    assert "3D tour is available on this page." in rail_match.group("status")
+    assert "3D tour" in rail_match.group("label")
+    assert "3D tour is ready." in rail_match.group("status")
     assert "Priority queue active" not in rail_match.group("status")
     assert "Queued. This page updates automatically." not in rail_match.group("status")
 
@@ -20981,10 +23365,10 @@ def test_property_research_packet_uses_cross_run_lookup_for_missing_candidate(mo
 
     packet = client.get(f"/app/research/{packet_ref}", params={"run_id": "run-stale"}, headers={"host": "propertyquarry.com"})
     assert packet.status_code == 200
-    assert "Praterstrasse 77 · 2 Zimmer · 77 m² · 1.198" in packet.text
+    assert "Praterstrasse 77 · 2 Zimmer" in packet.text
     assert "Transit fit" in packet.text
-    assert "Opened the latest result" in packet.text
-    assert "This saved link was stale, so PropertyQuarry opened the matching property from your latest search." in packet.text
+    assert "Opened the current match" in packet.text
+    assert "This link moved, so PropertyQuarry opened the matching home from your latest search." in packet.text
     assert ">run-stale<" not in packet.text
     assert ">run-current<" not in packet.text
     assert 'data-prd-route-recovery' in packet.text
@@ -21095,7 +23479,7 @@ def test_property_research_packet_cross_run_lookup_backfills_cached_preview_fact
 
     assert packet.status_code == 200
     assert "Recovered cached preview title" in packet.text
-    assert "Opened the latest result" in packet.text
+    assert "Opened the current match" in packet.text
     assert floorplan_url in packet.text
     assert media_url in packet.text
     assert 'href="/app/shortlist?run_id=run-current"' in packet.text
@@ -21158,7 +23542,7 @@ def test_property_research_packet_skips_heavy_feedback_and_magicfit_reads_on_ini
     assert packet.status_code == 200
     assert "Fast packet flat" in packet.text
     assert "Next step" in packet.text
-    assert "Ask about this home" in packet.text
+    assert "Ask a question" in packet.text
     assert 'data-object-media-stage' in packet.text
 
 
@@ -21352,12 +23736,12 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
 
     account = client.get("/app/account", headers={"host": "propertyquarry.com"})
     assert account.status_code == 200
-    assert "Saved defaults, notifications, billing, and access." in account.text
+    assert "Search, notifications, plan, and access." in account.text
     assert "Search defaults" in account.text
     assert "Edit search" in account.text
     assert account.text.count("Edit search") == 1
     assert "Open automation" not in account.text
-    assert account.text.count("Billing account") >= 1
+    assert account.text.count("Open billing") >= 1
     assert "Account" in account.text
     assert "Automation and reports" not in account.text
     assert "Recurring intelligence leaving this account" not in account.text
@@ -21366,7 +23750,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Operating posture" not in account.text
     assert 'id="plans"' in account.text
     assert 'id="profile"' in account.text
-    assert "Billing account" in account.text
+    assert "Open billing" in account.text
     account_with_run = client.get("/app/account", params={"run_id": "run-account-billing"}, headers={"host": "propertyquarry.com"})
     assert 'href="/app/billing?run_id=run-account-billing"' in account_with_run.text
     assert 'href="/app/properties?run_id=run-account-billing"' in account_with_run.text
@@ -21379,6 +23763,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Links, providers, and privacy." not in account.text
     assert "Scoring, privacy, and sharing rules." not in account.text
     assert "how scoring works stay easy to find." not in account.text
+    assert "ID Austria" not in account.text
     assert "Sync runs" not in account.text
     assert "Last Google sync" not in account.text
     assert "Office signals ingested" not in account.text
@@ -21495,7 +23880,7 @@ def test_propertyquarry_account_surface_stays_responsive_when_billing_handoff_ve
 
     assert account.status_code == 200
     assert elapsed < 0.7
-    assert "Saved defaults, notifications, billing, and access." in account.text
+    assert "Search, notifications, plan, and access." in account.text
 
 
 def test_propertyquarry_billing_surface_fails_fast_when_billing_handoff_verification_is_pending(
@@ -21559,7 +23944,7 @@ def test_propertyquarry_account_surface_uses_bridge_language_when_direct_account
     account = client.get("/app/account", headers={"host": "propertyquarry.com"})
 
     assert account.status_code == 200
-    assert "Continue billing sign-in" in account.text
+    assert "Open billing" in account.text
     assert 'href="/app/api/property/billing/bridge-launch"' in account.text
     assert "Open billing account" not in account.text
 
@@ -21586,7 +23971,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert account.status_code == 200
     assert "Export account data" in account.text
     assert 'href="/app/api/property/account/export?download=1"' in account.text
-    assert "Session" in account.text
+    assert "Session" not in account.text
     assert "Signed in" in account.text
     assert 'data-account-page-sign-out' in account.text
     assert 'action="/app/actions/sign-out"' in account.text
@@ -21602,7 +23987,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     account_with_run = client.get("/app/account", params={"run_id": "run-account-shares"}, headers={"host": "propertyquarry.com"})
     assert 'href="/app/properties/packets?run_id=run-account-shares"' in account_with_run.text
     assert "Google sign-in" in account.text
-    assert "First-time Google sign-in still creates the same PropertyQuarry account automatically." in account.text
+    assert "Google opens the same account and creates it if needed." in account.text
     assert '/app/actions/google/connect?return_to=%2Fapp%2Faccount%3Fsettings_view%3Dgoogle%23connected-services' in account.text
     assert 'href="/app/settings/google"' not in account.text
     assert 'href="/app/settings/access"' not in account.text
@@ -21613,7 +23998,10 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
     assert "Notifications" in account.text
-    assert "Pick where matches arrive." in account.text
+    assert "Choose where updates arrive." in account.text
+    assert "Reuse these next time." in account.text
+    assert "Access" in account.text
+    assert "Data" in account.text
     assert "Primary route" in account.text
     assert "Destination mix" not in account.text
     assert "Primary response lane" not in account.text
@@ -22276,7 +24664,7 @@ def test_property_settings_surfaces_use_single_focus_mobile_disclosures() -> Non
     assert google_account.status_code == 200
     assert 'id="connected-services"' in google_account.text
     assert "Google sign-in" in google_account.text
-    assert "First-time Google sign-in still creates the same PropertyQuarry account automatically." in google_account.text
+    assert "Google opens the same account and creates it if needed." in google_account.text
     assert "EA_GOOGLE_OAUTH_CLIENT_ID" not in google_account.text
 
     access = client.get("/app/settings/access", headers=headers, follow_redirects=False)
@@ -22349,7 +24737,7 @@ def test_property_google_settings_disconnected_state_stays_compact() -> None:
     assert response.status_code == 200
     assert "Google sign-in" in response.text
     assert "Connect Google" in response.text
-    assert "First-time Google sign-in still creates the same PropertyQuarry account automatically." in response.text
+    assert "Google opens the same account and creates it if needed." in response.text
     assert "Token status" not in response.text
     assert "missing token" not in response.text
     assert "No connected Google account" not in response.text

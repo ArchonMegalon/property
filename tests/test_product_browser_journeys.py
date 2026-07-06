@@ -251,7 +251,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Best matches" in response.text
     assert "choose one to update the tour and review panel" in response.text
     assert "Open 360" in response.text
-    assert "Open property page" in response.text
+    assert "Open property" in response.text
     assert "Match" in response.text
     assert "Price" in response.text
     assert "Layout" in response.text
@@ -269,7 +269,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert shortlist.status_code == 200
     assert "shortlisted homes" in shortlist.text
     assert "Altbau near U6" in shortlist.text
-    assert "Open property page" in shortlist.text
+    assert "Open property" in shortlist.text
     assert "Open listing" in shortlist.text
     assert "360 ready" in shortlist.text
     assert "Open 360" not in shortlist.text
@@ -314,9 +314,8 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Recent outbound property follow-ups" in alerts.text
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=property_headers, follow_redirects=False)
-    assert billing.status_code == 503
-    assert "Billing portal unavailable" in billing.text
-    assert "Your PropertyQuarry access stays active from the account page." in billing.text
+    assert billing.status_code == 303
+    assert billing.headers["location"] == "/app/account?billing=1#delivery"
 
 
 def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
@@ -465,8 +464,8 @@ def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
     assert sign_in.status_code == 200
     assert "Sign in to PropertyQuarry" in sign_in.text
     assert "property search" in sign_in.text.lower()
-    assert "First-time connected sign-in also creates the account automatically." in sign_in.text
-    assert "Any connected identity reopens the same account or creates it automatically on first use." in sign_in.text
+    assert "First sign-in creates the account automatically." in sign_in.text
+    assert "Provider sign-in opens the same account and creates it if needed." in sign_in.text
 
     register = client.get("/register", headers={"host": "propertyquarry.com"})
     assert register.status_code == 200

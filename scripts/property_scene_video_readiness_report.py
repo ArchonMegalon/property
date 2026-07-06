@@ -38,6 +38,9 @@ SAFE_CHECK_KEYS = {
     "last_failure_reason",
     "minimum_required_credits",
     "model_upload_adapter_enabled",
+    "model_upload_adapter_target_configured",
+    "model_upload_command_env_names",
+    "model_upload_endpoint_env_names",
     "model_upload_supported",
     "public_provider_key",
     "runtime_account_count",
@@ -461,8 +464,31 @@ def _provider_next_actions(rows: list[dict[str, Any]], telegram_readiness: dict[
         provider_key = str(row.get("provider_key") or "").strip()
         provider_label = requested_provider or provider_key or "unknown"
         blockers = [str(value or "").strip() for value in list(row.get("blockers") or []) if str(value or "").strip()]
+        checks = dict(row.get("checks") or {})
         account_inventory = dict(row.get("account_inventory") or {})
         gap = int(account_inventory.get("visible_account_gap") or 0)
+        if provider_key == "mootion":
+            remote = dict(checks.get("mootion_browseract_remote") or {})
+            execution_lane = str(row.get("execution_lane") or "").strip()
+            if execution_lane != "browseract_remote":
+                add_action(
+                    "mootion",
+                    "mootion_browseract_remote_lane_missing",
+                    "Restore the Mootion BrowserAct bridge binding so release-grade scene-video generation uses the remote lane instead of a local-only fallback.",
+                    severity="high",
+                    current_execution_lane=execution_lane or "local_worker_or_unset",
+                    remote_status=str(remote.get("status") or "unknown"),
+                    remote_target_count=int(remote.get("target_count") or 0),
+                )
+            if remote.get("ready") is not True:
+                add_action(
+                    "mootion",
+                    "mootion_browseract_bridge_not_ready",
+                    "Configure an enabled BrowserAct connector binding with Mootion workflow or run-url metadata, then regenerate the scene-video readiness receipt.",
+                    severity="high",
+                    remote_status=str(remote.get("status") or "unknown"),
+                    remote_target_count=int(remote.get("target_count") or 0),
+                )
         if gap > 0:
             add_action(
                 provider_label,
@@ -504,6 +530,13 @@ def _provider_next_actions(rows: list[dict[str, Any]], telegram_readiness: dict[
                 "omagic_model_upload_adapter_disabled",
                 "Enable PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED only after the deployed OMagic adapter has a successful proof render.",
                 severity="medium",
+            )
+        if "omagic_model_upload_endpoint_missing" in blockers:
+            add_action(
+                "omagic",
+                "omagic_model_upload_endpoint_missing",
+                "Configure PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT or PROPERTYQUARRY_OMAGIC_RENDER_COMMAND for the deployed model-upload adapter before claiming OMagic runtime readiness.",
+                severity="high",
             )
         if provider_key == "mootion" and row.get("ready") is not True:
             add_action(

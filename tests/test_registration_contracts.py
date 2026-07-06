@@ -227,8 +227,8 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert 'data-auth-provider="facebook" data-auth-provider-state="disabled"' not in response.text
     assert "opacity: 0.68" not in response.text
     assert 'data-auth-provider-status role="status" aria-live="polite"' not in response.text
-    assert "If the provider does not open, use the secure email link or try again." in response.text
-    assert "Still here. Try the provider again, or use the secure email link." in response.text
+    assert "If nothing opens, use email instead." in response.text
+    assert "Still here. Try again or use email instead." in response.text
     assert "}, 3500);" in response.text
     assert "Google?" not in response.text
     assert "Facebook?" not in response.text
@@ -250,8 +250,8 @@ def test_sign_in_page_shows_google_when_oauth_is_configured(monkeypatch: pytest.
     assert "Continue with Google" in response.text
     assert 'href="/sign-in/google"' in response.text
     assert "Google unavailable" not in response.text
-    assert "Saved Google account or automatic first account creation" in response.text
-    assert "Any connected identity reopens the same account or creates it automatically on first use." in response.text
+    assert "same account" in response.text.lower()
+    assert "Provider sign-in opens the same account and creates it if needed." in response.text
 
 
 @pytest.mark.parametrize(
@@ -269,9 +269,9 @@ def test_sign_in_page_shows_provider_return_status(monkeypatch: pytest.MonkeyPat
 
     assert response.status_code == 200
     assert f"{provider} returned to PropertyQuarry." in response.text
-    assert "Use the email link for this account." in response.text
+    assert "Use email if you prefer." in response.text
     assert 'data-sign-in-provider-connected' in response.text
-    assert 'href="/sign-in/current-session"' in response.text
+    assert 'href="/sign-in/current-session"' not in response.text
     assert "data-focus-sign-in-email" in response.text
 
 
@@ -925,7 +925,7 @@ def test_sign_in_page_shows_friendly_identity_only_google_error(monkeypatch: pyt
     assert "Retry Google sign-in" in response.text
     assert 'href="/sign-in/google"' in response.text
     assert "data-submitting-label=\"Opening Google...\"" in response.text
-    assert "Use email instead" in response.text
+    assert "Email sign-in" in response.text
 
 
 def test_sign_in_google_identity_only_callback_redirects_as_google_identity_only(monkeypatch: pytest.MonkeyPatch) -> None:

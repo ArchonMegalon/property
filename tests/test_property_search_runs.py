@@ -97,6 +97,30 @@ def test_property_search_lightweight_status_hydrates_preview_from_provider_media
     assert "floorplan_recovery_diagnostics" not in candidate.get("property_facts", {})
 
 
+def test_property_search_lightweight_candidate_payload_summarizes_provider_marketing_copy() -> None:
+    marketing_copy = (
+        "UNBEFRISTETE MIETDAUER | MITTEN IN DER STADT | 3 ZIMMER. "
+        "Wählen Sie aus 113.283 Angeboten. Immobilien suchen und finden auf willhaben."
+    )
+    candidate = _property_search_lightweight_candidate_payload(
+        {
+            "candidate_ref": "cand-marketing-copy",
+            "title": "Charmante Altbauwohnung - willhaben",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
+            "summary": marketing_copy,
+            "fit_summary": marketing_copy,
+        },
+        run_id="run-marketing-copy",
+        index=1,
+    )
+
+    assert candidate["title"] == "Charmante Altbauwohnung"
+    assert candidate["summary"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert candidate["fit_summary"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
+    assert "Wählen Sie aus" not in candidate["summary"]
+    assert "Immobilien suchen und finden" not in candidate["summary"]
+
+
 def test_property_distance_evidence_rows_include_named_nearest_amenity_and_source() -> None:
     rows = _property_distance_evidence_rows(
         {

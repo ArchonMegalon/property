@@ -178,6 +178,41 @@ def verify_packet(packet: dict[str, Any], *, packet_path: str | None = None) -> 
         blockers.append("magicfit_fallback_accounts_env_missing")
     if magicfit_contract.get("account_selector_env") != "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX":
         blockers.append("magicfit_account_selector_env_missing")
+    magicfit_proof = magicfit.get("proof_contract") if isinstance(magicfit.get("proof_contract"), dict) else {}
+    if magicfit_proof.get("proof_render_required") is not True:
+        blockers.append("magicfit_proof_render_required_missing")
+    if magicfit_proof.get("credit_marker") != "magicfit_insufficient_credits":
+        blockers.append("magicfit_credit_marker_contract_missing")
+    if magicfit_proof.get("account_selector_env") != "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX":
+        blockers.append("magicfit_proof_account_selector_env_missing")
+    credit_policy = str(magicfit_proof.get("credit_marker_policy") or "")
+    for required_token, blocker in (
+        ("magicfit_insufficient_credits", "magicfit_credit_marker_policy_marker_missing"),
+        ("after", "magicfit_credit_marker_policy_order_missing"),
+        ("proof render", "magicfit_credit_marker_policy_proof_missing"),
+        ("hosted walkthrough video", "magicfit_credit_marker_policy_hosted_video_missing"),
+    ):
+        if required_token not in credit_policy:
+            blockers.append(blocker)
+    magicfit_proof_checks = " ".join(str(value or "") for value in list(magicfit_proof.get("proof_render_checks") or []))
+    for required_token, blocker in (
+        ("PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX", "magicfit_selected_account_proof_check_missing"),
+        ("provider_backend_key=magicfit", "magicfit_backend_proof_check_missing"),
+        ("hosted walkthrough video", "magicfit_hosted_video_proof_check_missing"),
+        ("magicfit_insufficient_credits", "magicfit_credit_marker_proof_check_missing"),
+    ):
+        if required_token not in magicfit_proof_checks:
+            blockers.append(blocker)
+    magicfit_guidance = _post_refresh_guidance(magicfit)
+    for required_token, blocker in (
+        ("PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX", "magicfit_account_selection_guidance_missing"),
+        ("proof render", "magicfit_proof_render_guidance_missing"),
+        ("provider_backend_key=magicfit", "magicfit_backend_proof_guidance_missing"),
+        ("playable hosted walkthrough video", "magicfit_hosted_video_guidance_missing"),
+        ("clear MagicFit credit marker only after", "magicfit_credit_marker_after_proof_guidance_missing"),
+    ):
+        if required_token not in magicfit_guidance:
+            blockers.append(blocker)
 
     omagic = providers.get("omagic") or {}
     aliases = {str(value or "").strip().lower() for value in list(omagic.get("aliases") or [])}
@@ -191,6 +226,34 @@ def verify_packet(packet: dict[str, Any], *, packet_path: str | None = None) -> 
         blockers.append("omagic_magic_alias_accounts_env_missing")
     if adapter_contract.get("enable_flag") != "PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED":
         blockers.append("omagic_enable_flag_missing")
+    if adapter_contract.get("runtime_script") != "/app/scripts/render_omagic_property_model_walkthrough.py":
+        blockers.append("omagic_runtime_adapter_script_missing")
+    endpoint_envs = {str(value or "").strip() for value in list(adapter_contract.get("render_endpoint_envs") or [])}
+    command_envs = {str(value or "").strip() for value in list(adapter_contract.get("render_command_envs") or [])}
+    if "PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT" not in endpoint_envs:
+        blockers.append("omagic_primary_render_endpoint_env_missing")
+    if "PROPERTYQUARRY_OMAGIC_RENDER_COMMAND" not in command_envs:
+        blockers.append("omagic_primary_render_command_env_missing")
+    if adapter_contract.get("proof_render_required") is not True:
+        blockers.append("omagic_proof_render_required_missing")
+    proof_checks = " ".join(str(value or "") for value in list(adapter_contract.get("proof_render_checks") or []))
+    for required_token, blocker in (
+        ("model_input_consumed=true", "omagic_model_input_consumption_check_missing"),
+        ("provider_backend_key=omagic", "omagic_backend_proof_check_missing"),
+        ("walkthrough video", "omagic_hosted_video_proof_check_missing"),
+    ):
+        if required_token not in proof_checks:
+            blockers.append(blocker)
+    omagic_guidance = _post_refresh_guidance(omagic)
+    for required_token, blocker in (
+        ("PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT", "omagic_endpoint_config_guidance_missing"),
+        ("PROPERTYQUARRY_OMAGIC_RENDER_COMMAND", "omagic_command_config_guidance_missing"),
+        ("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED=1 only after", "omagic_enable_after_proof_guidance_missing"),
+        ("model_input_consumed=true", "omagic_model_input_proof_guidance_missing"),
+        ("provider_backend_key=omagic", "omagic_backend_proof_guidance_missing"),
+    ):
+        if required_token not in omagic_guidance:
+            blockers.append(blocker)
 
     status = "fail" if blockers else "pass"
     receipt: dict[str, Any] = {

@@ -51,6 +51,9 @@ from app.api.routes.landing_content import (
     TRUST_CARDS,
 )
 from app.api.routes.landing_property_surface_contracts import PropertySurfaceScope
+from app.api.routes.landing_property_workspace_payload import (
+    _property_workbench_client_candidate_payload,
+)
 from app.api.routes.landing_property_workspace_helpers import (
     _compact_provider_label,
     _property_candidate_source_virtual_tour_url,
@@ -62,7 +65,9 @@ from app.api.routes.landing_view_models import (
     humanize as _humanize,
     list_rows as _list_rows,
     _clean_property_candidate_copy as _shared_clean_property_candidate_copy,
-    _property_scope_preview_map_only,
+    _clean_property_candidate_detail_copy as _shared_clean_property_candidate_detail_copy,
+    _property_customer_candidate_summary,
+    _property_result_title_display,
     property_workspace_payload as _property_workspace_payload,
 )
 from app.api.routes.landing_property_research import (
@@ -96,6 +101,7 @@ from app.api.routes.landing_property_research import (
     _property_research_gallery_items,
     _property_research_money_display,
     _property_review_detail_line,
+    _property_rooms_research_relevant,
     _property_rooms_display,
     _property_shortlist_candidates_from_context,
     _property_tour_media_payload,
@@ -120,6 +126,7 @@ from app.product.projections.common import compact_text
 from app.product.service import (
     _hosted_property_visual_progress_snapshot,
     _hosted_property_visual_progress_stage_label,
+    _hosted_property_tour_telegram_preview_image_url_for_style,
     _property_candidate_has_floorplan,
     _property_fact_value_is_weak,
     _property_scout_candidate_payload_from_preview,
@@ -452,14 +459,34 @@ def _property_brilliant_directories_billing_handoff(*, allow_verified_direct_han
                         ),
                     }
         if primary_verification_pending:
+            if member_token_ready:
+                return {
+                    "available": True,
+                    "status": "member_token_ready",
+                    "hosted_href": primary_hosted_url,
+                    "open_href": launch_href,
+                    "bridge_href": bridge_href,
+                    "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
+                    "member_token_status": "ready",
+                }
+            if bridge_ready:
+                return {
+                    "available": True,
+                    "status": "bridge_ready",
+                    "hosted_href": primary_hosted_url,
+                    "open_href": bridge_href,
+                    "bridge_href": bridge_href,
+                    "bridge_status": "ready",
+                    "member_token_status": str(member_token_receipt.get("error") or "").strip(),
+                }
             return {
-                "available": member_token_ready,
-                "status": "member_token_ready" if member_token_ready else "verifying",
+                "available": False,
+                "status": "verifying",
                 "hosted_href": primary_hosted_url,
-                "open_href": launch_href if member_token_ready else "",
+                "open_href": "",
                 "bridge_href": bridge_href,
                 "bridge_status": "ready" if bridge_ready else str(bridge_receipt.get("error") or "").strip(),
-                "member_token_status": "ready" if member_token_ready else str(member_token_receipt.get("error") or "").strip(),
+                "member_token_status": str(member_token_receipt.get("error") or "").strip(),
                 "verification_pending": True,
                 "error": "billing_handoff_verification_pending",
             }
@@ -491,24 +518,19 @@ def _property_billing_usable_open_href(handoff: dict[str, object] | None) -> str
 
 def _property_pricing_billing_link_copy(handoff: dict[str, object] | None = None) -> tuple[str, str]:
     status = str((handoff or {}).get("status") or "").strip().lower()
-    if status == "member_token_ready":
+    if status in {"ready", "member_token_ready", "bridge_ready"}:
         return (
-            "Continue billing sign-in",
-            "Use the same email for the billing portal.",
-        )
-    if status == "bridge_ready":
-        return (
-            "Continue billing sign-in",
-            "Use the same email for the billing portal.",
+            "Open billing",
+            "Opens with this account.",
         )
     if status in {"login_required", "unresolved", "verifying", "disabled"}:
         return (
-            "Billing account",
-            "Manage billing from your account.",
+            "Billing",
+            "Opens here when ready.",
         )
     return (
-        "Open billing account",
-        "Use your active billing account.",
+        "Open billing",
+        "Manage plan and billing.",
     )
 
 
@@ -772,15 +794,22 @@ def _propertyquarry_normalize_public_tour_candidate(candidate: object) -> dict[s
     candidate_row = dict(candidate)
     tour_url = _propertyquarry_absolute_public_url(candidate_row.get("tour_url"))
     verified_tour_url = property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url) if tour_url else ""
+    tour_payload = dict(candidate_row.get("tour") or {}) if isinstance(candidate_row.get("tour"), dict) else {}
     if verified_tour_url:
         candidate_row["tour_url"] = verified_tour_url
-        tour_payload = dict(candidate_row.get("tour") or {}) if isinstance(candidate_row.get("tour"), dict) else {}
         tour_payload["url"] = verified_tour_url
         if str(tour_payload.get("embed_url") or "").strip():
             tour_payload["embed_url"] = verified_tour_url
         elif "embed_url" not in tour_payload:
             tour_payload["embed_url"] = verified_tour_url
         candidate_row["tour"] = tour_payload
+    elif property_tour_hosting._is_branded_public_tour_url(tour_url):
+        candidate_row["tour_url"] = ""
+        if tour_payload:
+            tour_payload["url"] = ""
+            if "embed_url" in tour_payload:
+                tour_payload["embed_url"] = ""
+            candidate_row["tour"] = tour_payload
     return candidate_row
 
 
@@ -856,7 +885,12 @@ def _propertyquarry_backfill_candidate_from_cached_preview(
 
     current_title = str(candidate_row.get("title") or "").strip()
     preview_title = str(cached_preview.get("title") or "").strip()
-    if preview_title and (not current_title or current_title == property_url):
+    derived_property_title = _property_result_title_display(property_url)
+    if preview_title and (
+        not current_title
+        or current_title == property_url
+        or (derived_property_title and current_title == derived_property_title)
+    ):
         candidate_row["title"] = preview_title
         changed = True
     current_summary = str(candidate_row.get("summary") or "").strip()
@@ -893,6 +927,52 @@ def _propertyquarry_backfill_candidate_from_cached_preview(
     return candidate_row
 
 
+def _propertyquarry_preview_cache_index(
+    product: object,
+    *,
+    limit: int = 4000,
+) -> dict[str, dict[str, object]]:
+    preview_cache_index_fn = getattr(product, "_property_public_preview_cache_index", None)
+    if not callable(preview_cache_index_fn):
+        return {}
+    try:
+        loaded = preview_cache_index_fn(limit=limit)
+    except TypeError:
+        loaded = preview_cache_index_fn()
+    except Exception:
+        return {}
+    if isinstance(loaded, dict):
+        return loaded
+    try:
+        return dict(loaded or {})
+    except Exception:
+        return {}
+
+
+def _propertyquarry_preview_cache_scan_limit_for_run(run_payload: dict[str, object]) -> int:
+    summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
+    property_urls: set[str] = set()
+    candidate_lists: list[object] = [
+        summary.get("ranked_candidates"),
+        summary.get("results"),
+        summary.get("top_candidates"),
+    ]
+    for source in list(summary.get("sources") or []):
+        if isinstance(source, dict):
+            candidate_lists.extend((source.get("top_candidates"), source.get("research_candidates")))
+    for candidate_list in candidate_lists:
+        if not isinstance(candidate_list, list):
+            continue
+        for candidate in candidate_list:
+            if not isinstance(candidate, dict):
+                continue
+            property_url = urllib.parse.urldefrag(str(candidate.get("property_url") or "").strip())[0]
+            if property_url:
+                property_urls.add(property_url)
+    estimated_candidates = max(len(property_urls), 1)
+    return max(256, min(1024, estimated_candidates * 8))
+
+
 def _propertyquarry_backfill_run_cached_preview_candidates(
     *,
     product: object,
@@ -904,15 +984,14 @@ def _propertyquarry_backfill_run_cached_preview_candidates(
     if not summary:
         return run_payload
 
-    preview_cache_index_fn = getattr(product, "_property_public_preview_cache_index", None)
     preview_lookup_fn = getattr(product, "_property_public_preview_cache_lookup", None)
-    if not callable(preview_cache_index_fn) or not callable(preview_lookup_fn):
+    if not callable(preview_lookup_fn):
         return run_payload
 
-    try:
-        preview_cache_index = dict(preview_cache_index_fn() or {})
-    except Exception:
-        return run_payload
+    preview_cache_index = _propertyquarry_preview_cache_index(
+        product,
+        limit=_propertyquarry_preview_cache_scan_limit_for_run(run_payload),
+    )
     if not preview_cache_index:
         return run_payload
 
@@ -965,9 +1044,60 @@ def _propertyquarry_prepare_run_payload(
     backfill_cached_previews: bool = True,
 ) -> dict[str, object]:
     normalized_run = normalize_property_search_run_snapshot(_propertyquarry_normalize_run_public_tour_targets(run_payload))
-    if not backfill_cached_previews:
+    if backfill_cached_previews:
+        normalized_run = _propertyquarry_backfill_run_cached_preview_candidates(product=product, run_payload=normalized_run)
+    summary = dict(normalized_run.get("summary") or {}) if isinstance(normalized_run.get("summary"), dict) else {}
+    if not summary:
         return normalized_run
-    return _propertyquarry_backfill_run_cached_preview_candidates(product=product, run_payload=normalized_run)
+    normalized_run_id = str(normalized_run.get("run_id") or summary.get("run_id") or "").strip()
+    preferences = (
+        dict(normalized_run.get("property_search_preferences") or {})
+        if isinstance(normalized_run.get("property_search_preferences"), dict)
+        else {}
+    )
+
+    def _normalize_candidate_list(items: object, *, default_source_label: str = "") -> list[object]:
+        rows: list[object] = []
+        for item in list(items or []):
+            if not isinstance(item, dict):
+                rows.append(item)
+                continue
+            source_seed = str(item.get("source_label") or default_source_label or "").strip()
+            candidate_for_identity = dict(item)
+            if source_seed and not str(candidate_for_identity.get("source_label") or "").strip():
+                candidate_for_identity["source_label"] = source_seed
+            stable_candidate_ref = _property_candidate_ref(candidate_for_identity)
+            normalized_candidate = _property_customer_candidate_summary(candidate_for_identity, preferences=preferences)
+            if isinstance(normalized_candidate, dict) and stable_candidate_ref:
+                normalized_candidate.setdefault("candidate_ref", stable_candidate_ref)
+            if isinstance(normalized_candidate, dict) and normalized_run_id:
+                packet_href = _propertyquarry_candidate_first_party_packet_href(
+                    normalized_candidate,
+                    run_id=normalized_run_id,
+                )
+                if packet_href:
+                    normalized_candidate["packet_url"] = packet_href
+                    normalized_candidate.setdefault("detail_href", packet_href)
+            rows.append(normalized_candidate)
+        return rows
+
+    for key in ("ranked_candidates", "results", "top_candidates"):
+        if key in summary:
+            summary[key] = _normalize_candidate_list(summary.get(key))
+    sources: list[dict[str, object]] = []
+    for source in list(summary.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        source_row = dict(source)
+        source_label = str(source_row.get("source_label") or source_row.get("source_url") or "").strip()
+        for key in ("top_candidates", "research_candidates"):
+            if key in source_row:
+                source_row[key] = _normalize_candidate_list(source_row.get(key), default_source_label=source_label)
+        sources.append(source_row)
+    if "sources" in summary:
+        summary["sources"] = sources
+    normalized_run["summary"] = summary
+    return normalized_run
 
 
 def _propertyquarry_candidate_needs_detailed_preview(candidate: object) -> bool:
@@ -1035,16 +1165,12 @@ def _propertyquarry_refresh_candidate_preview_if_needed(
     property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
     if not property_url:
         return candidate_row
-    preview_cache_index_fn = getattr(product, "_property_public_preview_cache_index", None)
     preview_lookup_fn = getattr(product, "_property_public_preview_cache_lookup", None)
     preview_store_fn = getattr(product, "_property_public_preview_cache_store", None)
-    if not callable(preview_cache_index_fn) or not callable(preview_lookup_fn) or not callable(preview_store_fn):
+    if not callable(preview_lookup_fn) or not callable(preview_store_fn):
         return candidate_row
 
-    try:
-        preview_cache_index = dict(preview_cache_index_fn() or {})
-    except Exception:
-        preview_cache_index = {}
+    preview_cache_index = _propertyquarry_preview_cache_index(product, limit=256)
 
     cached_preview: dict[str, object] | None = None
     with contextlib.suppress(Exception):
@@ -1083,19 +1209,69 @@ def _propertyquarry_refresh_run_candidate_preview_if_needed(
     product: object,
     run_payload: dict[str, object],
     candidate_ref: str,
+    allow_network: bool = True,
 ) -> dict[str, object]:
-    candidate = _propertyquarry_find_run_candidate(run_payload=run_payload, candidate_ref=candidate_ref)
-    if not isinstance(candidate, dict):
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    if not normalized_candidate_ref:
         return run_payload
-    if not _propertyquarry_candidate_needs_detailed_preview(candidate):
+    candidate = _propertyquarry_find_run_candidate(run_payload=run_payload, candidate_ref=normalized_candidate_ref)
+    if not isinstance(candidate, dict):
         return run_payload
     refreshed_candidate = _propertyquarry_refresh_candidate_preview_if_needed(
         product=product,
         candidate=candidate,
+        allow_network=allow_network,
     )
-    if refreshed_candidate == candidate:
+    if refreshed_candidate == candidate or not isinstance(refreshed_candidate, dict):
         return run_payload
-    return _propertyquarry_prepare_run_payload(product=product, run_payload=run_payload)
+
+    summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
+    if not summary:
+        return run_payload
+
+    changed = False
+
+    def _replace_candidate_list(items: object) -> list[object]:
+        nonlocal changed
+        rows: list[object] = []
+        for item in list(items or []):
+            if isinstance(item, dict) and _property_candidate_ref(item) == normalized_candidate_ref:
+                replacement = dict(refreshed_candidate)
+                if str(item.get("source_label") or "").strip() and not str(replacement.get("source_label") or "").strip():
+                    replacement["source_label"] = str(item.get("source_label") or "").strip()
+                rows.append(replacement)
+                changed = True
+            else:
+                rows.append(item)
+        return rows
+
+    for key in ("ranked_candidates", "results", "top_candidates"):
+        if key in summary:
+            summary[key] = _replace_candidate_list(summary.get(key))
+
+    sources: list[dict[str, object]] = []
+    for source in list(summary.get("sources") or []):
+        if not isinstance(source, dict):
+            sources.append(source)
+            continue
+        source_row = dict(source)
+        for key in ("top_candidates", "research_candidates"):
+            if key in source_row:
+                source_row[key] = _replace_candidate_list(source_row.get(key))
+        sources.append(source_row)
+    if "sources" in summary:
+        summary["sources"] = sources
+
+    if not changed:
+        return run_payload
+
+    updated_run_payload = dict(run_payload)
+    updated_run_payload["summary"] = summary
+    return _propertyquarry_prepare_run_payload(
+        product=product,
+        run_payload=updated_run_payload,
+        backfill_cached_previews=False,
+    )
 
 
 def _propertyquarry_example_media_targets() -> dict[str, str]:
@@ -1153,9 +1329,58 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
             "tour_href": _propertyquarry_public_href(resolved_tour_href),
             "tour_label": tour_label or "3D tour available",
         }
-        walkthrough_asset_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(bundle_tour_url)
-        if walkthrough_asset_href:
-            targets["walkthrough_href"] = _propertyquarry_public_href(walkthrough_asset_href)
+
+        def _scene_preview_href(*roles: str) -> str:
+            normalized_roles = {str(role or "").strip().lower() for role in roles if str(role or "").strip()}
+            for scene in scenes:
+                if not isinstance(scene, dict):
+                    continue
+                if str(scene.get("role") or "").strip().lower() not in normalized_roles:
+                    continue
+                asset_relpath = str(scene.get("asset_relpath") or scene.get("image_url") or "").strip()
+                if not asset_relpath or asset_relpath.startswith(("http://", "https://", "/")):
+                    continue
+                asset_href = property_tour_hosting._hosted_public_tour_asset_url(
+                    bundle_tour_url,
+                    slug=slug,
+                    asset_relpath=asset_relpath,
+                )
+                if asset_href:
+                    return asset_href
+            return ""
+
+        def _preview_asset_is_diorama_like(asset_href: object) -> bool:
+            resolved = str(asset_href or "").strip()
+            if not resolved:
+                return False
+            path = urllib.parse.urlparse(resolved).path.lower()
+            filename = path.rsplit("/", 1)[-1]
+            return any(
+                marker in filename
+                for marker in (
+                    "diorama-preview",
+                    "telegram-preview",
+                    "scene-01",
+                    "thumbnail",
+                )
+            )
+
+        diorama_preview_href = _scene_preview_href("diorama")
+        preview_image_href = diorama_preview_href
+        if not preview_image_href:
+            for candidate_preview_href in (
+                _hosted_property_tour_telegram_preview_image_url_for_style(bundle_tour_url),
+                property_tour_hosting._hosted_property_tour_preview_image_url(bundle_tour_url),
+                _scene_preview_href("photo", "hero", "staging"),
+            ):
+                if _preview_asset_is_diorama_like(candidate_preview_href):
+                    preview_image_href = candidate_preview_href
+                    break
+        if preview_image_href:
+            targets["preview_image_url"] = _propertyquarry_public_href(preview_image_href)
+        walkthrough_open_href = property_tour_hosting._hosted_property_tour_walkthrough_open_url(bundle_tour_url)
+        if walkthrough_open_href:
+            targets["walkthrough_href"] = _propertyquarry_public_href(walkthrough_open_href)
             targets["walkthrough_label"] = "Walkthrough available"
         score = 0
         score += 100 if targets.get("walkthrough_href") else 0
@@ -1167,6 +1392,26 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         candidates.sort(key=lambda row: (-row[0], row[1]))
         return candidates[0][2]
     return {}
+
+
+def _propertyquarry_example_scope_preview(
+    candidate_key: str,
+    *,
+    title: str,
+    fallback_image_path: str,
+    image_url: object = "",
+) -> dict[str, str]:
+    resolved_image = _propertyquarry_public_href(fallback_image_path) or _propertyquarry_public_href(image_url)
+    if not resolved_image:
+        return {}
+    return {
+        "image_url": resolved_image,
+        "preview_image_url": resolved_image,
+        "thumb_image_url": resolved_image,
+        "alt": f"{title} diorama preview",
+        "kind": "diorama",
+        "candidate_key": str(candidate_key or "").strip(),
+    }
 
 
 def _propertyquarry_example_shortlist_href(candidate_key: str = "") -> str:
@@ -1187,6 +1432,9 @@ def _propertyquarry_fast_ranked_run_href(run_id: str, *, full: bool = False) -> 
 
 def _propertyquarry_example_shortlist_rows() -> list[dict[str, object]]:
     example_media_targets = _propertyquarry_example_media_targets()
+    danube_href = _propertyquarry_example_shortlist_href("danube-flats-demo")
+    quiet_href = _propertyquarry_example_shortlist_href("quiet-layout-near-transit")
+    value_href = _propertyquarry_example_shortlist_href("strong-price-open-risk")
     example_rows: list[dict[str, object]] = [
         {
             "candidate_key": "danube-flats-demo",
@@ -1196,15 +1444,22 @@ def _propertyquarry_example_shortlist_rows() -> list[dict[str, object]]:
             "area_label": "1010 Vienna, 1020 Vienna",
             "price_label": "Premium example",
             "layout_label": "Bright high-rise layout",
-            "href": _propertyquarry_example_shortlist_href("danube-flats-demo"),
-            "detail_href": _propertyquarry_example_shortlist_href("danube-flats-demo"),
+            "href": danube_href,
+            "detail_href": danube_href,
+            "action_href": danube_href,
+            "action_label": "Open property",
             "tour_href": example_media_targets.get("tour_href", ""),
             "walkthrough_href": example_media_targets.get("walkthrough_href", ""),
             "tour_label": example_media_targets.get("tour_label", "") if example_media_targets.get("tour_href", "") else "",
             "walkthrough_label": (
                 example_media_targets.get("walkthrough_label", "") if example_media_targets.get("walkthrough_href", "") else ""
             ),
-            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1010 Vienna, 1020 Vienna"),
+            "scope_preview": _propertyquarry_example_scope_preview(
+                "danube-flats-demo",
+                title="Danube Flats demo",
+                fallback_image_path="/static/property/home/example-shortlist-home-1.png",
+                image_url=example_media_targets.get("preview_image_url", ""),
+            ),
         },
         {
             "candidate_key": "quiet-layout-near-transit",
@@ -1214,9 +1469,15 @@ def _propertyquarry_example_shortlist_rows() -> list[dict[str, object]]:
             "area_label": "1040 Vienna, 1050 Vienna",
             "price_label": "Rent example",
             "layout_label": "Quiet street, transit nearby",
-            "href": _propertyquarry_example_shortlist_href("quiet-layout-near-transit"),
-            "detail_href": _propertyquarry_example_shortlist_href("quiet-layout-near-transit"),
-            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1040 Vienna, 1050 Vienna"),
+            "href": quiet_href,
+            "detail_href": quiet_href,
+            "action_href": quiet_href,
+            "action_label": "Open property",
+            "scope_preview": _propertyquarry_example_scope_preview(
+                "quiet-layout-near-transit",
+                title="Quiet layout near transit",
+                fallback_image_path="/static/property/home/example-shortlist-home-2.png",
+            ),
         },
         {
             "candidate_key": "strong-price-open-risk",
@@ -1226,12 +1487,445 @@ def _propertyquarry_example_shortlist_rows() -> list[dict[str, object]]:
             "area_label": "1180 Vienna, 1190 Vienna",
             "price_label": "Value example",
             "layout_label": "Good price, more checks needed",
-            "href": _propertyquarry_example_shortlist_href("strong-price-open-risk"),
-            "detail_href": _propertyquarry_example_shortlist_href("strong-price-open-risk"),
-            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1180 Vienna, 1190 Vienna"),
+            "href": value_href,
+            "detail_href": value_href,
+            "action_href": value_href,
+            "action_label": "Open property",
+            "scope_preview": _propertyquarry_example_scope_preview(
+                "strong-price-open-risk",
+                title="Strong price, open questions",
+                fallback_image_path="/static/property/home/example-shortlist-home-3.png",
+            ),
         },
     ]
     return example_rows
+
+
+def _propertyquarry_payload_is_example_shortlist(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if str(payload.get("run_id") or "").strip().lower() == "sample-homes":
+        return True
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    for candidate in _propertyquarry_run_summary_candidates(summary):
+        for key in ("packet_url", "detail_href", "review_url"):
+            href = str(candidate.get(key) or "").strip()
+            if href.startswith("/app/example/shortlist"):
+                return True
+    return False
+
+
+def _propertyquarry_is_public_shortlist_entrypoint(run_id: object) -> bool:
+    normalized_run_id = str(run_id or "").strip().lower()
+    if not normalized_run_id:
+        return False
+    return normalized_run_id in {
+        "public-demo-run",
+        "shared-public-run",
+        "0a89ead9e0b048288cca22d1aac54fa7",
+    }
+
+
+def _propertyquarry_run_payload_is_public_shortlist_entrypoint(run_payload: object) -> bool:
+    if not isinstance(run_payload, dict):
+        return False
+    return _propertyquarry_is_public_shortlist_entrypoint(run_payload.get("run_id")) or _propertyquarry_payload_is_example_shortlist(
+        run_payload
+    )
+
+
+def _propertyquarry_fast_ranked_run_sample_payload() -> dict[str, object]:
+    ranked_candidates: list[dict[str, object]] = []
+    for index, row in enumerate(_propertyquarry_example_shortlist_rows(), start=1):
+        scope_preview = dict(row.get("scope_preview") or {}) if isinstance(row.get("scope_preview"), dict) else {}
+        preview_url = (
+            str(scope_preview.get("preview_image_url") or "").strip()
+            or str(scope_preview.get("image_url") or "").strip()
+            or str(scope_preview.get("thumb_image_url") or "").strip()
+        )
+        candidate: dict[str, object] = {
+            "candidate_ref": str(row.get("candidate_key") or f"sample-home-{index}").strip() or f"sample-home-{index}",
+            "rank": index,
+            "title": str(row.get("title") or f"Sample home {index}").strip() or f"Sample home {index}",
+            "summary": str(row.get("detail") or "Open the property to review the details.").strip(),
+            "fit_summary": str(row.get("detail") or "Open the property to review the details.").strip(),
+            "fit_score": int(row.get("score") or 0),
+            "ranking_score": int(row.get("score") or 0),
+            "packet_url": str(row.get("detail_href") or row.get("href") or "").strip(),
+            "detail_href": str(row.get("detail_href") or row.get("href") or "").strip(),
+            "location_label": str(row.get("area_label") or "").strip(),
+            "price_display": str(row.get("price_label") or "").strip(),
+            "diorama_preview_url": preview_url,
+            "preview_image_url": preview_url,
+            "source_label": "Sample home",
+            "property_facts": {
+                "postal_name": str(row.get("area_label") or "").strip(),
+                "price_display": str(row.get("price_label") or "").strip(),
+                "layout_display": str(row.get("layout_label") or "").strip(),
+                "preview_image_url": preview_url,
+            },
+        }
+        if str(row.get("tour_href") or "").strip():
+            candidate["tour"] = {
+                "url": str(row.get("tour_href") or "").strip(),
+                "label": str(row.get("tour_label") or "3D tour available").strip() or "3D tour available",
+                "detail": "Open the sample 3D tour.",
+            }
+        if str(row.get("walkthrough_href") or "").strip():
+            candidate["flythrough"] = {
+                "url": str(row.get("walkthrough_href") or "").strip(),
+                "label": str(row.get("walkthrough_label") or "Walkthrough available").strip() or "Walkthrough available",
+                "detail": "Open the sample walkthrough.",
+            }
+        ranked_candidates.append(candidate)
+    return {
+        "run_id": "sample-homes",
+        "status": "completed",
+        "summary": {
+            "status": "completed",
+            "ranked_candidates": ranked_candidates,
+            "listing_total": len(ranked_candidates),
+            "raw_listing_total": len(ranked_candidates),
+            "reviewed_listing_total": len(ranked_candidates),
+            "ranked_total": len(ranked_candidates),
+        },
+    }
+
+
+def _propertyquarry_run_summary_candidates(summary: dict[str, object]) -> list[dict[str, object]]:
+    ranked_candidates = [
+        dict(candidate)
+        for candidate in list(summary.get("ranked_candidates") or [])
+        if isinstance(candidate, dict)
+    ]
+    if not ranked_candidates:
+        for source in list(summary.get("sources") or []):
+            if not isinstance(source, dict):
+                continue
+            source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+            for candidate in list(source.get("top_candidates") or []):
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_row = dict(candidate)
+                candidate_row.setdefault("source_label", source_label)
+                ranked_candidates.append(candidate_row)
+    ranked_candidates.sort(
+        key=lambda candidate: (
+            int(candidate.get("rank") or 9999),
+            -float(candidate.get("ranking_score") or candidate.get("fit_score") or 0.0),
+        )
+    )
+    return ranked_candidates
+
+
+def _propertyquarry_run_scoped_property_href(href: object, *, run_id: str) -> str:
+    resolved = str(href or "").strip()
+    normalized_run_id = str(run_id or "").strip()
+    if not resolved or not normalized_run_id or not resolved.startswith("/app/research/"):
+        return resolved
+    parsed = urllib.parse.urlsplit(resolved)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    if not any(key == "run_id" for key, _value in query):
+        query.append(("run_id", normalized_run_id))
+    return urllib.parse.urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urllib.parse.urlencode(query),
+            parsed.fragment,
+        )
+    )
+
+
+def _propertyquarry_first_party_property_href(href: object, *, run_id: str) -> str:
+    resolved = str(href or "").strip()
+    if not resolved:
+        return ""
+    parsed = urllib.parse.urlsplit(resolved)
+    first_party_hosts = {"propertyquarry.com", "www.propertyquarry.com"}
+    if parsed.scheme in {"http", "https"}:
+        host = str(parsed.netloc or "").strip().lower()
+        if host not in first_party_hosts:
+            return ""
+        resolved = urllib.parse.urlunsplit(("", "", parsed.path, parsed.query, parsed.fragment))
+    if not resolved.startswith(("/app/research/", "/app/handoffs/")):
+        return ""
+    return _propertyquarry_run_scoped_property_href(resolved, run_id=run_id)
+
+
+def _propertyquarry_candidate_first_party_packet_href(candidate: dict[str, object], *, run_id: str) -> str:
+    for key in ("packet_url", "review_url", "detail_href"):
+        href = _propertyquarry_first_party_property_href(candidate.get(key), run_id=run_id)
+        if href:
+            return href
+    candidate_ref = str(candidate.get("candidate_ref") or _property_candidate_ref(candidate)).strip()
+    if not candidate_ref:
+        return ""
+    return _propertyquarry_run_scoped_property_href(
+        f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}",
+        run_id=run_id,
+    )
+
+
+def _propertyquarry_home_property_href(candidate: dict[str, object], *, run_id: str) -> str:
+    packet_href = _propertyquarry_candidate_first_party_packet_href(candidate, run_id=run_id)
+    if packet_href:
+        return packet_href
+    return str(candidate.get("property_url") or "").strip() or _propertyquarry_fast_ranked_run_href(run_id)
+
+
+def _propertyquarry_home_result_row(candidate: dict[str, object], *, run_id: str) -> dict[str, object]:
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    title = _property_result_title_display(candidate.get("title") or candidate.get("property_url") or "Property")
+    detail = _shared_clean_property_candidate_detail_copy(
+        candidate.get("fit_summary") or candidate.get("summary") or candidate.get("compare_reason") or ""
+    )
+    if not detail:
+        detail = " · ".join(
+            part
+            for part in (
+                str(facts.get("price_display") or facts.get("rent_display") or candidate.get("price_display") or "").strip(),
+                str(candidate.get("location_label") or facts.get("postal_name") or facts.get("district") or "").strip(),
+            )
+            if part
+        )
+    preview_image = (
+        str(candidate.get("diorama_preview_url") or "").strip()
+        or str(
+            (
+                dict(candidate.get("diorama_scene") or {})
+                if isinstance(candidate.get("diorama_scene"), dict)
+                else {}
+            ).get("image_url")
+            or ""
+        ).strip()
+        or str(candidate.get("preview_image_url") or "").strip()
+        or str(_property_candidate_preview_image(candidate) or "").strip()
+        or str(
+            (
+                dict(candidate.get("orientation_preview") or {})
+                if isinstance(candidate.get("orientation_preview"), dict)
+                else {}
+            ).get("image_url")
+            or ""
+        ).strip()
+    )
+    score_value = candidate.get("fit_score")
+    if score_value in (None, "", []):
+        score_value = candidate.get("ranking_score")
+    try:
+        score = max(0, min(100, int(round(float(score_value)))))
+    except Exception:
+        score = 0
+    property_href = _propertyquarry_home_property_href(candidate, run_id=run_id)
+    research_media = _property_tour_media_payload(candidate)
+    return {
+        "title": title,
+        "detail": detail or "Open the property page to review the details.",
+        "score": score,
+        "href": property_href,
+        "detail_href": property_href,
+        "action_href": property_href,
+        "action_label": "Open property",
+        "tour_href": str(research_media.get("primary_href") or "").strip(),
+        "tour_label": str(research_media.get("primary_label") or "Open 3D tour").strip() or "Open 3D tour",
+        "walkthrough_href": str(research_media.get("walkthrough_href") or "").strip(),
+        "walkthrough_label": str(research_media.get("walkthrough_label") or "Open walkthrough").strip() or "Open walkthrough",
+        "scope_preview": {
+            "image_url": preview_image,
+            "alt": f"{title} preview",
+        },
+    }
+
+
+def _propertyquarry_home_shortlist_panel(
+    *,
+    product: object | None,
+    principal_id: str,
+) -> dict[str, object]:
+    example_shortlist = _propertyquarry_example_shortlist_rows()
+    normalized_principal_id = str(principal_id or "").strip()
+    if not normalized_principal_id:
+        return {
+            "mode": "example",
+            "eyebrow": "Example shortlist",
+            "caption": "Tap any row to open the example.",
+            "tag": "Example",
+            "heading": "Sample homes",
+            "count_label": f"{len(example_shortlist)} examples",
+            "rows": example_shortlist,
+        }
+    if product is None:
+        return {
+            "mode": "empty",
+            "eyebrow": "Latest results",
+            "caption": "Your finished shortlist appears here after the first completed search.",
+            "tag": "Signed in",
+            "heading": "Last results",
+            "count_label": "No shortlist yet",
+            "rows": [],
+            "empty_title": "No finished shortlist yet",
+            "empty_detail": "Start a search to fill this panel with your latest matched homes.",
+            "empty_action_href": "/app/search",
+            "empty_action_label": "Open search",
+        }
+
+    latest_run = _propertyquarry_latest_shortlist_run_with_results(
+        product=product,
+        principal_id=normalized_principal_id,
+        allow_public_entrypoint_runs=False,
+    )
+    latest_run_id = str(latest_run.get("run_id") or "").strip()
+    if not latest_run_id:
+        return {
+            "mode": "empty",
+            "eyebrow": "Latest results",
+            "caption": "Your finished shortlist appears here after the first completed search.",
+            "tag": "Signed in",
+            "heading": "Last results",
+            "count_label": "No shortlist yet",
+            "rows": [],
+            "empty_title": "No finished shortlist yet",
+            "empty_detail": "Start a search to fill this panel with your latest matched homes.",
+            "empty_action_href": "/app/search",
+            "empty_action_label": "Open search",
+        }
+
+    prepared_run = _propertyquarry_prepare_run_payload(
+        product=product,
+        run_payload=latest_run,
+        backfill_cached_previews=False,
+    )
+    summary = dict(prepared_run.get("summary") or {}) if isinstance(prepared_run.get("summary"), dict) else {}
+    ranked_candidates = _propertyquarry_run_summary_candidates(summary)
+    rows = [
+        _propertyquarry_home_result_row(candidate, run_id=latest_run_id)
+        for candidate in ranked_candidates[:3]
+    ]
+    rows = [row for row in rows if isinstance(row, dict)]
+    total_candidates = max(
+        len(ranked_candidates),
+        int(summary.get("ranked_total") or 0),
+    )
+    if not rows:
+        return {
+            "mode": "empty",
+            "eyebrow": "Latest results",
+            "caption": "Your finished shortlist appears here after the first completed search.",
+            "tag": "Signed in",
+            "heading": "Last results",
+            "count_label": "No shortlist yet",
+            "rows": [],
+            "empty_title": "No finished shortlist yet",
+            "empty_detail": "Start a search to fill this panel with your latest matched homes.",
+            "empty_action_href": "/app/search",
+            "empty_action_label": "Open search",
+        }
+    return {
+        "mode": "recent",
+        "eyebrow": "Latest results",
+        "caption": "Open the last finished shortlist.",
+        "tag": "Signed in",
+        "heading": "Last results",
+        "count_label": f"{total_candidates or len(rows)} homes",
+        "rows": rows,
+        "run_href": _propertyquarry_fast_ranked_run_href(latest_run_id),
+    }
+
+
+def _propertyquarry_latest_shortlist_run_with_results(
+    *,
+    product: Any,
+    principal_id: str,
+    allow_public_entrypoint_runs: bool = True,
+) -> dict[str, object]:
+    run_candidates = _propertyquarry_recent_shortlist_runs(
+        product=product,
+        principal_id=principal_id,
+    )
+    result_candidates = [
+        row
+        for row in run_candidates
+        if str(row.get("run_id") or "").strip() and _property_run_payload_has_shortlist_results(row)
+    ]
+    if not result_candidates:
+        return {}
+    if allow_public_entrypoint_runs:
+        preferred_candidates = [
+            row
+            for row in result_candidates
+            if not _propertyquarry_run_payload_is_public_shortlist_entrypoint(row)
+        ]
+        return preferred_candidates[0] if preferred_candidates else result_candidates[0]
+    preferred_candidates = [
+        row
+        for row in result_candidates
+        if not _propertyquarry_is_public_shortlist_entrypoint(str(row.get("run_id") or "").strip())
+    ]
+    return preferred_candidates[0] if preferred_candidates else {}
+
+
+def _propertyquarry_latest_shortlist_results_target(
+    *,
+    product: Any,
+    principal_id: str,
+) -> str:
+    latest_run = _propertyquarry_latest_shortlist_run_with_results(
+        product=product,
+        principal_id=principal_id,
+    )
+    latest_run_id = str(latest_run.get("run_id") or "").strip()
+    if not latest_run_id or _propertyquarry_is_public_shortlist_entrypoint(latest_run_id):
+        return ""
+    return _propertyquarry_fast_ranked_run_href(latest_run_id)
+
+
+def _propertyquarry_recent_shortlist_runs(
+    *,
+    product: Any,
+    principal_id: str,
+) -> list[dict[str, object]]:
+    normalized_principal = str(principal_id or "").strip()
+    if not normalized_principal:
+        return []
+
+    def _list_runs(*, hydrate: bool | None) -> list[dict[str, object]]:
+        if hydrate is None:
+            rows = product.list_property_search_runs(principal_id=normalized_principal, limit=24) or []
+        else:
+            rows = product.list_property_search_runs(
+                principal_id=normalized_principal,
+                limit=24,
+                hydrate=hydrate,
+            ) or []
+        return [dict(row) for row in list(rows) if isinstance(row, dict)]
+
+    run_candidates: list[dict[str, object]] = []
+    with contextlib.suppress(TypeError):
+        run_candidates = _list_runs(hydrate=False)
+    if not run_candidates:
+        with contextlib.suppress(TypeError):
+            run_candidates = _list_runs(hydrate=None)
+    return run_candidates
+
+
+def _propertyquarry_shortlist_run_is_recent(
+    *,
+    product: Any,
+    principal_id: str,
+    run_id: str,
+) -> bool | None:
+    normalized_run_id = str(run_id or "").strip()
+    if not normalized_run_id or not str(principal_id or "").strip():
+        return None
+    run_candidates = _propertyquarry_recent_shortlist_runs(
+        product=product,
+        principal_id=principal_id,
+    )
+    if not run_candidates:
+        return None
+    return any(str(row.get("run_id") or "").strip() == normalized_run_id for row in run_candidates)
 
 
 def _request_country_code(request: Request) -> str:
@@ -1458,12 +2152,22 @@ def _property_customer_scoped_preferences(preferences: dict[str, object]) -> dic
 @lru_cache(maxsize=1)
 def prewarm_property_search_surface_cache() -> bool:
     template_names = (
+        "base_public.html",
+        "base_console.html",
         "propertyquarry_home.html",
+        "sign_in.html",
+        "pricing_page.html",
+        "security_page.html",
         "app/property_decision_workbench.html",
         "app/_property_results_list.html",
         "app/_property_running_panel.html",
         "app/_property_search_agents_panel.html",
         "app/_property_selected_review_panel.html",
+        "app/_property_account_panel.html",
+        "app/_property_billing_panel.html",
+        "app/_property_recent_run_strip.html",
+        "app/property_research_detail.html",
+        "app/object_detail.html",
     )
     for template_name in template_names:
         with contextlib.suppress(Exception):
@@ -1610,6 +2314,10 @@ def _clean_property_candidate_copy(value: object) -> str:
     return _shared_clean_property_candidate_copy(value)
 
 
+def _clean_property_candidate_detail_copy(value: object) -> str:
+    return _shared_clean_property_candidate_detail_copy(value)
+
+
 def _property_title_price_fallback(title: object) -> str:
     text = " ".join(str(title or "").split()).strip()
     if not text:
@@ -1627,24 +2335,17 @@ def _property_title_price_fallback(title: object) -> str:
 
 
 def _property_research_title_display(title: object) -> str:
-    text = " ".join(str(title or "").split()).strip()
+    text = _property_result_title_display(title)
+    return text if text and text != "Property" else "Property page"
+
+
+def _property_research_compact_fact(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
     if not text:
-        return "Property page"
-    text = re.sub(r"\s+-\s+[^\-\|,]+$", "", text).strip()
-    trailing_patterns = (
-        r",\s*\d+(?:[.,]\d+)?\s*m².*$",
-        r",\s*[€$£]\s*[0-9][0-9\.\,\s-]*(?:\([^)]*\))?.*$",
-        r",\s*\([^)]*\)\s*$",
-    )
-    changed = True
-    while changed and text:
-        changed = False
-        for pattern in trailing_patterns:
-            updated = re.sub(pattern, "", text, flags=re.IGNORECASE).strip(" ,-")
-            if updated != text:
-                text = updated
-                changed = True
-    return text or "Property page"
+        return ""
+    if "under research" in text.lower():
+        return ""
+    return text
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(
     _clickrank_head_snippet(_request_hostname(request), _request_path(request))
@@ -2351,7 +3052,7 @@ def _public_context(
     if not meta_description:
         meta_description = (
             "PropertyQuarry helps renters, buyers, and investors define a brief, rank the strongest homes, "
-            "open the property page, and decide with context."
+            "open the right ones, and decide faster."
         )
     og_title = str((extra or {}).get("og_title") or "").strip() or page_title
     og_description = str((extra or {}).get("og_description") or "").strip() or meta_description
@@ -2474,10 +3175,8 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
         billing_open_href = _property_billing_usable_open_href(billing_handoff)
         if billing_open_href:
             billing_target = billing_open_href
-        elif run_id:
-            billing_target = "/app/billing"
         else:
-            billing_target = _property_billing_fallback_href()
+            billing_target = "/app/billing"
     else:
         billing_target = "/app/billing"
         billing_label = "Billing account"
@@ -2655,7 +3354,7 @@ def _property_google_customer_detail(raw_detail: str, *, connected: bool, token_
         return "Reconnect Google to keep sign-in and return access working."
     if connected:
         return "Use Google to sign in with the same PropertyQuarry account."
-    return "First-time Google sign-in still creates the same PropertyQuarry account automatically."
+    return "Google opens the same account and creates it if needed."
 
 
 def _property_google_account_snapshot(
@@ -3375,11 +4074,12 @@ def _property_console_context(
         run_payload=run_payload,
         backfill_cached_previews=surface_scope.section != "research",
     )
-    if selected_candidate_ref and surface_scope.section in {"properties", "shortlist"}:
+    if selected_candidate_ref and surface_scope.section in {"properties", "shortlist", "research"}:
         run_payload = _propertyquarry_refresh_run_candidate_preview_if_needed(
             product=product,
             run_payload=run_payload,
             candidate_ref=selected_candidate_ref,
+            allow_network=surface_scope.section not in {"research", "shortlist"},
         )
     run_status_value = str(run_payload.get("status") or "").strip().lower()
     # First paint must stay fast; preference fine-tuning loads feedback explicitly.
@@ -3621,20 +4321,26 @@ def landing(
     request: Request,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+    context: RequestContext = Depends(get_request_context_if_available),
 ) -> Response:
     brand = request_brand(request)
+    context_authenticated_principal = str(context.principal_id or "").strip() if context.authenticated else ""
     authenticated_principal = _landing_authenticated_principal(
         container=container,
         access_identity=access_identity,
         request=request,
-    )
+    ) or context_authenticated_principal
     if (
         str(brand.get("key") or "").strip() == "propertyquarry"
         and authenticated_principal
         and not _landing_public_home_requested(request)
     ):
         return RedirectResponse(str(brand.get("app_home") or "/app/search"), status_code=307)
-    principal_id = _principal_for_page(container=container, access_identity=access_identity, request=request)
+    principal_id = context_authenticated_principal or _principal_for_page(
+        container=container,
+        access_identity=access_identity,
+        request=request,
+    )
     status = _anonymous_onboarding_status()
     if principal_id:
         status["workspace"] = {
@@ -3646,8 +4352,17 @@ def landing(
     else:
         principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     commercial = property_commercial_snapshot(None)
-    del authenticated_principal
     example_shortlist = _propertyquarry_example_shortlist_rows()
+    home_shortlist = _propertyquarry_home_shortlist_panel(
+        product=None,
+        principal_id=authenticated_principal,
+    )
+    if str(brand.get("key") or "").strip() == "propertyquarry" and authenticated_principal:
+        with contextlib.suppress(Exception):
+            home_shortlist = _propertyquarry_home_shortlist_panel(
+                product=build_product_service(container),
+                principal_id=authenticated_principal,
+            )
     return _render_public_template(
         request,
         "propertyquarry_home.html" if brand["key"] == "propertyquarry" else "marketing_home.html",
@@ -3668,7 +4383,8 @@ def landing(
                 "doc_links": DOC_LINKS,
                 "plan_catalog": tuple(commercial.get("plan_catalog") or ()),
                 "example_shortlist": example_shortlist,
-                "meta_description": "PropertyQuarry helps renters, buyers, and investors define a brief, rank the strongest homes, open the property page, and decide with context.",
+                "home_shortlist": home_shortlist,
+                "meta_description": "PropertyQuarry helps renters, buyers, and investors define a brief, rank the strongest homes, open the right ones, and decide faster.",
                 "structured_data_json": [
                     {
                         "@context": "https://schema.org",
@@ -3755,15 +4471,115 @@ def propertyquarry_landing_handoff(
                 active_run = {}
         except Exception:
             active_run = {}
+    latest_results_target = _propertyquarry_latest_shortlist_results_target(
+        product=product,
+        principal_id=principal_id,
+    )
     candidate_run_id = str(active_run.get("run_id") or "").strip()
     if candidate_run_id:
-        return {
+        response: dict[str, object] = {
             "target": f"/app/properties?run_id={urllib.parse.quote(candidate_run_id, safe='')}",
             "signed_in": True,
             "run_id": candidate_run_id,
             "status": str(active_run.get("status") or "").strip(),
         }
-    return {"target": "/app/search", "signed_in": True}
+        if latest_results_target:
+            response["latest_results_target"] = latest_results_target
+        return response
+    response = {"target": "/app/search", "signed_in": True}
+    if latest_results_target:
+        response["latest_results_target"] = latest_results_target
+    return response
+
+
+@router.get("/app/api/property/candidates/{candidate_ref}/preview-refresh", include_in_schema=False)
+def propertyquarry_candidate_preview_refresh(
+    candidate_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context_if_available),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+    run_id: str = Query(default=""),
+) -> JSONResponse:
+    brand = request_brand(request)
+    if str(brand.get("key") or "").strip() != "propertyquarry":
+        raise HTTPException(status_code=404, detail="surface_not_found")
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    normalized_run_id = str(run_id or "").strip()
+    if not normalized_candidate_ref or not normalized_run_id:
+        raise HTTPException(status_code=400, detail="candidate_preview_refresh_requires_run")
+    context_authenticated_principal = str(context.principal_id or "").strip() if context.authenticated else ""
+    authenticated_principal = context_authenticated_principal or _principal_for_page(
+        container=container,
+        access_identity=access_identity,
+        request=request,
+    )
+    if not authenticated_principal:
+        raise HTTPException(status_code=401, detail="authentication_required")
+
+    product = build_product_service(container)
+    raw_run_payload: dict[str, object] = {}
+    try:
+        raw_run_payload = dict(
+            product.get_property_search_run_status(
+                principal_id=authenticated_principal,
+                run_id=normalized_run_id,
+                lightweight=True,
+                account_email=str(context.access_email or "").strip(),
+            )
+            or {}
+        )
+    except TypeError:
+        try:
+            raw_run_payload = dict(
+                product.get_property_search_run_status(
+                    principal_id=authenticated_principal,
+                    run_id=normalized_run_id,
+                    lightweight=True,
+                )
+                or {}
+            )
+        except TypeError:
+            raw_run_payload = dict(
+                product.get_property_search_run_status(
+                    principal_id=authenticated_principal,
+                    run_id=normalized_run_id,
+                )
+                or {}
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="candidate_preview_refresh_unavailable") from exc
+
+    if not raw_run_payload:
+        raise HTTPException(status_code=404, detail="property_search_run_not_found")
+
+    run_payload = _propertyquarry_prepare_run_payload(
+        product=product,
+        run_payload=raw_run_payload,
+        backfill_cached_previews=False,
+    )
+    refreshed_run_payload = _propertyquarry_refresh_run_candidate_preview_if_needed(
+        product=product,
+        run_payload=run_payload,
+        candidate_ref=normalized_candidate_ref,
+        allow_network=True,
+    )
+    candidate = _propertyquarry_find_run_candidate(
+        run_payload=refreshed_run_payload,
+        candidate_ref=normalized_candidate_ref,
+    )
+    if not isinstance(candidate, dict):
+        raise HTTPException(status_code=404, detail="property_candidate_not_found")
+    return JSONResponse(
+        {
+            "run_id": normalized_run_id,
+            "candidate_ref": normalized_candidate_ref,
+            "candidate": _property_workbench_client_candidate_payload(
+                candidate,
+                preserve_preview_media_facts=True,
+            ),
+        }
+    )
 
 
 @router.get("/app/api/property/billing/commercial-lane", include_in_schema=False, response_class=HTMLResponse)
@@ -3856,7 +4672,7 @@ def _render_property_billing_unavailable_page(
         blocker_summary = "The billing account host is not ready yet."
         blocker_label = "Host not ready"
     elif status_value == "login_required" or "separate_login" in error_value:
-        blocker_summary = "This billing account still opens another sign-in, so PropertyQuarry is keeping it closed for now."
+        blocker_summary = "Billing still opens another sign-in, so PropertyQuarry is keeping it closed for now."
         blocker_label = "Separate login"
     else:
         blocker_summary = "The billing portal is still being connected."
@@ -4138,14 +4954,17 @@ def pricing_page(
     )
     account_nav = _account_nav_context(request=request, context=context)
     pricing_signed_in_billing_href = str(account_nav.get("billing_href") or _property_billing_fallback_href()).strip() or _property_billing_fallback_href()
-    pricing_signed_in_billing_label = "Open billing account"
-    pricing_signed_in_billing_detail = "Use your active billing account."
+    pricing_signed_in_billing_ready = False
+    pricing_signed_in_billing_label = "Open billing"
+    pricing_signed_in_billing_detail = "Manage plan and billing."
     if checkout_session_ready and request_brand(request)["key"] == "propertyquarry":
         billing_handoff = _property_brilliant_directories_billing_handoff(allow_verified_direct_handoff=True)
+        verified_billing_href = _property_billing_usable_open_href(billing_handoff)
         pricing_signed_in_billing_href = (
-            _property_billing_usable_open_href(billing_handoff)
+            verified_billing_href
             or pricing_signed_in_billing_href
         )
+        pricing_signed_in_billing_ready = bool(verified_billing_href)
         (
             pricing_signed_in_billing_label,
             pricing_signed_in_billing_detail,
@@ -4167,15 +4986,16 @@ def pricing_page(
                 "pricing_order_endpoints_by_plan": checkout_order_endpoints_by_plan,
                 "pricing_checkout_session_ready": checkout_session_ready,
                 "pricing_signed_in_billing_href": pricing_signed_in_billing_href,
+                "pricing_signed_in_billing_ready": pricing_signed_in_billing_ready,
                 "pricing_signed_in_billing_label": pricing_signed_in_billing_label,
                 "pricing_signed_in_billing_detail": pricing_signed_in_billing_detail,
-                "meta_description": "Choose a PropertyQuarry plan by site coverage, research depth, 3D options, and the quality of the property review page.",
+                "meta_description": "Choose a PropertyQuarry plan by site coverage, research depth, 3D options, and the quality of the property page.",
                 "structured_data_json": [
                     {
                         "@context": "https://schema.org",
                         "@type": "Product",
                         "name": "PropertyQuarry",
-                        "description": "Property research, matching homes, and review pages for renters, buyers, and investors.",
+                        "description": "Property search, matching homes, and clear follow-up for renters, buyers, and investors.",
                         "offers": [
                             {
                                 "@type": "Offer",
@@ -4190,11 +5010,11 @@ def pricing_page(
                         (
                             {
                                 "question": "When should I stay on Free?",
-                                "answer": "Stay on Free when the main question is whether the matching homes and property page are useful at all.",
+                                "answer": "Stay on Free when the main question is whether the matching homes and the full details are useful at all.",
                             },
                             {
                                 "question": "What does Plus change?",
-                                "answer": "Plus gives a denser shortlist and richer property pages on a tighter set of listing sites.",
+                                "answer": "Plus gives a denser shortlist and deeper detail on a tighter set of listing sites.",
                             },
                             {
                                 "question": "When does Agent make sense?",
@@ -4759,8 +5579,8 @@ def workspace_invite_preview(
             ],
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
-            secondary_action_href="/register",
-            secondary_action_label="Use email instead",
+            secondary_action_href="/sign-in",
+            secondary_action_label="Sign in",
             status_code=404,
         )
     access_url = str(invite.get("access_url") or "").strip()
@@ -4819,8 +5639,8 @@ def workspace_access_session(
             ],
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
-            secondary_action_href="/register",
-            secondary_action_label="Use email instead",
+            secondary_action_href="/sign-in",
+            secondary_action_label="Sign in",
             status_code=404,
         )
     target = _normalize_browser_return_to(
@@ -4917,8 +5737,8 @@ def workspace_invite_accept(
                 ],
                 primary_action_href="/sign-in",
                 primary_action_label="Return to sign in",
-                secondary_action_href="/register",
-                secondary_action_label="Use email instead",
+                secondary_action_href="/sign-in",
+                secondary_action_label="Sign in",
                 status_code=409,
             )
         raise
@@ -4938,8 +5758,8 @@ def workspace_invite_accept(
             ],
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
-            secondary_action_href="/register",
-            secondary_action_label="Use email instead",
+            secondary_action_href="/sign-in",
+            secondary_action_label="Sign in",
             status_code=404,
         )
     access_url = str(invite.get("access_url") or "").strip()
@@ -5111,8 +5931,8 @@ def property_research_packet(
     effective_run_id = str(resolved_run_id or "").strip()
     research_route_recovery = (
         {
-            "title": "Opened the latest result",
-            "detail": "This saved link was stale, so PropertyQuarry opened the matching property from your latest search.",
+            "title": "Opened the current match",
+            "detail": "This link moved, so PropertyQuarry opened the matching home from your latest search.",
             "requested_run_id": requested_run_id,
             "run_id": effective_run_id,
             "action_href": f"/app/shortlist?run_id={urllib.parse.quote(effective_run_id, safe='')}",
@@ -5134,13 +5954,19 @@ def property_research_packet(
     facts = _property_enriched_candidate_facts(candidate=candidate)
     preferences = dict(property_context.get("preferences") or {})
     commercial = dict(property_context.get("commercial") or {})
-    match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
+    match_reasons = [
+        _clean_property_candidate_detail_copy(item)
+        for item in list(candidate.get("match_reasons") or [])
+        if _clean_property_candidate_detail_copy(item)
+    ]
     mismatch_reasons = _property_normalized_mismatch_reasons(
-        [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()],
+        [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)],
         facts=facts,
         preferences=preferences,
     )
-    fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "No fit summary captured.").strip()
+    fit_summary = _clean_property_candidate_detail_copy(candidate.get("fit_summary") or candidate.get("detail") or "")
+    if not fit_summary:
+        fit_summary = _clean_property_candidate_detail_copy(candidate.get("summary") or "")
     review_url = str(candidate.get("review_url") or "").strip()
     tour_url = str(candidate.get("tour_url") or "").strip()
     if tour_url and _property_hosted_tour_disabled_fallback(tour_url):
@@ -5206,27 +6032,29 @@ def property_research_packet(
     ooda_summary_rows = [
         _object_detail_row("Best point", _clean_property_candidate_copy(match_reasons[0]), "Match")
         if match_reasons
-        else _object_detail_row("Best point", _clean_property_candidate_copy(fit_summary) or "This home matches the current brief.", "Match"),
+        else _object_detail_row("Best point", fit_summary or "This home fits your search.", "Match"),
         _object_detail_row(
             "Best reason to act",
-            _clean_property_candidate_copy(str(decision_rows[0].get("detail") or fit_summary).strip())
+            _clean_property_candidate_detail_copy(str(decision_rows[0].get("detail") or fit_summary).strip())
             or "The current page sees enough signal to keep this home open.",
-            "Quick read",
+            "Summary",
         ),
         _object_detail_row("Main concern", _clean_property_candidate_copy(mismatch_reasons[0]), "Risk")
         if mismatch_reasons
-        else _object_detail_row("Main concern", "Some details are still missing, so treat this as a review page, not final diligence.", "Risk"),
+        else _object_detail_row("Main concern", "Some details are still missing, so treat this as a property page, not a final decision.", "Risk"),
         _object_detail_row("Next step", str(candidate.get("tag") or candidate.get("recommendation") or "Home").strip() or "Home", "Decision"),
     ]
     for item in _property_missing_fact_items(facts):
         if str(item.get("status") or "").strip().lower() == "filled":
+            continue
+        if str(item.get("field") or "").strip().lower() == "rooms" and not _property_rooms_research_relevant(preferences):
             continue
         ooda = dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {}
         ooda_summary_rows.append(
             _object_detail_row(
                 str(item.get("label") or item.get("field") or "Missing fact").strip(),
                 str(ooda.get("orient") or ooda.get("act") or item.get("evidence") or "We are still checking this detail.").strip(),
-                "Research",
+                "To check",
             )
         )
     ooda_summary_rows.extend(_property_distance_ooda_rows_for_preferences(facts, preferences))
@@ -5253,8 +6081,8 @@ def property_research_packet(
     if not objection_clusters:
         objection_clusters = [
             _object_detail_row(
-                "No recorded objections yet",
-                "Stakeholder objections and reviewer disagreements will surface here once page or decision feedback is captured.",
+                "No saved concerns yet",
+                "Saved concerns from later reviews will appear here.",
                 "Waiting",
             )
         ]
@@ -5271,15 +6099,15 @@ def property_research_packet(
     if not household_rows:
         household_rows = [
             _object_detail_row(
-                "No household votes yet",
-                "Shared household or advisor reactions will appear here once someone records a Yes, Maybe, or No.",
+                "No household notes yet",
+                "Shared reactions can be saved here later.",
                 "Waiting",
             )
         ]
     risk_signal_rows = [
         _object_detail_row(
             str(row.get("theme") or "risk").replace("_", " ").title(),
-            f"{str(row.get('summary') or 'No summary yet.').strip()} | privacy {str(row.get('privacy_state') or 'suppressed')} | confidence {str(row.get('confidence') or 'low')}",
+            str(row.get("summary") or "Nothing flagged yet.").strip(),
             str(row.get("reason_key") or "signal").replace("_", " ").title(),
         )
         for row in list(feedback_summary.get("risk_signal_candidates") or [])[:4]
@@ -5288,9 +6116,9 @@ def property_research_packet(
     if not risk_signal_rows:
         risk_signal_rows = [
             _object_detail_row(
-                "No published risk signal yet",
-                "PropertyQuarry is still below the anonymization threshold for this property, so market-risk candidates stay suppressed.",
-                "Suppressed",
+                "No shared watch-out yet",
+                "If later reviews surface a recurring issue, it will show up here.",
+                "Waiting",
             )
         ]
     next_best_question = str(household_review.get("next_best_question") or "").strip()
@@ -5322,8 +6150,8 @@ def property_research_packet(
     if not agent_question_rows:
         agent_question_rows = [
             _object_detail_row(
-                "No generated question yet",
-                "Save a decision or add missing-fact blockers to generate the next follow-up question automatically.",
+                "No next question yet",
+                "When a missing detail or open issue is saved, the next question will appear here.",
                 "Waiting",
             )
         ]
@@ -5341,8 +6169,8 @@ def property_research_packet(
         followup_rows = [
             {
                 "feedback_id": "",
-                "title": "No tracked question yet",
-                "detail": "Use the question helper or the suggested next question to start a tracked follow-up.",
+                "title": "No follow-up yet",
+                "detail": "Add a question here when you want to keep something open.",
                 "tag": "Waiting",
             }
         ]
@@ -5357,7 +6185,9 @@ def property_research_packet(
     if not price_summary or price_summary.lower() == "n/a":
         price_summary = _property_title_price_fallback(title)
     area_summary = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
-    rooms_summary = str(facts.get("rooms_label") or facts.get("rooms") or facts.get("room_count") or "").strip()
+    rooms_summary = _property_research_compact_fact(
+        facts.get("rooms_label") or facts.get("rooms") or facts.get("room_count") or ""
+    )
     location_summary = str(
         candidate.get("location_label")
         or facts.get("district")
@@ -5496,16 +6326,16 @@ def property_research_packet(
     elif tour_url and not hosted_tour_ready and property_url:
         hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "A real 3D tour is not available yet."})
     elif tour_status in {"queued", "pending"} and property_url:
-        hero_actions.append({"kind": "tour", "label": "3D tour queued", "property_url": property_url, "state": "pending", "progress_pct": max(tour_progress_pct, 14), "eta_label": tour_eta_label, "status_detail": "Still queued. Taking longer than usual." if tour_eta_label.startswith("delayed") else f"Queued{f' · about {eta_raw} min' if eta_raw else ''}."})
+        hero_actions.append({"kind": "tour", "label": "3D tour queued", "property_url": property_url, "state": "pending", "progress_pct": max(tour_progress_pct, 14), "eta_label": tour_eta_label, "status_detail": "Still queued." if tour_eta_label.startswith("delayed") else "Queued."})
     elif tour_status in {"processing", "running", "in_progress", "started"} and property_url:
-        hero_actions.append({"kind": "tour", "label": "3D tour rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(tour_progress_pct, 58), "eta_label": tour_eta_label, "status_detail": "Still rendering. Taking longer than usual." if tour_eta_label.startswith("delayed") else f"Rendering{f' · about {eta_raw} min' if eta_raw else ''}."})
+        hero_actions.append({"kind": "tour", "label": "3D tour rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(tour_progress_pct, 58), "eta_label": tour_eta_label, "status_detail": "Still rendering." if tour_eta_label.startswith("delayed") else "Rendering."})
     elif tour_status in {"blocked", "failed", "skipped", "not_applicable"} and property_url:
         hero_actions.append(
             {
                 "kind": "tour",
                 "label": "Retry 3D tour" if tour_status in {"blocked", "failed"} else "Request 3D tour",
                 "property_url": property_url,
-                "state": "idle",
+                "state": tour_status or "blocked",
                 "progress_pct": 0,
                 "eta_label": "",
                 "status_detail": _property_visual_unavailable_detail(
@@ -5515,20 +6345,20 @@ def property_research_packet(
             }
         )
     elif property_url:
-        hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
+        hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Use the floor plan and photos to build one."})
     if flythrough_url:
         hero_actions.append({"href": flythrough_url, "label": "Open walkthrough", "external": False})
     elif flythrough_status in {"queued", "pending"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": live_flythrough_detail or ("Still queued. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Queued. This page updates automatically.")})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": live_flythrough_detail or ("Still queued." if flythrough_eta_label.startswith("delayed") else "Queued.")})
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": flythrough_eta_label, "status_detail": live_flythrough_detail or ("Still rendering. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Rendering now. Opens here when ready.")})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": flythrough_eta_label, "status_detail": live_flythrough_detail or ("Still rendering." if flythrough_eta_label.startswith("delayed") else "Rendering.")})
     elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable"} and property_url:
         hero_actions.append(
             {
                 "kind": "flythrough",
                 "label": "Retry walkthrough" if flythrough_status in {"blocked", "failed"} else "Request walkthrough",
                 "property_url": property_url,
-                "state": "idle",
+                "state": flythrough_status or "blocked",
                 "progress_pct": 0,
                 "eta_label": "",
                 "status_detail": live_flythrough_detail or _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason),
@@ -5542,7 +6372,7 @@ def property_research_packet(
     if hosted_tour_ready and tour_url:
         visual_status_line = str(research_media.get("status_detail") or "3D tour available.").strip()
     elif flythrough_url:
-        visual_status_line = str(research_media.get("walkthrough_status_detail") or "Walkthrough is available on this page.").strip()
+        visual_status_line = str(research_media.get("walkthrough_status_detail") or "Walkthrough is ready.").strip()
     elif flythrough_status in {"queued", "pending"}:
         visual_status_line = live_flythrough_detail or "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
@@ -5596,66 +6426,67 @@ def property_research_packet(
     research_sections: list[dict[str, object]] = [
         {
             "eyebrow": "At a glance",
-            "title": "Why this home stayed on the list",
+            "title": "What stands out",
             "items": ooda_summary_rows[:6],
         },
     ]
     if packet_score_rows:
         research_sections.append(
             {
-                "eyebrow": "Listing facts",
-                "title": "What the listing already tells us",
+                "eyebrow": "Highlights",
+                "title": "What stands out",
                 "items": packet_score_rows[:5],
             }
         )
     research_sections.extend(
         [
             {
-                "eyebrow": "Property details",
-                "title": "What the listing says",
+                "eyebrow": "Details",
+                "title": "Details",
                 "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("object_rows") or [])],
             },
             {
                 "eyebrow": "Costs",
-                "title": "Price, running costs, and fees",
+                "title": "Price and running costs",
                 "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("cost_rows") or [])],
             },
             {
-                "eyebrow": "Description",
-                "title": "How the home is described",
+                "eyebrow": "About the home",
+                "title": "About the home",
                 "copy": str(detail_sections.get("description_text") or "").strip(),
                 "items": [],
             },
             {
-                "eyebrow": "Location & area",
-                "title": "How the wider area reads today",
+                "eyebrow": "Area",
+                "title": "Daily life nearby",
                 "copy": str(detail_sections.get("location_text") or "").strip(),
                 "items": everyday_fit_rows[:6],
             },
             {
-                "eyebrow": "Energy & heating",
+                "eyebrow": "Energy",
                 "title": "Energy and heating",
                 "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("energy_rows") or [])],
             },
             {
-                "eyebrow": "Check next",
-                "title": "Still to confirm",
-                "items": (missing_rows + investment_risk_rows)[:10] or [_object_detail_row("No blocker recorded", "The current file does not show a blocking gap beyond normal due diligence.", "Clear")],
+                "eyebrow": "Still open",
+                "title": "Still open",
+                "items": (missing_rows + investment_risk_rows)[:10]
+                or [_object_detail_row("Nothing major stands out yet", "A few quick checks may still be worth it, but nothing major stands out right now.", "Clear")],
             },
             {
                 "eyebrow": "Next step",
-                "title": "What to do with this home now",
+                "title": "Next step",
                 "items": decision_rows,
             },
             {
-                "eyebrow": "Area",
-                "title": "Area notes",
+                "eyebrow": "Map and context",
+                "title": "Map and context",
                 "items": (official_evidence_rows[:4] + official_posture_rows[:3] + future_research_rows[:3] + provenance_rows[:3])
-                or [_object_detail_row("No local context attached yet", "Broader neighbourhood and public-data context is not attached to this property yet.", "Pending")],
+                or [_object_detail_row("No local notes yet", "Map layers and nearby context have not been added yet.", "Waiting")],
             },
             {
-                "eyebrow": "Ask next",
-                "title": "Questions to ask",
+                "eyebrow": "Follow-up",
+                "title": "Next to check",
                 "items": agent_question_rows + ([_object_detail_row("Next household question", next_best_question, "Next")] if next_best_question else []),
             },
         ]
@@ -5663,8 +6494,8 @@ def property_research_packet(
     if timeline_rows:
         research_sections.append(
             {
-                "eyebrow": "What changed",
-                "title": "Timeline and follow-up",
+                "eyebrow": "Updates",
+                "title": "Updates",
                 "items": timeline_rows,
             }
         )
@@ -5673,7 +6504,7 @@ def property_research_packet(
             7,
             {
                 "eyebrow": "Investment",
-                "title": "Buy-side underwriting view",
+                "title": "Investment view",
                 "items": investment_rows
                 or [_object_detail_row("Investment research is off", "Run the buy-side research pass if you need yield, reserve, and document-risk context.", "Optional")],
             },
@@ -5993,7 +6824,7 @@ def propertyquarry_fast_ranked_run_page(
     run_id: str,
     request: Request,
     container: AppContainer = Depends(get_container),
-    context: RequestContext = Depends(get_request_context),
+    context: RequestContext = Depends(get_request_context_if_available),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
     brand = request_brand(request)
@@ -6003,39 +6834,123 @@ def propertyquarry_fast_ranked_run_page(
     if not normalized_run_id or len(normalized_run_id) > 160 or not re.fullmatch(r"[A-Za-z0-9._:-]+", normalized_run_id):
         raise HTTPException(status_code=404, detail="property_search_run_not_found")
     encoded_run_id = urllib.parse.quote(normalized_run_id, safe="")
-    status_url = f"/app/api/signals/property/search/run/{encoded_run_id}?lightweight=1"
-    full_href = _propertyquarry_fast_ranked_run_href(normalized_run_id, full=True)
+    context_authenticated_principal = str(context.principal_id or "").strip() if context.authenticated else ""
+    authenticated_principal = _landing_authenticated_principal(
+        container=container,
+        access_identity=access_identity,
+        request=request,
+    ) or context_authenticated_principal or str(request.headers.get("x-ea-principal-id") or "").strip()
+    status_url = f"/app/api/signals/property/search/run/{encoded_run_id}?lightweight=1" if authenticated_principal else ""
+    full_href = _propertyquarry_fast_ranked_run_href(normalized_run_id, full=True) if authenticated_principal else "/app/shortlist"
     initial_run_payload: dict[str, Any] = {}
-    with contextlib.suppress(Exception):
+    if authenticated_principal:
         product = build_product_service(container)
-        try:
-            initial_run_payload = dict(
-                product.get_property_search_run_status(
-                    principal_id=context.principal_id,
-                    run_id=normalized_run_id,
-                    lightweight=True,
-                    account_email=str(context.access_email or "").strip(),
-                )
-                or {}
+        if _propertyquarry_is_public_shortlist_entrypoint(normalized_run_id):
+            latest_run = _propertyquarry_latest_shortlist_run_with_results(
+                product=product,
+                principal_id=authenticated_principal,
+                allow_public_entrypoint_runs=False,
             )
-        except TypeError:
+            latest_run_id = str(latest_run.get("run_id") or "").strip()
+            if latest_run_id and latest_run_id != normalized_run_id:
+                return RedirectResponse(_propertyquarry_fast_ranked_run_href(latest_run_id), status_code=303)
+        raw_initial_run_payload: dict[str, Any] = {}
+        sample_payload_requested = False
+        requested_run_is_recent: bool | None = None
+        with contextlib.suppress(Exception):
             try:
-                initial_run_payload = dict(
+                raw_initial_run_payload = dict(
                     product.get_property_search_run_status(
-                        principal_id=context.principal_id,
+                        principal_id=authenticated_principal,
                         run_id=normalized_run_id,
                         lightweight=True,
-                    )
-                    or {}
+                        account_email=str(context.access_email or "").strip(),
+                    ) or {}
                 )
             except TypeError:
-                initial_run_payload = dict(
-                    product.get_property_search_run_status(
-                        principal_id=context.principal_id,
-                        run_id=normalized_run_id,
+                try:
+                    raw_initial_run_payload = dict(
+                        product.get_property_search_run_status(
+                            principal_id=authenticated_principal,
+                            run_id=normalized_run_id,
+                            lightweight=True,
+                        )
+                        or {}
                     )
-                    or {}
+                except TypeError:
+                    raw_initial_run_payload = dict(
+                        product.get_property_search_run_status(
+                            principal_id=authenticated_principal,
+                            run_id=normalized_run_id,
+                        )
+                        or {}
+                    )
+            initial_run_payload = _propertyquarry_prepare_run_payload(
+                product=product,
+                run_payload=raw_initial_run_payload,
+            )
+            sample_payload_requested = _propertyquarry_payload_is_example_shortlist(initial_run_payload or raw_initial_run_payload)
+            if sample_payload_requested:
+                raw_initial_run_payload = {}
+                initial_run_payload = {}
+                status_url = ""
+                full_href = "/app/shortlist"
+            elif raw_initial_run_payload:
+                requested_run_is_recent = _propertyquarry_shortlist_run_is_recent(
+                    product=product,
+                    principal_id=authenticated_principal,
+                    run_id=normalized_run_id,
                 )
+        if not raw_initial_run_payload or sample_payload_requested:
+            latest_run = _propertyquarry_latest_shortlist_run_with_results(
+                product=product,
+                principal_id=authenticated_principal,
+                allow_public_entrypoint_runs=False,
+            )
+            latest_run_id = str(latest_run.get("run_id") or "").strip()
+            if latest_run_id and latest_run_id != normalized_run_id:
+                return RedirectResponse(_propertyquarry_fast_ranked_run_href(latest_run_id), status_code=303)
+            if latest_run_id == normalized_run_id:
+                initial_run_payload = _propertyquarry_prepare_run_payload(
+                    product=product,
+                    run_payload=latest_run,
+                )
+        elif requested_run_is_recent is False:
+            latest_run = _propertyquarry_latest_shortlist_run_with_results(
+                product=product,
+                principal_id=authenticated_principal,
+                allow_public_entrypoint_runs=False,
+            )
+            latest_run_id = str(latest_run.get("run_id") or "").strip()
+            if latest_run_id and latest_run_id != normalized_run_id:
+                return RedirectResponse(_propertyquarry_fast_ranked_run_href(latest_run_id), status_code=303)
+    else:
+        initial_run_payload = _propertyquarry_fast_ranked_run_sample_payload()
+    page_kicker = "Search results" if authenticated_principal else "Sample homes"
+    page_heading = "Matching homes" if authenticated_principal else "Sample homes"
+    page_subtitle = (
+        "Opening the homes for this search."
+        if authenticated_principal
+        else "Preview example homes before signing in. Sign in to open your latest real shortlist."
+    )
+    nav_links = (
+        [
+            {"label": "Search", "href": "/app/search"},
+            {"label": "History", "href": "/app/agents#search-history"},
+            {"label": "Account", "href": "/app/account"},
+        ]
+        if authenticated_principal
+        else [
+            {"label": "Sign in", "href": "/sign-in"},
+            {"label": "Sample shortlist", "href": "/app/example/shortlist"},
+            {"label": "Start search", "href": "/sign-in?return_to=%2Fapp%2Fsearch"},
+        ]
+    )
+    meta_description = (
+        "A fast PropertyQuarry results view that loads matching homes for a completed search without waiting for the full workbench."
+        if authenticated_principal
+        else "A safe PropertyQuarry sample shortlist showing how example homes open before you sign in."
+    )
     return _render_public_template(
         request,
         "app/property_ranked_run_fast.html",
@@ -6043,7 +6958,7 @@ def propertyquarry_fast_ranked_run_page(
             request=request,
             current_nav="product",
             page_title="PropertyQuarry Matching Homes",
-            principal_id=context.principal_id,
+            principal_id=authenticated_principal,
             status=_anonymous_onboarding_status(),
             access_identity=access_identity,
             extra={
@@ -6051,11 +6966,16 @@ def propertyquarry_fast_ranked_run_page(
                 "run_status_url": status_url,
                 "initial_run_payload": initial_run_payload,
                 "full_shortlist_href": full_href,
-                "search_href": "/app/search",
-                "history_href": "/app/agents#search-history",
-                "account_href": "/app/account",
+                "search_href": "/app/search" if authenticated_principal else "/sign-in?return_to=%2Fapp%2Fsearch",
+                "history_href": "/app/agents#search-history" if authenticated_principal else "/app/example/shortlist",
+                "account_href": "/app/account" if authenticated_principal else "/sign-in",
+                "page_kicker": page_kicker,
+                "page_heading": page_heading,
+                "page_subtitle": page_subtitle,
+                "nav_links": nav_links,
                 "account_nav": _account_nav_context(request=request, context=context),
-                "meta_description": "A fast PropertyQuarry results view that loads matching homes for a completed search without waiting for the full workbench.",
+                "auth_handoff_url": "/app/api/property/landing-handoff" if not authenticated_principal else "",
+                "meta_description": meta_description,
                 "canonical_path": f"/app/shortlist/run/{encoded_run_id}",
                 "robots_directive": "noindex, nofollow",
             },
@@ -6525,10 +7445,10 @@ def app_shell(
                 payload["summary"] = "Build the brief, run the sweep, review the matching homes, and open the property that deserves a decision."
             elif current_nav == "account":
                 payload["title"] = "Account"
-                payload["summary"] = "Saved defaults, notifications, billing, and access."
+                payload["summary"] = "Notifications, plan, access, and data."
             elif current_nav == "billing":
                 payload["title"] = "Billing"
-                payload["summary"] = "Current access and billing account."
+                payload["summary"] = "Current plan and billing."
         else:
             payload = _app_section_payload(
                 resolved_section,
@@ -6543,11 +7463,7 @@ def app_shell(
         if current_nav == "billing":
             if billing_open_href:
                 return RedirectResponse(billing_open_href, status_code=303)
-            return _render_property_billing_unavailable_page(
-                request,
-                context=context,
-                handoff=billing_handoff,
-            )
+            return RedirectResponse(_property_billing_fallback_href(), status_code=303)
         property_template = "app/property_decision_workbench.html"
         return _render_public_template(
             request,

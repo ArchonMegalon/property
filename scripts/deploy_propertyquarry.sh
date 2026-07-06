@@ -1452,11 +1452,71 @@ if (( run_presentation_e2e == 1 )); then
   cp "${walkthrough_quality_receipt}" _completion/smoke/property-live-walkthrough-quality-latest.json
 fi
 
+tour_control_receipt="_completion/tours/property-tour-controls-live-container-current.json"
+export_discovery_receipt="_completion/tours/property-tour-export-discovery-full-current.json"
+import_manifest_receipt="_completion/property_tour_exports/import-manifest-current.json"
+id_austria_receipt="_completion/id_austria/ID_AUSTRIA_PROVIDER_VERIFICATION.generated.json"
+tour_control_release_gate_receipt="_completion/property_tour_controls/release-gate.json"
+tour_export_discovery_container_receipt="/tmp/property-tour-export-discovery-full-current.json"
+tour_import_manifest_container_receipt="/tmp/property-tour-import-manifest-current.json"
+
+mkdir -p _completion/tours _completion/property_tour_controls _completion/property_tour_exports _completion/id_austria
+settle_runtime_priorities 2
+if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/verify_property_tour_controls.py \
+  --base-url "${base_url}" \
+  --host-header "propertyquarry.com" \
+  --live-probe \
+  --write "${tour_control_receipt}" \
+  --summary-only >/dev/null; then
+  echo "PropertyQuarry live tour-control verification failed." >&2
+  cat "${tour_control_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
+cp "${tour_control_receipt}" "${tour_control_release_gate_receipt}"
+
+if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/verify_id_austria_provider.py >/dev/null; then
+  echo "PropertyQuarry ID Austria verification failed." >&2
+  cat "${id_austria_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
+
+if ! docker inspect "${api_container_name}" >/dev/null 2>&1; then
+  echo "PropertyQuarry API container ${api_container_name} is not available for live tour-export proof refresh." >&2
+  exit 1
+fi
+
+settle_runtime_priorities 2
+if ! docker exec "${api_container_name}" python /app/scripts/discover_property_tour_exports.py \
+  --drop-dir /data/incoming_property_tours \
+  --public-tour-dir /data/public_property_tours \
+  --write "${tour_export_discovery_container_receipt}" >/dev/null; then
+  echo "PropertyQuarry live export discovery failed." >&2
+  docker exec "${api_container_name}" cat "${tour_export_discovery_container_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
+docker cp "${api_container_name}:${tour_export_discovery_container_receipt}" "${export_discovery_receipt}" >/dev/null
+
+settle_runtime_priorities 2
+if ! docker exec --user root "${api_container_name}" python /app/scripts/materialize_property_tour_export_manifest.py \
+  --tour-root /data/public_property_tours \
+  --incoming-root /data/incoming_property_tours \
+  --prepare-dirs \
+  --write "${tour_import_manifest_container_receipt}" >/dev/null; then
+  echo "PropertyQuarry live tour import-manifest refresh failed." >&2
+  docker exec "${api_container_name}" cat "${tour_import_manifest_container_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
+docker cp "${api_container_name}:${tour_import_manifest_container_receipt}" "${import_manifest_receipt}" >/dev/null
+
 settle_runtime_priorities 4
 
 gold_status_receipt="_completion/property_gold_status/release-gate.json"
 legacy_gold_status_receipt="_completion/propertyquarry-gold-status-latest.json"
-PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py \
+if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py \
+  --tour-control-receipt "${tour_control_receipt}" \
+  --export-discovery-receipt "${export_discovery_receipt}" \
+  --import-manifest-receipt "${import_manifest_receipt}" \
+  --provider-matrix-receipt _completion/smoke/property-live-provider-latest.json \
   --live-mobile-receipt _completion/smoke/property-live-mobile-surface-latest.json \
   --public-smoke-receipt _completion/smoke/property-live-public-latest.json \
   --authenticated-smoke-receipt _completion/smoke/property-live-authenticated-latest.json \
@@ -1464,7 +1524,13 @@ PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py \
   --map-preview-flagship-receipt _completion/smoke/property-live-map-preview-flagship-latest.json \
   --browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-latest.json \
   --walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-latest.json \
-  --write "${gold_status_receipt}" >/dev/null || true
+  --id-austria-receipt "${id_austria_receipt}" \
+  --write "${gold_status_receipt}" \
+  --fail-on-blocked >/dev/null; then
+  echo "PropertyQuarry gold-status verification failed." >&2
+  cat "${gold_status_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
 cp "${gold_status_receipt}" "${legacy_gold_status_receipt}"
 
 gold_notification_principal_id="$(effective_env_value PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID)"

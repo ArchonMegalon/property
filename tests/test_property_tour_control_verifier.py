@@ -16,6 +16,7 @@ from scripts.verify_property_tour_controls import (
     _load_cli_env_defaults,
     _receipt_summary,
     _running_container_public_tour_dir,
+    _runtime_container_live_probe_receipt,
     build_property_tour_control_receipt,
     main,
 )
@@ -62,6 +63,7 @@ def _write_playable_mp4(path: Path) -> None:
 
 
 def _write_equirectangular_image(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     image = Image.new("RGB", (2048, 1024), color=(28, 42, 36))
     image.save(path, format="JPEG")
 
@@ -439,6 +441,30 @@ def test_property_tour_control_verifier_cli_delegates_live_probe_to_runtime_cont
     }
     monkeypatch.setattr("scripts.verify_property_tour_controls._running_container_public_tour_dir", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
+        "scripts.verify_property_tour_controls.build_property_tour_control_receipt",
+        lambda **_kwargs: {
+            "generated_at": "2026-07-04T21:19:00+00:00",
+            "status": "blocked_no_tour_manifests",
+            "tour_root": "/docker/property/state/public_property_tours",
+            "tour_root_source": "preferred",
+            "tour_count": 0,
+            "ready_tour_count": 0,
+            "provider_counts": {"matterport": 0, "3dvista": 0, "pano2vr": 0, "krpano": 0, "magicfit": 0},
+            "provider_blockers": {
+                provider: {"blocked_count": 0, "reasons": []}
+                for provider in ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
+            },
+            "ready_provider_modes": [],
+            "required_provider_modes": ["matterport", "3dvista", "magicfit"],
+            "missing_provider_modes": ["matterport", "3dvista", "magicfit"],
+            "next_required_actions": [],
+            "live_probe": True,
+            "base_url": "https://propertyquarry.example",
+            "require_all_provider_modes": False,
+            "tours": [],
+        },
+    )
+    monkeypatch.setattr(
         "scripts.verify_property_tour_controls._runtime_container_live_probe_receipt",
         lambda **_kwargs: (dict(delegated_receipt), 0),
     )
@@ -460,6 +486,59 @@ def test_property_tour_control_verifier_cli_delegates_live_probe_to_runtime_cont
     output = capsys.readouterr().out
     assert '"status": "pass"' in output
     assert '"tour_root": "/data/public_property_tours"' in output
+
+
+def test_runtime_container_live_probe_receipt_rewrites_loopback_base_url(monkeypatch) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr("scripts.verify_property_tour_controls.shutil.which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr("scripts.verify_property_tour_controls._runtime_container_name", lambda: "propertyquarry-api")
+
+    def _run(command, **_kwargs):
+        commands.append(list(command))
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "generated_at": "2026-07-05T08:50:00+00:00",
+                    "status": "pass",
+                    "tour_root": "/data/public_property_tours",
+                    "tour_root_source": "preferred",
+                    "tour_count": 1,
+                    "ready_tour_count": 1,
+                    "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 0, "krpano": 0, "magicfit": 1},
+                    "provider_blockers": {
+                        provider: {"blocked_count": 0, "reasons": []}
+                        for provider in ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
+                    },
+                    "ready_provider_modes": ["3dvista", "magicfit", "matterport"],
+                    "required_provider_modes": ["matterport", "3dvista", "magicfit"],
+                    "missing_provider_modes": [],
+                    "next_required_actions": [],
+                    "live_probe": True,
+                    "base_url": "http://127.0.0.1:8090",
+                    "require_all_provider_modes": False,
+                    "tours": [],
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("scripts.verify_property_tour_controls.subprocess.run", _run)
+
+    receipt, exit_code = _runtime_container_live_probe_receipt(
+        base_url="http://127.0.0.1:8097",
+        host_header="propertyquarry.com",
+        timeout_seconds=5.0,
+        require_all_provider_modes=False,
+    )
+
+    assert exit_code == 0
+    assert receipt is not None
+    assert "--base-url" in commands[0]
+    assert "http://127.0.0.1:8090" in commands[0]
+    assert receipt["host_requested_base_url"] == "http://127.0.0.1:8097"
+    assert receipt["container_probe_base_url"] == "http://127.0.0.1:8090"
+    assert receipt["base_url"] == "http://127.0.0.1:8090"
 
 
 def test_property_tour_control_verifier_counts_provider_gaps_on_ready_tours(tmp_path: Path) -> None:
@@ -588,7 +667,7 @@ def test_property_tour_control_verifier_does_not_count_failed_live_probe_as_read
     assert receipt["tours"][0]["controls"][0]["status"] == "probe_failed"
 
 
-def test_property_tour_control_verifier_does_not_fail_public_gate_for_optional_pano2vr_probe(
+def test_property_tour_control_verifier_keeps_hidden_optional_pano2vr_ready(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -604,7 +683,7 @@ def test_property_tour_control_verifier_does_not_fail_public_gate_for_optional_p
 
     def _probe(url: str, *, provider: str = "", **_kwargs) -> dict[str, object]:
         if provider == "pano2vr":
-            return {"http_status": 404, "error": "hidden"}
+            return {"http_status": 404, "error": "hidden", "error_code": "tour_control_panorama_export_hidden"}
         return {"http_status": 200, "body_markers": {"matterport": True}}
 
     monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _probe)
@@ -619,9 +698,88 @@ def test_property_tour_control_verifier_does_not_fail_public_gate_for_optional_p
     controls = {row["provider"]: row for row in receipt["tours"][0]["controls"]}
     assert receipt["status"] == "blocked_missing_provider_modes"
     assert receipt["provider_counts"]["matterport"] == 1
+    assert receipt["provider_counts"]["pano2vr"] == 1
+    assert receipt["ready_provider_modes"] == ["matterport", "pano2vr"]
+    assert receipt["hidden_ready_provider_modes"] == ["pano2vr"]
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "magicfit"}
+    assert controls["pano2vr"]["status"] == "ready"
+    assert controls["pano2vr"]["route_visibility"] == "hidden_by_product_boundary"
+
+
+def test_property_tour_control_verifier_keeps_hidden_optional_krpano_ready(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_tour(
+        tmp_path,
+        "matterport-with-hidden-krpano",
+        {
+            "matterport_url": "https://my.matterport.com/show/?m=READY123",
+            "walkable_scene": {"projection": "equirectangular", "panorama_relpath": "krpano/panorama.jpg"},
+        },
+    )
+    _write_equirectangular_image(tmp_path / "matterport-with-hidden-krpano" / "krpano" / "panorama.jpg")
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "demo-license")
+
+    def _probe(url: str, *, provider: str = "", **_kwargs) -> dict[str, object]:
+        if provider == "krpano":
+            return {"http_status": 404, "error": "hidden", "error_code": "tour_control_panorama_export_hidden"}
+        return {"http_status": 200, "body_markers": {"matterport": True}}
+
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _probe)
+
+    receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+        require_all_provider_modes=True,
+    )
+
+    controls = {row["provider"]: row for row in receipt["tours"][0]["controls"]}
+    assert receipt["status"] == "blocked_missing_provider_modes"
+    assert receipt["provider_counts"]["matterport"] == 1
+    assert receipt["provider_counts"]["krpano"] == 1
+    assert receipt["ready_provider_modes"] == ["krpano", "matterport"]
+    assert receipt["hidden_ready_provider_modes"] == ["krpano"]
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "magicfit"}
+    assert controls["krpano"]["status"] == "ready"
+    assert controls["krpano"]["route_visibility"] == "hidden_by_product_boundary"
+
+
+def test_property_tour_control_verifier_marks_optional_pano2vr_probe_failed_when_hidden_code_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_tour(
+        tmp_path,
+        "matterport-with-broken-pano2vr",
+        {
+            "matterport_url": "https://my.matterport.com/show/?m=READY123",
+            "pano2vr_entry_relpath": "pano/index.html",
+        },
+        {"pano/index.html": "<!doctype html><script src='tour.js'></script><div>Pano2VR</div>"},
+    )
+
+    def _probe(url: str, *, provider: str = "", **_kwargs) -> dict[str, object]:
+        if provider == "pano2vr":
+            return {"http_status": 404, "error": "missing"}
+        return {"http_status": 200, "body_markers": {"matterport": True}}
+
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _probe)
+
+    receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+        require_all_provider_modes=True,
+    )
+
+    controls = {row["provider"]: row for row in receipt["tours"][0]["controls"]}
     assert receipt["provider_counts"]["pano2vr"] == 0
     assert receipt["ready_provider_modes"] == ["matterport"]
-    assert set(receipt["missing_provider_modes"]) == {"3dvista", "magicfit"}
+    assert "hidden_ready_provider_modes" in receipt
+    assert receipt["hidden_ready_provider_modes"] == []
     assert controls["pano2vr"]["status"] == "optional_probe_failed"
 
 

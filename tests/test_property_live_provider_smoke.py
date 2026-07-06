@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from scripts.property_live_provider_smoke import build_live_provider_smoke_receipt
+from scripts import property_live_provider_smoke as provider_smoke
 from app.services.property_market_catalog import (
     CUSTOMER_SEARCH_COUNTRY_ORDER,
     default_platforms_for_country_listing_mode,
@@ -242,6 +244,30 @@ def test_live_provider_smoke_live_mode_reports_runtime_mismatch(monkeypatch) -> 
     assert row["status"] == "fail"
     assert row["runtime_provider_count_ok"] is False
     assert row["runtime_defaults_present_ok"] is False
+
+
+def test_live_provider_smoke_default_api_token_reads_dotenv(monkeypatch, tmp_path: Path) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("EA_API_TOKEN=dotenv-live-token\n", encoding="utf-8")
+    monkeypatch.delenv("EA_API_TOKEN", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_LIVE_API_TOKEN", raising=False)
+
+    assert provider_smoke._default_api_token(dotenv_paths=(dotenv,)) == "dotenv-live-token"
+
+
+def test_live_provider_smoke_request_headers_include_all_supported_api_token_headers() -> None:
+    headers = provider_smoke._request_headers(
+        user_agent="test-agent",
+        principal_id="cf-email:test@example.com",
+        api_token="live-token",
+        content_type="application/json",
+    )
+
+    assert headers["Authorization"] == "Bearer live-token"
+    assert headers["X-EA-API-Token"] == "live-token"
+    assert headers["X-API-Token"] == "live-token"
+    assert headers["X-EA-Principal-ID"] == "cf-email:test@example.com"
+    assert headers["Content-Type"] == "application/json"
 
 
 def test_live_provider_smoke_live_mode_rejects_cross_country_runtime_provider(monkeypatch) -> None:

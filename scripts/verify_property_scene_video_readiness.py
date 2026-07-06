@@ -90,9 +90,11 @@ def validate_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         blockers.append("mootion_not_ready")
     if str(mootion.get("execution_lane") or "").strip() != "browseract_remote":
         blockers.append("mootion_browseract_remote_lane_missing")
+        _require_action(blockers, receipt, "mootion", "mootion_browseract_remote_lane_missing")
     mootion_remote = dict(dict(mootion.get("checks") or {}).get("mootion_browseract_remote") or {})
     if mootion_remote.get("ready") is not True:
         blockers.append("mootion_browseract_bridge_not_ready")
+        _require_action(blockers, receipt, "mootion", "mootion_browseract_bridge_not_ready")
 
     onemin = rows.get("onemin_i2v") or {}
     if onemin.get("ready") is not True:
@@ -121,6 +123,10 @@ def validate_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
             _require_action(blockers, receipt, "omagic", "omagic_credentials_missing")
         if "omagic_model_upload_adapter_missing" in row_blockers:
             _require_action(blockers, receipt, "omagic", "omagic_model_upload_adapter_missing")
+        if "omagic_model_upload_adapter_disabled" in row_blockers:
+            _require_action(blockers, receipt, "omagic", "omagic_model_upload_adapter_disabled")
+        if "omagic_model_upload_endpoint_missing" in row_blockers:
+            _require_action(blockers, receipt, "omagic", "omagic_model_upload_endpoint_missing")
 
     for reason in ONEMIN_PROTECTED_ACTION_REASONS:
         for action in _actions_for_reason(receipt, reason):

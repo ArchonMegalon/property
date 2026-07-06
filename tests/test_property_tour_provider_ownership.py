@@ -93,3 +93,58 @@ def test_tour_provider_ownership_receipt_can_capture_current_import_and_private_
     assert receipt["providers"]["pano2vr"]["import_verified"] is True
     assert receipt["providers"]["pano2vr"]["export_verified"] is True
     assert receipt["providers"]["pano2vr"]["control_url"] == "/tours/luxury-slug/control/pano2vr"
+
+
+def test_tour_provider_ownership_receipt_passes_from_receipt_backed_delivery_evidence_without_secrets(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("THREEDVISTA_LOGIN_EMAIL", raising=False)
+    monkeypatch.delenv("THREEDVISTA_LICENSE_EMAIL", raising=False)
+    monkeypatch.delenv("THREEDVISTA_LOGIN_PASSWORD", raising=False)
+    monkeypatch.delenv("PANO2VR_EMAIL", raising=False)
+    monkeypatch.delenv("PANO2VR_LICENSE_KEY", raising=False)
+
+    (tmp_path / "3dvista_private_viewer_refresh_live_current.json").write_text(
+        json.dumps(
+            {
+                "status": "refreshed",
+                "slug": "luxury-slug",
+                "control_url": "/tours/luxury-slug/control/3dvista",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "3dvista-import-current.json").write_text(
+        json.dumps(
+            {
+                "status": "imported",
+                "slug": "luxury-slug",
+                "control_url": "/tours/luxury-slug/control/3dvista",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "pano2vr-import-current.json").write_text(
+        json.dumps(
+            {
+                "status": "imported",
+                "slug": "luxury-slug",
+                "control_url": "/tours/luxury-slug/control/pano2vr",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    receipt = build_property_tour_provider_ownership_receipt(receipt_root=tmp_path)
+
+    assert receipt["status"] == "pass"
+    assert receipt["missing_providers"] == []
+    assert receipt["providers"]["3dvista"]["status"] == "owned_receipt_backed"
+    assert receipt["providers"]["3dvista"]["ownership_metadata_present"] is True
+    assert receipt["providers"]["3dvista"]["secret_config_present"] is False
+    assert receipt["providers"]["3dvista"]["delivery_evidence_present"] is True
+    assert receipt["providers"]["pano2vr"]["status"] == "owned_receipt_backed"
+    assert receipt["providers"]["pano2vr"]["ownership_metadata_present"] is True
+    assert receipt["providers"]["pano2vr"]["secret_config_present"] is False
+    assert receipt["providers"]["pano2vr"]["delivery_evidence_present"] is True

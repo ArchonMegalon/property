@@ -1875,6 +1875,22 @@ def _public_tour_is_generated_reconstruction_only(payload: dict[str, object]) ->
     return provider == "propertyquarry_generated_reconstruction"
 
 
+def _public_tour_request_prefers_embedded_media(request: Request) -> bool:
+    pane = str(request.query_params.get("pane") or "").strip().lower()
+    if pane in {"overview-pane", "floorplan-pane", "flythrough-pane"}:
+        return True
+    if str(request.query_params.get("scene") or "").strip():
+        return True
+    return _truthy(request.query_params.get("autoplay"))
+
+
+def _public_tour_request_embeds_walkthrough(request: Request) -> bool:
+    pane = str(request.query_params.get("pane") or "").strip().lower()
+    if pane:
+        return pane == "flythrough-pane"
+    return _truthy(request.query_params.get("autoplay"))
+
+
 def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
     if _public_tour_payload_needs_defensive_redaction(payload):
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
@@ -1925,8 +1941,6 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     control_mode = str(payload.get("control_mode") or "").strip().lower()
     if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
         safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
-        video_relpath = str(payload.get("video_relpath") or "").strip()
-        existing_video_url = str(payload.get("video_url") or "").strip()
         video_provider = str(
             payload.get("video_provider")
             or payload.get("video_provider_key")
@@ -1939,9 +1953,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             video_provider not in generated_video_providers
             or video_coverage_proof == "boundary_verified_frame_continuation"
         )
-        video_url = ""
-        if video_allowed:
-            video_url = existing_video_url or (f"/tours/files/{html.escape(slug)}/{html.escape(video_relpath)}" if slug and video_relpath else "")
+        walkthrough_url, _walkthrough_mime_type = _public_tour_walkthrough_media_context(payload)
+        video_url = walkthrough_url if video_allowed else ""
         spatial_review = _tour_spatial_review_experience(
             payload,
             slug=slug,
@@ -2002,9 +2015,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     brand_name = str(payload.get("brand_name") or "Pioche Lecombe").strip() or "Pioche Lecombe"
     hosted_brand_name = _public_tour_host_brand_label(hostname, fallback=brand_name)
     hosted_brand_html = html.escape(hosted_brand_name)
-    video_relpath = str(payload.get("video_relpath") or "").strip()
-    video_url = str(payload.get("video_url") or "").strip() or (f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else "")
-    video_mime_type = mimetypes.guess_type(urllib.parse.urlparse(video_url).path)[0] or "video/mp4"
+    video_url, video_mime_type = _public_tour_walkthrough_media_context(payload)
 
     def _trim_text(value: object) -> str:
         return str(value or "").strip()
@@ -2103,6 +2114,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
 
     def _rooms_display() -> str:
         label = _fact_text("rooms_label")
+        if "under research" in label.lower():
+            label = ""
         if label:
             return label
         raw_rooms = facts.get("rooms") or facts.get("room_count")
@@ -2110,7 +2123,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             return f"{int(raw_rooms) if float(raw_rooms).is_integer() else raw_rooms} rooms"
         item = _missing_fact_item("rooms")
         if item:
-            return str(item.get("display_value") or "Rooms under research").strip() or "Rooms under research"
+            display_value = str(item.get("display_value") or "").strip()
+            if "under research" in display_value.lower():
+                return ""
+            return display_value
         return ""
 
     def _normalized_token(value: object) -> str:
@@ -2298,7 +2314,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 area_value = f"{int(area_sqm_value) if float(area_sqm_value).is_integer() else area_sqm_value} m²"
         if area_value:
             rows.append(("Area", area_value))
-        rooms_value = _fact_text("rooms_label")
+        rooms_value = _rooms_display()
         if not rooms_value:
             rooms_raw = facts.get("rooms")
             if isinstance(rooms_raw, (int, float)):
@@ -2466,7 +2482,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     area_chip = area
     rent_chip = rent
     availability_chip = availability
-    rooms_legacy_chip_html = f'<div class="chip">{rooms}</div>' if rooms else '<div class="chip">Rooms under research</div>'
+    rooms_legacy_chip_html = f'<div class="chip">{rooms}</div>' if rooms else ""
     area_legacy_chip_html = f'<div class="chip">{area} m²</div>' if area_display else f'<div class="chip">{area}</div>'
     rent_legacy_chip_html = f'<div class="chip">{rent}</div>' if rent else ""
     availability_legacy_chip_html = f'<div class="chip">{availability}</div>' if availability else ""
@@ -3448,13 +3464,13 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     )
     pure_decision_panel = (
         '<section class="card decision-card">'
-        '<div class="eyebrow">Decision Summary</div>'
-        '<h2>Decision Summary</h2>'
+        '<div class="eyebrow">Summary</div>'
+        '<h2>Summary</h2>'
         f'<div class="stat-grid">{pure_decision_rows_html}</div>'
         '<div class="decision-grid">'
         '<div><h3>Highlights</h3><ul>' + pure_reasons_html + '</ul></div>'
-        '<div><h3>Decision pressure</h3><ul>' + pure_risks_html + '</ul></div>'
-        '<div><h3>Still missing</h3><ul>' + pure_unknowns_html + '</ul></div>'
+        '<div><h3>Watch for</h3><ul>' + pure_risks_html + '</ul></div>'
+        '<div><h3>To confirm</h3><ul>' + pure_unknowns_html + '</ul></div>'
         '</div>'
         + (f'<h2>Daily-life access</h2><div class="stat-grid">{pure_distance_html}</div>' if pure_distance_html else '')
         + (f'<p class="sub">{html.escape(completed_research_line)}</p>' if completed_research_line else '')
@@ -3966,7 +3982,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 <iframe id="floorplan-frame" title="Floorplan document" hidden referrerpolicy="no-referrer"></iframe>
               </div>
             </section>
-            {"<section id=\"flythrough-pane\" class=\"pane\"><div class=\"video-stage\"><video id=\"flythrough-video\" controls playsinline webkit-playsinline=\"true\" preload=\"auto\"><source src=\"" + html.escape(video_url) + "\" type=\"video/mp4\"></video></div></section>" if video_url else ""}
+            {"<section id=\"flythrough-pane\" class=\"pane\"><div class=\"video-stage\"><video id=\"flythrough-video\" controls playsinline webkit-playsinline=\"true\" preload=\"auto\"><source src=\"" + html.escape(video_url) + "\" type=\"" + html.escape(video_mime_type) + "\"></video></div></section>" if video_url else ""}
           </div>
           <aside class="card sidebar">
             <h2 class="section-title">Scene navigation</h2>
@@ -4098,12 +4114,35 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
 
       async function autoplayFlythrough() {{
         if (!flythroughVideo || typeof flythroughVideo.play !== 'function') return;
+        flythroughVideo.defaultMuted = true;
         flythroughVideo.muted = true;
         flythroughVideo.autoplay = true;
+        flythroughVideo.playsInline = true;
+        flythroughVideo.setAttribute("muted", "");
+        flythroughVideo.setAttribute("autoplay", "");
+        flythroughVideo.setAttribute("playsinline", "");
+        const attemptPlay = async () => {{
+          try {{
+            await flythroughVideo.play();
+          }} catch (_error) {{
+            flythroughVideo.controls = true;
+          }}
+        }};
+        if (flythroughVideo.readyState >= 2) {{
+          await attemptPlay();
+          return;
+        }}
+        const once = () => {{
+          flythroughVideo.removeEventListener("loadedmetadata", once);
+          flythroughVideo.removeEventListener("canplay", once);
+          void attemptPlay();
+        }};
+        flythroughVideo.addEventListener("loadedmetadata", once, {{ once: true }});
+        flythroughVideo.addEventListener("canplay", once, {{ once: true }});
         try {{
-          await flythroughVideo.play();
+          flythroughVideo.load();
         }} catch (_error) {{
-          flythroughVideo.controls = true;
+          void attemptPlay();
         }}
       }}
 
@@ -4220,9 +4259,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       if (openFlythrough) {{
         openFlythrough.addEventListener('click', () => {{
           switchPane('flythrough-pane');
-          if (flythroughVideo && typeof flythroughVideo.play === 'function') {{
-            flythroughVideo.play().catch(() => null);
-          }}
+          void autoplayFlythrough();
         }});
       }}
       window.addEventListener('keydown', (event) => {{
@@ -4316,7 +4353,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         setFloorplan(0);
       }}
       renderLayoutPreview();
-      if (initialPane === 'flythrough-pane' && flythroughVideo) {{
+      const autoplayOnlyFlythrough = !initialPane && initialAutoplay === '1' && flythroughVideo;
+      if (flythroughVideo && (initialPane === 'flythrough-pane' || autoplayOnlyFlythrough)) {{
         switchPane('flythrough-pane');
         if (initialAutoplay === '1') {{
           autoplayFlythrough();
@@ -4427,13 +4465,13 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     )
     legacy_decision_panel = (
         '<section class="panel">'
-        '<div class="eyebrow">Decision Summary</div>'
-        '<h2>Decision Summary</h2>'
+        '<div class="eyebrow">Summary</div>'
+        '<h2>Summary</h2>'
         f'<div class="stack">{legacy_decision_rows_html}</div>'
         '<div class="stage">'
         '<div class="panel"><h2>Highlights</h2><ul>' + legacy_reasons_html + '</ul></div>'
-        '<div class="panel"><h2>Decision pressure</h2><ul>' + legacy_risks_html + '</ul></div>'
-        '<div class="panel"><h2>Still missing</h2><ul>' + legacy_unknowns_html + '</ul></div>'
+        '<div class="panel"><h2>Watch for</h2><ul>' + legacy_risks_html + '</ul></div>'
+        '<div class="panel"><h2>To confirm</h2><ul>' + legacy_unknowns_html + '</ul></div>'
         '</div>'
         '</section>'
     )
@@ -4837,6 +4875,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       const stageRole = document.getElementById("stage-role");
       const thumbs = document.getElementById("thumbs");
       const autoplayButton = document.getElementById("autoplay-btn");
+      const tourVideo = document.getElementById("tour-video");
       let autoplayHandle = null;
       let activeRoleFilter = "all";
       function visibleSceneIndexes() {{
@@ -4911,7 +4950,44 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         autoplayButton.textContent = "Stop Autoplay";
         autoplayHandle = setInterval(() => shiftVisible(1), 2600);
       }});
+      async function primeTourVideoPlayback() {{
+        if (!tourVideo || typeof tourVideo.play !== "function") return;
+        tourVideo.defaultMuted = true;
+        tourVideo.muted = true;
+        tourVideo.autoplay = true;
+        tourVideo.playsInline = true;
+        tourVideo.setAttribute("muted", "");
+        tourVideo.setAttribute("autoplay", "");
+        tourVideo.setAttribute("playsinline", "");
+        const attemptPlay = async () => {{
+          try {{
+            await tourVideo.play();
+          }} catch (_error) {{
+            tourVideo.controls = true;
+          }}
+        }};
+        if (tourVideo.readyState >= 2) {{
+          await attemptPlay();
+          return;
+        }}
+        const once = () => {{
+          tourVideo.removeEventListener("loadedmetadata", once);
+          tourVideo.removeEventListener("canplay", once);
+          void attemptPlay();
+        }};
+        tourVideo.addEventListener("loadedmetadata", once, {{ once: true }});
+        tourVideo.addEventListener("canplay", once, {{ once: true }});
+        try {{
+          tourVideo.load();
+        }} catch (_error) {{
+          void attemptPlay();
+        }}
+      }}
       setActive(0);
+      const params = new URLSearchParams(window.location.search);
+      if (tourVideo && params.get("autoplay") === "1") {{
+        void primeTourVideoPlayback();
+      }}
     </script>
   </body>
 </html>"""
@@ -5173,6 +5249,22 @@ def _safe_matterport_external_url(value: object) -> str:
     return normalized
 
 
+def _public_tour_walkthrough_media_context(payload: dict[str, object]) -> tuple[str, str]:
+    slug = str(payload.get("slug") or "").strip()
+    video_relpath = _public_tour_safe_asset_relpath(str(payload.get("video_relpath") or "").strip())
+    raw_video_url = str(payload.get("video_url") or "").strip()
+    video_url = ""
+    mime_source_path = ""
+    if slug and video_relpath:
+        video_url = f"/tours/{slug}/walkthrough"
+        mime_source_path = video_relpath
+    elif raw_video_url and _public_tour_external_media_url_allowed(raw_video_url):
+        video_url = raw_video_url
+        mime_source_path = urllib.parse.urlparse(raw_video_url).path
+    video_mime_type = mimetypes.guess_type(mime_source_path)[0] or "video/mp4"
+    return video_url, video_mime_type
+
+
 def _tour_control_media_context(payload: dict[str, object]) -> tuple[list[dict[str, str]], str, str]:
     slug = str(payload.get("slug") or "").strip()
     scene_data: list[dict[str, str]] = []
@@ -5193,14 +5285,7 @@ def _tour_control_media_context(payload: dict[str, object]) -> tuple[list[dict[s
             }
         )
 
-    video_relpath = _public_tour_safe_asset_relpath(str(payload.get("video_relpath") or "").strip())
-    raw_video_url = str(payload.get("video_url") or "").strip()
-    video_url = ""
-    if slug and video_relpath:
-        video_url = f"/tours/{slug}/walkthrough"
-    elif raw_video_url and _public_tour_external_media_url_allowed(raw_video_url):
-        video_url = raw_video_url
-    video_mime_type = mimetypes.guess_type(urllib.parse.urlparse(video_url).path)[0] or "video/mp4"
+    video_url, video_mime_type = _public_tour_walkthrough_media_context(payload)
     return scene_data, video_url, video_mime_type
 
 
@@ -5321,9 +5406,11 @@ def _tour_control_external_iframe_html(
 ) -> str:
     payload = payload or {}
     scene_data, video_url, video_mime_type = _tour_control_media_context(payload)
+    embed_walkthrough = bool(payload.get("_tour_control_embed_walkthrough"))
     provider_layers = _tour_control_provider_layers(payload=payload, default_src=iframe_src, default_label=badge)
     provider_layers_json = html.escape(json.dumps(provider_layers, ensure_ascii=False).replace("</", "<\\/"), quote=False)
     has_provider_layers = len(provider_layers) > 1
+    provider_badge = html.escape(str(badge or "3D Tour").strip() or "3D Tour")
     provider_layer_buttons = "".join(
         f'<button type="button" data-provider-layer="{html.escape(row["id"])}" aria-pressed="{"true" if index == 0 else "false"}">{html.escape(row["label"])}</button>'
         for index, row in enumerate(provider_layers)
@@ -5337,13 +5424,23 @@ def _tour_control_external_iframe_html(
     if (scene_data or video_url) and not fullscreen:
         data_json = html.escape(json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/"), quote=False)
         first_scene = scene_data[0] if scene_data else {"name": title, "image_url": "", "role": "photo", "mime_type": ""}
-        provider_badge = "3D Tour"
         initial_provider_src = html.escape(str(provider_layers[0].get("src") or iframe_src or "about:blank").strip())
         _ = video_mime_type
         walkthrough_html = (
-            f"""<div class="media-actions">
+            (
+                f"""<div class="media-actions">
+              <a href="{html.escape(video_url)}" target="_blank" rel="noopener noreferrer">Open walkthrough</a>
+            </div>
+            <div class="video-stage">
+              <video id="tour-video" controls playsinline webkit-playsinline="true" preload="metadata" poster="{html.escape(first_scene.get("image_url", ""))}">
+                <source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}">
+              </video>
+            </div>"""
+                if embed_walkthrough
+                else f"""<div class="media-actions">
               <a href="{html.escape(video_url)}" target="_blank" rel="noopener noreferrer">Open walkthrough</a>
             </div>"""
+            )
             if video_url
             else ""
         )
@@ -5403,6 +5500,8 @@ def _tour_control_external_iframe_html(
       .card-label {{ margin-bottom: 8px; color: #f8df9b; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
       .media-actions {{ display: flex; gap: 8px; flex-wrap: wrap; }}
       .media-actions a {{ min-height: 42px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 14px; border: 1px solid var(--line); background: rgba(255,250,240,.08); color: var(--text); font-weight: 800; text-decoration: none; }}
+      .video-stage {{ overflow: hidden; border-radius: 20px; border: 1px solid var(--line); background: rgba(0,0,0,.42); }}
+      .video-stage video {{ display: block; width: 100%; min-height: 240px; max-height: 42vh; background: #080808; }}
       .tour-toolbar {{ display: flex; gap: 8px; flex-wrap: wrap; }}
       .toggle {{ display: inline-flex; gap: 6px; padding: 4px; border-radius: 999px; background: rgba(255,250,240,.08); border: 1px solid var(--line); }}
       .toggle button {{ min-height: 40px; border: 0; border-radius: 999px; padding: 0 13px; background: transparent; color: var(--muted); font: inherit; font-weight: 750; cursor: pointer; }}
@@ -5430,6 +5529,7 @@ def _tour_control_external_iframe_html(
         .provider-actions button, .provider-actions a {{ width: 100%; }}
         .provider-frame {{ height: 58vh; min-height: 380px; }}
         .evidence {{ padding: 12px; }}
+        .video-stage video {{ min-height: 220px; max-height: 36vh; }}
         .toggle {{ width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); border-radius: 18px; }}
         .toggle button {{ min-height: 48px; padding: 0 8px; border-radius: 14px; }}
         #stage-image, #stage-frame {{ min-height: 280px; max-height: 52vh; }}
@@ -5560,9 +5660,41 @@ def _tour_control_external_iframe_html(
       }} else {{
         setActive(0);
       }}
-      if (params.get("pane") === "flythrough-pane" && tourVideo && params.get("autoplay") === "1") {{
+      async function primeTourVideoPlayback() {{
+        if (!tourVideo || typeof tourVideo.play !== "function") return;
+        tourVideo.defaultMuted = true;
         tourVideo.muted = true;
-        tourVideo.play().catch(() => null);
+        tourVideo.autoplay = true;
+        tourVideo.playsInline = true;
+        tourVideo.setAttribute("muted", "");
+        tourVideo.setAttribute("autoplay", "");
+        tourVideo.setAttribute("playsinline", "");
+        const attemptPlay = async () => {{
+          try {{
+            await tourVideo.play();
+          }} catch (_error) {{
+            tourVideo.controls = true;
+          }}
+        }};
+        if (tourVideo.readyState >= 2) {{
+          await attemptPlay();
+          return;
+        }}
+        const once = () => {{
+          tourVideo.removeEventListener("loadedmetadata", once);
+          tourVideo.removeEventListener("canplay", once);
+          void attemptPlay();
+        }};
+        tourVideo.addEventListener("loadedmetadata", once, {{ once: true }});
+        tourVideo.addEventListener("canplay", once, {{ once: true }});
+        try {{
+          tourVideo.load();
+        }} catch (_error) {{
+          void attemptPlay();
+        }}
+      }}
+      if (tourVideo && params.get("autoplay") === "1") {{
+        void primeTourVideoPlayback();
       }}
     </script>
   </body>
@@ -5572,7 +5704,7 @@ def _tour_control_external_iframe_html(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{title} - 3D Tour</title>
+    <title>{title} - {provider_badge}</title>
     <style>
       html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0f1112; color: #f8f4eb; font-family: Inter, system-ui, sans-serif; }}
       iframe {{ position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; background: #0f1112; }}
@@ -5594,7 +5726,7 @@ def _tour_control_external_iframe_html(
   <body>
     <iframe id="provider-frame" src="{html.escape(iframe_src)}" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
     <div class="shell">
-      <div class="badge">3D Tour</div>
+      <div class="badge">{provider_badge}</div>
       {f'<div class="layer-switch" aria-label="3D tour layer">{provider_layer_buttons}</div><p class="layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>' if has_provider_layers else ""}
       <section class="summary" aria-label="Tour summary">
         <p>Interactive tour</p>
@@ -5632,7 +5764,7 @@ def _tour_control_matterport_html(payload: dict[str, object]) -> str:
         return _tour_control_external_iframe_html(
             title=title,
             iframe_src=external_url,
-            badge="3D Tour",
+            badge="Matterport Control",
             payload=payload,
             fullscreen_href=f"/tours/{urllib.parse.quote(slug, safe='')}/control/matterport?fullscreen=1" if slug else external_url,
             fullscreen=bool(payload.get("_tour_control_fullscreen")),
@@ -5661,7 +5793,7 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
         return _tour_control_external_iframe_html(
             title=title,
             iframe_src=iframe_src,
-            badge="3D Tour",
+            badge="3DVista Control",
             payload=payload,
             fullscreen_href=f"/tours/{urllib.parse.quote(raw_slug, safe='')}/control/3dvista?fullscreen=1" if raw_slug else iframe_src,
             fullscreen=bool(payload.get("_tour_control_fullscreen")),
@@ -5877,6 +6009,8 @@ def public_tour_control(slug: str, request: Request) -> HTMLResponse:
         payload,
         expose_asset_relpaths=control_mode in {"pano2vr", "pano_2_vr"} or bool(_pano2vr_entry_relpath(payload)),
     )
+    if _public_tour_request_embeds_walkthrough(request):
+        rendered_payload["_tour_control_embed_walkthrough"] = True
     fullscreen = str(request.query_params.get("fullscreen") or "").strip().lower() in {"1", "true", "yes", "on"}
     return HTMLResponse(_tour_control_html(rendered_payload, fullscreen=fullscreen), headers=_public_tour_security_headers())
 
@@ -5893,11 +6027,15 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
     if normalized_viewer_mode in {"matterport", "metaport", "3dvista", "3d_vista", "three_d_vista"}:
         # Provider controls need the verified private receipt URL server-side, but
         # the public JSON manifest must continue to omit source/provider URLs.
+        if _public_tour_request_embeds_walkthrough(request):
+            payload = {**payload, "_tour_control_embed_walkthrough": True}
         return HTMLResponse(_tour_control_html(payload, viewer_mode=viewer_mode, fullscreen=fullscreen), headers=_public_tour_security_headers())
     rendered_payload = _redacted_public_tour_payload(
         payload,
         expose_asset_relpaths=normalized_viewer_mode in {"pano2vr", "pano_2_vr"},
     )
+    if _public_tour_request_embeds_walkthrough(request):
+        rendered_payload["_tour_control_embed_walkthrough"] = True
     return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode, fullscreen=fullscreen), headers=_public_tour_security_headers())
 
 
@@ -6033,7 +6171,7 @@ def public_tour_page(
         if _tour_payload_is_disabled_fallback(payload):
             raise HTTPException(status_code=404, detail="tour_disabled_fallback")
         primary_control_path = _public_tour_primary_control_path(payload)
-        if primary_control_path:
+        if primary_control_path and not _public_tour_request_prefers_embedded_media(request):
             return RedirectResponse(
                 primary_control_path,
                 status_code=302,
