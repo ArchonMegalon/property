@@ -2600,6 +2600,165 @@ def _property_research_distance_preference_overlay(payload: dict[str, object]) -
     return overlay
 
 
+def _property_research_has_distance_preferences(payload: dict[str, object] | None) -> bool:
+    overlay = _property_research_distance_preference_overlay(dict(payload or {}))
+    if not overlay:
+        return False
+    for key, value in overlay.items():
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            continue
+        if normalized_key.startswith("max_distance_to_"):
+            try:
+                if float(str(value or "").strip()) > 0:
+                    return True
+            except Exception:
+                continue
+        if normalized_key.startswith("prefer_") and normalized_key.endswith("_nearby"):
+            normalized_value = str(value or "").strip().casefold()
+            if normalized_value and normalized_value not in {"0", "0.0", "false", "none", "null", "off"}:
+                return True
+        if normalized_key in {"keywords", "avoid_keywords"} and str(value or "").strip():
+            return True
+        if normalized_key == "keyword_preferences" and isinstance(value, dict):
+            if any(
+                str(marker or "").strip()
+                and str(state or "").strip()
+                and str(state or "").strip().casefold() not in {"0", "0.0", "false", "none", "null", "off", "neutral", "any"}
+                for marker, state in value.items()
+            ):
+                return True
+        if normalized_key == "keyword_preferences_json":
+            raw_json = str(value or "").strip()
+            if not raw_json:
+                continue
+            try:
+                parsed = json.loads(raw_json)
+            except json.JSONDecodeError:
+                parsed = {}
+            if isinstance(parsed, dict) and any(
+                str(marker or "").strip()
+                and str(state or "").strip()
+                and str(state or "").strip().casefold() not in {"0", "0.0", "false", "none", "null", "off", "neutral", "any"}
+                for marker, state in parsed.items()
+            ):
+                return True
+    return False
+
+
+def _property_research_location_scope_tokens(*values: object) -> set[str]:
+    tokens: set[str] = set()
+
+    def _ingest(raw_value: object) -> None:
+        if isinstance(raw_value, (list, tuple, set)):
+            for item in raw_value:
+                _ingest(item)
+            return
+        text = str(raw_value or "").strip()
+        if not text:
+            return
+        for part in [segment.strip() for segment in text.split(",") if segment.strip()]:
+            normalized_part = re.sub(r"\bwien\b", "vienna", part.casefold())
+            for code in re.findall(r"\b\d{4,5}\b", normalized_part):
+                tokens.add(f"postal:{code}")
+            normalized_text = re.sub(r"[^a-z0-9äöüß]+", "", normalized_part)
+            if normalized_text:
+                tokens.add(f"text:{normalized_text}")
+
+    for value in values:
+        _ingest(value)
+    return tokens
+
+
+def _property_research_search_agent_distance_overlay(
+    *,
+    preferences: dict[str, object],
+    run_preferences: dict[str, object],
+    candidate: dict[str, object],
+) -> dict[str, object]:
+    if _property_research_has_distance_preferences(preferences) or _property_research_has_distance_preferences(run_preferences):
+        return {}
+    search_agents = [
+        dict(row)
+        for row in list(preferences.get("search_agents") or [])
+        if isinstance(row, dict)
+    ]
+    if not search_agents:
+        return {}
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    scope_tokens = _property_research_location_scope_tokens(
+        run_preferences.get("selected_location_values"),
+        run_preferences.get("location_query"),
+        preferences.get("selected_location_values"),
+        preferences.get("location_query"),
+        candidate.get("location_label"),
+        facts.get("postal_name"),
+        facts.get("address"),
+        facts.get("district"),
+        facts.get("source_scope_location"),
+    )
+    expected_country_code = normalize_country_code(
+        run_preferences.get("country_code") or preferences.get("country_code") or ""
+    )
+    expected_listing_mode = normalize_listing_mode(
+        run_preferences.get("listing_mode") or preferences.get("listing_mode") or ""
+    )
+    active_agent_id = str(
+        run_preferences.get("active_search_agent_id")
+        or preferences.get("active_search_agent_id")
+        or ""
+    ).strip()
+    best_score = 0
+    best_overlay: dict[str, object] = {}
+    for raw_agent in search_agents:
+        agent = dict(raw_agent)
+        agent_preferences = (
+            dict(agent.get("preferences_json") or {})
+            if isinstance(agent.get("preferences_json"), dict)
+            else {}
+        )
+        if not _property_research_has_distance_preferences(agent_preferences):
+            continue
+        overlay = _property_research_distance_preference_overlay(agent_preferences)
+        agent_id = str(agent.get("agent_id") or "").strip()
+        agent_country_code = normalize_country_code(
+            agent_preferences.get("country_code") or agent.get("country_code") or ""
+        )
+        if expected_country_code and agent_country_code and agent_country_code != expected_country_code:
+            continue
+        agent_listing_mode = normalize_listing_mode(
+            agent_preferences.get("listing_mode") or agent.get("listing_mode") or ""
+        )
+        if expected_listing_mode and agent_listing_mode and agent_listing_mode != expected_listing_mode:
+            continue
+        score = 1
+        if agent_country_code and agent_country_code == expected_country_code:
+            score += 8
+        if agent_listing_mode and agent_listing_mode == expected_listing_mode:
+            score += 4
+        agent_scope_tokens = _property_research_location_scope_tokens(
+            agent_preferences.get("selected_location_values"),
+            agent_preferences.get("location_query"),
+            agent.get("selected_location_values"),
+            agent.get("location_query"),
+        )
+        scope_overlap = scope_tokens & agent_scope_tokens
+        if scope_overlap:
+            score += 20 + len(scope_overlap)
+        elif scope_tokens and not (active_agent_id and agent_id and agent_id == active_agent_id):
+            continue
+        if active_agent_id and agent_id and agent_id == active_agent_id:
+            score += 100
+        if bool(agent.get("is_active")):
+            score += 2
+        if bool(agent.get("enabled")):
+            score += 1
+        if score > best_score:
+            best_score = score
+            best_overlay = overlay
+    return best_overlay
+
+
 def _property_lookup_candidate_in_saved_shortlist(
     product: Any,
     *,
@@ -5984,6 +6143,16 @@ def property_research_packet(
         )
         else {}
     )
+    search_agent_distance_overlay = _property_research_search_agent_distance_overlay(
+        preferences=preferences,
+        run_preferences=run_preferences_payload,
+        candidate=candidate,
+    )
+    if search_agent_distance_overlay:
+        preferences = {
+            **preferences,
+            **search_agent_distance_overlay,
+        }
     if run_preferences_payload:
         preferences = {
             **preferences,
@@ -6045,6 +6214,8 @@ def property_research_packet(
         facts=facts,
         preferences=preferences,
     )
+    if search_agent_distance_overlay and selected_distance_rows:
+        selected_distance_copy = "Distances for the nearby filters saved on this workspace."
     risk_fit_rows = _property_packet_risk_fit_rows(
         facts=facts,
         preferences=preferences,

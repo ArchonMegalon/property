@@ -10628,6 +10628,252 @@ def test_property_research_detail_hides_nearby_distance_panel_when_no_filters_se
     assert 'data-research-ranking-list' not in page.text
 
 
+def test_property_research_detail_uses_matching_search_agent_distance_filters_when_run_has_none(monkeypatch) -> None:
+    principal_id = "pq-research-detail-search-agent-distance-fallback"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Search Agent Distance Fallback Office")
+
+    def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
+        merged = dict(property_facts)
+        merged["nearest_supermarket_m"] = 189
+        merged["nearest_supermarket_name"] = "Billa Graben"
+        merged["nearest_supermarket_source"] = "OpenStreetMap (postal area estimate)"
+        merged["nearest_playground_m"] = 688
+        merged["nearest_playground_name"] = "Volksgarten Playground"
+        merged["nearest_playground_source"] = "OpenStreetMap (postal area estimate)"
+        merged["nearest_pharmacy_m"] = 133
+        merged["nearest_pharmacy_name"] = 'Graben-Apotheke "Zum schwarzen Bären"'
+        merged["nearest_pharmacy_source"] = "OpenStreetMap (postal area estimate)"
+        merged["location_hint_research_attempted"] = True
+        merged["listing_research_snapshot"] = {
+            "nearest_supermarket_m": 189,
+            "nearest_playground_m": 688,
+            "nearest_pharmacy_m": 133,
+            "location_hint_research_attempted": True,
+        }
+        merged["listing_research_meta"] = {"strategy": "provider_html_plus_geo"}
+        return merged
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        _fake_merge_property_facts_with_source_research,
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_propertyquarry_refresh_candidate_preview_if_needed",
+        lambda *, product, candidate, allow_network=False: dict(candidate),
+    )
+
+    candidate = {
+        "candidate_ref": "cand-search-agent-distance-fallback",
+        "title": "Old run detail keeps nearby fit",
+        "fit_summary": "Daily-life fit should come from the saved nearby brief.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-search-agent-distance-fallback",
+        "property_url": "https://example.test/search-agent-distance-fallback-home",
+        "source_label": "Willhaben",
+        "fit_score": 81,
+        "property_facts": {
+            "price_display": "EUR 3,553.94",
+            "area_m2": 144.79,
+            "rooms": 3.5,
+            "postal_name": "1010 Wien",
+            "address": "1010 Wien",
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_console_context",
+        lambda **_kwargs: {
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+                "search_agents": [
+                    {
+                        "agent_id": "agent-graz-nearby",
+                        "enabled": False,
+                        "is_active": False,
+                        "location_query": "8010 Graz",
+                        "selected_location_values": ["8010 Graz"],
+                        "preferences_json": {
+                            "country_code": "AT",
+                            "listing_mode": "rent",
+                            "location_query": "8010 Graz",
+                            "selected_location_values": ["8010 Graz"],
+                            "max_distance_to_supermarket_m": 200,
+                            "max_distance_to_supermarket_importance": "important",
+                        },
+                    },
+                    {
+                        "agent_id": "agent-vienna-nearby",
+                        "enabled": False,
+                        "is_active": False,
+                        "location_query": "1010 Vienna, 1020 Vienna, 1090 Vienna",
+                        "selected_location_values": ["1010 Vienna", "1020 Vienna", "1090 Vienna"],
+                        "preferences_json": {
+                            "country_code": "AT",
+                            "listing_mode": "rent",
+                            "location_query": "1010 Vienna, 1020 Vienna, 1090 Vienna",
+                            "selected_location_values": ["1010 Vienna", "1020 Vienna", "1090 Vienna"],
+                            "max_distance_to_supermarket_m": 500,
+                            "max_distance_to_supermarket_importance": "nice_to_have",
+                            "max_distance_to_playground_m": 1000,
+                            "max_distance_to_playground_importance": "nice_to_have",
+                            "max_distance_to_medical_care_m": 500,
+                            "max_distance_to_medical_care_importance": "nice_to_have",
+                        },
+                    },
+                ],
+            },
+            "commercial": {},
+            "run": {
+                "run_id": "run-search-agent-distance-fallback",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1010 Vienna, 1020 Vienna",
+                    "keywords": "",
+                    "keyword_preferences": {},
+                },
+                "summary": {
+                    "sources_total": 1,
+                    "listing_total": 1,
+                    "ranked_candidates": [candidate],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    page = client.get(
+        "/app/research/cand-search-agent-distance-fallback",
+        params={"run_id": "run-search-agent-distance-fallback"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert "Nearby distances" in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert "Distances for the nearby filters saved on this workspace." in page.text
+    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert 'Nearest pharmacy: Graben-Apotheke "Zum schwarzen Bären" is 133 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate).' in page.text
+    assert "selected limit 200 m" not in page.text
+    assert "Other homes" not in page.text
+    assert 'data-research-ranking-list' not in page.text
+
+
+def test_property_research_detail_ignores_unrelated_search_agent_distance_filters_when_run_has_none(monkeypatch) -> None:
+    principal_id = "pq-research-detail-unrelated-search-agent-filters"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Unrelated Search Agent Distance Office")
+
+    def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
+        merged = dict(property_facts)
+        merged["nearest_supermarket_m"] = 189
+        merged["nearest_supermarket_name"] = "Billa Graben"
+        merged["nearest_supermarket_source"] = "OpenStreetMap (postal area estimate)"
+        merged["location_hint_research_attempted"] = True
+        merged["listing_research_snapshot"] = {
+            "nearest_supermarket_m": 189,
+            "location_hint_research_attempted": True,
+        }
+        merged["listing_research_meta"] = {"strategy": "provider_html_plus_geo"}
+        return merged
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        _fake_merge_property_facts_with_source_research,
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_propertyquarry_refresh_candidate_preview_if_needed",
+        lambda *, product, candidate, allow_network=False: dict(candidate),
+    )
+
+    candidate = {
+        "candidate_ref": "cand-unrelated-search-agent-distance",
+        "title": "Old run stays generic without matching nearby brief",
+        "fit_summary": "No nearby rail should show when only unrelated search agents have filters.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-unrelated-search-agent-distance",
+        "property_url": "https://example.test/unrelated-search-agent-distance-home",
+        "source_label": "Willhaben",
+        "fit_score": 79,
+        "property_facts": {
+            "price_display": "EUR 3,553.94",
+            "area_m2": 144.79,
+            "rooms": 3.5,
+            "postal_name": "1010 Wien",
+            "address": "1010 Wien",
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_console_context",
+        lambda **_kwargs: {
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1010 Vienna, 1020 Vienna",
+                "search_agents": [
+                    {
+                        "agent_id": "agent-graz-nearby",
+                        "enabled": False,
+                        "is_active": False,
+                        "location_query": "8010 Graz",
+                        "selected_location_values": ["8010 Graz"],
+                        "preferences_json": {
+                            "country_code": "AT",
+                            "listing_mode": "rent",
+                            "location_query": "8010 Graz",
+                            "selected_location_values": ["8010 Graz"],
+                            "max_distance_to_supermarket_m": 200,
+                            "max_distance_to_supermarket_importance": "important",
+                        },
+                    }
+                ],
+            },
+            "commercial": {},
+            "run": {
+                "run_id": "run-unrelated-search-agent-distance",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1010 Vienna, 1020 Vienna",
+                },
+                "summary": {
+                    "sources_total": 1,
+                    "listing_total": 1,
+                    "ranked_candidates": [candidate],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    page = client.get(
+        "/app/research/cand-unrelated-search-agent-distance",
+        params={"run_id": "run-unrelated-search-agent-distance"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert "Nearby distances" not in page.text
+    assert 'data-research-selected-distances' not in page.text
+    assert "Distances for the nearby filters saved on this workspace." not in page.text
+    assert "selected limit 200 m" not in page.text
+    assert "Other homes" not in page.text
+    assert 'data-research-ranking-list' not in page.text
+
+
 def test_property_research_detail_uses_run_distance_filters_even_when_run_snapshot_is_stale(monkeypatch) -> None:
     principal_id = "pq-research-detail-stale-run-distance-filters"
     client = build_property_client(principal_id=principal_id)
