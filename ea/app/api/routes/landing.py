@@ -2675,6 +2675,46 @@ def _property_research_location_scope_tokens(*values: object) -> set[str]:
     return tokens
 
 
+def _property_research_timestamp_rank(value: object) -> float:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return 0.0
+    try:
+        parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _property_research_search_agent_overlay_rank(
+    *,
+    score: int,
+    index: int,
+    agent: dict[str, object],
+    agent_scope_tokens: set[str],
+    scope_tokens: set[str],
+    scope_overlap: set[str],
+) -> tuple[float, ...]:
+    exact_scope_match = int(bool(scope_overlap and agent_scope_tokens and scope_overlap == agent_scope_tokens))
+    if scope_tokens and agent_scope_tokens:
+        scope_delta = abs(len(agent_scope_tokens) - len(scope_tokens))
+    else:
+        scope_delta = 999
+    return (
+        float(score),
+        float(exact_scope_match),
+        float(-scope_delta),
+        float(-len(agent_scope_tokens) if agent_scope_tokens else 0),
+        _property_research_timestamp_rank(agent.get("last_run_at")),
+        _property_research_timestamp_rank(agent.get("next_run_at")),
+        float(int(bool(agent.get("is_active")))),
+        float(int(bool(agent.get("enabled")))),
+        float(-index),
+    )
+
+
 def _property_research_search_agent_distance_overlay(
     *,
     preferences: dict[str, object],
@@ -2713,9 +2753,9 @@ def _property_research_search_agent_distance_overlay(
         or preferences.get("active_search_agent_id")
         or ""
     ).strip()
-    best_score = 0
+    best_rank: tuple[float, ...] = ()
     best_overlay: dict[str, object] = {}
-    for raw_agent in search_agents:
+    for index, raw_agent in enumerate(search_agents):
         agent = dict(raw_agent)
         agent_preferences = (
             dict(agent.get("preferences_json") or {})
@@ -2758,8 +2798,16 @@ def _property_research_search_agent_distance_overlay(
             score += 2
         if bool(agent.get("enabled")):
             score += 1
-        if score > best_score:
-            best_score = score
+        rank = _property_research_search_agent_overlay_rank(
+            score=score,
+            index=index,
+            agent=agent,
+            agent_scope_tokens=agent_scope_tokens,
+            scope_tokens=scope_tokens,
+            scope_overlap=scope_overlap,
+        )
+        if rank > best_rank:
+            best_rank = rank
             best_overlay = overlay
     return best_overlay
 
