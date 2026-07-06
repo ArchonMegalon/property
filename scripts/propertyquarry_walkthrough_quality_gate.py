@@ -30,16 +30,39 @@ def _load_json(path: Path) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
-def _run_json(command: list[str]) -> dict[str, Any]:
+def _timeout_seconds(value: float | None) -> float | None:
+    if value is None:
+        return None
     try:
-        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+        parsed = float(value)
+    except Exception:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _run_json(command: list[str], *, timeout_seconds: float | None = None) -> dict[str, Any]:
+    resolved_timeout = _timeout_seconds(timeout_seconds)
+    try:
+        completed = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=resolved_timeout,
+        )
         payload = json.loads(completed.stdout or "{}")
+    except subprocess.TimeoutExpired:
+        timeout_label = int(resolved_timeout) if resolved_timeout and float(resolved_timeout).is_integer() else resolved_timeout
+        return {
+            "_error": f"subprocess_timeout:{timeout_label}s",
+            "_timeout_seconds": resolved_timeout,
+        }
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
 
 
-def _video_metadata(path: Path) -> dict[str, object]:
+def _video_metadata(path: Path, *, timeout_seconds: float | None = None) -> dict[str, object]:
     return _run_json(
         [
             "ffprobe",
@@ -54,33 +77,56 @@ def _video_metadata(path: Path) -> dict[str, object]:
             "-of",
             "json",
             str(path),
-        ]
+        ],
+        timeout_seconds=timeout_seconds,
     )
 
 
-def _frame_delta_stats(path: Path, *, fps: float = 2.0) -> dict[str, object]:
+def _frame_delta_stats(
+    path: Path,
+    *,
+    fps: float = 2.0,
+    timeout_seconds: float | None = None,
+) -> dict[str, object]:
     try:
         from PIL import Image, ImageChops, ImageStat
     except Exception as exc:
         return {"ok": False, "error": f"PIL unavailable: {exc}"}
+    resolved_timeout = _timeout_seconds(timeout_seconds)
     with tempfile.TemporaryDirectory(prefix="pq-walkthrough-frames-") as tmp:
         frame_pattern = str(Path(tmp) / "frame-%04d.jpg")
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-i",
-                str(path),
-                "-vf",
-                f"fps={fps},scale=160:-1",
-                frame_pattern,
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            completed = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(path),
+                    "-vf",
+                    f"fps={fps},scale=160:-1",
+                    frame_pattern,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=resolved_timeout,
+            )
+        except subprocess.TimeoutExpired:
+            timeout_label = int(resolved_timeout) if resolved_timeout and float(resolved_timeout).is_integer() else resolved_timeout
+            return {
+                "ok": False,
+                "error": f"ffmpeg_frame_sampling_timeout:{timeout_label}s",
+                "timeout_seconds": resolved_timeout,
+            }
+        if completed.returncode != 0:
+            return {
+                "ok": False,
+                "error": "ffmpeg_frame_sampling_failed",
+                "returncode": completed.returncode,
+                "stderr": (completed.stderr or "").strip()[:400],
+            }
         frames = sorted(Path(tmp).glob("frame-*.jpg"))
         deltas: list[float] = []
         previous = None
@@ -244,6 +290,8 @@ def build_walkthrough_quality_receipt(
     demo_slug: str,
     max_jump_delta: float,
     min_duration_seconds: float,
+    ffprobe_timeout_seconds: float = 20.0,
+    frame_sample_timeout_seconds: float = 45.0,
 ) -> dict[str, object]:
     root = Path(tour_root or "state/public_property_tours")
     slug = str(demo_slug or DEFAULT_DEMO_SLUG).strip()
@@ -257,10 +305,22 @@ def build_walkthrough_quality_receipt(
     checks.append(_check("walkthrough_video_declared", bool(video_relpath), video_relpath=video_relpath))
     checks.append(_check("walkthrough_video_file_present", bool(video_path and video_path.is_file()), video_path=str(video_path)))
 
-    metadata = _video_metadata(video_path) if video_path and video_path.is_file() else {}
+    metadata = (
+        _video_metadata(video_path, timeout_seconds=ffprobe_timeout_seconds)
+        if video_path and video_path.is_file()
+        else {}
+    )
     format_payload = dict(metadata.get("format") or {}) if isinstance(metadata.get("format"), dict) else {}
     streams = list(metadata.get("streams") or []) if isinstance(metadata.get("streams"), list) else []
     stream = dict(streams[0]) if streams and isinstance(streams[0], dict) else {}
+    metadata_error = str(metadata.get("_error") or "").strip()
+    checks.append(
+        _check(
+            "walkthrough_video_metadata_available",
+            bool(metadata) and not metadata_error,
+            metadata_error=metadata_error,
+        )
+    )
     try:
         duration = float(format_payload.get("duration") or stream.get("duration") or 0)
     except Exception:
@@ -279,7 +339,14 @@ def build_walkthrough_quality_receipt(
     checks.append(_check("walkthrough_room_coverage_receipt_present", bool(coverage), coverage=coverage_summary))
     checks.append(_check("walkthrough_room_coverage_complete", coverage_ok, coverage=coverage_summary))
 
-    delta_stats = _frame_delta_stats(video_path) if video_path and video_path.is_file() else {"ok": False}
+    delta_stats = (
+        _frame_delta_stats(
+            video_path,
+            timeout_seconds=frame_sample_timeout_seconds,
+        )
+        if video_path and video_path.is_file()
+        else {"ok": False}
+    )
     max_delta = float(delta_stats.get("max_delta") or 0)
     checks.append(_check("walkthrough_frame_samples_available", bool(delta_stats.get("ok")), frame_delta_stats=delta_stats))
     checks.append(
@@ -315,6 +382,16 @@ def main() -> int:
     parser.add_argument("--demo-slug", default=DEFAULT_DEMO_SLUG)
     parser.add_argument("--max-jump-delta", type=float, default=42.0)
     parser.add_argument("--min-duration-seconds", type=float, default=30.0)
+    parser.add_argument(
+        "--ffprobe-timeout-seconds",
+        type=float,
+        default=float(os.getenv("PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS", "20") or 20),
+    )
+    parser.add_argument(
+        "--frame-sample-timeout-seconds",
+        type=float,
+        default=float(os.getenv("PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS", "45") or 45),
+    )
     parser.add_argument("--write", default="_completion/smoke/property-live-walkthrough-quality-latest.json")
     args = parser.parse_args()
     receipt = build_walkthrough_quality_receipt(
@@ -322,6 +399,8 @@ def main() -> int:
         demo_slug=args.demo_slug,
         max_jump_delta=max(1.0, float(args.max_jump_delta or 42.0)),
         min_duration_seconds=max(1.0, float(args.min_duration_seconds or 30.0)),
+        ffprobe_timeout_seconds=max(1.0, float(args.ffprobe_timeout_seconds or 20.0)),
+        frame_sample_timeout_seconds=max(1.0, float(args.frame_sample_timeout_seconds or 45.0)),
     )
     output = json.dumps(receipt, ensure_ascii=True, indent=2, sort_keys=True)
     if args.write:

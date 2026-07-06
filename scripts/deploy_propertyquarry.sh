@@ -88,6 +88,12 @@ Environment:
   PROPERTYQUARRY_DEPLOY_PYTHON_BIN
                                   Optional Python interpreter for host deploy gates. When omitted, deploy
                                   auto-detects a Playwright-capable Python, including the invoking sudo user.
+  PROPERTYQUARRY_WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS
+                                  Hard timeout for the walkthrough-quality gate process. Default 180.
+  PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS
+                                  Hard timeout for the gate's ffprobe metadata read. Default 20.
+  PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS
+                                  Hard timeout for the gate's ffmpeg frame sampling step. Default 45.
 EOF
 }
 
@@ -1440,9 +1446,14 @@ if (( run_presentation_e2e == 1 )); then
   cp "${browser_3d_gate_receipt}" _completion/smoke/property-live-3d-browser-gate-latest.json
 
   walkthrough_quality_receipt="${deploy_tmp_dir}/propertyquarry_deploy_walkthrough_quality.json"
+  walkthrough_quality_process_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS:-180}"
+  walkthrough_quality_ffprobe_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS:-20}"
+  walkthrough_quality_frame_sample_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS:-45}"
   settle_runtime_priorities 2
-  if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py \
+  if ! timeout "${walkthrough_quality_process_timeout_seconds}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py \
     --tour-root state/public_property_tours \
+    --ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}" \
+    --frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}" \
     --write "${walkthrough_quality_receipt}" >/dev/null; then
     echo "PropertyQuarry walkthrough quality gate failed." >&2
     cat "${walkthrough_quality_receipt}" >&2 2>/dev/null || true

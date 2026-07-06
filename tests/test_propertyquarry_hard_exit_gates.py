@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -198,11 +199,11 @@ def test_walkthrough_quality_gate_fails_without_room_coverage_receipt(
         json.dumps({"slug": slug, "video_relpath": "walkthrough.mp4"}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(gate, "_video_metadata", lambda _path: {"format": {"duration": "45"}})
+    monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
     monkeypatch.setattr(
         gate,
         "_frame_delta_stats",
-        lambda _path: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
+        lambda _path, *, timeout_seconds=None: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
     )
 
     receipt = gate.build_walkthrough_quality_receipt(
@@ -248,11 +249,11 @@ def test_walkthrough_quality_gate_accepts_complete_scene_segment_coverage(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(gate, "_video_metadata", lambda _path: {"format": {"duration": "45"}})
+    monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
     monkeypatch.setattr(
         gate,
         "_frame_delta_stats",
-        lambda _path: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
+        lambda _path, *, timeout_seconds=None: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
     )
 
     receipt = gate.build_walkthrough_quality_receipt(
@@ -295,11 +296,11 @@ def test_walkthrough_quality_gate_reads_magicfit_sidecar_route_coverage(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(gate, "_video_metadata", lambda _path: {"format": {"duration": "45"}})
+    monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
     monkeypatch.setattr(
         gate,
         "_frame_delta_stats",
-        lambda _path: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
+        lambda _path, *, timeout_seconds=None: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
     )
 
     receipt = gate.build_walkthrough_quality_receipt(
@@ -348,11 +349,11 @@ def test_walkthrough_quality_gate_can_select_generated_reconstruction_candidate(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(gate, "_video_metadata", lambda _path: {"format": {"duration": "45"}})
+    monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
     monkeypatch.setattr(
         gate,
         "_frame_delta_stats",
-        lambda _path: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
+        lambda _path, *, timeout_seconds=None: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
     )
 
     receipt = gate.build_walkthrough_quality_receipt(
@@ -396,11 +397,11 @@ def test_walkthrough_quality_gate_passes_with_complete_coverage_and_continuity(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(gate, "_video_metadata", lambda _path: {"format": {"duration": "45"}})
+    monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
     monkeypatch.setattr(
         gate,
         "_frame_delta_stats",
-        lambda _path: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
+        lambda _path, *, timeout_seconds=None: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
     )
 
     receipt = gate.build_walkthrough_quality_receipt(
@@ -412,6 +413,59 @@ def test_walkthrough_quality_gate_passes_with_complete_coverage_and_continuity(
 
     assert receipt["status"] == "pass"
     assert all(row["ok"] for row in receipt["checks"])
+
+
+def test_walkthrough_quality_gate_reports_frame_sampling_timeout(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from scripts import propertyquarry_walkthrough_quality_gate as gate
+
+    slug = "demo"
+    bundle = tmp_path / slug
+    bundle.mkdir()
+    walkthrough_path = bundle / "walkthrough.mp4"
+    walkthrough_path.write_bytes(b"not-a-real-video")
+    (bundle / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "video_relpath": "walkthrough.mp4",
+                "walkthrough_coverage_proof": {
+                    "status": "pass",
+                    "rooms_expected": ["entry"],
+                    "rooms_visited": ["entry"],
+                    "room_segments": [{"room": "entry", "start": 0, "end": 8}],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    original_run = gate.subprocess.run
+
+    def _fake_run(command, *args, **kwargs):
+        if command and command[0] == "ffmpeg":
+            raise subprocess.TimeoutExpired(command, timeout=kwargs.get("timeout"))
+        return original_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(gate.subprocess, "run", _fake_run)
+    monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
+
+    receipt = gate.build_walkthrough_quality_receipt(
+        tour_root=str(tmp_path),
+        demo_slug=slug,
+        max_jump_delta=42.0,
+        min_duration_seconds=30.0,
+        ffprobe_timeout_seconds=20.0,
+        frame_sample_timeout_seconds=7.0,
+    )
+
+    assert receipt["status"] == "fail"
+    frame_checks = {row["name"]: row for row in receipt["checks"]}
+    assert frame_checks["walkthrough_frame_samples_available"]["ok"] is False
+    assert frame_checks["walkthrough_frame_samples_available"]["frame_delta_stats"]["error"] == "ffmpeg_frame_sampling_timeout:7s"
+    assert frame_checks["walkthrough_frame_jump_limit"]["ok"] is False
 
 
 def test_map_preview_flagship_gate_rejects_harsh_raw_overlay(tmp_path: Path) -> None:
@@ -592,13 +646,16 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     release = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
 
     assert 'if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_3d_browser_gate.py' in deploy
-    assert 'if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py' in deploy
+    assert 'if ! timeout "${walkthrough_quality_process_timeout_seconds}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py' in deploy
+    assert '--ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}"' in deploy
+    assert '--frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}"' in deploy
     assert 'if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_map_preview_flagship_gate.py' in deploy
     assert "--map-preview-flagship-receipt _completion/smoke/property-live-map-preview-flagship-latest.json" in deploy
     assert "--browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-latest.json" in deploy
     assert "--walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-latest.json" in deploy
     assert "scripts/propertyquarry_3d_browser_gate.py" in release
     assert "scripts/propertyquarry_walkthrough_quality_gate.py" in release
+    assert 'if ! timeout "${walkthrough_quality_process_timeout_seconds}" PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py' in release
     assert "scripts/propertyquarry_map_preview_flagship_gate.py" in release
     assert "scripts/property_runtime_reconstruction_smoke.py" in release
     assert "--require-glb" in release

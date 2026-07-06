@@ -216,6 +216,9 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_authenticated_smoke.py
   > /dev/null
 runtime_reconstruction_container="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${property_render_container}}"
 runtime_reconstruction_slug="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG:-runtime-reconstruction-release-gate-$(date +%Y%m%d%H%M%S)}"
+walkthrough_quality_process_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS:-180}"
+walkthrough_quality_ffprobe_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS:-20}"
+walkthrough_quality_frame_sample_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS:-45}"
 if ! command -v docker >/dev/null 2>&1 || ! docker inspect "${runtime_reconstruction_container}" >/dev/null 2>&1; then
   echo "error: generated-reconstruction GLB release gate requires live container ${runtime_reconstruction_container}" >&2
   exit 2
@@ -235,10 +238,16 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_3d_browser_gate.py \
   --screenshots-dir _completion/smoke/property-live-3d-browser-gate-release-gate-screenshots \
   --write _completion/smoke/property-live-3d-browser-gate-release-gate.json \
   > /dev/null
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py \
+if ! timeout "${walkthrough_quality_process_timeout_seconds}" PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py \
   --tour-root "${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}" \
+  --ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}" \
+  --frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}" \
   --write _completion/smoke/property-live-walkthrough-quality-release-gate.json \
-  > /dev/null
+  > /dev/null; then
+  echo "error: PropertyQuarry walkthrough quality gate failed or timed out." >&2
+  cat _completion/smoke/property-live-walkthrough-quality-release-gate.json >&2 2>/dev/null || true
+  exit 1
+fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_provider_ownership.py \
   --write _completion/property_tour_ownership/release-gate.json \
   > /dev/null
