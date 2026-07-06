@@ -10525,7 +10525,7 @@ def test_property_enriched_candidate_facts_retry_missing_nearby_rows_after_locat
     assert facts["nearest_supermarket_name"] == "Billa"
 
 
-def test_property_research_detail_shows_generic_nearby_distances_when_no_filters_selected(monkeypatch) -> None:
+def test_property_research_detail_hides_nearby_distance_panel_when_no_filters_selected(monkeypatch) -> None:
     principal_id = "pq-research-detail-generic-nearby-distances"
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
@@ -10621,10 +10621,9 @@ def test_property_research_detail_shows_generic_nearby_distances_when_no_filters
     assert page.status_code == 200
     assert len(calls) == 1
     assert calls[0][0] == "https://example.test/generic-nearby-flat"
-    assert "Nearby distances" in page.text
-    assert "Closest nearby places we could verify for this home." in page.text
-    assert "Nearest supermarket: BILLA Graben is 220 m away | source: OpenStreetMap (postal area estimate)." in page.text
-    assert "Nearest playground: Rudolfspark is 480 m away | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearby distances" not in page.text
+    assert "Closest nearby places we could verify for this home." not in page.text
+    assert 'data-research-selected-distances' not in page.text
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
 

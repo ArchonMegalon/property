@@ -2101,9 +2101,6 @@ def _property_distance_panel_rows(
     )
     if selected_rows:
         return selected_rows, "Distances for the nearby filters in this search."
-    available_rows = _property_available_nearby_distance_rows(facts=facts)
-    if available_rows:
-        return available_rows, "Closest nearby places we could verify for this home."
     return [], ""
 
 
