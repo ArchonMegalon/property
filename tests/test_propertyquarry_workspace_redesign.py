@@ -10466,6 +10466,93 @@ def test_property_enriched_candidate_facts_backfill_source_research_for_selected
     assert isinstance(facts.get("listing_research_snapshot"), dict)
 
 
+def test_property_research_detail_uses_run_distance_filters_even_when_run_snapshot_is_stale(monkeypatch) -> None:
+    principal_id = "pq-research-detail-stale-run-distance-filters"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Stale Run Distance Detail Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    selected_candidate = {
+        "candidate_ref": "cand-stale-run-distance",
+        "title": "Stale run daily-life flat",
+        "fit_summary": "Good home if the nearby daily-life checks work.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-stale-run-distance",
+        "property_url": "https://example.test/stale-run-distance-flat",
+        "source_label": "Willhaben",
+        "fit_score": 82,
+        "property_facts": {
+            "price_display": "EUR 1,590",
+            "area_m2": 70,
+            "rooms": 3,
+            "postal_name": "1020 Wien",
+            "nearest_supermarket_m": 280,
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "nearest_supermarket_source": "OpenStreetMap",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "brief_preferences_stale": True,
+            "stale_run_snapshot": True,
+            "property_search_preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+                "max_distance_to_supermarket_m": 500,
+                "max_distance_to_playground_m": 450,
+                "keyword_preferences": {
+                    "supermarket nearby": "important",
+                    "playground nearby": "important",
+                },
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "brief_preferences_stale": True,
+                "brief_snapshot_status": "old_run",
+                "ranked_candidates": [selected_candidate],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    page = client.get(
+        "/app/research/cand-stale-run-distance",
+        params={"run_id": "run-stale-distance-detail"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert "Stale run daily-life flat" in page.text
+    assert "Nearby distances" in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m" in page.text
+    assert "Nearest playground distance is not listed yet; selected limit 450 m." in page.text
+
+
 def test_property_workspace_payload_drops_oversized_inline_candidate_previews() -> None:
     oversized_preview = "data:image/png;base64," + ("a" * 10000)
     payload = landing_property_workspace_payload.property_workspace_payload(

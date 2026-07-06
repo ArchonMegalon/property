@@ -2577,6 +2577,29 @@ def _property_compact_preference_overlay(payload: dict[str, object]) -> dict[str
     return preferences
 
 
+def _property_research_distance_preference_overlay(payload: dict[str, object]) -> dict[str, object]:
+    preferences = dict(payload or {})
+    overlay: dict[str, object] = {}
+    for key, value in preferences.items():
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            continue
+        if normalized_key.startswith("max_distance_to_"):
+            overlay[normalized_key] = value
+            continue
+        if normalized_key.startswith("prefer_") and normalized_key.endswith("_nearby"):
+            overlay[normalized_key] = value
+            continue
+        if normalized_key in {
+            "keywords",
+            "avoid_keywords",
+            "keyword_preferences",
+            "keyword_preferences_json",
+        }:
+            overlay[normalized_key] = value
+    return overlay
+
+
 def _property_lookup_candidate_in_saved_shortlist(
     product: Any,
     *,
@@ -5952,6 +5975,20 @@ def property_research_packet(
     workspace = dict(status.get("workspace") or {})
     assessment = dict(candidate.get("assessment") or {})
     preferences = dict(property_context.get("preferences") or {})
+    run_preferences_payload = (
+        dict(property_context.get("run", {}).get("property_search_preferences") or property_context.get("run", {}).get("preferences") or {})
+        if isinstance(property_context.get("run"), dict)
+        and isinstance(
+            property_context.get("run", {}).get("property_search_preferences") or property_context.get("run", {}).get("preferences"),
+            dict,
+        )
+        else {}
+    )
+    if run_preferences_payload:
+        preferences = {
+            **preferences,
+            **_property_research_distance_preference_overlay(run_preferences_payload),
+        }
     facts = _property_enriched_candidate_facts(
         candidate=candidate,
         preferences=preferences,
