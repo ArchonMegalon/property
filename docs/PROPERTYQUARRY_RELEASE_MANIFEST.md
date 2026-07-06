@@ -15,7 +15,7 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 - The backend repair lane at `https://propertyquarry.directoryup.com/admin/login` is reachable without reCAPTCHA and exposes a password-recovery URL, but the locally seeded shared account did not authenticate there on 2026-06-27; the remaining self-service repair dependency is the real Brilliant Directories admin username/password or a completed backend password reset.
 - The PropertyQuarry runtime Telegram notification path is verified separately for `cf-email:person@example.test`, but gold/deploy scripts do not send messages by default. Set `PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED=1` for an explicit operator notification run; otherwise `_completion/property_gold_status/telegram-notify-report.json` records a skipped notification.
 - `scripts/check_property_release_hygiene.py` was rerun after the 2026-07-01 live proof-copy polish deploy so the manifest can track the current deployed candidate commit again instead of the earlier 2026-06-27 billing-handoff candidate.
-- The next tracked commit after `d851a361` contains post-gold hardening work in the local release plane, but until a fresh deploy receipt lands this manifest stays pinned to the currently deployed runtime parent so release-hygiene can distinguish staged follow-up work from the active live candidate.
+- The 2026-07-06 integrated flagship deploy runs commit `bb9da5fe` locally and through the PropertyQuarry release remotes; current gold receipts still fail closed on scene-video provider runtime readiness until MagicFit/Magic/OMagic account, credit, credential, and endpoint evidence is refreshed.
 - The 2026-07-01 live proof-copy polish deploy removed the default score-guide block, duplicate score explanation cards, visible proof-style selected-property badges, and stale proof-heavy public-tour/dossier/PDF fallback wording.
 - The later 2026-07-01 minimal-copy deploy tightened the packet dashboard, workbench research tasks, save feedback, and public-tour language again: visible `Analytics`, `Engagement`, `Next best action`, `Share state`, `Reviewed feedback`, `Optimization recommendations`, `Saved durably`, and `Watch-outs` labels were replaced with calmer customer-facing labels such as `Views`, `Replies`, `Next step`, `Responses`, `Page ideas`, `Saved`, and `Check first`.
 
@@ -32,10 +32,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `d851a361327a2161dd55c23d94160cfd6c6db189` |
+| Runtime commit SHA | `bb9da5fed2c8c833a043c13f565be2847a3f4192` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | current local/live proof candidate on 2026-07-03 after `9bb14a8c`, carrying the premium mobile/research/search polish, provider-safe walkthrough routing, public cube-fallback interstitial removal, registration verification-link copy polish, area-layer popup copy polish, research-sidebar raw-score cleanup, search-history raw fit-score cleanup, optional hidden Pano2VR posture, refreshed AT/DE/CR provider matrix, 3D browser gates, walkthrough quality gate, map-preview flagship gate, billing verification refresh, token-redacted billing smoke receipts, explicit signed billing-handoff readiness reporting, OneMinute-first Responses lane order, deployment provider-matrix receipt preservation, tour import gold-gate wording hardening, and release-security posture checks |
+| Deployment ID | `local-20260706T191247Z-bb9da5fed2c8`; current integrated local/live candidate with first-party fast-run property links, public/auth shared-run smoke coverage, tour playback gates, account/billing/auth polish, OMagic adapter packaging, and fail-closed provider-runtime blockers |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
