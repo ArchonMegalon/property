@@ -187,6 +187,8 @@ def build_packet(receipt: dict[str, Any], *, receipt_path: Path) -> dict[str, An
         "contract_name": "propertyquarry.scene_video_provider_refresh_packet.v1",
         "generated_at": _utc_now(),
         "source_receipt": str(receipt_path),
+        "source_receipt_contract_name": str(receipt.get("contract_name") or ""),
+        "source_receipt_generated_at": str(receipt.get("generated_at") or ""),
         "secret_boundary": "This packet names env keys and JSON shapes only; it never contains account emails, passwords, API keys, session cookies, or 1min credentials.",
         "providers": [magicfit, omagic],
         "global_checks": [

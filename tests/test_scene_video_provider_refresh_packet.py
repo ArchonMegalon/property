@@ -31,6 +31,8 @@ def _load_verifier() -> ModuleType:
 
 def _receipt() -> dict[str, object]:
     return {
+        "contract_name": "propertyquarry.scene_video_readiness.v1",
+        "generated_at": "2026-07-06T21:45:58Z",
         "providers": [
             {
                 "requested_provider": "magicfit",
@@ -119,13 +121,17 @@ def test_scene_video_provider_refresh_packet_cli_writes_packet(tmp_path: Path) -
     assert stdout["status"] == "pass"
     assert stdout["provider_count"] == 2
     assert packet["source_receipt"] == str(receipt_path)
+    assert packet["source_receipt_contract_name"] == "propertyquarry.scene_video_readiness.v1"
+    assert packet["source_receipt_generated_at"] == "2026-07-06T21:45:58Z"
 
 
 def test_scene_video_provider_refresh_packet_verifier_passes_generated_packet(tmp_path: Path) -> None:
     materializer = _load_script()
     verifier = _load_verifier()
 
-    packet = materializer.build_packet(_receipt(), receipt_path=tmp_path / "receipt.json")
+    receipt_path = tmp_path / "receipt.json"
+    receipt_path.write_text(json.dumps(_receipt()), encoding="utf-8")
+    packet = materializer.build_packet(_receipt(), receipt_path=receipt_path)
     receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
 
     assert receipt["status"] == "pass"
@@ -134,6 +140,31 @@ def test_scene_video_provider_refresh_packet_verifier_passes_generated_packet(tm
     assert receipt["checked_providers"] == ["magicfit", "omagic"]
     assert receipt["provider_count"] == 2
     assert receipt["safe_env_merge_script"].endswith("scripts/merge_scene_video_provider_accounts_env.py")
+
+
+def test_scene_video_provider_refresh_packet_verifier_rejects_stale_source_receipt_truth(tmp_path: Path) -> None:
+    materializer = _load_script()
+    verifier = _load_verifier()
+
+    receipt_path = tmp_path / "receipt.json"
+    source_receipt = _receipt()
+    receipt_path.write_text(json.dumps(source_receipt), encoding="utf-8")
+    packet = materializer.build_packet(source_receipt, receipt_path=receipt_path)
+
+    stale_source = _receipt()
+    stale_source["generated_at"] = "2026-07-06T21:47:23Z"
+    stale_source["providers"][1]["blockers"] = [  # type: ignore[index]
+        "omagic_model_upload_adapter_disabled",
+        "omagic_model_upload_endpoint_missing",
+        "omagic_credentials_missing",
+    ]
+    receipt_path.write_text(json.dumps(stale_source), encoding="utf-8")
+
+    receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
+
+    assert receipt["status"] == "fail"
+    assert "source_receipt_generated_at_mismatch" in receipt["blockers"]
+    assert "omagic_runtime_blockers_mismatch_with_source_receipt" in receipt["blockers"]
 
 
 def test_scene_video_provider_refresh_packet_verifier_rejects_secrets_and_missing_onemin_boundary(tmp_path: Path) -> None:

@@ -45,6 +45,17 @@ def _providers_by_name(packet: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return providers
 
 
+def _source_receipt_provider_rows(receipt: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for row in list(receipt.get("providers") or []):
+        if not isinstance(row, dict):
+            continue
+        requested = str(row.get("requested_provider") or "").strip().lower()
+        if requested:
+            rows[requested] = row
+    return rows
+
+
 def _int_value(row: dict[str, Any], key: str) -> int:
     try:
         return max(0, int(row.get(key) or 0))
@@ -134,6 +145,66 @@ def _merge_guidance_blockers(provider: str, row: dict[str, Any]) -> list[str]:
     return blockers
 
 
+def _source_receipt_truth_blockers(packet: dict[str, Any]) -> list[str]:
+    receipt_ref = Path(str(packet.get("source_receipt") or "").strip()).expanduser()
+    if not str(receipt_ref):
+        return ["source_receipt_missing"]
+    if not receipt_ref.is_file():
+        return [f"source_receipt_unavailable:{receipt_ref}"]
+    try:
+        source_receipt = _load_json(receipt_ref)
+    except Exception as exc:
+        return [f"source_receipt_unreadable:{type(exc).__name__}"]
+
+    blockers: list[str] = []
+    packet_contract_name = str(packet.get("source_receipt_contract_name") or "").strip()
+    source_contract_name = str(source_receipt.get("contract_name") or "").strip()
+    if packet_contract_name != source_contract_name:
+        blockers.append("source_receipt_contract_name_mismatch")
+
+    packet_generated_at = str(packet.get("source_receipt_generated_at") or "").strip()
+    source_generated_at = str(source_receipt.get("generated_at") or "").strip()
+    if packet_generated_at != source_generated_at:
+        blockers.append("source_receipt_generated_at_mismatch")
+
+    source_rows = _source_receipt_provider_rows(source_receipt)
+    providers = _providers_by_name(packet)
+    source_row_specs = {
+        "magicfit": source_rows.get("magicfit") or {},
+        "omagic": source_rows.get("omagic") or source_rows.get("magic") or {},
+    }
+    for provider, packet_row in providers.items():
+        if provider not in source_row_specs:
+            continue
+        source_row = source_row_specs.get(provider) or {}
+        if not source_row:
+            blockers.append(f"{provider}_source_receipt_provider_missing")
+            continue
+        packet_status = str(packet_row.get("runtime_status") or "").strip()
+        source_status = str(source_row.get("status") or "").strip()
+        if packet_status != source_status:
+            blockers.append(f"{provider}_runtime_status_mismatch_with_source_receipt")
+
+        packet_runtime_count = _int_value(packet_row, "runtime_account_count")
+        source_runtime_count = _int_value(source_row, "runtime_account_count")
+        if packet_runtime_count != source_runtime_count:
+            blockers.append(f"{provider}_runtime_account_count_mismatch_with_source_receipt")
+
+        packet_blockers = [
+            str(value or "").strip()
+            for value in list(packet_row.get("runtime_blockers") or [])
+            if str(value or "").strip()
+        ]
+        source_blockers = [
+            str(value or "").strip()
+            for value in list(source_row.get("blockers") or [])
+            if str(value or "").strip()
+        ]
+        if packet_blockers != source_blockers:
+            blockers.append(f"{provider}_runtime_blockers_mismatch_with_source_receipt")
+    return blockers
+
+
 def _safe_account_merge_script_path() -> Path:
     return ROOT / "scripts" / SAFE_ACCOUNT_MERGE_SCRIPT_NAME
 
@@ -152,6 +223,8 @@ def verify_packet(packet: dict[str, Any], *, packet_path: str | None = None) -> 
     rendered = json.dumps(packet, sort_keys=True)
     if "ONEMIN_AI_API_KEY" not in rendered or "ONEMIN_DIRECT_API_KEYS_JSON" not in rendered:
         blockers.append("global_onemin_no_touch_keys_missing")
+
+    blockers.extend(_source_receipt_truth_blockers(packet))
 
     providers = _providers_by_name(packet)
     for provider in ("magicfit", "omagic"):
