@@ -1450,7 +1450,7 @@ if (( run_presentation_e2e == 1 )); then
   walkthrough_quality_ffprobe_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS:-20}"
   walkthrough_quality_frame_sample_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS:-45}"
   settle_runtime_priorities 2
-  if ! timeout "${walkthrough_quality_process_timeout_seconds}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py \
+  if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py \
     --tour-root state/public_property_tours \
     --ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}" \
     --frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}" \

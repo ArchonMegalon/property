@@ -238,7 +238,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_3d_browser_gate.py \
   --screenshots-dir _completion/smoke/property-live-3d-browser-gate-release-gate-screenshots \
   --write _completion/smoke/property-live-3d-browser-gate-release-gate.json \
   > /dev/null
-if ! timeout "${walkthrough_quality_process_timeout_seconds}" PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py \
+if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py \
   --tour-root "${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}" \
   --ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}" \
   --frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}" \

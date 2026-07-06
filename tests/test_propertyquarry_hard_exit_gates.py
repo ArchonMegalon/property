@@ -646,7 +646,7 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     release = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
 
     assert 'if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_3d_browser_gate.py' in deploy
-    assert 'if ! timeout "${walkthrough_quality_process_timeout_seconds}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py' in deploy
+    assert 'if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py' in deploy
     assert '--ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}"' in deploy
     assert '--frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}"' in deploy
     assert 'if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_map_preview_flagship_gate.py' in deploy
@@ -655,7 +655,7 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     assert "--walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-latest.json" in deploy
     assert "scripts/propertyquarry_3d_browser_gate.py" in release
     assert "scripts/propertyquarry_walkthrough_quality_gate.py" in release
-    assert 'if ! timeout "${walkthrough_quality_process_timeout_seconds}" PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py' in release
+    assert 'if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py' in release
     assert "scripts/propertyquarry_map_preview_flagship_gate.py" in release
     assert "scripts/property_runtime_reconstruction_smoke.py" in release
     assert "--require-glb" in release
