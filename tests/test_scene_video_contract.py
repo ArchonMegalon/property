@@ -69,6 +69,34 @@ def test_scene_video_omagic_readiness_counts_magic_accounts_json(monkeypatch, tm
     ]
 
 
+def test_scene_video_omagic_readiness_counts_suffix_magic_accounts_json(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "render_omagic_property_model_walkthrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv(
+        "TEAM_MAGIC_ACCOUNTS_JSON",
+        json.dumps(
+            [
+                {"email": f"magic-{index}@example.com", "password": "secret"}
+                for index in range(1, 9)
+            ]
+        ),
+    )
+
+    readiness = service.scene_video_provider_runtime_readiness("magic")
+
+    assert readiness["provider_key"] == "omagic"
+    assert readiness["runtime_account_count"] == 8
+    assert readiness["checks"]["runtime_account_email_env_names"][0] == "TEAM_MAGIC_ACCOUNTS_JSON[1].email"
+    assert readiness["checks"]["account_config_env_names"] == ["TEAM_MAGIC_ACCOUNTS_JSON"]
+    assert readiness["blockers"] == [
+        "omagic_model_upload_adapter_disabled",
+        "omagic_model_upload_endpoint_missing",
+    ]
+
+
 def test_scene_video_omagic_readiness_requires_adapter_target_when_enabled(monkeypatch, tmp_path: Path) -> None:
     _clear_scene_video_provider_env(monkeypatch)
     script_dir = tmp_path / "scripts"
@@ -132,6 +160,35 @@ def test_scene_video_magicfit_readiness_counts_three_accounts_json(monkeypatch, 
         "MAGICFIT_ACCOUNTS_JSON[1].email",
         "MAGICFIT_ACCOUNTS_JSON[2].email",
         "MAGICFIT_ACCOUNTS_JSON[3].email",
+    ]
+
+
+def test_scene_video_magicfit_readiness_counts_suffix_accounts_json(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "render_magicfit_property_flythrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_MAGICFIT_IGNORE_CREDIT_MARKER", "1")
+    monkeypatch.setenv(
+        "TEAM_MAGICFIT_ACCOUNTS_JSON",
+        json.dumps(
+            [
+                {"email": f"magicfit-{index}@example.com", "password": "secret"}
+                for index in range(1, 4)
+            ]
+        ),
+    )
+
+    readiness = service.scene_video_provider_runtime_readiness("magicfit")
+
+    assert readiness["provider_key"] == "magicfit"
+    assert readiness["ready"] is True
+    assert readiness["runtime_account_count"] == 3
+    assert readiness["checks"]["runtime_account_email_env_names"] == [
+        "TEAM_MAGICFIT_ACCOUNTS_JSON[1].email",
+        "TEAM_MAGICFIT_ACCOUNTS_JSON[2].email",
+        "TEAM_MAGICFIT_ACCOUNTS_JSON[3].email",
     ]
 
 

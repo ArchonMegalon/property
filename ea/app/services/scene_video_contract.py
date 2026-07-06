@@ -43,6 +43,25 @@ def _scene_video_env_has_any(*names: str) -> bool:
     return any(str(os.getenv(name) or "").strip() for name in names)
 
 
+def _scene_video_matching_env_names(*names: str) -> list[str]:
+    configured: list[str] = []
+    seen: set[str] = set()
+    normalized_names = [str(name or "").strip() for name in names if str(name or "").strip()]
+    for name in normalized_names:
+        if str(os.getenv(name) or "").strip() and name not in seen:
+            configured.append(name)
+            seen.add(name)
+    for env_name, raw_value in sorted(os.environ.items()):
+        if not str(raw_value or "").strip():
+            continue
+        if env_name in seen:
+            continue
+        if any(env_name.endswith(f"_{suffix}") for suffix in normalized_names):
+            configured.append(env_name)
+            seen.add(env_name)
+    return configured
+
+
 def _scene_video_float(value: object) -> float | None:
     try:
         if value in (None, ""):
@@ -123,7 +142,10 @@ def _scene_video_magicfit_runtime_account_pairs() -> tuple[dict[str, str], ...]:
             }
         )
 
-    for accounts_env_name in ("MAGICFIT_ACCOUNTS_JSON", "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"):
+    for accounts_env_name in _scene_video_matching_env_names(
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
+        "MAGICFIT_ACCOUNTS_JSON",
+    ):
         raw_accounts = str(os.getenv(accounts_env_name) or "").strip()
         if not raw_accounts:
             continue
@@ -185,11 +207,11 @@ def _scene_video_omagic_runtime_account_pairs() -> tuple[dict[str, str], ...]:
             }
         )
 
-    for accounts_env_name in (
-        "OMAGIC_ACCOUNTS_JSON",
+    for accounts_env_name in _scene_video_matching_env_names(
         "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
-        "MAGIC_ACCOUNTS_JSON",
+        "OMAGIC_ACCOUNTS_JSON",
         "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+        "MAGIC_ACCOUNTS_JSON",
     ):
         raw_accounts = str(os.getenv(accounts_env_name) or "").strip()
         if not raw_accounts:
@@ -241,7 +263,7 @@ def _scene_video_truthy_env(name: str) -> bool:
 
 
 def _scene_video_configured_env_names(*names: str) -> list[str]:
-    return [name for name in names if str(os.getenv(name) or "").strip()]
+    return _scene_video_matching_env_names(*names)
 
 
 def record_scene_video_magicfit_failure(reason: object, detail: object = "") -> dict[str, object] | None:
@@ -474,16 +496,12 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
             "MAGIC_RENDER_COMMAND",
         )
         adapter_target_configured = bool(endpoint_env_names or command_env_names)
-        api_key_env_names = [
-            name
-            for name in (
-                "OMAGIC_API_KEY",
-                "PROPERTYQUARRY_OMAGIC_API_KEY",
-                "MAGIC_API_KEY",
-                "PROPERTYQUARRY_MAGIC_API_KEY",
-            )
-            if str(os.getenv(name) or "").strip()
-        ]
+        api_key_env_names = _scene_video_matching_env_names(
+            "PROPERTYQUARRY_OMAGIC_API_KEY",
+            "OMAGIC_API_KEY",
+            "PROPERTYQUARRY_MAGIC_API_KEY",
+            "MAGIC_API_KEY",
+        )
         credentials_ready = bool(runtime_account_pairs or api_key_env_names)
         account_config_env_names = (
             "OMAGIC_ACCOUNTS_JSON",
@@ -501,11 +519,7 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
             "runtime_account_count": len(runtime_account_pairs),
             "runtime_account_email_env_names": [row["email_env_name"] for row in runtime_account_pairs],
             "runtime_api_key_env_names": api_key_env_names,
-            "account_config_env_names": [
-                name
-                for name in account_config_env_names
-                if str(os.getenv(name) or "").strip()
-            ],
+            "account_config_env_names": _scene_video_matching_env_names(*account_config_env_names),
             "model_upload_adapter_enabled": adapter_enabled,
             "model_upload_endpoint_env_names": endpoint_env_names,
             "model_upload_command_env_names": command_env_names,

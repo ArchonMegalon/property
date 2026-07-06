@@ -19198,22 +19198,40 @@ def _render_mootion_property_flythrough_into_hosted_tour(
     return render_log
 
 
+def _configured_provider_env_names(*names: str) -> list[str]:
+    configured: list[str] = []
+    seen: set[str] = set()
+    normalized_names = [str(name or "").strip() for name in names if str(name or "").strip()]
+    for name in normalized_names:
+        if str(os.getenv(name) or "").strip() and name not in seen:
+            configured.append(name)
+            seen.add(name)
+    for env_name, raw_value in sorted(os.environ.items()):
+        if not str(raw_value or "").strip():
+            continue
+        if env_name in seen:
+            continue
+        if any(env_name.endswith(f"_{suffix}") for suffix in normalized_names):
+            configured.append(env_name)
+            seen.add(env_name)
+    return configured
+
+
 def _omagic_keys_available() -> bool:
-    return any(
-        str(os.getenv(name) or "").strip()
-        for name in (
-            "OMAGIC_API_KEY",
+    return bool(
+        _configured_provider_env_names(
             "PROPERTYQUARRY_OMAGIC_API_KEY",
-            "OMAGIC_EMAIL",
+            "OMAGIC_API_KEY",
             "PROPERTYQUARRY_OMAGIC_EMAIL",
-            "OMAGIC_ACCOUNTS_JSON",
+            "OMAGIC_EMAIL",
             "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
-            "MAGIC_API_KEY",
+            "OMAGIC_ACCOUNTS_JSON",
             "PROPERTYQUARRY_MAGIC_API_KEY",
-            "MAGIC_EMAIL",
+            "MAGIC_API_KEY",
             "PROPERTYQUARRY_MAGIC_EMAIL",
-            "MAGIC_ACCOUNTS_JSON",
+            "MAGIC_EMAIL",
             "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+            "MAGIC_ACCOUNTS_JSON",
         )
     )
 
