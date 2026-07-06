@@ -1608,19 +1608,18 @@ def _property_csv_tokens(value: object) -> set[str]:
 
 
 def _property_keyword_preference_states(preferences: dict[str, object]) -> dict[str, str]:
+    source: dict[str, object] = {}
     raw_value = preferences.get("keyword_preferences")
+    raw_json = str(preferences.get("keyword_preferences_json") or "").strip()
+    if raw_json:
+        try:
+            parsed = json.loads(raw_json)
+        except json.JSONDecodeError:
+            parsed = {}
+        if isinstance(parsed, dict):
+            source.update(parsed)
     if isinstance(raw_value, dict):
-        source = raw_value
-    else:
-        source = {}
-        raw_json = str(preferences.get("keyword_preferences_json") or "").strip()
-        if raw_json:
-            try:
-                parsed = json.loads(raw_json)
-            except json.JSONDecodeError:
-                parsed = {}
-            if isinstance(parsed, dict):
-                source = parsed
+        source.update(raw_value)
     return {
         str(key or "").strip().casefold(): str(value or "").strip().casefold()
         for key, value in dict(source or {}).items()

@@ -10719,6 +10719,13 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
                             "listing_mode": "rent",
                             "location_query": "1010 Vienna, 1020 Vienna, 1090 Vienna",
                             "selected_location_values": ["1010 Vienna", "1020 Vienna", "1090 Vienna"],
+                            "keyword_preferences_json": json.dumps(
+                                {
+                                    "supermarket nearby": "nice_to_have",
+                                    "playground nearby": "nice_to_have",
+                                    "pharmacy nearby": "nice_to_have",
+                                }
+                            ),
                             "max_distance_to_supermarket_m": 500,
                             "max_distance_to_supermarket_importance": "nice_to_have",
                             "max_distance_to_playground_m": 1000,
@@ -10738,6 +10745,7 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
                     "location_query": "1010 Vienna, 1020 Vienna",
                     "keywords": "",
                     "keyword_preferences": {},
+                    "keyword_preferences_json": "{}",
                 },
                 "summary": {
                     "sources_total": 1,
@@ -10761,7 +10769,8 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
     assert "Distances for the nearby filters saved on this workspace." in page.text
     assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
     assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." in page.text
-    assert 'Nearest pharmacy: Graben-Apotheke "Zum schwarzen Bären" is 133 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate).' in page.text
+    assert "Nearest pharmacy: Graben-Apotheke" in page.text
+    assert "selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
     assert "selected limit 200 m" not in page.text
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text

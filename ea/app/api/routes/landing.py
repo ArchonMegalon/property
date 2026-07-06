@@ -2577,12 +2577,59 @@ def _property_compact_preference_overlay(payload: dict[str, object]) -> dict[str
     return preferences
 
 
-def _property_research_distance_preference_overlay(payload: dict[str, object]) -> dict[str, object]:
+def _property_research_distance_keyword_state_selected(state: object) -> bool:
+    normalized_state = str(state or "").strip().casefold()
+    return bool(
+        normalized_state
+        and normalized_state not in {"0", "0.0", "false", "none", "null", "off", "neutral", "any"}
+    )
+
+
+def _property_research_distance_preference_entry_active(key: str, value: object) -> bool:
+    normalized_key = str(key or "").strip()
+    if not normalized_key:
+        return False
+    if normalized_key.startswith("max_distance_to_"):
+        try:
+            return float(str(value or "").strip()) > 0
+        except Exception:
+            return False
+    if normalized_key.startswith("prefer_") and normalized_key.endswith("_nearby"):
+        return _property_research_distance_keyword_state_selected(value)
+    if normalized_key in {"keywords", "avoid_keywords"}:
+        return bool(str(value or "").strip())
+    if normalized_key == "keyword_preferences" and isinstance(value, dict):
+        return any(
+            str(marker or "").strip() and _property_research_distance_keyword_state_selected(state)
+            for marker, state in value.items()
+        )
+    if normalized_key == "keyword_preferences_json":
+        raw_json = str(value or "").strip()
+        if not raw_json:
+            return False
+        try:
+            parsed = json.loads(raw_json)
+        except json.JSONDecodeError:
+            parsed = {}
+        return isinstance(parsed, dict) and any(
+            str(marker or "").strip() and _property_research_distance_keyword_state_selected(state)
+            for marker, state in parsed.items()
+        )
+    return False
+
+
+def _property_research_distance_preference_overlay(
+    payload: dict[str, object],
+    *,
+    active_only: bool = False,
+) -> dict[str, object]:
     preferences = dict(payload or {})
     overlay: dict[str, object] = {}
     for key, value in preferences.items():
         normalized_key = str(key or "").strip()
         if not normalized_key:
+            continue
+        if active_only and not _property_research_distance_preference_entry_active(normalized_key, value):
             continue
         if normalized_key.startswith("max_distance_to_"):
             overlay[normalized_key] = value
@@ -2601,49 +2648,7 @@ def _property_research_distance_preference_overlay(payload: dict[str, object]) -
 
 
 def _property_research_has_distance_preferences(payload: dict[str, object] | None) -> bool:
-    overlay = _property_research_distance_preference_overlay(dict(payload or {}))
-    if not overlay:
-        return False
-    for key, value in overlay.items():
-        normalized_key = str(key or "").strip()
-        if not normalized_key:
-            continue
-        if normalized_key.startswith("max_distance_to_"):
-            try:
-                if float(str(value or "").strip()) > 0:
-                    return True
-            except Exception:
-                continue
-        if normalized_key.startswith("prefer_") and normalized_key.endswith("_nearby"):
-            normalized_value = str(value or "").strip().casefold()
-            if normalized_value and normalized_value not in {"0", "0.0", "false", "none", "null", "off"}:
-                return True
-        if normalized_key in {"keywords", "avoid_keywords"} and str(value or "").strip():
-            return True
-        if normalized_key == "keyword_preferences" and isinstance(value, dict):
-            if any(
-                str(marker or "").strip()
-                and str(state or "").strip()
-                and str(state or "").strip().casefold() not in {"0", "0.0", "false", "none", "null", "off", "neutral", "any"}
-                for marker, state in value.items()
-            ):
-                return True
-        if normalized_key == "keyword_preferences_json":
-            raw_json = str(value or "").strip()
-            if not raw_json:
-                continue
-            try:
-                parsed = json.loads(raw_json)
-            except json.JSONDecodeError:
-                parsed = {}
-            if isinstance(parsed, dict) and any(
-                str(marker or "").strip()
-                and str(state or "").strip()
-                and str(state or "").strip().casefold() not in {"0", "0.0", "false", "none", "null", "off", "neutral", "any"}
-                for marker, state in parsed.items()
-            ):
-                return True
-    return False
+    return bool(_property_research_distance_preference_overlay(dict(payload or {}), active_only=True))
 
 
 def _property_research_location_scope_tokens(*values: object) -> set[str]:
@@ -2719,7 +2724,7 @@ def _property_research_search_agent_distance_overlay(
         )
         if not _property_research_has_distance_preferences(agent_preferences):
             continue
-        overlay = _property_research_distance_preference_overlay(agent_preferences)
+        overlay = _property_research_distance_preference_overlay(agent_preferences, active_only=True)
         agent_id = str(agent.get("agent_id") or "").strip()
         agent_country_code = normalize_country_code(
             agent_preferences.get("country_code") or agent.get("country_code") or ""
@@ -6156,7 +6161,7 @@ def property_research_packet(
     if run_preferences_payload:
         preferences = {
             **preferences,
-            **_property_research_distance_preference_overlay(run_preferences_payload),
+            **_property_research_distance_preference_overlay(run_preferences_payload, active_only=True),
         }
     facts = _property_enriched_candidate_facts(
         candidate=candidate,
