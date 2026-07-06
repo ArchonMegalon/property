@@ -27,6 +27,7 @@ from app.api.routes import landing_view_models
 from app.api.routes import public_results
 from app.services import public_branding
 from app.services import property_market_catalog
+from app.services.onboarding import OnboardingService
 from app.product import service as product_service
 from app.product import property_surface_state
 from app.product.models import HandoffNote
@@ -10665,30 +10666,12 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
         "_propertyquarry_refresh_candidate_preview_if_needed",
         lambda *, product, candidate, allow_network=False: dict(candidate),
     )
-
-    candidate = {
-        "candidate_ref": "cand-search-agent-distance-fallback",
-        "title": "Old run detail keeps nearby fit",
-        "fit_summary": "Daily-life fit should come from the saved nearby brief.",
-        "recommendation": "shortlist",
-        "review_url": "/app/research/cand-search-agent-distance-fallback",
-        "property_url": "https://example.test/search-agent-distance-fallback-home",
-        "source_label": "Willhaben",
-        "fit_score": 81,
-        "property_facts": {
-            "price_display": "EUR 3,553.94",
-            "area_m2": 144.79,
-            "rooms": 3.5,
-            "postal_name": "1010 Wien",
-            "address": "1010 Wien",
-        },
-    }
-
     monkeypatch.setattr(
-        landing_routes,
-        "_property_console_context",
-        lambda **_kwargs: {
-            "preferences": {
+        OnboardingService,
+        "compact_status",
+        lambda self, *, principal_id: {
+            "workspace": {"name": "Search Agent Distance Fallback Office"},
+            "property_search_preferences": {
                 "country_code": "AT",
                 "listing_mode": "rent",
                 "location_query": "1020 Vienna",
@@ -10735,6 +10718,36 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
                         },
                     },
                 ],
+            },
+        },
+    )
+
+    candidate = {
+        "candidate_ref": "cand-search-agent-distance-fallback",
+        "title": "Old run detail keeps nearby fit",
+        "fit_summary": "Daily-life fit should come from the saved nearby brief.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-search-agent-distance-fallback",
+        "property_url": "https://example.test/search-agent-distance-fallback-home",
+        "source_label": "Willhaben",
+        "fit_score": 81,
+        "property_facts": {
+            "price_display": "EUR 3,553.94",
+            "area_m2": 144.79,
+            "rooms": 3.5,
+            "postal_name": "1010 Wien",
+            "address": "1010 Wien",
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_console_context",
+        lambda **_kwargs: {
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
             },
             "commercial": {},
             "run": {

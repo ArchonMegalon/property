@@ -6139,6 +6139,15 @@ def property_research_packet(
     workspace = dict(status.get("workspace") or {})
     assessment = dict(candidate.get("assessment") or {})
     preferences = dict(property_context.get("preferences") or {})
+    workspace_preferences = (
+        dict(status.get("property_search_preferences") or {})
+        if isinstance(status.get("property_search_preferences"), dict)
+        else {}
+    )
+    search_agent_overlay_preferences = {
+        **workspace_preferences,
+        **preferences,
+    }
     run_preferences_payload = (
         dict(property_context.get("run", {}).get("property_search_preferences") or property_context.get("run", {}).get("preferences") or {})
         if isinstance(property_context.get("run"), dict)
@@ -6149,7 +6158,7 @@ def property_research_packet(
         else {}
     )
     search_agent_distance_overlay = _property_research_search_agent_distance_overlay(
-        preferences=preferences,
+        preferences=search_agent_overlay_preferences,
         run_preferences=run_preferences_payload,
         candidate=candidate,
     )
