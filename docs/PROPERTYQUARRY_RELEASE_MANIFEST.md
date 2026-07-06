@@ -15,7 +15,7 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 - The backend repair lane at `https://propertyquarry.directoryup.com/admin/login` is reachable without reCAPTCHA and exposes a password-recovery URL, but the locally seeded shared account did not authenticate there on 2026-06-27; the remaining self-service repair dependency is the real Brilliant Directories admin username/password or a completed backend password reset.
 - The PropertyQuarry runtime Telegram notification path is verified separately for `cf-email:person@example.test`, but gold/deploy scripts do not send messages by default. Set `PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED=1` for an explicit operator notification run; otherwise `_completion/property_gold_status/telegram-notify-report.json` records a skipped notification.
 - `scripts/check_property_release_hygiene.py` was rerun after the 2026-07-01 live proof-copy polish deploy so the manifest can track the current deployed candidate commit again instead of the earlier 2026-06-27 billing-handoff candidate.
-- The latest 2026-07-06 live deploy now runs commit `43d14aa3` locally and through the PropertyQuarry release remotes; current gold receipts still fail closed on scene-video provider runtime readiness until MagicFit/Magic/OMagic account, credit, credential, and endpoint evidence is refreshed.
+- The latest 2026-07-06 live deploy now runs commit `7fd2aa34` locally and through the PropertyQuarry release remotes; current gold receipts still fail closed on scene-video provider runtime readiness until MagicFit/Magic/OMagic account, credit, credential, and endpoint evidence is refreshed.
 - The 2026-07-01 live proof-copy polish deploy removed the default score-guide block, duplicate score explanation cards, visible proof-style selected-property badges, and stale proof-heavy public-tour/dossier/PDF fallback wording.
 - The later 2026-07-01 minimal-copy deploy tightened the packet dashboard, workbench research tasks, save feedback, and public-tour language again: visible `Analytics`, `Engagement`, `Next best action`, `Share state`, `Reviewed feedback`, `Optimization recommendations`, `Saved durably`, and `Watch-outs` labels were replaced with calmer customer-facing labels such as `Views`, `Replies`, `Next step`, `Responses`, `Page ideas`, `Saved`, and `Check first`.
 
@@ -32,13 +32,24 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `43d14aa35f7258ed78dee6661277339aca767e3d` |
+| Runtime commit SHA | `7fd2aa346c8e37fb1fdefaff8ba32e6b16c7133a` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | `local-20260706T195708Z-43d14aa35f72`; current integrated local/live candidate with first-party fast-run property links, research-detail selected-distance rail replacement, public/auth shared-run smoke coverage, tour playback gates, account/billing/auth polish, OMagic adapter packaging, current scene-video provider unblock runbook, and fail-closed provider-runtime blockers |
+| Deployment ID | `local-20260706T201531Z-7fd2aa346c8e`; current integrated local/live candidate with first-party fast-run property links, research-detail selected-distance rail replacement, run-scoped nearby-filter restoration on stale packets, public/auth shared-run smoke coverage, tour playback gates, account/billing/auth polish, OMagic adapter packaging, current scene-video provider unblock runbook, and fail-closed provider-runtime blockers |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The live run-scoped distance-filter correction on 2026-07-06 verified:
+
+- Commit `7fd2aa34` is the current deployed runtime candidate for preserving run-selected nearby distance filters on research detail pages even when the run snapshot is marked stale relative to the user’s current onboarding brief.
+- `python3 -m py_compile ea/app/api/routes/landing.py ea/app/api/routes/landing_property_research.py` passed.
+- Focused regressions passed:
+  - `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_selected_distance_rows_follow_selected_nearby_filters tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_selected_distance_rows_support_legacy_nearby_preference_flags tests/test_propertyquarry_workspace_redesign.py::test_property_enriched_candidate_facts_backfill_source_research_for_selected_distance_checks tests/test_propertyquarry_workspace_redesign.py::test_property_research_detail_replaces_other_homes_with_selected_distance_checks tests/test_propertyquarry_workspace_redesign.py::test_property_research_detail_uses_run_distance_filters_even_when_run_snapshot_is_stale tests/test_propertyquarry_workspace_redesign.py::test_property_research_detail_right_rail_stays_compact tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces --tb=short` returned `7 passed`.
+- `PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E=1 EA_HOST_PORT=8097 make deploy` rebuilt the live `propertyquarry-api` image and restarted `propertyquarry-api` plus `propertyquarry-scheduler`; the wrapper stayed quiet after the healthy restarts and was interrupted, so the deployment was verified manually through readiness, version, and authenticated origin probes.
+- `curl -fsS http://127.0.0.1:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}` after the restart, and `/version` returned `release_commit_sha=7fd2aa346c8e37fb1fdefaff8ba32e6b16c7133a` with deployment id `local-20260706T201531Z-7fd2aa346c8e`.
+- Authenticated origin probe on `http://127.0.0.1:8097/app/research/ee90d4d412e13d64?run_id=aaae9ddc9d4d476fb039784e51f51efb` with `Host: propertyquarry.com` returned `Nearby distances`, `data-research-selected-distances`, and run-scoped missing-distance rows such as `Nearest supermarket distance is not listed yet; selected limit 1000 m.` and `Nearest playground distance is not listed yet; selected limit 1000 m.`
+- The earlier sparse route `http://127.0.0.1:8097/app/research/26abb3749ce943c0?run_id=5aa064d3f2cd480782d0006e8314dd0d` still truthfully renders no distance rail because that run snapshot carries no selected nearby filters and the candidate still exposes only coarse `1010 Wien` location evidence.
 
 The live research-detail/sidebar correction on 2026-07-06 verified:
 
