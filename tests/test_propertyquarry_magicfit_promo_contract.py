@@ -177,6 +177,43 @@ def test_propertyquarry_magicfit_env_selects_account_json_file_without_chummer_c
     assert "MAGICFIT_ACCOUNTS_JSON_FILE[3]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
 
 
+def test_propertyquarry_magicfit_env_prefers_account_json_file_over_inline_json(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_magicfit_env_helper()
+    for key in (
+        "PROPERTYQUARRY_MAGICFIT_EMAIL",
+        "PROPERTYQUARRY_MAGICFIT_PASSWORD",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX",
+        "MAGICFIT_EMAIL",
+        "MAGICFIT_PASSWORD",
+        "MAGICFIT_ACCOUNTS_JSON",
+        "MAGICFIT_ACCOUNTS_JSON_FILE",
+        "MAGICFIT_ACCOUNT_INDEX",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    accounts_file = tmp_path / "magicfit-accounts.json"
+    accounts_file.write_text(json.dumps([{"email": "file@example.test", "password": "secret-file"}]), encoding="utf-8")
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "MAGICFIT_ACCOUNT_INDEX=1\n"
+        "MAGICFIT_ACCOUNTS_JSON="
+        + json.dumps([{"email": "inline@example.test", "password": "secret-inline"}])
+        + "\n"
+        + f"MAGICFIT_ACCOUNTS_JSON_FILE={accounts_file}\n",
+        encoding="utf-8",
+    )
+
+    values, sources = module.discover_magicfit_env([env_file])
+
+    assert values["PROPERTYQUARRY_MAGICFIT_EMAIL"] == "file@example.test"
+    assert values["PROPERTYQUARRY_MAGICFIT_PASSWORD"] == "secret-file"
+    assert "MAGICFIT_ACCOUNTS_JSON_FILE[1]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
+
+
 def test_propertyquarry_magicfit_helpers_do_not_read_chummer_credentials() -> None:
     helper_paths = [
         ROOT / "scripts" / "property_magicfit_env.py",

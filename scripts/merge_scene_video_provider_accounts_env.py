@@ -11,13 +11,17 @@ from typing import Any
 
 ALLOWED_UPDATE_KEYS = {
     "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
+    "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE",
     "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX",
     "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
+    "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE",
     "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+    "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE",
 }
 PROTECTED_KEY_PREFIXES = ("ONEMIN_", "PROPERTYQUARRY_ONEMIN_")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SECURE_FILE_MODE = 0o600
+DEFAULT_FILE_ENV_DIR = "state/scene_video_provider_accounts"
 
 
 def _load_accounts(path: str) -> list[dict[str, str]]:
@@ -163,6 +167,22 @@ def _atomic_write(path: Path, text: str) -> None:
     path.chmod(SECURE_FILE_MODE)
 
 
+def _stable_account_file_dir(env_file: Path, configured_dir: str) -> Path:
+    if str(configured_dir or "").strip():
+        return Path(configured_dir).expanduser()
+    return (env_file.expanduser().resolve().parent / DEFAULT_FILE_ENV_DIR).resolve()
+
+
+def _stable_account_file_path(account_file_dir: Path, provider: str) -> Path:
+    safe_provider = str(provider or "").strip().lower().replace("_", "-")
+    return account_file_dir / f"{safe_provider}-accounts.json"
+
+
+def _write_accounts_file(path: Path, accounts: list[dict[str, str]]) -> None:
+    rendered = json.dumps(accounts, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
+    _atomic_write(path, rendered)
+
+
 def _next_backup_path(path: Path) -> Path:
     base = path.with_name(f"{path.name}.scene-video-provider-accounts.bak")
     if not base.exists():
@@ -189,10 +209,18 @@ def build_updates(
     omagic_accounts: list[dict[str, str]],
     magicfit_account_index: int | None,
     write_magic_alias: bool,
+    write_file_env: bool = False,
+    magicfit_accounts_env_file: str = "",
+    omagic_accounts_env_file: str = "",
 ) -> dict[str, str]:
     updates: dict[str, str] = {}
     if magicfit_accounts:
-        updates["PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"] = _compact_accounts_json(magicfit_accounts)
+        if write_file_env:
+            if not magicfit_accounts_env_file:
+                raise ValueError("magicfit file-env mode requires a stable target file path")
+            updates["PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE"] = str(magicfit_accounts_env_file)
+        else:
+            updates["PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"] = _compact_accounts_json(magicfit_accounts)
         if magicfit_account_index is not None:
             if magicfit_account_index < 0 or magicfit_account_index >= len(magicfit_accounts):
                 raise ValueError(
@@ -204,9 +232,15 @@ def build_updates(
     if omagic_accounts:
         if not write_magic_alias:
             raise ValueError("magic alias account env is required when OMagic accounts are supplied")
-        omagic_json = _compact_accounts_json(omagic_accounts)
-        updates["PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON"] = omagic_json
-        updates["PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON"] = omagic_json
+        if write_file_env:
+            if not omagic_accounts_env_file:
+                raise ValueError("omagic file-env mode requires a stable target file path")
+            updates["PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE"] = str(omagic_accounts_env_file)
+            updates["PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE"] = str(omagic_accounts_env_file)
+        else:
+            omagic_json = _compact_accounts_json(omagic_accounts)
+            updates["PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON"] = omagic_json
+            updates["PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON"] = omagic_json
     _validate_updates(updates)
     return updates
 
@@ -220,17 +254,37 @@ def merge_accounts_env(
     expected_omagic_count: int | None,
     magicfit_account_index: int | None,
     write_magic_alias: bool,
+    write_file_env: bool = False,
+    account_file_dir: Path | None = None,
     write: bool,
 ) -> dict[str, Any]:
     if expected_magicfit_count is not None and len(magicfit_accounts) != expected_magicfit_count:
         raise ValueError(f"magicfit account count {len(magicfit_accounts)} does not match expected {expected_magicfit_count}")
     if expected_omagic_count is not None and len(omagic_accounts) != expected_omagic_count:
         raise ValueError(f"omagic account count {len(omagic_accounts)} does not match expected {expected_omagic_count}")
+    resolved_account_file_dir = (
+        _stable_account_file_dir(env_file, str(account_file_dir or ""))
+        if write_file_env
+        else None
+    )
+    magicfit_accounts_env_file = (
+        str(_stable_account_file_path(resolved_account_file_dir, "magicfit"))
+        if resolved_account_file_dir is not None and magicfit_accounts
+        else ""
+    )
+    omagic_accounts_env_file = (
+        str(_stable_account_file_path(resolved_account_file_dir, "omagic"))
+        if resolved_account_file_dir is not None and omagic_accounts
+        else ""
+    )
     updates = build_updates(
         magicfit_accounts=magicfit_accounts,
         omagic_accounts=omagic_accounts,
         magicfit_account_index=magicfit_account_index,
         write_magic_alias=write_magic_alias,
+        write_file_env=write_file_env,
+        magicfit_accounts_env_file=magicfit_accounts_env_file,
+        omagic_accounts_env_file=omagic_accounts_env_file,
     )
     if write and not updates:
         raise ValueError("no provider account updates supplied for --write")
@@ -238,16 +292,30 @@ def merge_accounts_env(
     merged, updated_keys = merge_env_text(existing, updates)
     _ensure_protected_env_lines_preserved(existing, merged)
     backup_path = ""
+    written_account_files: list[str] = []
     if write and updates:
+        if write_file_env and resolved_account_file_dir is not None:
+            if magicfit_accounts:
+                magicfit_path = Path(magicfit_accounts_env_file)
+                _write_accounts_file(magicfit_path, magicfit_accounts)
+                written_account_files.append(str(magicfit_path))
+            if omagic_accounts:
+                omagic_path = Path(omagic_accounts_env_file)
+                _write_accounts_file(omagic_path, omagic_accounts)
+                written_account_files.append(str(omagic_path))
         backup_path = _write_backup(env_file, existing)
         _atomic_write(env_file, merged)
     return {
         "status": "pass",
         "dry_run": not write,
+        "write_mode": "file_env" if write_file_env else "inline_json_env",
         "env_file": str(env_file),
         "backup_path": backup_path,
         "secure_file_mode": oct(SECURE_FILE_MODE),
         "updated_keys": updated_keys,
+        "account_file_dir": str(resolved_account_file_dir) if resolved_account_file_dir is not None else "",
+        "planned_account_files": [path for path in (magicfit_accounts_env_file, omagic_accounts_env_file) if path],
+        "written_account_files": written_account_files,
         "provider_account_counts": {
             "magicfit": len(magicfit_accounts),
             "omagic": len(omagic_accounts),
@@ -269,6 +337,8 @@ def main() -> int:
     parser.add_argument("--expected-omagic-count", type=int, default=None)
     parser.add_argument("--magicfit-account-index", type=int, default=None)
     parser.add_argument("--no-magic-alias", action="store_true")
+    parser.add_argument("--write-file-env", action="store_true")
+    parser.add_argument("--account-file-dir", default="")
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
 
@@ -283,6 +353,8 @@ def main() -> int:
             expected_omagic_count=args.expected_omagic_count,
             magicfit_account_index=args.magicfit_account_index,
             write_magic_alias=not args.no_magic_alias,
+            write_file_env=args.write_file_env,
+            account_file_dir=Path(args.account_file_dir).expanduser() if args.account_file_dir else None,
             write=args.write,
         )
     except Exception as exc:  # noqa: BLE001

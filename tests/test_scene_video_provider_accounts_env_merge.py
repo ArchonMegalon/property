@@ -107,6 +107,75 @@ def test_scene_video_provider_accounts_env_merge_dry_run_preserves_file(tmp_path
     assert env_file.read_text(encoding="utf-8") == original
 
 
+def test_scene_video_provider_accounts_env_merge_writes_file_env_targets(tmp_path: Path) -> None:
+    module = _load_script()
+    env_file = tmp_path / ".env"
+    env_file.write_text("ONEMIN_AI_API_KEY='keep-this'\n", encoding="utf-8")
+    account_dir = tmp_path / "state" / "scene_video_provider_accounts"
+
+    receipt = module.merge_accounts_env(
+        env_file=env_file,
+        magicfit_accounts=_accounts("magicfit", 3),
+        omagic_accounts=_accounts("omagic", 8),
+        expected_magicfit_count=3,
+        expected_omagic_count=8,
+        magicfit_account_index=1,
+        write_magic_alias=True,
+        write_file_env=True,
+        account_file_dir=account_dir,
+        write=True,
+    )
+
+    rendered_env = env_file.read_text(encoding="utf-8")
+    rendered_receipt = json.dumps(receipt)
+    magicfit_target = account_dir / "magicfit-accounts.json"
+    omagic_target = account_dir / "omagic-accounts.json"
+
+    assert receipt["status"] == "pass"
+    assert receipt["write_mode"] == "file_env"
+    assert receipt["account_file_dir"] == str(account_dir)
+    assert receipt["planned_account_files"] == [str(magicfit_target), str(omagic_target)]
+    assert receipt["written_account_files"] == [str(magicfit_target), str(omagic_target)]
+    assert magicfit_target.exists()
+    assert omagic_target.exists()
+    assert magicfit_target.stat().st_mode & 0o777 == 0o600
+    assert omagic_target.stat().st_mode & 0o777 == 0o600
+    assert "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE=" in rendered_env
+    assert "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE=" in rendered_env
+    assert "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE=" in rendered_env
+    assert "magicfit0@example.test" not in rendered_receipt
+    assert "omagic0@example.test" not in rendered_receipt
+    assert json.loads(magicfit_target.read_text(encoding="utf-8"))[0]["email"] == "magicfit0@example.test"
+    assert json.loads(omagic_target.read_text(encoding="utf-8"))[0]["email"] == "omagic0@example.test"
+
+
+def test_scene_video_provider_accounts_env_merge_file_env_dry_run_reports_targets_without_writing(tmp_path: Path) -> None:
+    module = _load_script()
+    env_file = tmp_path / ".env"
+    env_file.write_text("ONEMIN_AI_API_KEY='keep-this'\n", encoding="utf-8")
+    account_dir = tmp_path / "state" / "scene_video_provider_accounts"
+
+    receipt = module.merge_accounts_env(
+        env_file=env_file,
+        magicfit_accounts=_accounts("magicfit", 3),
+        omagic_accounts=[],
+        expected_magicfit_count=3,
+        expected_omagic_count=None,
+        magicfit_account_index=None,
+        write_magic_alias=True,
+        write_file_env=True,
+        account_file_dir=account_dir,
+        write=False,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["write_mode"] == "file_env"
+    assert receipt["planned_account_files"] == [str(account_dir / "magicfit-accounts.json")]
+    assert receipt["written_account_files"] == []
+    assert not (account_dir / "magicfit-accounts.json").exists()
+    assert env_file.read_text(encoding="utf-8") == "ONEMIN_AI_API_KEY='keep-this'\n"
+
+
 def test_scene_video_provider_accounts_env_merge_refuses_onemin_updates() -> None:
     module = _load_script()
 
@@ -221,6 +290,50 @@ def test_scene_video_provider_accounts_env_merge_cli_rejects_wrong_expected_coun
     assert stdout["status"] == "fail"
     assert "does not match expected 3" in stdout["blockers"][0]
     assert env_file.read_text(encoding="utf-8") == "ONEMIN_AI_API_KEY='keep-this'\n"
+
+
+def test_scene_video_provider_accounts_env_merge_cli_writes_file_env_targets(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    accounts_file = tmp_path / "magicfit.json"
+    account_dir = tmp_path / "state" / "scene_video_provider_accounts"
+    env_file.write_text("ONEMIN_AI_API_KEY='keep-this'\n", encoding="utf-8")
+    accounts_file.write_text(json.dumps(_accounts("magicfit", 3)), encoding="utf-8")
+    accounts_file.chmod(0o600)
+    script = ROOT / "scripts" / "merge_scene_video_provider_accounts_env.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--env-file",
+            str(env_file),
+            "--magicfit-accounts-json-file",
+            str(accounts_file),
+            "--expected-magicfit-count",
+            "3",
+            "--magicfit-account-index",
+            "1",
+            "--write-file-env",
+            "--account-file-dir",
+            str(account_dir),
+            "--write",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    stdout = json.loads(result.stdout)
+    target = account_dir / "magicfit-accounts.json"
+
+    assert result.returncode == 0, result.stderr
+    assert stdout["status"] == "pass"
+    assert stdout["write_mode"] == "file_env"
+    assert stdout["planned_account_files"] == [str(target)]
+    assert stdout["written_account_files"] == [str(target)]
+    assert target.exists()
+    assert target.stat().st_mode & 0o777 == 0o600
+    assert "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE=" in env_file.read_text(encoding="utf-8")
 
 
 def test_scene_video_provider_accounts_env_merge_cli_rejects_duplicate_emails_without_leaking_value(tmp_path: Path) -> None:

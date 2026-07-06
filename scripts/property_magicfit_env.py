@@ -58,23 +58,13 @@ def _load_accounts_from_json_text(raw_accounts: str) -> list[dict[str, object]]:
 def _apply_accounts_json_defaults(values: dict[str, str], sources: dict[str, str]) -> None:
     if values.get("PROPERTYQUARRY_MAGICFIT_EMAIL") and values.get("PROPERTYQUARRY_MAGICFIT_PASSWORD"):
         return
-    raw_accounts = values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON") or values.get("MAGICFIT_ACCOUNTS_JSON") or ""
+    accounts_path = values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE") or values.get("MAGICFIT_ACCOUNTS_JSON_FILE") or ""
     source_key = (
-        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"
-        if values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON")
-        else "MAGICFIT_ACCOUNTS_JSON"
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE"
+        if values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE")
+        else "MAGICFIT_ACCOUNTS_JSON_FILE"
     )
-    if raw_accounts:
-        loaded = _load_accounts_from_json_text(raw_accounts)
-    else:
-        accounts_path = values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE") or values.get("MAGICFIT_ACCOUNTS_JSON_FILE") or ""
-        source_key = (
-            "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE"
-            if values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE")
-            else "MAGICFIT_ACCOUNTS_JSON_FILE"
-        )
-        if not accounts_path:
-            return
+    if accounts_path:
         path = Path(accounts_path).expanduser()
         if not path.is_file():
             return
@@ -82,6 +72,16 @@ def _apply_accounts_json_defaults(values: dict[str, str], sources: dict[str, str
             loaded = _load_accounts_from_json_text(path.read_text(encoding="utf-8"))
         except Exception:
             return
+    else:
+        raw_accounts = values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON") or values.get("MAGICFIT_ACCOUNTS_JSON") or ""
+        source_key = (
+            "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"
+            if values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON")
+            else "MAGICFIT_ACCOUNTS_JSON"
+        )
+        if not raw_accounts:
+            return
+        loaded = _load_accounts_from_json_text(raw_accounts)
     credentialed_accounts: list[dict[str, object]] = []
     for row in loaded:
         email = str(row.get("email") or row.get("username") or row.get("login") or "").strip()

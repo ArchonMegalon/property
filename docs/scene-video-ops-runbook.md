@@ -209,6 +209,30 @@ This writes only:
 - `PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON`
 - `PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX`
 
+If you want the runtime to read a stable secret file instead of inline JSON env, use file-env mode:
+
+```bash
+chmod 600 <magicfit-accounts.json>
+python3 scripts/merge_scene_video_provider_accounts_env.py \
+  --env-file .env \
+  --magicfit-accounts-json-file <magicfit-accounts.json> \
+  --expected-magicfit-count 3 \
+  --magicfit-account-index <funded-account-index> \
+  --write-file-env \
+  --write
+```
+
+Default file-env install target:
+
+- `state/scene_video_provider_accounts/magicfit-accounts.json`
+
+This writes only:
+
+- `PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE`
+- `PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX`
+
+When `*_ACCOUNTS_JSON_FILE` is present, PropertyQuarry runtime readiness and MagicFit helper selection prefer that file over inline `*_ACCOUNTS_JSON`.
+
 MagicFit pass criteria:
 
 - `provider_backend_key=magicfit`
@@ -253,6 +277,29 @@ This writes both OMagic and Magic alias account envs:
 
 - `PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON`
 - `PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON`
+
+File-env mode installs one stable provider-only account file and points both OMagic and Magic alias envs at it:
+
+```bash
+chmod 600 <omagic-accounts.json>
+python3 scripts/merge_scene_video_provider_accounts_env.py \
+  --env-file .env \
+  --omagic-accounts-json-file <omagic-accounts.json> \
+  --expected-omagic-count 8 \
+  --write-file-env \
+  --write
+```
+
+Default file-env install target:
+
+- `state/scene_video_provider_accounts/omagic-accounts.json`
+
+This writes:
+
+- `PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE`
+- `PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE`
+
+When `*_ACCOUNTS_JSON_FILE` is present, PropertyQuarry runtime readiness prefers that file over inline `*_ACCOUNTS_JSON`.
 
 Configure one real model-upload adapter target before enabling the adapter:
 

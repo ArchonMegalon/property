@@ -88,9 +88,6 @@ def _scene_video_account_rows_from_sources(
             seen_sources.add(source_key)
             rows.append((source_env_name, index, row))
 
-    for env_name in _scene_video_matching_env_names(*inline_env_names):
-        _append_rows(env_name, str(os.getenv(env_name) or "").strip())
-
     for env_name in _scene_video_matching_env_names(*file_env_names):
         file_path = Path(str(os.getenv(env_name) or "").strip()).expanduser()
         if not file_path.is_file():
@@ -100,6 +97,9 @@ def _scene_video_account_rows_from_sources(
         except Exception:
             continue
         _append_rows(env_name, raw_accounts)
+
+    for env_name in _scene_video_matching_env_names(*inline_env_names):
+        _append_rows(env_name, str(os.getenv(env_name) or "").strip())
 
     return rows
 
