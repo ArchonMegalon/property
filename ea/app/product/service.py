@@ -6257,6 +6257,156 @@ def _property_fact_value_is_weak(value: object) -> bool:
     return False
 
 
+_PROPERTY_LOCATION_QUERY_STREET_TOKENS = (
+    "straße",
+    "strasse",
+    "gasse",
+    "weg",
+    "platz",
+    "allee",
+    "kai",
+    "ring",
+    "zeile",
+    "steig",
+    "lane",
+    "road",
+    "street",
+    "avenue",
+    "drive",
+    "boulevard",
+    "terrace",
+)
+
+
+def _property_research_location_query_is_street_level(query: object) -> bool:
+    normalized = " ".join(str(query or "").split()).casefold()
+    if not normalized:
+        return False
+    has_street_token = any(token in normalized for token in _PROPERTY_LOCATION_QUERY_STREET_TOKENS)
+    has_number = bool(re.search(r"\b\d+[A-Za-z]?\b", normalized))
+    return has_street_token and has_number
+
+
+def _property_research_location_hint_queries(
+    *,
+    facts: dict[str, object],
+    title: str = "",
+    summary: str = "",
+) -> tuple[str, ...]:
+    payload = dict(facts or {})
+    queries: list[str] = []
+    seen: set[str] = set()
+    postal_name = compact_text(str(payload.get("postal_name") or "").strip(), fallback="", limit=120)
+
+    def _push(value: object) -> None:
+        query = compact_text(str(value or "").strip(), fallback="", limit=180)
+        if not query:
+            return
+        if not (_property_postal_code_core(query) or _property_research_location_query_is_street_level(query)):
+            return
+        normalized = query.casefold()
+        if normalized in seen:
+            return
+        seen.add(normalized)
+        queries.append(query)
+
+    exact_address = str(payload.get("exact_address") or "").strip()
+    if exact_address and not _property_location_value_is_source_scope_placeholder(exact_address, payload):
+        _push(exact_address)
+    street_address = str(payload.get("street_address") or "").strip()
+    if street_address and not _property_location_value_is_source_scope_placeholder(street_address, payload):
+        if postal_name and postal_name.casefold() not in street_address.casefold():
+            _push(f"{street_address}, {postal_name}")
+        _push(street_address)
+    for key in ("address", "postal_name"):
+        value = str(payload.get(key) or "").strip()
+        if not value or _property_location_value_is_source_scope_placeholder(value, payload):
+            continue
+        _push(value)
+    for row in list(payload.get("listing_postal_evidence") or []):
+        if not isinstance(row, dict):
+            continue
+        _push(row.get("postal_name"))
+    for row in _property_postal_location_evidence(" | ".join(part for part in (title, summary) if str(part or "").strip())):
+        _push(row.get("postal_name"))
+    return tuple(queries)
+
+
+@lru_cache(maxsize=256)
+def _property_research_location_hint_snapshot(query: str) -> dict[str, object]:
+    normalized = " ".join(str(query or "").split()).strip()
+    if not normalized:
+        return {}
+    geocoded = _property_research_forward_geocode(normalized)
+    try:
+        lat = float(geocoded.get("lat"))
+        lon = float(geocoded.get("lon"))
+    except (TypeError, ValueError):
+        return {}
+    street_level = _property_research_location_query_is_street_level(normalized)
+    findings: dict[str, object] = {
+        "map_lat": lat,
+        "map_lng": lon,
+        "map_location_precision": "address" if street_level else "postal_area",
+        "location_hint_research_attempted": True,
+    }
+    if street_level:
+        reverse = _property_research_reverse_geocode(lat, lon)
+        address = dict(reverse.get("address") or {}) if isinstance(reverse.get("address"), dict) else {}
+        road = str(address.get("road") or "").strip()
+        house_number = str(address.get("house_number") or "").strip()
+        if road and house_number:
+            findings["street_address"] = f"{road} {house_number}"
+            address_line_2 = " ".join(
+                part
+                for part in (
+                    str(address.get("postcode") or "").strip(),
+                    str(address.get("city") or address.get("town") or address.get("village") or "").strip(),
+                )
+                if part
+            ).strip()
+            findings["address_lines"] = [findings["street_address"], address_line_2] if address_line_2 else [findings["street_address"]]
+        display_name = str(reverse.get("display_name") or geocoded.get("display_name") or "").strip()
+        if display_name:
+            findings["exact_address"] = display_name
+    nearby = _property_research_nearby_pois(lat, lon)
+    nearby_source = "OpenStreetMap" if street_level else "OpenStreetMap (postal area estimate)"
+    for key, value in nearby.items():
+        if value in (None, "", (), [], {}):
+            continue
+        findings[key] = value
+        if key.endswith("_m"):
+            findings.setdefault(f"{key[:-2]}_source", nearby_source)
+    return findings
+
+
+def _property_apply_location_hint_research(
+    *,
+    facts: dict[str, object],
+    title: str = "",
+    summary: str = "",
+) -> dict[str, object]:
+    enriched = dict(facts or {})
+    if any(enriched.get(key) for key in ("map_lat", "map_lng")):
+        return enriched
+    hint_queries = _property_research_location_hint_queries(
+        facts=enriched,
+        title=title,
+        summary=summary,
+    )
+    if hint_queries:
+        enriched["location_hint_research_attempted"] = True
+    for query in hint_queries:
+        geo_hint = _property_research_location_hint_snapshot(query)
+        if not geo_hint:
+            continue
+        for key, value in geo_hint.items():
+            if value not in (None, "", (), [], {}) and _property_fact_value_is_weak(enriched.get(key)):
+                enriched[key] = value
+        break
+    return enriched
+
+
 @lru_cache(maxsize=256)
 def _property_source_research_snapshot(property_url: str, image_urls: tuple[str, ...] = ()) -> dict[str, object]:
     normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
@@ -6328,6 +6478,11 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
         for key, value in ocr_hint.items():
             if value not in (None, "", (), [], {}):
                 facts[key] = value
+    facts = _property_apply_location_hint_research(
+        facts=facts,
+        title=title,
+        summary=summary,
+    )
     research_lat = _float_or_none(facts.get("map_lat"))
     research_lng = _float_or_none(facts.get("map_lng"))
     if isinstance(research_lat, float) and isinstance(research_lng, float):
@@ -6466,6 +6621,26 @@ def _merge_property_facts_with_source_research(
             "field_count": len(research),
             "strategy": "provider_html_plus_geo",
         }
+    merged = _property_apply_location_hint_research(facts=merged)
+    if bool(merged.get("location_hint_research_attempted")):
+        snapshot = (
+            dict(merged.get("listing_research_snapshot") or {})
+            if isinstance(merged.get("listing_research_snapshot"), dict)
+            else {}
+        )
+        snapshot.setdefault("location_hint_research_attempted", True)
+        for key, value in merged.items():
+            if (
+                value not in (None, "", (), [], {})
+                and key not in snapshot
+                and (key.startswith("nearest_") or key.startswith("map_") or key.endswith("_source"))
+            ):
+                snapshot[key] = value
+        if snapshot:
+            merged["listing_research_snapshot"] = snapshot
+            research_meta = dict(merged.get("listing_research_meta") or {})
+            research_meta.setdefault("strategy", "provider_html_plus_geo")
+            merged["listing_research_meta"] = research_meta
     merged = _property_enrich_official_risk_evidence(merged)
     return _property_enrich_missing_fact_research(
         facts=merged,

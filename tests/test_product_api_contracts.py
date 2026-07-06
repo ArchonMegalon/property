@@ -11502,6 +11502,7 @@ def test_generic_property_tour_blocks_cube_360_bundle_when_provider_is_unavailab
 def test_property_source_research_snapshot_uses_image_ocr_when_listing_has_no_map(monkeypatch) -> None:
     listing_url = "https://www.immobilienscout24.at/expose/ocr-address"
     product_service._property_source_research_snapshot.cache_clear()
+    product_service._property_research_location_hint_snapshot.cache_clear()
     product_service._property_research_forward_geocode.cache_clear()
     product_service._property_research_reverse_geocode.cache_clear()
     product_service._property_research_nearby_pois.cache_clear()
@@ -11529,6 +11530,59 @@ def test_property_source_research_snapshot_uses_image_ocr_when_listing_has_no_ma
     assert findings["address_lines"] == ["Beispielgasse 12", "1180 Wien"]
     assert findings["nearest_supermarket_m"] == 240
     assert findings["nearest_pharmacy_m"] == 190
+
+
+def test_property_source_research_snapshot_geocodes_postal_hint_when_listing_only_has_postal_name(monkeypatch) -> None:
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/postal-hint"
+    product_service._property_source_research_snapshot.cache_clear()
+    product_service._property_research_location_hint_snapshot.cache_clear()
+    product_service._property_research_forward_geocode.cache_clear()
+    product_service._property_research_reverse_geocode.cache_clear()
+    product_service._property_research_nearby_pois.cache_clear()
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=True: {
+            "title": "Altbauwohnung im Zentrum",
+            "summary": "Sonnig in 1010 Wien.",
+            "property_facts_json": {
+                "postal_name": "1010 Wien",
+                "address": "1010 Wien",
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html_compat", lambda url, timeout_seconds=4.0: "<html><body>1010 Wien</body></html>")
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_forward_geocode",
+        lambda query: {
+            "lat": "48.2083622",
+            "lon": "16.3693966",
+            "display_name": "1010, Innere Stadt, Wien, Österreich",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_nearby_pois",
+        lambda lat, lon: {
+            "nearest_supermarket_m": 180,
+            "nearest_supermarket_name": "SPAR Jasomirgottstrasse",
+            "nearest_playground_m": 340,
+            "nearest_playground_name": "Rudolfspark",
+        },
+    )
+    monkeypatch.setattr(product_service, "_property_enrich_official_risk_evidence", lambda facts: dict(facts))
+
+    findings = product_service._property_source_research_snapshot(listing_url)
+
+    assert findings["map_lat"] == 48.2083622
+    assert findings["map_lng"] == 16.3693966
+    assert findings["map_location_precision"] == "postal_area"
+    assert findings["location_hint_research_attempted"] is True
+    assert findings["nearest_supermarket_m"] == 180
+    assert findings["nearest_supermarket_name"] == "SPAR Jasomirgottstrasse"
+    assert findings["nearest_supermarket_source"] == "OpenStreetMap (postal area estimate)"
+    assert "street_address" not in findings
 
 
 def test_property_source_research_snapshot_extracts_austria_document_and_eligibility_signals(monkeypatch) -> None:

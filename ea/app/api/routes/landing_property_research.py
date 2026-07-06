@@ -427,11 +427,26 @@ def _property_enriched_candidate_facts(
         facts=facts,
         preferences=normalized_preferences,
     )
+    available_distance_rows = _property_available_nearby_distance_rows(facts=facts)
+    research_snapshot = (
+        dict(facts.get("listing_research_snapshot") or {})
+        if isinstance(facts.get("listing_research_snapshot"), dict)
+        else {}
+    )
+    location_hint_attempted = bool(
+        facts.get("location_hint_research_attempted")
+        or research_snapshot.get("location_hint_research_attempted")
+    )
     if (
         property_url
-        and selected_distance_rows
-        and any(str(row.get("tag") or "").strip().casefold() == "to check" for row in selected_distance_rows)
-        and not isinstance(facts.get("listing_research_snapshot"), dict)
+        and (
+            (
+                selected_distance_rows
+                and any(str(row.get("tag") or "").strip().casefold() == "to check" for row in selected_distance_rows)
+            )
+            or (not selected_distance_rows and not available_distance_rows)
+        )
+        and not location_hint_attempted
     ):
         facts = _merge_property_facts_with_source_research(
             property_url=property_url,
@@ -1931,6 +1946,167 @@ def _property_selected_distance_rows(
         rows.append(_object_detail_row(title, detail, tag))
         seen_titles.add(title.casefold())
     return rows
+
+
+def _property_available_nearby_distance_rows(
+    *,
+    facts: dict[str, object],
+) -> list[dict[str, str]]:
+    specs: tuple[dict[str, object], ...] = (
+        {
+            "title": "Supermarket",
+            "label": "supermarket",
+            "distance_keys": ("nearest_supermarket_m", "distance_supermarket_m"),
+            "name_keys": ("nearest_supermarket_name", "supermarket_name"),
+            "source_keys": ("nearest_supermarket_source", "supermarket_source"),
+            "tag": "Errands",
+        },
+        {
+            "title": "Playground",
+            "label": "playground",
+            "distance_keys": ("nearest_playground_m", "distance_playground_m"),
+            "name_keys": ("nearest_playground_name", "playground_name"),
+            "source_keys": ("nearest_playground_source", "playground_source"),
+            "tag": "Family",
+        },
+        {
+            "title": "Library",
+            "label": "library",
+            "distance_keys": ("nearest_library_m",),
+            "name_keys": ("nearest_library_name", "library_name"),
+            "source_keys": ("nearest_library_source", "library_source"),
+            "tag": "Family",
+        },
+        {
+            "title": "Zoo",
+            "label": "zoo",
+            "distance_keys": ("nearest_zoo_m",),
+            "name_keys": ("nearest_zoo_name", "zoo_name"),
+            "source_keys": ("nearest_zoo_source", "zoo_source"),
+            "tag": "Family",
+        },
+        {
+            "title": "Pharmacy",
+            "label": "pharmacy",
+            "distance_keys": ("nearest_pharmacy_m", "distance_pharmacy_m"),
+            "name_keys": ("nearest_pharmacy_name", "pharmacy_name"),
+            "source_keys": ("nearest_pharmacy_source", "pharmacy_source"),
+            "tag": "Health",
+        },
+        {
+            "title": "Medical care",
+            "label": "medical care",
+            "distance_keys": ("nearest_medical_care_m",),
+            "name_keys": ("nearest_medical_care_name", "medical_care_name"),
+            "source_keys": ("nearest_medical_care_source", "medical_care_source"),
+            "tag": "Health",
+        },
+        {
+            "title": "Market",
+            "label": "market",
+            "distance_keys": ("nearest_market_m",),
+            "name_keys": ("nearest_market_name", "market_name"),
+            "source_keys": ("nearest_market_source", "market_source"),
+            "tag": "District life",
+        },
+        {
+            "title": "Hardware store",
+            "label": "hardware store",
+            "distance_keys": ("nearest_hardware_store_m",),
+            "name_keys": ("nearest_hardware_store_name", "hardware_store_name"),
+            "source_keys": ("nearest_hardware_store_source", "hardware_store_source"),
+            "tag": "Practical",
+        },
+        {
+            "title": "Shopping center",
+            "label": "shopping center",
+            "distance_keys": ("nearest_shopping_center_m",),
+            "name_keys": ("nearest_shopping_center_name", "shopping_center_name"),
+            "source_keys": ("nearest_shopping_center_source", "shopping_center_source"),
+            "tag": "Errands",
+        },
+        {
+            "title": "Promenade",
+            "label": "promenade",
+            "distance_keys": ("nearest_shopping_street_m",),
+            "name_keys": ("nearest_shopping_street_name", "shopping_street_name"),
+            "source_keys": ("nearest_shopping_street_source", "shopping_street_source"),
+            "tag": "City life",
+        },
+        {
+            "title": "Theatre",
+            "label": "theatre",
+            "distance_keys": ("nearest_theatre_m",),
+            "name_keys": ("nearest_theatre_name", "theatre_name"),
+            "source_keys": ("nearest_theatre_source", "theatre_source"),
+            "tag": "Culture",
+        },
+        {
+            "title": "Public pool",
+            "label": "public pool",
+            "distance_keys": ("nearest_public_pool_m",),
+            "name_keys": ("nearest_public_pool_name", "public_pool_name"),
+            "source_keys": ("nearest_public_pool_source", "public_pool_source"),
+            "tag": "Family",
+        },
+        {
+            "title": "Underground",
+            "label": "underground",
+            "distance_keys": ("nearest_subway_m", "nearest_transit_m", "distance_underground_m"),
+            "name_keys": ("nearest_subway_name", "subway_station_name", "nearest_transit_name", "transit_stop_name"),
+            "source_keys": ("nearest_subway_source", "subway_source", "nearest_transit_source", "transit_source"),
+            "tag": "Transit",
+        },
+    )
+    rows: list[dict[str, str]] = []
+    seen_titles: set[str] = set()
+    for spec in specs:
+        title = str(spec.get("title") or "").strip()
+        if not title or title.casefold() in seen_titles:
+            continue
+        meters = _property_positive_distance_value(
+            facts,
+            tuple(str(key) for key in spec.get("distance_keys", ()) if str(key).strip()),
+        )
+        if meters is None:
+            continue
+        label = str(spec.get("label") or title).strip().lower()
+        place_name = _property_first_fact_text(
+            facts,
+            tuple(str(key) for key in spec.get("name_keys", ()) if str(key).strip()),
+        )
+        source = _property_first_fact_text(
+            facts,
+            tuple(str(key) for key in spec.get("source_keys", ()) if str(key).strip()),
+        )
+        subject = f"Nearest {label}"
+        if place_name:
+            subject = f"{subject}: {place_name}"
+        detail = f"{subject} is {meters} m away"
+        if source:
+            detail = f"{detail} | source: {source}"
+        if not detail.endswith("."):
+            detail = f"{detail}."
+        rows.append(_object_detail_row(title, detail, str(spec.get("tag") or "Distance").strip() or "Distance"))
+        seen_titles.add(title.casefold())
+    return rows
+
+
+def _property_distance_panel_rows(
+    *,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+) -> tuple[list[dict[str, str]], str]:
+    selected_rows = _property_selected_distance_rows(
+        facts=facts,
+        preferences=preferences,
+    )
+    if selected_rows:
+        return selected_rows, "Distances for the nearby filters in this search."
+    available_rows = _property_available_nearby_distance_rows(facts=facts)
+    if available_rows:
+        return available_rows, "Closest nearby places we could verify for this home."
+    return [], ""
 
 
 def _property_first_fact_text(

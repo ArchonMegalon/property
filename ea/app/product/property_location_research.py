@@ -14,7 +14,10 @@ from functools import lru_cache
 
 from app.product.projections import compact_text
 
-_PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
+_PROPERTY_LOCATION_RESEARCH_USER_AGENT = (
+    "PropertyQuarry/2026-07 location-research (+https://propertyquarry.com; contact property@propertyquarry.com)"
+)
+_PROPERTY_LOCATION_RESEARCH_REFERER = "https://propertyquarry.com/"
 _PROPERTY_SCHOOLATLAS_SOURCE_URL = "https://www.statistik.at/atlas/schulen/"
 
 
@@ -30,6 +33,14 @@ def _float_or_none(value: object) -> float | None:
         return float(text.replace(" ", "").replace(",", "."))
     except Exception:
         return None
+
+
+def _property_location_research_headers() -> dict[str, str]:
+    return {
+        "User-Agent": _PROPERTY_LOCATION_RESEARCH_USER_AGENT,
+        "Referer": _PROPERTY_LOCATION_RESEARCH_REFERER,
+        "Accept": "*/*",
+    }
 
 def _property_research_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> int:
     from math import atan2, cos, radians, sin, sqrt
@@ -49,7 +60,7 @@ def _property_research_reverse_geocode(lat: float, lon: float) -> dict[str, obje
             "https://nominatim.openstreetmap.org/reverse?"
             f"format=jsonv2&lat={lat:.8f}&lon={lon:.8f}&zoom=18&addressdetails=1"
         ),
-        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+        headers=_property_location_research_headers(),
     )
     try:
         with urllib.request.urlopen(request, timeout=8.0) as response:
@@ -68,7 +79,7 @@ def _property_research_forward_geocode(query: str) -> dict[str, object]:
             "https://nominatim.openstreetmap.org/search?"
             f"format=jsonv2&limit=1&q={urllib.parse.quote(normalized)}"
         ),
-        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+        headers=_property_location_research_headers(),
     )
     try:
         with urllib.request.urlopen(request, timeout=8.0) as response:
@@ -91,7 +102,7 @@ def _property_research_boundary_record(query: str) -> dict[str, object]:
             "https://nominatim.openstreetmap.org/search?"
             f"format=jsonv2&limit=1&polygon_geojson=1&q={urllib.parse.quote(normalized)}"
         ),
-        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+        headers=_property_location_research_headers(),
     )
     try:
         with urllib.request.urlopen(request, timeout=8.0) as response:
@@ -615,15 +626,19 @@ def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
 );
 out center tags;
 """
-    request = urllib.request.Request(
-        "https://overpass-api.de/api/interpreter",
-        data=query.encode("utf-8"),
-        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
-    )
     try:
-        with urllib.request.urlopen(request, timeout=20.0) as response:
-            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        response = requests.post(
+            "https://overpass-api.de/api/interpreter",
+            data="data=" + urllib.parse.quote(query, safe=""),
+            headers={
+                **_property_location_research_headers(),
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            },
+            timeout=20.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (requests.RequestException, ValueError, json.JSONDecodeError):
         return {}
     elements = list(payload.get("elements") or []) if isinstance(payload, dict) else []
     closest: dict[str, dict[str, object]] = {}

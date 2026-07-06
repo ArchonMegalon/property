@@ -78,6 +78,7 @@ from app.api.routes.landing_property_research import (
     _official_risk_posture_rows,
     _property_distance_ooda_rows,
     _property_distance_ooda_rows_for_preferences,
+    _property_distance_panel_rows,
     _property_candidate_orientation_preview,
     _property_candidate_preview_image,
     _property_candidate_ref,
@@ -103,7 +104,6 @@ from app.api.routes.landing_property_research import (
     _property_review_detail_line,
     _property_rooms_research_relevant,
     _property_rooms_display,
-    _property_selected_distance_rows,
     _property_tour_media_payload,
     _property_tour_detail_line,
 )
@@ -6041,7 +6041,7 @@ def property_research_packet(
         facts=facts,
         preferences=preferences,
     )
-    selected_distance_rows = _property_selected_distance_rows(
+    selected_distance_rows, selected_distance_copy = _property_distance_panel_rows(
         facts=facts,
         preferences=preferences,
     )
@@ -6621,6 +6621,7 @@ def property_research_packet(
             ),
             **research_snapshot,
             "research_selected_distance_rows": selected_distance_rows,
+            "research_selected_distance_copy": selected_distance_copy,
             "research_route_recovery": research_route_recovery,
             "research_visual_style_catalog": [dict(row) for row in PROPERTY_FURNITURE_STYLE_CATALOG],
             "research_default_visual_style": research_visual_default_style,

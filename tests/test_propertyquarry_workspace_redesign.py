@@ -10374,6 +10374,12 @@ def test_property_research_detail_replaces_other_homes_with_selected_distance_ch
         "property_facts": {"price_display": "EUR 1,490", "postal_name": "1020 Wien"},
     }
 
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        lambda *, property_url, property_facts, image_urls=(): dict(property_facts),
+    )
+
     def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
         return {
             "run_id": run_id,
@@ -10464,6 +10470,110 @@ def test_property_enriched_candidate_facts_backfill_source_research_for_selected
     assert facts["nearest_supermarket_m"] == 310
     assert facts["nearest_supermarket_name"] == "BILLA Heinestrasse"
     assert isinstance(facts.get("listing_research_snapshot"), dict)
+
+
+def test_property_research_detail_shows_generic_nearby_distances_when_no_filters_selected(monkeypatch) -> None:
+    principal_id = "pq-research-detail-generic-nearby-distances"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Generic Nearby Distance Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
+        calls.append((property_url, dict(property_facts)))
+        merged = dict(property_facts)
+        merged["nearest_supermarket_m"] = 220
+        merged["nearest_supermarket_name"] = "BILLA Graben"
+        merged["nearest_supermarket_source"] = "OpenStreetMap (postal area estimate)"
+        merged["nearest_playground_m"] = 480
+        merged["nearest_playground_name"] = "Rudolfspark"
+        merged["nearest_playground_source"] = "OpenStreetMap (postal area estimate)"
+        merged["location_hint_research_attempted"] = True
+        merged["listing_research_snapshot"] = {
+            "nearest_supermarket_m": 220,
+            "nearest_playground_m": 480,
+            "location_hint_research_attempted": True,
+        }
+        merged["listing_research_meta"] = {"strategy": "provider_html_plus_geo"}
+        return merged
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        _fake_merge_property_facts_with_source_research,
+    )
+
+    candidate = {
+        "candidate_ref": "cand-generic-nearby",
+        "title": "Inner-city home with postal-only evidence",
+        "fit_summary": "Useful if the daily-life distances check out.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-generic-nearby",
+        "property_url": "https://example.test/generic-nearby-flat",
+        "source_label": "Willhaben",
+        "fit_score": 79,
+        "property_facts": {
+            "price_display": "EUR 2,350",
+            "area_m2": 92,
+            "rooms": 3.5,
+            "postal_name": "1010 Wien",
+            "address": "1010 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "listing_mode": "rent",
+                "location_query": "1010 Vienna",
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    page = client.get(
+        "/app/research/cand-generic-nearby",
+        params={"run_id": "run-generic-nearby-distance-detail"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert len(calls) == 1
+    assert calls[0][0] == "https://example.test/generic-nearby-flat"
+    assert "Nearby distances" in page.text
+    assert "Closest nearby places we could verify for this home." in page.text
+    assert "Nearest supermarket: BILLA Graben is 220 m away | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest playground: Rudolfspark is 480 m away | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Other homes" not in page.text
+    assert 'data-research-ranking-list' not in page.text
 
 
 def test_property_research_detail_uses_run_distance_filters_even_when_run_snapshot_is_stale(monkeypatch) -> None:

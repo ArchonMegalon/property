@@ -3774,9 +3774,9 @@
 
     <aside class="prd-side-stack">
       {% if research_selected_distance_rows %}
-      <section class="prd-panel prd-related-homes" data-research-selected-distances aria-label="Distances for selected nearby filters">
+      <section class="prd-panel prd-related-homes" data-research-selected-distances aria-label="Nearby distances for this home">
         <h2>Nearby distances</h2>
-        <p class="prd-section-copy">Distances for the nearby filters in this search.</p>
+        <p class="prd-section-copy">{{ research_selected_distance_copy or 'Distances for the nearby filters in this search.' }}</p>
         <div class="object-list">
           {% for row in research_selected_distance_rows[:10] %}
           <div class="object-row">
