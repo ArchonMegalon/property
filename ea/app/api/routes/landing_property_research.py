@@ -437,16 +437,14 @@ def _property_enriched_candidate_facts(
         facts.get("location_hint_research_attempted")
         or research_snapshot.get("location_hint_research_attempted")
     )
+    needs_distance_backfill = (
+        selected_distance_rows
+        and any(str(row.get("tag") or "").strip().casefold() == "to check" for row in selected_distance_rows)
+    )
+    needs_nearby_retry = not selected_distance_rows and not available_distance_rows
     if (
         property_url
-        and (
-            (
-                selected_distance_rows
-                and any(str(row.get("tag") or "").strip().casefold() == "to check" for row in selected_distance_rows)
-            )
-            or (not selected_distance_rows and not available_distance_rows)
-        )
-        and not location_hint_attempted
+        and ((needs_distance_backfill and not location_hint_attempted) or needs_nearby_retry)
     ):
         facts = _merge_property_facts_with_source_research(
             property_url=property_url,

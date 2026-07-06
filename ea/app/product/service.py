@@ -6277,6 +6277,23 @@ _PROPERTY_LOCATION_QUERY_STREET_TOKENS = (
     "terrace",
 )
 
+_PROPERTY_NEARBY_DISTANCE_FACT_KEYS = (
+    "nearest_supermarket_m",
+    "nearest_playground_m",
+    "nearest_library_m",
+    "nearest_zoo_m",
+    "nearest_pharmacy_m",
+    "nearest_medical_care_m",
+    "nearest_market_m",
+    "nearest_hardware_store_m",
+    "nearest_shopping_center_m",
+    "nearest_shopping_street_m",
+    "nearest_theatre_m",
+    "nearest_public_pool_m",
+    "nearest_subway_m",
+    "nearest_tram_bus_m",
+)
+
 
 def _property_research_location_query_is_street_level(query: object) -> bool:
     normalized = " ".join(str(query or "").split()).casefold()
@@ -6330,6 +6347,11 @@ def _property_research_location_hint_queries(
     for row in _property_postal_location_evidence(" | ".join(part for part in (title, summary) if str(part or "").strip())):
         _push(row.get("postal_name"))
     return tuple(queries)
+
+
+def _property_has_nearby_distance_facts(facts: dict[str, object]) -> bool:
+    payload = dict(facts or {})
+    return any(not _property_fact_value_is_weak(payload.get(key)) for key in _PROPERTY_NEARBY_DISTANCE_FACT_KEYS)
 
 
 @lru_cache(maxsize=256)
@@ -6387,7 +6409,29 @@ def _property_apply_location_hint_research(
     summary: str = "",
 ) -> dict[str, object]:
     enriched = dict(facts or {})
-    if any(enriched.get(key) for key in ("map_lat", "map_lng")):
+    existing_lat = _float_or_none(enriched.get("map_lat"))
+    existing_lng = _float_or_none(enriched.get("map_lng"))
+    if isinstance(existing_lat, float) and isinstance(existing_lng, float):
+        if _property_has_nearby_distance_facts(enriched):
+            return enriched
+        try:
+            nearby = _property_research_nearby_pois(existing_lat, existing_lng)
+        except Exception:
+            nearby = {}
+        nearby_source = (
+            "OpenStreetMap"
+            if str(enriched.get("map_location_precision") or "").strip().casefold() == "address"
+            else "OpenStreetMap (postal area estimate)"
+        )
+        for key, value in nearby.items():
+            if value in (None, "", (), [], {}):
+                continue
+            if _property_fact_value_is_weak(enriched.get(key)):
+                enriched[key] = value
+            if key.endswith("_m"):
+                source_key = f"{key[:-2]}_source"
+                if _property_fact_value_is_weak(enriched.get(source_key)):
+                    enriched[source_key] = nearby_source
         return enriched
     hint_queries = _property_research_location_hint_queries(
         facts=enriched,

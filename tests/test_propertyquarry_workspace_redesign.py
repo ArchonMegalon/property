@@ -10472,6 +10472,59 @@ def test_property_enriched_candidate_facts_backfill_source_research_for_selected
     assert isinstance(facts.get("listing_research_snapshot"), dict)
 
 
+def test_property_enriched_candidate_facts_retry_missing_nearby_rows_after_location_hint_attempt(monkeypatch) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
+        calls.append((property_url, dict(property_facts)))
+        merged = dict(property_facts)
+        merged["nearest_supermarket_m"] = 189
+        merged["nearest_supermarket_name"] = "Billa"
+        merged["nearest_supermarket_source"] = "OpenStreetMap (postal area estimate)"
+        merged["listing_research_snapshot"] = {
+            "map_lat": 48.2083622,
+            "map_lng": 16.3693966,
+            "map_location_precision": "postal_area",
+            "location_hint_research_attempted": True,
+            "nearest_supermarket_m": 189,
+        }
+        merged["listing_research_meta"] = {"strategy": "provider_html_plus_geo"}
+        return merged
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        _fake_merge_property_facts_with_source_research,
+    )
+
+    facts = landing_property_research._property_enriched_candidate_facts(
+        candidate={
+            "title": "Retry nearby rows home",
+            "summary": "1010 Wien",
+            "property_url": "https://example.test/retry-nearby-rows-home",
+            "property_facts": {
+                "postal_name": "1010 Wien",
+                "map_lat": 48.2083622,
+                "map_lng": 16.3693966,
+                "map_location_precision": "postal_area",
+                "location_hint_research_attempted": True,
+                "listing_research_snapshot": {
+                    "map_lat": 48.2083622,
+                    "map_lng": 16.3693966,
+                    "map_location_precision": "postal_area",
+                    "location_hint_research_attempted": True,
+                },
+            },
+        },
+        preferences={},
+    )
+
+    assert len(calls) == 1
+    assert calls[0][0] == "https://example.test/retry-nearby-rows-home"
+    assert facts["nearest_supermarket_m"] == 189
+    assert facts["nearest_supermarket_name"] == "Billa"
+
+
 def test_property_research_detail_shows_generic_nearby_distances_when_no_filters_selected(monkeypatch) -> None:
     principal_id = "pq-research-detail-generic-nearby-distances"
     client = build_property_client(principal_id=principal_id)

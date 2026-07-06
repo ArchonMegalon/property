@@ -12039,6 +12039,39 @@ def test_merge_property_facts_with_source_research_replaces_weak_values(monkeypa
     assert dict(merged["official_risk_evidence"])["sources"][0]["risk_key"] == "heat_resilience"
 
 
+def test_merge_property_facts_with_source_research_backfills_nearby_rows_from_existing_map_coords(monkeypatch) -> None:
+    monkeypatch.setattr(product_service, "_property_source_research_snapshot", lambda property_url, image_urls=(): {})
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_nearby_pois",
+        lambda lat, lon: {
+            "nearest_supermarket_m": 189,
+            "nearest_supermarket_name": "Billa",
+        },
+    )
+    monkeypatch.setattr(product_service, "_property_enrich_official_risk_evidence", lambda facts: dict(facts))
+    monkeypatch.setattr(
+        product_service,
+        "_property_enrich_missing_fact_research",
+        lambda *, facts, property_url, floorplan_urls=(), **kwargs: dict(facts),
+    )
+
+    merged = product_service._merge_property_facts_with_source_research(
+        property_url="https://example.test/postal-area-nearby-retry",
+        property_facts={
+            "map_lat": 48.2083622,
+            "map_lng": 16.3693966,
+            "map_location_precision": "postal_area",
+            "location_hint_research_attempted": True,
+        },
+        image_urls=(),
+    )
+
+    assert merged["nearest_supermarket_m"] == 189
+    assert merged["nearest_supermarket_name"] == "Billa"
+    assert merged["nearest_supermarket_source"] == "OpenStreetMap (postal area estimate)"
+
+
 def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     principal_id = "pref-product-api"
     client = build_product_client(principal_id=principal_id)
