@@ -19226,12 +19226,16 @@ def _omagic_keys_available() -> bool:
             "OMAGIC_EMAIL",
             "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
             "OMAGIC_ACCOUNTS_JSON",
+            "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE",
+            "OMAGIC_ACCOUNTS_JSON_FILE",
             "PROPERTYQUARRY_MAGIC_API_KEY",
             "MAGIC_API_KEY",
             "PROPERTYQUARRY_MAGIC_EMAIL",
             "MAGIC_EMAIL",
             "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
             "MAGIC_ACCOUNTS_JSON",
+            "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE",
+            "MAGIC_ACCOUNTS_JSON_FILE",
         )
     )
 

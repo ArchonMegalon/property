@@ -88,6 +88,8 @@ def _magicfit_packet(row: dict[str, Any]) -> dict[str, Any]:
         "credential_contract": {
             "preferred_accounts_json_env": "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
             "fallback_accounts_json_env": "MAGICFIT_ACCOUNTS_JSON",
+            "preferred_accounts_json_file_env": "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE",
+            "fallback_accounts_json_file_env": "MAGICFIT_ACCOUNTS_JSON_FILE",
             "account_selector_env": "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX",
             "json_shape": [{"email": "<magicfit-account-email>", "password": "<magicfit-account-password>"}],
             "single_account_env_pairs": [
@@ -110,6 +112,7 @@ def _magicfit_packet(row: dict[str, Any]) -> dict[str, Any]:
         },
         "post_refresh_checks": [
             "set provider account JSON file mode to 0o600 before merge",
+            f"or set PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE or MAGICFIT_ACCOUNTS_JSON_FILE to the same 0o600 account JSON file with expected count {expected_count}",
             f"merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count {expected_count} --write",
             "select a funded MagicFit account with PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX before proof render",
             "run a MagicFit proof render and verify provider_backend_key=magicfit plus a playable hosted walkthrough video",
@@ -136,6 +139,9 @@ def _omagic_packet(row: dict[str, Any]) -> dict[str, Any]:
             "preferred_accounts_json_env": "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
             "alias_accounts_json_env": "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
             "fallback_accounts_json_envs": ["OMAGIC_ACCOUNTS_JSON", "MAGIC_ACCOUNTS_JSON"],
+            "preferred_accounts_json_file_env": "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE",
+            "alias_accounts_json_file_env": "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE",
+            "fallback_accounts_json_file_envs": ["OMAGIC_ACCOUNTS_JSON_FILE", "MAGIC_ACCOUNTS_JSON_FILE"],
             "json_shape": [{"email": "<omagic-account-email>", "password": "<omagic-account-password>"}],
             "api_key_envs": ["PROPERTYQUARRY_OMAGIC_API_KEY", "PROPERTYQUARRY_MAGIC_API_KEY"],
         },
@@ -166,6 +172,7 @@ def _omagic_packet(row: dict[str, Any]) -> dict[str, Any]:
         },
         "post_refresh_checks": [
             "set provider account JSON file mode to 0o600 before merge",
+            f"or set PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE and PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE to the same 0o600 account JSON file with expected count {expected_count}",
             f"merge provider-only OMagic/Magic account JSON with merge_scene_video_provider_accounts_env.py --omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count {expected_count} --write",
             "configure PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT or PROPERTYQUARRY_OMAGIC_RENDER_COMMAND before enabling PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED",
             "run an OMagic model-upload proof render with real model input and verify model_input_consumed=true plus provider_backend_key=omagic in the adapter state",

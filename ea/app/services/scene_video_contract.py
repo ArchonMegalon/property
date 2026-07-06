@@ -62,6 +62,48 @@ def _scene_video_matching_env_names(*names: str) -> list[str]:
     return configured
 
 
+def _scene_video_account_rows_from_sources(
+    *,
+    inline_env_names: tuple[str, ...],
+    file_env_names: tuple[str, ...],
+) -> list[tuple[str, int, dict[str, object]]]:
+    rows: list[tuple[str, int, dict[str, object]]] = []
+    seen_sources: set[tuple[str, int]] = set()
+
+    def _append_rows(source_env_name: str, raw_accounts: str) -> None:
+        if not raw_accounts:
+            return
+        try:
+            loaded_accounts = json.loads(raw_accounts)
+        except Exception:
+            return
+        if not isinstance(loaded_accounts, list):
+            return
+        for index, row in enumerate(loaded_accounts, start=1):
+            if not isinstance(row, dict):
+                continue
+            source_key = (source_env_name, index)
+            if source_key in seen_sources:
+                continue
+            seen_sources.add(source_key)
+            rows.append((source_env_name, index, row))
+
+    for env_name in _scene_video_matching_env_names(*inline_env_names):
+        _append_rows(env_name, str(os.getenv(env_name) or "").strip())
+
+    for env_name in _scene_video_matching_env_names(*file_env_names):
+        file_path = Path(str(os.getenv(env_name) or "").strip()).expanduser()
+        if not file_path.is_file():
+            continue
+        try:
+            raw_accounts = file_path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        _append_rows(env_name, raw_accounts)
+
+    return rows
+
+
 def _scene_video_float(value: object) -> float | None:
     try:
         if value in (None, ""):
@@ -142,30 +184,24 @@ def _scene_video_magicfit_runtime_account_pairs() -> tuple[dict[str, str], ...]:
             }
         )
 
-    for accounts_env_name in _scene_video_matching_env_names(
-        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
-        "MAGICFIT_ACCOUNTS_JSON",
+    for accounts_env_name, index, row in _scene_video_account_rows_from_sources(
+        inline_env_names=(
+            "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
+            "MAGICFIT_ACCOUNTS_JSON",
+        ),
+        file_env_names=(
+            "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE",
+            "MAGICFIT_ACCOUNTS_JSON_FILE",
+        ),
     ):
-        raw_accounts = str(os.getenv(accounts_env_name) or "").strip()
-        if not raw_accounts:
-            continue
-        try:
-            loaded_accounts = json.loads(raw_accounts)
-        except Exception:
-            continue
-        if not isinstance(loaded_accounts, list):
-            continue
-        for index, row in enumerate(loaded_accounts, start=1):
-            if not isinstance(row, dict):
-                continue
-            email_env_name = str(row.get("email_env_name") or f"{accounts_env_name}[{index}].email").strip()
-            password_env_name = str(row.get("password_env_name") or f"{accounts_env_name}[{index}].password").strip()
-            _add_pair(
-                email_value=row.get("email") or row.get("username"),
-                email_env_name=email_env_name,
-                password_env_name=password_env_name,
-                password_value=row.get("password"),
-            )
+        email_env_name = str(row.get("email_env_name") or f"{accounts_env_name}[{index}].email").strip()
+        password_env_name = str(row.get("password_env_name") or f"{accounts_env_name}[{index}].password").strip()
+        _add_pair(
+            email_value=row.get("email") or row.get("username"),
+            email_env_name=email_env_name,
+            password_env_name=password_env_name,
+            password_value=row.get("password"),
+        )
 
     for email_env_name, raw_email in sorted(os.environ.items()):
         if (
@@ -207,32 +243,28 @@ def _scene_video_omagic_runtime_account_pairs() -> tuple[dict[str, str], ...]:
             }
         )
 
-    for accounts_env_name in _scene_video_matching_env_names(
-        "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
-        "OMAGIC_ACCOUNTS_JSON",
-        "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
-        "MAGIC_ACCOUNTS_JSON",
+    for accounts_env_name, index, row in _scene_video_account_rows_from_sources(
+        inline_env_names=(
+            "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
+            "OMAGIC_ACCOUNTS_JSON",
+            "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+            "MAGIC_ACCOUNTS_JSON",
+        ),
+        file_env_names=(
+            "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE",
+            "OMAGIC_ACCOUNTS_JSON_FILE",
+            "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE",
+            "MAGIC_ACCOUNTS_JSON_FILE",
+        ),
     ):
-        raw_accounts = str(os.getenv(accounts_env_name) or "").strip()
-        if not raw_accounts:
-            continue
-        try:
-            loaded_accounts = json.loads(raw_accounts)
-        except Exception:
-            continue
-        if not isinstance(loaded_accounts, list):
-            continue
-        for index, row in enumerate(loaded_accounts, start=1):
-            if not isinstance(row, dict):
-                continue
-            email_env_name = str(row.get("email_env_name") or f"{accounts_env_name}[{index}].email").strip()
-            password_env_name = str(row.get("password_env_name") or f"{accounts_env_name}[{index}].password").strip()
-            _add_pair(
-                email_value=row.get("email") or row.get("username") or row.get("login"),
-                email_env_name=email_env_name,
-                password_env_name=password_env_name,
-                password_value=row.get("password") or row.get("pass"),
-            )
+        email_env_name = str(row.get("email_env_name") or f"{accounts_env_name}[{index}].email").strip()
+        password_env_name = str(row.get("password_env_name") or f"{accounts_env_name}[{index}].password").strip()
+        _add_pair(
+            email_value=row.get("email") or row.get("username") or row.get("login"),
+            email_env_name=email_env_name,
+            password_env_name=password_env_name,
+            password_value=row.get("password") or row.get("pass"),
+        )
 
     explicit_email_env_names = {
         "OMAGIC_EMAIL",
@@ -508,6 +540,10 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
             "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
             "MAGIC_ACCOUNTS_JSON",
             "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+            "OMAGIC_ACCOUNTS_JSON_FILE",
+            "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE",
+            "MAGIC_ACCOUNTS_JSON_FILE",
+            "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE",
         )
         checks = {
             "public_provider_key": "omagic",

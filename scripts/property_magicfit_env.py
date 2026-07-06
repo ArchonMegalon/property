@@ -11,6 +11,7 @@ _MAGICFIT_SUFFIX_ALIASES = {
     "MAGICFIT_PASSWORD": ("PROPERTYQUARRY_MAGICFIT_PASSWORD", "MAGICFIT_PASSWORD"),
     "MAGICFIT_TIER": ("PROPERTYQUARRY_MAGICFIT_TIER", "MAGICFIT_TIER"),
     "MAGICFIT_ACCOUNTS_JSON": ("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON", "MAGICFIT_ACCOUNTS_JSON"),
+    "MAGICFIT_ACCOUNTS_JSON_FILE": ("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE", "MAGICFIT_ACCOUNTS_JSON_FILE"),
 }
 
 
@@ -44,22 +45,45 @@ def _selected_account_index(values: dict[str, str]) -> int:
     return 0
 
 
+def _load_accounts_from_json_text(raw_accounts: str) -> list[dict[str, object]]:
+    try:
+        loaded = json.loads(raw_accounts)
+    except Exception:
+        return []
+    if not isinstance(loaded, list):
+        return []
+    return [row for row in loaded if isinstance(row, dict)]
+
+
 def _apply_accounts_json_defaults(values: dict[str, str], sources: dict[str, str]) -> None:
     if values.get("PROPERTYQUARRY_MAGICFIT_EMAIL") and values.get("PROPERTYQUARRY_MAGICFIT_PASSWORD"):
         return
     raw_accounts = values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON") or values.get("MAGICFIT_ACCOUNTS_JSON") or ""
-    if not raw_accounts:
-        return
-    try:
-        loaded = json.loads(raw_accounts)
-    except Exception:
-        return
-    if not isinstance(loaded, list):
-        return
+    source_key = (
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"
+        if values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON")
+        else "MAGICFIT_ACCOUNTS_JSON"
+    )
+    if raw_accounts:
+        loaded = _load_accounts_from_json_text(raw_accounts)
+    else:
+        accounts_path = values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE") or values.get("MAGICFIT_ACCOUNTS_JSON_FILE") or ""
+        source_key = (
+            "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE"
+            if values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE")
+            else "MAGICFIT_ACCOUNTS_JSON_FILE"
+        )
+        if not accounts_path:
+            return
+        path = Path(accounts_path).expanduser()
+        if not path.is_file():
+            return
+        try:
+            loaded = _load_accounts_from_json_text(path.read_text(encoding="utf-8"))
+        except Exception:
+            return
     credentialed_accounts: list[dict[str, object]] = []
     for row in loaded:
-        if not isinstance(row, dict):
-            continue
         email = str(row.get("email") or row.get("username") or row.get("login") or "").strip()
         password = str(row.get("password") or row.get("pass") or "").strip()
         if email and password:
@@ -70,11 +94,6 @@ def _apply_accounts_json_defaults(values: dict[str, str], sources: dict[str, str
     account = credentialed_accounts[selected_index]
     email = str(account.get("email") or account.get("username") or account.get("login") or "").strip()
     password = str(account.get("password") or account.get("pass") or "").strip()
-    source_key = (
-        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"
-        if values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON")
-        else "MAGICFIT_ACCOUNTS_JSON"
-    )
     source_label = f"{sources.get(source_key, 'process_env')}#{source_key}[{selected_index + 1}]"
     for key in ("PROPERTYQUARRY_MAGICFIT_EMAIL", "MAGICFIT_EMAIL"):
         values.setdefault(key, email)

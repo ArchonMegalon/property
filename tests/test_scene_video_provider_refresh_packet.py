@@ -71,6 +71,7 @@ def test_scene_video_provider_refresh_packet_names_env_contracts_without_secrets
 
     assert providers["magicfit"]["visible_account_gap"] == 2
     assert providers["magicfit"]["credential_contract"]["preferred_accounts_json_env"] == "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"
+    assert providers["magicfit"]["credential_contract"]["preferred_accounts_json_file_env"] == "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE"
     assert providers["magicfit"]["credential_contract"]["account_selector_env"] == "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX"
     assert providers["magicfit"]["credit_refresh_required"] is True
     assert providers["magicfit"]["proof_contract"]["proof_render_required"] is True
@@ -78,6 +79,8 @@ def test_scene_video_provider_refresh_packet_names_env_contracts_without_secrets
     assert providers["magicfit"]["proof_contract"]["account_selector_env"] == "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX"
     assert providers["omagic"]["visible_account_gap"] == 8
     assert providers["omagic"]["credential_contract"]["preferred_accounts_json_env"] == "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON"
+    assert providers["omagic"]["credential_contract"]["preferred_accounts_json_file_env"] == "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE"
+    assert providers["omagic"]["credential_contract"]["alias_accounts_json_file_env"] == "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE"
     assert providers["omagic"]["adapter_contract"]["enable_flag"] == "PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED"
     assert "PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT" in providers["omagic"]["adapter_contract"]["render_endpoint_envs"]
     assert "OMAGIC_RENDER_ENDPOINT" in providers["omagic"]["adapter_contract"]["render_endpoint_envs"]
@@ -85,6 +88,8 @@ def test_scene_video_provider_refresh_packet_names_env_contracts_without_secrets
     assert "OMAGIC_RENDER_COMMAND" in providers["omagic"]["adapter_contract"]["render_command_envs"]
     assert providers["omagic"]["adapter_contract"]["proof_render_required"] is True
     assert "set provider account JSON file mode to 0o600 before merge" in rendered
+    assert "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE" in rendered
+    assert "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE" in rendered
     assert "merge_scene_video_provider_accounts_env.py" in rendered
     assert "--magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write" in rendered
     assert "--omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count 8 --write" in rendered

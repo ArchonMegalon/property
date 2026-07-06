@@ -52,6 +52,33 @@ def test_omagic_keys_available_accepts_suffix_magic_accounts_json(monkeypatch) -
     assert product_service._omagic_keys_available() is True
 
 
+def test_omagic_keys_available_accepts_magic_accounts_json_file(monkeypatch, tmp_path: Path) -> None:
+    for key in (
+        "OMAGIC_API_KEY",
+        "PROPERTYQUARRY_OMAGIC_API_KEY",
+        "OMAGIC_EMAIL",
+        "PROPERTYQUARRY_OMAGIC_EMAIL",
+        "OMAGIC_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON",
+        "OMAGIC_ACCOUNTS_JSON_FILE",
+        "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE",
+        "MAGIC_API_KEY",
+        "PROPERTYQUARRY_MAGIC_API_KEY",
+        "MAGIC_EMAIL",
+        "PROPERTYQUARRY_MAGIC_EMAIL",
+        "MAGIC_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON",
+        "MAGIC_ACCOUNTS_JSON_FILE",
+        "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    accounts_path = tmp_path / "magic-accounts.json"
+    accounts_path.write_text(json.dumps([{"email": "magic@example.com", "password": "secret"}]), encoding="utf-8")
+    monkeypatch.setenv("MAGIC_ACCOUNTS_JSON_FILE", str(accounts_path))
+
+    assert product_service._omagic_keys_available() is True
+
+
 def test_property_walkthrough_scene_video_context_collects_verified_controls_and_route_labels(tmp_path, monkeypatch) -> None:
     public_dir = tmp_path / "public_tours"
     bundle_dir = public_dir / "sample-flat"

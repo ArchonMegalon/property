@@ -132,6 +132,51 @@ def test_propertyquarry_magicfit_env_selects_account_json_without_chummer_creden
     assert "MAGICFIT_ACCOUNTS_JSON[2]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
 
 
+def test_propertyquarry_magicfit_env_selects_account_json_file_without_chummer_credentials(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_magicfit_env_helper()
+    for key in (
+        "PROPERTYQUARRY_MAGICFIT_EMAIL",
+        "PROPERTYQUARRY_MAGICFIT_PASSWORD",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX",
+        "MAGICFIT_EMAIL",
+        "MAGICFIT_PASSWORD",
+        "MAGICFIT_ACCOUNTS_JSON",
+        "MAGICFIT_ACCOUNTS_JSON_FILE",
+        "MAGICFIT_ACCOUNT_INDEX",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    accounts_file = tmp_path / "magicfit-accounts.json"
+    accounts_file.write_text(
+        json.dumps(
+            [
+                {"email": "magicfit-one@example.test", "password": "secret-one"},
+                {"email": "magicfit-two@example.test", "password": "secret-two"},
+                {"email": "magicfit-three@example.test", "password": "secret-three"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "MAGICFIT_ACCOUNT_INDEX=3\n"
+        f"MAGICFIT_ACCOUNTS_JSON_FILE={accounts_file}\n",
+        encoding="utf-8",
+    )
+
+    values, sources = module.discover_magicfit_env([env_file])
+
+    assert values["PROPERTYQUARRY_MAGICFIT_EMAIL"] == "magicfit-three@example.test"
+    assert values["PROPERTYQUARRY_MAGICFIT_PASSWORD"] == "secret-three"
+    assert values["MAGICFIT_EMAIL"] == "magicfit-three@example.test"
+    assert values["MAGICFIT_PASSWORD"] == "secret-three"
+    assert "MAGICFIT_ACCOUNTS_JSON_FILE[3]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
+
+
 def test_propertyquarry_magicfit_helpers_do_not_read_chummer_credentials() -> None:
     helper_paths = [
         ROOT / "scripts" / "property_magicfit_env.py",
