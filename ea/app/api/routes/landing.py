@@ -5951,8 +5951,11 @@ def property_research_packet(
         )
     workspace = dict(status.get("workspace") or {})
     assessment = dict(candidate.get("assessment") or {})
-    facts = _property_enriched_candidate_facts(candidate=candidate)
     preferences = dict(property_context.get("preferences") or {})
+    facts = _property_enriched_candidate_facts(
+        candidate=candidate,
+        preferences=preferences,
+    )
     commercial = dict(property_context.get("commercial") or {})
     match_reasons = [
         _clean_property_candidate_detail_copy(item)

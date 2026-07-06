@@ -26,6 +26,7 @@ from app.product.service import (
     _property_investment_location_seed,
     _property_investment_price_eur,
     _property_investment_research_snapshot,
+    _merge_property_facts_with_source_research,
     _property_money_amount_label,
     _property_visual_eta_label,
     _property_visual_terminal_status_for_reason,
@@ -352,7 +353,11 @@ def _property_lookup_candidate(
     return _property_merge_candidate_rows(matches)
 
 
-def _property_enriched_candidate_facts(*, candidate: dict[str, object]) -> dict[str, object]:
+def _property_enriched_candidate_facts(
+    *,
+    candidate: dict[str, object],
+    preferences: dict[str, object] | None = None,
+) -> dict[str, object]:
     facts = _property_candidate_display_facts(candidate)
     title = str(candidate.get("title") or "").strip()
     summary = str(candidate.get("summary") or "").strip()
@@ -409,13 +414,30 @@ def _property_enriched_candidate_facts(*, candidate: dict[str, object]) -> dict[
                 if postal_name:
                     facts["postal_name"] = postal_name
                     facts.setdefault("address", postal_name)
-    return _property_enrich_missing_fact_research(
+    facts = _property_enrich_missing_fact_research(
         facts=facts,
         property_url=str(candidate.get("property_url") or "").strip(),
         title=title,
         summary=summary,
         source_label=str(candidate.get("source_label") or "").strip(),
     )
+    normalized_preferences = dict(preferences or {})
+    property_url = str(candidate.get("property_url") or "").strip()
+    selected_distance_rows = _property_selected_distance_rows(
+        facts=facts,
+        preferences=normalized_preferences,
+    )
+    if (
+        property_url
+        and selected_distance_rows
+        and any(str(row.get("tag") or "").strip().casefold() == "to check" for row in selected_distance_rows)
+        and not isinstance(facts.get("listing_research_snapshot"), dict)
+    ):
+        facts = _merge_property_facts_with_source_research(
+            property_url=property_url,
+            property_facts=facts,
+        )
+    return facts
 
 
 def _property_missing_fact_items(facts: dict[str, object]) -> list[dict[str, object]]:
@@ -1611,6 +1633,7 @@ def _property_selected_distance_filter_active(
     *,
     preference_keys: tuple[str, ...],
     importance_keys: tuple[str, ...],
+    legacy_boolean_keys: tuple[str, ...],
     keyword_markers: tuple[str, ...],
     keyword_tokens: set[str],
     keyword_states: dict[str, str],
@@ -1619,6 +1642,8 @@ def _property_selected_distance_filter_active(
     if allow_preference_only and preference_keys and _property_positive_preference_distance(preferences, preference_keys) is not None:
         return True
     if allow_preference_only and any(_property_preference_value_is_selected(preferences.get(key)) for key in importance_keys):
+        return True
+    if any(_property_preference_value_is_selected(preferences.get(key)) for key in legacy_boolean_keys):
         return True
     normalized_markers = {str(marker or "").strip().casefold() for marker in keyword_markers if str(marker or "").strip()}
     if normalized_markers & keyword_tokens:
@@ -1655,6 +1680,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_supermarket_source", "supermarket_source"),
             "preference_keys": ("max_distance_to_supermarket_m",),
             "importance_keys": ("max_distance_to_supermarket_importance",),
+            "legacy_boolean_keys": ("prefer_supermarket_nearby",),
             "keyword_markers": ("supermarket nearby",),
             "tag": "Errands",
         },
@@ -1666,6 +1692,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_playground_source", "playground_source"),
             "preference_keys": ("max_distance_to_playground_m",),
             "importance_keys": ("max_distance_to_playground_importance",),
+            "legacy_boolean_keys": ("prefer_playgrounds_nearby",),
             "keyword_markers": ("playground nearby",),
             "tag": "Family",
         },
@@ -1677,6 +1704,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_library_source", "library_source"),
             "preference_keys": ("max_distance_to_library_m",),
             "importance_keys": ("max_distance_to_library_importance",),
+            "legacy_boolean_keys": ("prefer_libraries_nearby",),
             "keyword_markers": ("library nearby",),
             "tag": "Family",
         },
@@ -1688,6 +1716,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_zoo_source", "zoo_source"),
             "preference_keys": ("max_distance_to_zoo_m",),
             "importance_keys": ("max_distance_to_zoo_importance",),
+            "legacy_boolean_keys": ("prefer_zoos_nearby",),
             "keyword_markers": ("zoo nearby",),
             "tag": "Family",
         },
@@ -1699,6 +1728,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_public_pool_source", "public_pool_source"),
             "preference_keys": ("max_distance_to_public_pool_m",),
             "importance_keys": ("max_distance_to_public_pool_importance",),
+            "legacy_boolean_keys": ("prefer_public_pool_nearby",),
             "keyword_markers": ("public pool nearby",),
             "tag": "Family",
         },
@@ -1710,6 +1740,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_pharmacy_source", "pharmacy_source"),
             "preference_keys": ("max_distance_to_medical_care_m",),
             "importance_keys": ("max_distance_to_medical_care_importance",),
+            "legacy_boolean_keys": ("prefer_pharmacy_nearby",),
             "keyword_markers": ("pharmacy nearby",),
             "tag": "Health",
             "allow_preference_only": False,
@@ -1722,6 +1753,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_medical_care_source", "medical_care_source"),
             "preference_keys": ("max_distance_to_medical_care_m",),
             "importance_keys": ("max_distance_to_medical_care_importance",),
+            "legacy_boolean_keys": ("prefer_medical_care_nearby",),
             "keyword_markers": ("medical care nearby",),
             "tag": "Health",
             "skip_if_keyword_markers_selected": ("pharmacy nearby",),
@@ -1734,6 +1766,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_market_source", "market_source"),
             "preference_keys": ("max_distance_to_market_m",),
             "importance_keys": ("max_distance_to_market_importance",),
+            "legacy_boolean_keys": ("prefer_markets_nearby",),
             "keyword_markers": ("market nearby",),
             "tag": "District life",
         },
@@ -1745,6 +1778,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_hardware_store_source", "hardware_store_source"),
             "preference_keys": ("max_distance_to_hardware_store_m",),
             "importance_keys": ("max_distance_to_hardware_store_importance",),
+            "legacy_boolean_keys": ("prefer_hardware_store_nearby",),
             "keyword_markers": ("baumarkt nearby", "hardware store nearby"),
             "tag": "Practical",
         },
@@ -1756,6 +1790,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_shopping_center_source", "shopping_center_source"),
             "preference_keys": ("max_distance_to_shopping_center_m",),
             "importance_keys": ("max_distance_to_shopping_center_importance",),
+            "legacy_boolean_keys": ("prefer_shopping_center_nearby",),
             "keyword_markers": ("shopping center nearby",),
             "tag": "Errands",
         },
@@ -1767,6 +1802,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_shopping_street_source", "shopping_street_source"),
             "preference_keys": ("max_distance_to_shopping_street_m",),
             "importance_keys": ("max_distance_to_shopping_street_importance",),
+            "legacy_boolean_keys": ("prefer_shopping_street_nearby",),
             "keyword_markers": ("flaniermeile nearby", "shopping street nearby", "promenade nearby"),
             "tag": "City life",
         },
@@ -1778,6 +1814,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_theatre_source", "theatre_source"),
             "preference_keys": ("max_distance_to_theatre_m",),
             "importance_keys": ("max_distance_to_theatre_importance",),
+            "legacy_boolean_keys": ("prefer_theatre_nearby",),
             "keyword_markers": ("theatre nearby",),
             "tag": "Culture",
         },
@@ -1789,6 +1826,7 @@ def _property_selected_distance_rows(
             "source_keys": ("nearest_subway_source", "subway_source", "nearest_transit_source", "transit_source"),
             "preference_keys": ("max_distance_to_subway_m",),
             "importance_keys": ("max_distance_to_subway_importance",),
+            "legacy_boolean_keys": ("prefer_subway_nearby",),
             "keyword_markers": ("underground nearby",),
             "tag": "Transit",
         },
@@ -1833,6 +1871,7 @@ def _property_selected_distance_rows(
             continue
         preference_keys = tuple(str(key) for key in spec.get("preference_keys", ()) if str(key).strip())
         importance_keys = tuple(str(key) for key in spec.get("importance_keys", ()) if str(key).strip())
+        legacy_boolean_keys = tuple(str(key) for key in spec.get("legacy_boolean_keys", ()) if str(key).strip())
         keyword_markers = tuple(str(key) for key in spec.get("keyword_markers", ()) if str(key).strip())
         if (
             spec.get("skip_if_keyword_markers_selected")
@@ -1852,6 +1891,7 @@ def _property_selected_distance_rows(
             preferences,
             preference_keys=preference_keys,
             importance_keys=importance_keys,
+            legacy_boolean_keys=legacy_boolean_keys,
             keyword_markers=keyword_markers,
             keyword_tokens=keyword_tokens,
             keyword_states=keyword_states,

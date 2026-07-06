@@ -1147,6 +1147,23 @@ def test_propertyquarry_selected_distance_rows_follow_selected_nearby_filters() 
     assert "Medical care" not in details_by_title
 
 
+def test_propertyquarry_selected_distance_rows_support_legacy_nearby_preference_flags() -> None:
+    rows = landing_property_research._property_selected_distance_rows(
+        facts={
+            "nearest_supermarket_m": 240,
+            "nearest_supermarket_name": "Spar Taborstrasse",
+        },
+        preferences={
+            "prefer_supermarket_nearby": True,
+            "prefer_playgrounds_nearby": True,
+        },
+    )
+
+    details_by_title = {row["title"]: row["detail"] for row in rows}
+    assert details_by_title["Supermarket"] == "Nearest supermarket: Spar Taborstrasse is 240 m away."
+    assert details_by_title["Playground"] == "Nearest playground distance is not listed yet."
+
+
 def test_propertyquarry_route_previews_require_values_and_name_unnamed_distances() -> None:
     rows = landing_property_workspace_helpers._property_progress_route_preview_rows(
         run_summary={
@@ -10409,6 +10426,44 @@ def test_property_research_detail_replaces_other_homes_with_selected_distance_ch
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
     assert "Sibling home should not render" not in page.text
+
+
+def test_property_enriched_candidate_facts_backfill_source_research_for_selected_distance_checks(monkeypatch) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
+        calls.append((property_url, dict(property_facts)))
+        merged = dict(property_facts)
+        merged["nearest_supermarket_m"] = 310
+        merged["nearest_supermarket_name"] = "BILLA Heinestrasse"
+        merged["listing_research_snapshot"] = {"nearest_supermarket_m": 310}
+        merged["listing_research_meta"] = {"strategy": "provider_html_plus_geo"}
+        return merged
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        _fake_merge_property_facts_with_source_research,
+    )
+
+    facts = landing_property_research._property_enriched_candidate_facts(
+        candidate={
+            "title": "Selected-distance backfill home",
+            "summary": "1020 Wien",
+            "property_url": "https://example.test/selected-distance-backfill-home",
+            "property_facts": {"postal_name": "1020 Wien"},
+        },
+        preferences={
+            "max_distance_to_supermarket_m": 500,
+            "keyword_preferences": {"supermarket nearby": "important"},
+        },
+    )
+
+    assert len(calls) == 1
+    assert calls[0][0] == "https://example.test/selected-distance-backfill-home"
+    assert facts["nearest_supermarket_m"] == 310
+    assert facts["nearest_supermarket_name"] == "BILLA Heinestrasse"
+    assert isinstance(facts.get("listing_research_snapshot"), dict)
 
 
 def test_property_workspace_payload_drops_oversized_inline_candidate_previews() -> None:
