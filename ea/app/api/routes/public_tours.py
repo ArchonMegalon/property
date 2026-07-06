@@ -5541,7 +5541,7 @@ def _tour_control_external_iframe_html(
     <div class="shell">
       <header class="topbar">
         <div class="summary" aria-label="Property tour summary">
-          <p>Tour</p>
+          <p>3D Tour</p>
           <h1>{title}</h1>
         </div>
         <div class="badge">{provider_badge}</div>
@@ -5729,7 +5729,7 @@ def _tour_control_external_iframe_html(
       <div class="badge">{provider_badge}</div>
       {f'<div class="layer-switch" aria-label="3D tour layer">{provider_layer_buttons}</div><p class="layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>' if has_provider_layers else ""}
       <section class="summary" aria-label="Tour summary">
-        <p>Interactive tour</p>
+        <p>3D Tour</p>
         <h1>{title}</h1>
       </section>
     </div>

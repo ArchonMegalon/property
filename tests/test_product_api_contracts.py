@@ -28237,6 +28237,7 @@ def test_public_tour_control_embeds_external_matterport_url() -> None:
     )
 
     assert "Matterport Control" in html
+    assert "3D Tour" in html
     assert 'src="https://my.matterport.com/show/?m=TEST123&amp;mls=2"' in html
 
 

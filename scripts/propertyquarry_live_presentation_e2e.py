@@ -113,6 +113,18 @@ def _has_public_control_link(body: str, demo_path: str, provider: str) -> bool:
     return f"{demo_path}/control/{provider}" in body and "Open 3D tour" in body
 
 
+def _has_walkthrough_chip_link(body: str, slug: str) -> bool:
+    normalized_slug = urllib.parse.quote(str(slug or "").strip(), safe="")
+    if not normalized_slug:
+        return False
+    candidates = (
+        f"/tours/files/{normalized_slug}/",
+        f"/tours/{normalized_slug}?pane=flythrough-pane",
+        f"/tours/{normalized_slug}/walkthrough",
+    )
+    return any(candidate in body for candidate in candidates)
+
+
 def _final_path(value: object) -> str:
     parsed = urllib.parse.urlparse(str(value or "").strip())
     return parsed.path
@@ -166,7 +178,7 @@ def build_live_presentation_e2e_receipt(
             _check("hero_demo_listing_visible", "Danube Flats demo" in home_body),
             _check("hero_demo_link_points_to_example", 'href="/app/example/shortlist?candidate=danube-flats-demo#danube-flats-demo"' in home_body),
             _check("hero_3d_tour_chip_visible", "3D tour available" in home_body and f"/tours/{slug}/control/" in home_body),
-            _check("hero_walkthrough_chip_visible", "Walkthrough available" in home_body and f"/tours/files/{slug}/" in home_body),
+            _check("hero_walkthrough_chip_visible", "Walkthrough available" in home_body and _has_walkthrough_chip_link(home_body, slug)),
         ]
     )
 
