@@ -2843,8 +2843,7 @@
       line-height: 1.24;
     }
     .prd-hero-gallery,
-    .prd-map-card:not(.prd-map-inline),
-    .prd-side-stack [data-research-ranking-list] {
+    .prd-map-card:not(.prd-map-inline) {
       display: none;
     }
     .prd-visual-console {
@@ -3774,24 +3773,18 @@
     </section>
 
     <aside class="prd-side-stack">
-      {% if research_ranked_run_rows %}
-      <section class="prd-panel prd-related-homes" data-research-ranking-list aria-label="Other homes from this search">
-        <h2>Other homes</h2>
+      {% if research_selected_distance_rows %}
+      <section class="prd-panel prd-related-homes" data-research-selected-distances aria-label="Distances for selected nearby filters">
+        <h2>Nearby distances</h2>
+        <p class="prd-section-copy">Distances for the nearby filters in this search.</p>
         <div class="object-list">
-          {% for row in research_ranked_run_rows %}
+          {% for row in research_selected_distance_rows[:10] %}
           <div class="object-row">
             <div>
-              {% if row.get('href') %}
-              <strong><a href="{{ row.get('href') }}">{{ row.get('title') }}</a></strong>
-              {% else %}
               <strong>{{ row.get('title') }}</strong>
-              {% endif %}
-              {% set related_meta = [row.get('price'), row.get('location')]|select|join(' · ') %}
-              {% if related_meta %}
-              <small>{{ related_meta }}</small>
-              {% endif %}
+              <small>{{ row.get('detail') }}</small>
             </div>
-            {% if row.get('href') %}<a class="prd-tag" href="{{ row.get('href') }}">Open</a>{% endif %}
+            <span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span>
           </div>
           {% endfor %}
         </div>

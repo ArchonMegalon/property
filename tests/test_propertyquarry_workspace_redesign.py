@@ -1118,6 +1118,35 @@ def test_propertyquarry_research_everyday_fit_rows_use_named_confirmed_distances
     assert "with no value" not in json.dumps(rows)
 
 
+def test_propertyquarry_selected_distance_rows_follow_selected_nearby_filters() -> None:
+    rows = landing_property_research._property_selected_distance_rows(
+        facts={
+            "nearest_supermarket_m": 280,
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "nearest_supermarket_source": "OpenStreetMap",
+        },
+        preferences={
+            "keywords": "supermarket nearby, playground nearby, pharmacy nearby",
+            "keyword_preferences": {
+                "supermarket nearby": "important",
+                "playground nearby": "important",
+                "pharmacy nearby": "must_have",
+            },
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_playground_m": 450,
+            "max_distance_to_medical_care_m": 300,
+        },
+    )
+
+    details_by_title = {row["title"]: row["detail"] for row in rows}
+    assert details_by_title["Supermarket"] == (
+        "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m | source: OpenStreetMap."
+    )
+    assert details_by_title["Playground"] == "Nearest playground distance is not listed yet; selected limit 450 m."
+    assert details_by_title["Pharmacy"] == "Nearest pharmacy distance is not listed yet; selected limit 300 m."
+    assert "Medical care" not in details_by_title
+
+
 def test_propertyquarry_route_previews_require_values_and_name_unnamed_distances() -> None:
     rows = landing_property_workspace_helpers._property_progress_route_preview_rows(
         run_summary={
@@ -10275,6 +10304,113 @@ def test_property_research_detail_summarizes_marketing_copy_when_fit_summary_is_
     assert "Immobilien suchen und finden auf willhaben" not in page.text
 
 
+def test_property_research_detail_replaces_other_homes_with_selected_distance_checks(monkeypatch) -> None:
+    principal_id = "pq-research-detail-selected-distances"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Selected Distance Detail Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "keywords": "supermarket nearby, playground nearby, pharmacy nearby",
+            "keyword_preferences": {
+                "supermarket nearby": "important",
+                "playground nearby": "important",
+                "pharmacy nearby": "must_have",
+            },
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_playground_m": 450,
+            "max_distance_to_medical_care_m": 300,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    selected_candidate = {
+        "candidate_ref": "cand-selected-distances",
+        "title": "Selected daily-life flat",
+        "fit_summary": "Good home if the nearby daily-life checks work.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-selected-distances",
+        "property_url": "https://example.test/selected-distance-flat",
+        "source_label": "Willhaben",
+        "fit_score": 82,
+        "property_facts": {
+            "price_display": "EUR 1,590",
+            "area_m2": 70,
+            "rooms": 3,
+            "postal_name": "1020 Wien",
+            "nearest_supermarket_m": 280,
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "nearest_supermarket_source": "OpenStreetMap",
+        },
+    }
+    sibling_candidate = {
+        "candidate_ref": "sibling-home-should-not-render",
+        "title": "Sibling home should not render",
+        "review_url": "/app/research/sibling-home-should-not-render",
+        "property_url": "https://example.test/sibling-home",
+        "fit_score": 92,
+        "property_facts": {"price_display": "EUR 1,490", "postal_name": "1020 Wien"},
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+                "keywords": "supermarket nearby, playground nearby, pharmacy nearby",
+                "keyword_preferences": {
+                    "supermarket nearby": "important",
+                    "playground nearby": "important",
+                    "pharmacy nearby": "must_have",
+                },
+                "max_distance_to_supermarket_m": 500,
+                "max_distance_to_playground_m": 450,
+                "max_distance_to_medical_care_m": 300,
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 2,
+                "ranked_candidates": [sibling_candidate, selected_candidate],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    page = client.get(
+        "/app/research/cand-selected-distances",
+        params={"run_id": "run-selected-distance-detail"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert "Selected daily-life flat" in page.text
+    assert "Nearby distances" in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m" in page.text
+    assert "Nearest playground distance is not listed yet; selected limit 450 m." in page.text
+    assert "Nearest pharmacy distance is not listed yet; selected limit 300 m." in page.text
+    assert "Other homes" not in page.text
+    assert 'data-research-ranking-list' not in page.text
+    assert "Sibling home should not render" not in page.text
+
+
 def test_property_workspace_payload_drops_oversized_inline_candidate_previews() -> None:
     oversized_preview = "data:image/png;base64," + ("a" * 10000)
     payload = landing_property_workspace_payload.property_workspace_payload(
@@ -13691,10 +13827,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "The next-best properties from this run" not in packet.text
     assert "Other ranked homes from this run" not in packet.text
     assert "More from this search" not in packet.text
-    assert "Other homes" in packet.text
-    assert 'data-research-ranking-list' in packet.text
+    assert "Other homes" not in packet.text
+    assert 'data-research-ranking-list' not in packet.text
+    assert "Nearby distances" not in packet.text
+    assert 'data-research-selected-distances' not in packet.text
     assert " · Score " not in packet.text
-    assert "Family flat near Tiergarten" in packet.text
+    assert "Family flat near Tiergarten" not in packet.text
     assert "Facts" in packet.text
     assert "About the home" in packet.text
     assert "Review page" not in packet.text

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import urllib.parse
 from typing import Any
@@ -1557,6 +1558,339 @@ def _property_positive_preference_distance(
         if meters > 0:
             return meters
     return None
+
+
+def _property_csv_tokens(value: object) -> set[str]:
+    if isinstance(value, (list, tuple, set)):
+        parts = [str(item or "").strip() for item in value if str(item or "").strip()]
+    else:
+        parts = [
+            str(item or "").strip()
+            for item in str(value or "").replace(";", ",").split(",")
+            if str(item or "").strip()
+        ]
+    return {part.casefold() for part in parts if part}
+
+
+def _property_keyword_preference_states(preferences: dict[str, object]) -> dict[str, str]:
+    raw_value = preferences.get("keyword_preferences")
+    if isinstance(raw_value, dict):
+        source = raw_value
+    else:
+        source = {}
+        raw_json = str(preferences.get("keyword_preferences_json") or "").strip()
+        if raw_json:
+            try:
+                parsed = json.loads(raw_json)
+            except json.JSONDecodeError:
+                parsed = {}
+            if isinstance(parsed, dict):
+                source = parsed
+    return {
+        str(key or "").strip().casefold(): str(value or "").strip().casefold()
+        for key, value in dict(source or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+
+
+def _property_preference_value_is_selected(value: object) -> bool:
+    if value in (None, "", [], {}, False):
+        return False
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"", "0", "0.0", "false", "off", "none", "null", "neutral", "any"}:
+            return False
+        return True
+    if isinstance(value, (int, float)):
+        return float(value) > 0
+    return True
+
+
+def _property_selected_distance_filter_active(
+    preferences: dict[str, object],
+    *,
+    preference_keys: tuple[str, ...],
+    importance_keys: tuple[str, ...],
+    keyword_markers: tuple[str, ...],
+    keyword_tokens: set[str],
+    keyword_states: dict[str, str],
+    allow_preference_only: bool = True,
+) -> bool:
+    if allow_preference_only and preference_keys and _property_positive_preference_distance(preferences, preference_keys) is not None:
+        return True
+    if allow_preference_only and any(_property_preference_value_is_selected(preferences.get(key)) for key in importance_keys):
+        return True
+    normalized_markers = {str(marker or "").strip().casefold() for marker in keyword_markers if str(marker or "").strip()}
+    if normalized_markers & keyword_tokens:
+        return True
+    for marker in normalized_markers:
+        if _property_preference_value_is_selected(keyword_states.get(marker)):
+            return True
+    return False
+
+
+def _property_keyword_markers_selected(
+    markers: tuple[str, ...],
+    *,
+    keyword_tokens: set[str],
+    keyword_states: dict[str, str],
+) -> bool:
+    normalized_markers = {str(marker or "").strip().casefold() for marker in markers if str(marker or "").strip()}
+    if normalized_markers & keyword_tokens:
+        return True
+    return any(_property_preference_value_is_selected(keyword_states.get(marker)) for marker in normalized_markers)
+
+
+def _property_selected_distance_rows(
+    *,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+) -> list[dict[str, str]]:
+    specs: tuple[dict[str, object], ...] = (
+        {
+            "title": "Supermarket",
+            "label": "supermarket",
+            "distance_keys": ("nearest_supermarket_m", "distance_supermarket_m"),
+            "name_keys": ("nearest_supermarket_name", "supermarket_name"),
+            "source_keys": ("nearest_supermarket_source", "supermarket_source"),
+            "preference_keys": ("max_distance_to_supermarket_m",),
+            "importance_keys": ("max_distance_to_supermarket_importance",),
+            "keyword_markers": ("supermarket nearby",),
+            "tag": "Errands",
+        },
+        {
+            "title": "Playground",
+            "label": "playground",
+            "distance_keys": ("nearest_playground_m", "distance_playground_m"),
+            "name_keys": ("nearest_playground_name", "playground_name"),
+            "source_keys": ("nearest_playground_source", "playground_source"),
+            "preference_keys": ("max_distance_to_playground_m",),
+            "importance_keys": ("max_distance_to_playground_importance",),
+            "keyword_markers": ("playground nearby",),
+            "tag": "Family",
+        },
+        {
+            "title": "Library",
+            "label": "library",
+            "distance_keys": ("nearest_library_m",),
+            "name_keys": ("nearest_library_name", "library_name"),
+            "source_keys": ("nearest_library_source", "library_source"),
+            "preference_keys": ("max_distance_to_library_m",),
+            "importance_keys": ("max_distance_to_library_importance",),
+            "keyword_markers": ("library nearby",),
+            "tag": "Family",
+        },
+        {
+            "title": "Zoo",
+            "label": "zoo",
+            "distance_keys": ("nearest_zoo_m",),
+            "name_keys": ("nearest_zoo_name", "zoo_name"),
+            "source_keys": ("nearest_zoo_source", "zoo_source"),
+            "preference_keys": ("max_distance_to_zoo_m",),
+            "importance_keys": ("max_distance_to_zoo_importance",),
+            "keyword_markers": ("zoo nearby",),
+            "tag": "Family",
+        },
+        {
+            "title": "Public pool",
+            "label": "public pool",
+            "distance_keys": ("nearest_public_pool_m",),
+            "name_keys": ("nearest_public_pool_name", "public_pool_name"),
+            "source_keys": ("nearest_public_pool_source", "public_pool_source"),
+            "preference_keys": ("max_distance_to_public_pool_m",),
+            "importance_keys": ("max_distance_to_public_pool_importance",),
+            "keyword_markers": ("public pool nearby",),
+            "tag": "Family",
+        },
+        {
+            "title": "Pharmacy",
+            "label": "pharmacy",
+            "distance_keys": ("nearest_pharmacy_m", "distance_pharmacy_m"),
+            "name_keys": ("nearest_pharmacy_name", "pharmacy_name"),
+            "source_keys": ("nearest_pharmacy_source", "pharmacy_source"),
+            "preference_keys": ("max_distance_to_medical_care_m",),
+            "importance_keys": ("max_distance_to_medical_care_importance",),
+            "keyword_markers": ("pharmacy nearby",),
+            "tag": "Health",
+            "allow_preference_only": False,
+        },
+        {
+            "title": "Medical care",
+            "label": "medical care",
+            "distance_keys": ("nearest_medical_care_m",),
+            "name_keys": ("nearest_medical_care_name", "medical_care_name"),
+            "source_keys": ("nearest_medical_care_source", "medical_care_source"),
+            "preference_keys": ("max_distance_to_medical_care_m",),
+            "importance_keys": ("max_distance_to_medical_care_importance",),
+            "keyword_markers": ("medical care nearby",),
+            "tag": "Health",
+            "skip_if_keyword_markers_selected": ("pharmacy nearby",),
+        },
+        {
+            "title": "Market",
+            "label": "market",
+            "distance_keys": ("nearest_market_m",),
+            "name_keys": ("nearest_market_name", "market_name"),
+            "source_keys": ("nearest_market_source", "market_source"),
+            "preference_keys": ("max_distance_to_market_m",),
+            "importance_keys": ("max_distance_to_market_importance",),
+            "keyword_markers": ("market nearby",),
+            "tag": "District life",
+        },
+        {
+            "title": "Hardware store",
+            "label": "hardware store",
+            "distance_keys": ("nearest_hardware_store_m",),
+            "name_keys": ("nearest_hardware_store_name", "hardware_store_name"),
+            "source_keys": ("nearest_hardware_store_source", "hardware_store_source"),
+            "preference_keys": ("max_distance_to_hardware_store_m",),
+            "importance_keys": ("max_distance_to_hardware_store_importance",),
+            "keyword_markers": ("baumarkt nearby", "hardware store nearby"),
+            "tag": "Practical",
+        },
+        {
+            "title": "Shopping center",
+            "label": "shopping center",
+            "distance_keys": ("nearest_shopping_center_m",),
+            "name_keys": ("nearest_shopping_center_name", "shopping_center_name"),
+            "source_keys": ("nearest_shopping_center_source", "shopping_center_source"),
+            "preference_keys": ("max_distance_to_shopping_center_m",),
+            "importance_keys": ("max_distance_to_shopping_center_importance",),
+            "keyword_markers": ("shopping center nearby",),
+            "tag": "Errands",
+        },
+        {
+            "title": "Promenade",
+            "label": "promenade",
+            "distance_keys": ("nearest_shopping_street_m",),
+            "name_keys": ("nearest_shopping_street_name", "shopping_street_name"),
+            "source_keys": ("nearest_shopping_street_source", "shopping_street_source"),
+            "preference_keys": ("max_distance_to_shopping_street_m",),
+            "importance_keys": ("max_distance_to_shopping_street_importance",),
+            "keyword_markers": ("flaniermeile nearby", "shopping street nearby", "promenade nearby"),
+            "tag": "City life",
+        },
+        {
+            "title": "Theatre",
+            "label": "theatre",
+            "distance_keys": ("nearest_theatre_m",),
+            "name_keys": ("nearest_theatre_name", "theatre_name"),
+            "source_keys": ("nearest_theatre_source", "theatre_source"),
+            "preference_keys": ("max_distance_to_theatre_m",),
+            "importance_keys": ("max_distance_to_theatre_importance",),
+            "keyword_markers": ("theatre nearby",),
+            "tag": "Culture",
+        },
+        {
+            "title": "Underground",
+            "label": "underground",
+            "distance_keys": ("nearest_subway_m", "nearest_transit_m", "distance_underground_m"),
+            "name_keys": ("nearest_subway_name", "subway_station_name", "nearest_transit_name", "transit_stop_name"),
+            "source_keys": ("nearest_subway_source", "subway_source", "nearest_transit_source", "transit_source"),
+            "preference_keys": ("max_distance_to_subway_m",),
+            "importance_keys": ("max_distance_to_subway_importance",),
+            "keyword_markers": ("underground nearby",),
+            "tag": "Transit",
+        },
+        {
+            "title": "Kindergarten",
+            "label": "kindergarten",
+            "distance_keys": ("nearest_kindergarten_m",),
+            "name_keys": ("nearest_kindergarten_name", "kindergarten_name"),
+            "source_keys": ("nearest_kindergarten_source", "kindergarten_source"),
+            "preference_keys": ("max_distance_to_kindergarten_m",),
+            "importance_keys": ("max_distance_to_kindergarten_importance",),
+            "keyword_markers": ("kindergarten nearby",),
+            "tag": "Family",
+        },
+        {
+            "title": "School",
+            "label": "school",
+            "distance_keys": ("nearest_school_m",),
+            "name_keys": ("nearest_school_name", "school_name"),
+            "source_keys": ("nearest_school_source", "school_source"),
+            "preference_keys": (
+                "max_distance_to_school_m",
+                "max_distance_to_ganztags_volksschule_m",
+                "max_distance_to_halbtags_volksschule_m",
+            ),
+            "importance_keys": (
+                "max_distance_to_school_importance",
+                "max_distance_to_ganztags_volksschule_importance",
+                "max_distance_to_halbtags_volksschule_importance",
+            ),
+            "keyword_markers": ("school nearby", "volksschule nearby"),
+            "tag": "Family",
+        },
+    )
+    keyword_tokens = _property_csv_tokens(preferences.get("keywords")) | _property_csv_tokens(preferences.get("avoid_keywords"))
+    keyword_states = _property_keyword_preference_states(preferences)
+    rows: list[dict[str, str]] = []
+    seen_titles: set[str] = set()
+    for spec in specs:
+        title = str(spec.get("title") or "").strip()
+        if not title or title.casefold() in seen_titles:
+            continue
+        preference_keys = tuple(str(key) for key in spec.get("preference_keys", ()) if str(key).strip())
+        importance_keys = tuple(str(key) for key in spec.get("importance_keys", ()) if str(key).strip())
+        keyword_markers = tuple(str(key) for key in spec.get("keyword_markers", ()) if str(key).strip())
+        if (
+            spec.get("skip_if_keyword_markers_selected")
+            and not _property_keyword_markers_selected(
+                keyword_markers,
+                keyword_tokens=keyword_tokens,
+                keyword_states=keyword_states,
+            )
+            and _property_keyword_markers_selected(
+                tuple(str(key) for key in spec.get("skip_if_keyword_markers_selected", ()) if str(key).strip()),
+                keyword_tokens=keyword_tokens,
+                keyword_states=keyword_states,
+            )
+        ):
+            continue
+        if not _property_selected_distance_filter_active(
+            preferences,
+            preference_keys=preference_keys,
+            importance_keys=importance_keys,
+            keyword_markers=keyword_markers,
+            keyword_tokens=keyword_tokens,
+            keyword_states=keyword_states,
+            allow_preference_only=bool(spec.get("allow_preference_only", True)),
+        ):
+            continue
+        label = str(spec.get("label") or title).strip().lower()
+        distance_keys = tuple(str(key) for key in spec.get("distance_keys", ()) if str(key).strip())
+        meters = _property_positive_distance_value(facts, distance_keys)
+        requested_limit = _property_positive_preference_distance(preferences, preference_keys)
+        if meters is not None:
+            place_name = _property_first_fact_text(
+                facts,
+                tuple(str(key) for key in spec.get("name_keys", ()) if str(key).strip()),
+            )
+            source = _property_first_fact_text(
+                facts,
+                tuple(str(key) for key in spec.get("source_keys", ()) if str(key).strip()),
+            )
+            subject = f"Nearest {label}"
+            if place_name:
+                subject = f"{subject}: {place_name}"
+            detail = f"{subject} is {meters} m away"
+            if requested_limit is not None:
+                detail = f"{detail}; selected limit {requested_limit} m"
+            if source:
+                detail = f"{detail} | source: {source}"
+            tag = str(spec.get("tag") or "Distance").strip() or "Distance"
+        else:
+            detail = f"Nearest {label} distance is not listed yet"
+            if requested_limit is not None:
+                detail = f"{detail}; selected limit {requested_limit} m"
+            detail = f"{detail}."
+            tag = "To check"
+        if not detail.endswith("."):
+            detail = f"{detail}."
+        rows.append(_object_detail_row(title, detail, tag))
+        seen_titles.add(title.casefold())
+    return rows
 
 
 def _property_first_fact_text(

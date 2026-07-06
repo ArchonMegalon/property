@@ -103,7 +103,7 @@ from app.api.routes.landing_property_research import (
     _property_review_detail_line,
     _property_rooms_research_relevant,
     _property_rooms_display,
-    _property_shortlist_candidates_from_context,
+    _property_selected_distance_rows,
     _property_tour_media_payload,
     _property_tour_detail_line,
 )
@@ -1649,7 +1649,7 @@ def _propertyquarry_first_party_property_href(href: object, *, run_id: str) -> s
         if host not in first_party_hosts:
             return ""
         resolved = urllib.parse.urlunsplit(("", "", parsed.path, parsed.query, parsed.fragment))
-    if not resolved.startswith(("/app/research/", "/app/handoffs/")):
+    if not resolved.startswith("/app/research/"):
         return ""
     return _propertyquarry_run_scoped_property_href(resolved, run_id=run_id)
 
@@ -6001,6 +6001,10 @@ def property_research_packet(
         facts=facts,
         preferences=preferences,
     )
+    selected_distance_rows = _property_selected_distance_rows(
+        facts=facts,
+        preferences=preferences,
+    )
     risk_fit_rows = _property_packet_risk_fit_rows(
         facts=facts,
         preferences=preferences,
@@ -6387,40 +6391,6 @@ def property_research_packet(
         {"label": "Rooms", "value": rooms_summary or "Not listed"},
         {"label": "Location", "value": location_summary or display_source_label},
     ]
-    ranked_run_rows: list[dict[str, object]] = []
-    for row in sorted(
-        _property_shortlist_candidates_from_context(property_context),
-        key=lambda item: float(item.get("ranking_score") or item.get("investment_score") or item.get("fit_score") or 0.0),
-        reverse=True,
-    ):
-        row_ref = _property_candidate_ref(row)
-        if row_ref == normalized_candidate_ref:
-            continue
-        row_facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
-        row_price = str(
-            row.get("price_display")
-            or row.get("rent_display")
-            or row_facts.get("price_display")
-            or row_facts.get("rent_display")
-            or row_facts.get("price")
-            or ""
-        ).strip()
-        row_location = str(
-            row.get("location_label")
-            or row.get("postal_name")
-            or row_facts.get("postal_name")
-            or row_facts.get("district")
-            or row_facts.get("address")
-            or ""
-        ).strip()
-        ranked_run_rows.append(
-            {
-                "title": str(row.get("title") or "Ranked property").strip() or "Ranked property",
-                "href": str(row.get("packet_url") or row.get("review_url") or row.get("property_url") or "").strip(),
-                "price": row_price,
-                "location": row_location,
-            }
-        )
     if detail_sections.get("feature_values"):
         overview_rows.append({"label": "Highlights", "value": ", ".join(list(detail_sections.get("feature_values") or [])[:4])})
     research_sections: list[dict[str, object]] = [
@@ -6610,7 +6580,7 @@ def property_research_packet(
                 stats=[{"label": row["label"], "value": row["value"]} for row in overview_rows[:4]],
             ),
             **research_snapshot,
-            "research_ranked_run_rows": ranked_run_rows,
+            "research_selected_distance_rows": selected_distance_rows,
             "research_route_recovery": research_route_recovery,
             "research_visual_style_catalog": [dict(row) for row in PROPERTY_FURNITURE_STYLE_CATALOG],
             "research_default_visual_style": research_visual_default_style,
