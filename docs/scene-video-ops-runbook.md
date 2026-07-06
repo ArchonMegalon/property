@@ -52,6 +52,49 @@ Expected interpretations:
 - `mootion_docker_socket_missing` / `mootion_docker_cli_missing` blocks the local Mootion worker lane only.
 - `execution_lane=browseract_remote` means Mootion can use an explicit BrowserAct workflow/run lane without API-local Docker.
 
+## Current PropertyQuarry provider-refresh packet
+
+Latest refreshed receipts:
+
+- `_completion/scene_video_readiness/release-gate.json`: `2026-07-06T19:21:49Z`
+- `_completion/scene_video_readiness/release-gate-verifier.json`: `pass` at `2026-07-06T19:21:50Z`
+- `_completion/scene_video_readiness/provider-refresh-packet.json`: `2026-07-06T19:21:50Z`
+- `_completion/scene_video_readiness/provider-refresh-packet-verifier.json`: `pass` at `2026-07-06T19:21:50Z`
+- `_completion/property_gold_status/latest.json`: `blocked` at `2026-07-06T19:21:51+00:00` only on `scene_video_provider_runtime`
+
+Current runtime truth:
+
+- `mootion`: ready through the remote BrowserAct lane.
+- `onemin_i2v`: ready as the separate 1min fallback lane.
+- `magicfit`: expected `3` accounts, runtime sees `1`, visible gap `2`, blocked by `magicfit_insufficient_credits`.
+- `magic` / `omagic`: expected `8` accounts, runtime sees `0`, visible gap `8`, blocked by missing OMagic credentials, missing render endpoint or command, and disabled model-upload adapter.
+
+Regenerate the current release-gate receipts from the deployed runtime:
+
+```bash
+docker exec propertyquarry-api python /app/scripts/property_scene_video_readiness_report.py \
+  --output /data/artifacts/property-scene-video-readiness-current-container.json
+docker exec propertyquarry-api python /app/scripts/verify_property_scene_video_readiness.py \
+  --receipt /data/artifacts/property-scene-video-readiness-current-container.json \
+  --output /data/artifacts/property-scene-video-readiness-verifier-current-container.json
+docker exec propertyquarry-api python /app/scripts/materialize_scene_video_provider_refresh_packet.py \
+  --receipt /data/artifacts/property-scene-video-readiness-current-container.json \
+  --output /data/artifacts/property-scene-video-provider-refresh-packet-current-container.json
+docker exec propertyquarry-api python /app/scripts/verify_scene_video_provider_refresh_packet.py \
+  --packet /data/artifacts/property-scene-video-provider-refresh-packet-current-container.json \
+  --output /data/artifacts/property-scene-video-provider-refresh-packet-verifier-current-container.json
+docker cp propertyquarry-api:/data/artifacts/property-scene-video-readiness-current-container.json \
+  _completion/scene_video_readiness/release-gate.json
+docker cp propertyquarry-api:/data/artifacts/property-scene-video-readiness-verifier-current-container.json \
+  _completion/scene_video_readiness/release-gate-verifier.json
+docker cp propertyquarry-api:/data/artifacts/property-scene-video-provider-refresh-packet-current-container.json \
+  _completion/scene_video_readiness/provider-refresh-packet.json
+docker cp propertyquarry-api:/data/artifacts/property-scene-video-provider-refresh-packet-verifier-current-container.json \
+  _completion/scene_video_readiness/provider-refresh-packet-verifier.json
+PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py \
+  --write _completion/property_gold_status/latest.json
+```
+
 ## Telegram receipt proof
 
 Use `delivery_probe_video_url` to prove principal binding and Telegram media delivery without spending provider credits.
@@ -131,28 +174,103 @@ Current blocker shape:
 
 - `magicfit_insufficient_credits`
 - credit source: render failure marker
-- one runtime account detected
+- expected `3` accounts and one runtime account detected
 
 Do not clear the marker just to make readiness green.
 
 Valid unblock options:
 
 - Add credits to the currently configured MagicFit account, then run a real MagicFit render probe.
-- Configure additional MagicFit accounts through supported env shapes, then verify `runtime_account_count > 1`.
+- Configure the full MagicFit account pool through the secure account JSON merge path, then verify `runtime_account_count >= 3`.
 
-Supported account shapes:
+Required account JSON shape:
 
-```bash
-TEAM_MAGICFIT_EMAIL=...
-TEAM_MAGICFIT_PASSWORD=...
-
-MAGICFIT_EMAIL_2=...
-MAGICFIT_PASSWORD_2=...
-
-PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON='[{"email":"...","password":"..."}]'
+```json
+[
+  {"email": "<magicfit-account-email>", "password": "<magicfit-account-password>"},
+  {"email": "<magicfit-account-email-2>", "password": "<magicfit-account-password-2>"}
+]
 ```
 
+The account JSON file must be provider-only, must not include 1min credentials, and must have mode `0o600` before merge:
+
+```bash
+chmod 600 <magicfit-accounts.json>
+python3 scripts/merge_scene_video_provider_accounts_env.py \
+  --env-file .env \
+  --magicfit-accounts-json-file <magicfit-accounts.json> \
+  --expected-magicfit-count 3 \
+  --magicfit-account-index <funded-account-index> \
+  --write
+```
+
+This writes only:
+
+- `PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON`
+- `PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX`
+
+MagicFit pass criteria:
+
+- `provider_backend_key=magicfit`
+- `render_status=completed`
+- a playable hosted walkthrough video is returned, for example `hosted_walkthrough_video_url`
+- `magicfit_insufficient_credits` is cleared only after that proof render succeeds
+
 Readiness with multiple accounts may become `constrained` rather than blocked if only one account is known depleted.
+
+## OMagic / Magic unblock
+
+`magic` is a public alias for `omagic`; both must resolve to `provider_backend_key=omagic`.
+
+Current blocker shape:
+
+- expected `8` OMagic accounts and zero runtime accounts detected
+- `omagic_credentials_missing`
+- `omagic_model_upload_endpoint_missing`
+- `omagic_model_upload_adapter_disabled`
+
+Required account JSON shape:
+
+```json
+[
+  {"email": "<omagic-account-email>", "password": "<omagic-account-password>"},
+  {"email": "<omagic-account-email-2>", "password": "<omagic-account-password-2>"}
+]
+```
+
+Merge the OMagic account pool without disabling the `magic` alias:
+
+```bash
+chmod 600 <omagic-accounts.json>
+python3 scripts/merge_scene_video_provider_accounts_env.py \
+  --env-file .env \
+  --omagic-accounts-json-file <omagic-accounts.json> \
+  --expected-omagic-count 8 \
+  --write
+```
+
+This writes both OMagic and Magic alias account envs:
+
+- `PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON`
+- `PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON`
+
+Configure one real model-upload adapter target before enabling the adapter:
+
+```bash
+PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT=<provider-render-endpoint>
+# or
+PROPERTYQUARRY_OMAGIC_RENDER_COMMAND=<provider-render-command>
+```
+
+Only set `PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED=1` after a successful model-upload proof render.
+
+OMagic pass criteria:
+
+- real model input is supplied through `--model-path` or `--model-url`
+- adapter state reports `model_input_consumed=true`
+- adapter state reports `provider_backend_key=omagic`
+- hosted tour bundle contains the returned walkthrough video
+- regenerated readiness shows `magic` and `omagic` both dispatchable through OMagic
 
 ## Mootion unblock
 
