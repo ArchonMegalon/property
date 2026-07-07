@@ -38278,6 +38278,17 @@ class ProductService:
                         visual_state=visual_state,
                     )
 
+        response_flythrough_reason = ""
+        if normalized_kind == "flythrough":
+            normalized_reason = str(reason or "").strip()
+            if normalized_reason:
+                unavailable_detail = _property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason=normalized_reason,
+                )
+                if unavailable_detail != "Walkthrough not available yet." or blocked_reason:
+                    response_flythrough_reason = normalized_reason
+
         return {
             "generated_at": _now_iso(),
             "status": status_value,
@@ -38295,6 +38306,7 @@ class ProductService:
             "flythrough_url": ready_url if normalized_kind == "flythrough" else _published_walkthrough_asset_url(flythrough_url),
             "tour_status": status_value if normalized_kind == "tour" else tour_status,
             "flythrough_status": status_value if normalized_kind == "flythrough" else flythrough_status,
+            "flythrough_reason": response_flythrough_reason,
             "blocked_reason": blocked_reason,
             "status_label": status_label,
             "status_detail": status_detail,

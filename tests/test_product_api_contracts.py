@@ -16752,6 +16752,7 @@ def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monke
     assert response["status_label"] == "Walkthrough not ready"
     assert response["status_detail"] == "Walkthrough not available yet."
     assert response["blocked_reason"] == ""
+    assert response["flythrough_reason"] == ""
     assert persisted_visual_states
     assert persisted_visual_states[-1]["flythrough_status"] == "skipped"
     assert persisted_visual_states[-1]["flythrough_eta_minutes"] == ""
@@ -16819,6 +16820,7 @@ def test_property_visual_status_converts_stale_magicfit_failure_to_terminal_walk
     assert response["status"] == "skipped"
     assert response["status_label"] == "Walkthrough not ready"
     assert response["status_detail"] == "Walkthrough could not be rendered from this listing yet."
+    assert response["flythrough_reason"] == "magicfit_segment_render_failed"
     assert response["poll_after_seconds"] == 0
     assert persisted_visual_states
     assert persisted_visual_states[-1]["flythrough_status"] == "skipped"
