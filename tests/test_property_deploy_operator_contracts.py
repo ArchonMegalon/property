@@ -358,6 +358,26 @@ def test_property_deploy_seeds_default_mobile_research_detail_fixture() -> None:
     assert "mobile_smoke_research_args=(--seed-research-detail-fixture)" in deploy_script
 
 
+def test_property_deploy_refreshes_scene_video_receipts_before_gold_status() -> None:
+    deploy_script = _read("scripts/deploy_propertyquarry.sh")
+
+    for required in (
+        '_completion/scene_video_readiness/release-gate.json',
+        '_completion/scene_video_readiness/release-gate-verifier.json',
+        '_completion/scene_video_readiness/provider-refresh-packet.json',
+        '_completion/scene_video_readiness/provider-refresh-packet-verifier.json',
+        'python /app/scripts/property_scene_video_readiness_report.py',
+        'python /app/scripts/verify_property_scene_video_readiness.py',
+        'python /app/scripts/materialize_scene_video_provider_refresh_packet.py',
+        'python /app/scripts/verify_scene_video_provider_refresh_packet.py',
+        '--scene-video-readiness-receipt "${scene_video_receipt}"',
+        '--scene-video-readiness-verifier-receipt "${scene_video_verifier_receipt}"',
+        '--scene-video-provider-refresh-packet "${scene_video_refresh_packet}"',
+        '--scene-video-provider-refresh-packet-verifier-receipt "${scene_video_refresh_packet_verifier}"',
+    ):
+        assert required in deploy_script
+
+
 def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_gold_status() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
 

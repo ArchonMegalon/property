@@ -395,6 +395,14 @@ def _scene_video_magicfit_credit_readiness(*, runtime_account_count: int = 0) ->
     blocker = str(loaded.get("blocker") or "").strip()
     reason = str(loaded.get("reason") or "").strip()
     if blocker == "magicfit_insufficient_credits" or "magicfit_not_enough_credits" in reason.lower():
+        if runtime_account_count <= 0:
+            return {
+                **base,
+                "credit_state": "unverified",
+                "credit_probe_error": "runtime_accounts_missing",
+                "last_failure_at": loaded.get("observed_at"),
+                "last_failure_reason": reason[:160] or "magicfit_not_enough_credits",
+            }
         if runtime_account_count > 1:
             return {
                 **base,

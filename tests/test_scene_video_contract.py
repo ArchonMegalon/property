@@ -347,6 +347,28 @@ def test_scene_video_magicfit_readiness_ignores_chummer_magicfit_env(monkeypatch
     assert "magicfit_credentials_missing" in readiness["blockers"]
 
 
+def test_scene_video_magicfit_readiness_does_not_claim_credit_blocker_without_runtime_accounts(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "render_magicfit_property_flythrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    provider_ledger_dir = tmp_path / "provider-ledger"
+    provider_ledger_dir.mkdir()
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PROVIDER_LEDGER_DIR", str(provider_ledger_dir))
+
+    marker = service.record_scene_video_magicfit_failure("magicfit_not_enough_credits")
+    assert marker
+
+    readiness = service.scene_video_provider_runtime_readiness("magicfit")
+
+    assert readiness["runtime_account_count"] == 0
+    assert readiness["checks"]["credit_state"] == "unverified"
+    assert readiness["checks"]["credit_probe_error"] == "runtime_accounts_missing"
+    assert "magicfit_credentials_missing" in readiness["blockers"]
+    assert "magicfit_insufficient_credits" not in readiness["blockers"]
+
+
 def test_scene_video_omagic_readiness_ignores_chummer_magic_env(monkeypatch, tmp_path: Path) -> None:
     _clear_scene_video_provider_env(monkeypatch)
     script_dir = tmp_path / "scripts"
