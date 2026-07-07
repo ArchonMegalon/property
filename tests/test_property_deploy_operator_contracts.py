@@ -35,6 +35,7 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "PROPERTYQUARRY_COMPOSE_PROBE_TIMEOUT_SECONDS",
         "PROPERTYQUARRY_API_CONTAINER_NAME",
         "PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME",
+        "PROPERTYQUARRY_RENDER_CONTAINER_NAME",
         "PROPERTYQUARRY_DB_CONTAINER_NAME",
         "PROPERTYQUARRY_CLOUDFLARED_CONTAINER_NAME",
         "docker compose",
@@ -42,6 +43,7 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "docker-compose.property.yml",
         "propertyquarry-api",
         "propertyquarry-scheduler",
+        "propertyquarry-render-tools",
         "propertyquarry-db",
         "propertyquarry-cloudflared",
         "/health",
@@ -52,6 +54,7 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "scripts/propertyquarry_live_authenticated_smoke.py",
         "scripts/propertyquarry_live_market_scope_smoke.py",
         "scripts/property_live_provider_smoke.py",
+        "scripts/check_property_release_hygiene.py",
         "scripts/propertyquarry_gold_status.py",
         "scripts/propertyquarry_notify_gold_status.py",
         "scripts/propertyquarry_notify_scene_video_provider_refresh.py",
@@ -140,8 +143,10 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         'up -d --remove-orphans "${db_service}"',
         'up -d --no-deps --force-recreate "${api_service}"',
         'up -d --no-deps --force-recreate "${scheduler_service}"',
+        'up -d --no-deps --force-recreate "${render_service}"',
         "Warning: PropertyQuarry gold notification script failed.",
         "Warning: PropertyQuarry scene-video provider refresh notification script failed.",
+        "--release-hygiene-receipt",
         "--live-mobile-receipt _completion/smoke/property-live-mobile-surface-latest.json",
         "--public-smoke-receipt _completion/smoke/property-live-public-latest.json",
         "--authenticated-smoke-receipt _completion/smoke/property-live-authenticated-latest.json",
@@ -345,6 +350,32 @@ def test_property_deploy_wrapper_uses_durable_api_artifact_path_for_import_manif
     assert 'tour_import_manifest_container_receipt="/tmp/property-tour-import-manifest-current.json"' not in deploy_script
     assert 'docker exec --user root "${api_container_name}" python /app/scripts/materialize_property_tour_export_manifest.py' in deploy_script
     assert 'docker cp "${api_container_name}:${tour_import_manifest_container_receipt}" "${import_manifest_receipt}"' in deploy_script
+
+
+def test_property_deploy_wrapper_refreshes_release_hygiene_before_gold_status() -> None:
+    deploy_script = _read("scripts/deploy_propertyquarry.sh")
+
+    assert 'release_hygiene_receipt="_completion/release_hygiene/property-release-hygiene-latest.json"' in deploy_script
+    assert 'scripts/check_property_release_hygiene.py \\' in deploy_script
+    assert '--write "${release_hygiene_receipt}"' in deploy_script
+    assert 'echo "PropertyQuarry release-hygiene refresh failed."' in deploy_script
+    assert 'cat "${release_hygiene_receipt}" >&2 2>/dev/null || true' in deploy_script
+    assert '--release-hygiene-receipt "${release_hygiene_receipt}"' in deploy_script
+    assert deploy_script.index('release_hygiene_receipt="_completion/release_hygiene/property-release-hygiene-latest.json"') < deploy_script.index('if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py')
+
+
+def test_property_deploy_wrapper_rebuilds_and_recreates_render_tools_runtime() -> None:
+    deploy_script = _read("scripts/deploy_propertyquarry.sh")
+
+    assert 'render_service="${PROPERTYQUARRY_RENDER_SERVICE:-$(effective_env_value PROPERTYQUARRY_RENDER_SERVICE)}"' in deploy_script
+    assert 'render_service="${render_service:-propertyquarry-render-tools}"' in deploy_script
+    assert 'render_container_name="${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_RENDER_CONTAINER_NAME)}"' in deploy_script
+    assert 'render_container_name="${render_container_name:-propertyquarry-render-tools}"' in deploy_script
+    assert '"${DC[@]}" build "${api_service}" "${render_service}"' in deploy_script
+    assert '"${DC[@]}" up -d --no-deps --force-recreate "${render_service}"' in deploy_script
+    assert 'wait_for_service_ready "${render_service}" "${render_container_name}"' in deploy_script
+    assert 'correct_service_runtime_priority_if_needed "${render_service}" "${render_container_name}" "${max_runtime_nice}"' in deploy_script
+    assert 'assert_service_runtime_priority "${render_service}" "${render_container_name}" "${max_runtime_nice}"' in deploy_script
 
 
 def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:

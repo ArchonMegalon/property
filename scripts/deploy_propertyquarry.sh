@@ -17,6 +17,7 @@ Deploys the standalone PropertyQuarry runtime with operator preflight checks:
   - rejects EA_ALLOW_LOOPBACK_NO_AUTH=1 in prod
   - checks EA_HOST_PORT for obvious conflicts before rebuilding
   - starts docker-compose.property.yml in DB -> API -> scheduler order to avoid startup schema deadlocks
+    and refreshes the render-tools runtime before gold verification
   - rejects web/scheduler processes that start with background nice priority
   - can add docker-compose.cloudflared.yml only for a dedicated PropertyQuarry tunnel token
   - supports isolated blue/green deploys via configurable Compose project/container names
@@ -82,7 +83,8 @@ Environment:
   PROPERTYQUARRY_BILLING_WORKER_BOOTSTRAP_TIMEOUT_SECONDS
                                   Hard timeout for the Cloudflare billing worker bootstrap. Default 120.
   PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE
-                                  Maximum accepted host nice value for API and scheduler processes.
+                                  Maximum accepted host nice value for API, scheduler, and render-tools
+                                  processes.
                                   Default 10; values above this are treated as a failed deploy.
   PROPERTYQUARRY_DEPLOY_STRICT_THREAD_NICE
                                   1 also fails when a secondary runtime thread remains above
@@ -702,16 +704,20 @@ fi
 
 api_service="${PROPERTYQUARRY_API_SERVICE:-$(effective_env_value PROPERTYQUARRY_API_SERVICE)}"
 scheduler_service="${PROPERTYQUARRY_SCHEDULER_SERVICE:-$(effective_env_value PROPERTYQUARRY_SCHEDULER_SERVICE)}"
+render_service="${PROPERTYQUARRY_RENDER_SERVICE:-$(effective_env_value PROPERTYQUARRY_RENDER_SERVICE)}"
 db_service="${PROPERTYQUARRY_DB_SERVICE:-$(effective_env_value PROPERTYQUARRY_DB_SERVICE)}"
 api_service="${api_service:-propertyquarry-api}"
 scheduler_service="${scheduler_service:-propertyquarry-scheduler}"
+render_service="${render_service:-propertyquarry-render-tools}"
 db_service="${db_service:-propertyquarry-db}"
 api_container_name="${PROPERTYQUARRY_API_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_API_CONTAINER_NAME)}"
 scheduler_container_name="${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME)}"
+render_container_name="${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_RENDER_CONTAINER_NAME)}"
 db_container_name="${PROPERTYQUARRY_DB_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_DB_CONTAINER_NAME)}"
 cloudflared_container_name="${PROPERTYQUARRY_CLOUDFLARED_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_CLOUDFLARED_CONTAINER_NAME)}"
 api_container_name="${api_container_name:-propertyquarry-api}"
 scheduler_container_name="${scheduler_container_name:-propertyquarry-scheduler}"
+render_container_name="${render_container_name:-propertyquarry-render-tools}"
 db_container_name="${db_container_name:-propertyquarry-db-live}"
 cloudflared_container_name="${cloudflared_container_name:-propertyquarry-cloudflared}"
 
@@ -978,24 +984,28 @@ settle_runtime_priorities() {
   for ((attempt = 1; attempt <= attempts; attempt++)); do
     correct_service_runtime_priority_if_needed "${api_service}" "${api_container_name}" "${max_runtime_nice}"
     correct_service_runtime_priority_if_needed "${scheduler_service}" "${scheduler_container_name}" "${max_runtime_nice}"
+    correct_service_runtime_priority_if_needed "${render_service}" "${render_container_name}" "${max_runtime_nice}"
     if (( attempt < attempts )); then
       sleep 1
     fi
   done
   assert_service_runtime_priority "${api_service}" "${api_container_name}" "${max_runtime_nice}"
   assert_service_runtime_priority "${scheduler_service}" "${scheduler_container_name}" "${max_runtime_nice}"
+  assert_service_runtime_priority "${render_service}" "${render_container_name}" "${max_runtime_nice}"
 }
 
 max_runtime_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE)"
 max_runtime_nice="${max_runtime_nice:-10}"
 
-"${DC[@]}" build "${api_service}"
+"${DC[@]}" build "${api_service}" "${render_service}"
 "${DC[@]}" up -d --remove-orphans "${db_service}"
 wait_for_service_ready "${db_service}" "${db_container_name}"
 "${DC[@]}" up -d --no-deps --force-recreate "${api_service}"
 wait_for_service_ready "${api_service}" "${api_container_name}"
 "${DC[@]}" up -d --no-deps --force-recreate "${scheduler_service}"
 wait_for_service_ready "${scheduler_service}" "${scheduler_container_name}"
+"${DC[@]}" up -d --no-deps --force-recreate "${render_service}"
+wait_for_service_ready "${render_service}" "${render_container_name}"
 if (( should_enable_cloudflared )); then
   "${DC[@]}" up -d --no-deps --force-recreate "${cloudflared_container_name}" 2>/dev/null || "${DC[@]}" up -d --no-deps --force-recreate propertyquarry-cloudflared 2>/dev/null || true
 fi
@@ -1004,6 +1014,7 @@ settle_runtime_priorities 4
 wait_for_service_ready "${db_service}" "${db_container_name}"
 wait_for_service_ready "${api_service}" "${api_container_name}"
 wait_for_service_ready "${scheduler_service}" "${scheduler_container_name}"
+wait_for_service_ready "${render_service}" "${render_container_name}"
 settle_runtime_priorities 3
 
 base_url="$(effective_env_value PROPERTYQUARRY_DEPLOY_BASE_URL)"
@@ -1624,12 +1635,21 @@ esac
 
 settle_runtime_priorities 4
 
+release_hygiene_receipt="_completion/release_hygiene/property-release-hygiene-latest.json"
+if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/check_property_release_hygiene.py \
+  --write "${release_hygiene_receipt}" >/dev/null; then
+  echo "PropertyQuarry release-hygiene refresh failed." >&2
+  cat "${release_hygiene_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
+
 gold_status_receipt="_completion/property_gold_status/release-gate.json"
 legacy_gold_status_receipt="_completion/propertyquarry-gold-status-latest.json"
 if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py \
   --tour-control-receipt "${tour_control_receipt}" \
   --export-discovery-receipt "${export_discovery_receipt}" \
   --import-manifest-receipt "${import_manifest_receipt}" \
+  --release-hygiene-receipt "${release_hygiene_receipt}" \
   --provider-matrix-receipt _completion/smoke/property-live-provider-latest.json \
   --live-mobile-receipt _completion/smoke/property-live-mobile-surface-latest.json \
   --public-smoke-receipt _completion/smoke/property-live-public-latest.json \
