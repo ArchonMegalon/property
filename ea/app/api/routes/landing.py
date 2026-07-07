@@ -2859,6 +2859,125 @@ def _property_research_search_agent_distance_overlay(
     return best_overlay
 
 
+def _property_research_recent_run_distance_overlay(
+    *,
+    product: Any,
+    principal_id: str,
+    account_email: str,
+    current_preferences: dict[str, object],
+    workspace_preferences: dict[str, object],
+    run_preferences: dict[str, object],
+    candidate: dict[str, object],
+    current_run_id: str,
+) -> dict[str, object]:
+    if (
+        _property_research_has_distance_preferences(current_preferences)
+        or _property_research_has_distance_preferences(workspace_preferences)
+        or _property_research_has_distance_preferences(run_preferences)
+    ):
+        return {}
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    scope_tokens = _property_research_location_scope_tokens(
+        run_preferences.get("selected_location_values"),
+        run_preferences.get("location_query"),
+        current_preferences.get("selected_location_values"),
+        current_preferences.get("location_query"),
+        workspace_preferences.get("selected_location_values"),
+        workspace_preferences.get("location_query"),
+        candidate.get("location_label"),
+        facts.get("postal_name"),
+        facts.get("address"),
+        facts.get("district"),
+        facts.get("source_scope_location"),
+    )
+    if not scope_tokens:
+        return {}
+    expected_country_code = normalize_country_code(
+        run_preferences.get("country_code")
+        or current_preferences.get("country_code")
+        or workspace_preferences.get("country_code")
+        or ""
+    )
+    expected_listing_mode = normalize_listing_mode(
+        run_preferences.get("listing_mode")
+        or current_preferences.get("listing_mode")
+        or workspace_preferences.get("listing_mode")
+        or ""
+    )
+    current_active_agent_id = str(
+        run_preferences.get("active_search_agent_id")
+        or current_preferences.get("active_search_agent_id")
+        or workspace_preferences.get("active_search_agent_id")
+        or ""
+    ).strip()
+    try:
+        recent_runs = product.list_property_search_runs(
+            principal_id=principal_id,
+            limit=24,
+            hydrate=False,
+            account_email=account_email,
+        )
+    except TypeError:
+        recent_runs = product.list_property_search_runs(
+            principal_id=principal_id,
+            limit=24,
+            hydrate=False,
+        )
+    except Exception:
+        return {}
+    normalized_current_run_id = str(current_run_id or "").strip()
+    best_rank: tuple[float, ...] = ()
+    best_overlay: dict[str, object] = {}
+    for index, raw_run in enumerate(list(recent_runs or [])):
+        if not isinstance(raw_run, dict):
+            continue
+        run_row = dict(raw_run)
+        candidate_run_id = str(run_row.get("run_id") or "").strip()
+        if normalized_current_run_id and candidate_run_id == normalized_current_run_id:
+            continue
+        candidate_preferences = (
+            dict(run_row.get("property_search_preferences") or run_row.get("preferences") or {})
+            if isinstance(run_row.get("property_search_preferences") or run_row.get("preferences"), dict)
+            else {}
+        )
+        if not candidate_preferences:
+            continue
+        overlay = _property_research_distance_preference_overlay(candidate_preferences, active_only=True)
+        if not overlay:
+            continue
+        candidate_country_code = normalize_country_code(candidate_preferences.get("country_code") or "")
+        if expected_country_code and candidate_country_code and candidate_country_code != expected_country_code:
+            continue
+        candidate_listing_mode = normalize_listing_mode(candidate_preferences.get("listing_mode") or "")
+        if expected_listing_mode and candidate_listing_mode and candidate_listing_mode != expected_listing_mode:
+            continue
+        candidate_scope_tokens = _property_research_location_scope_tokens(
+            candidate_preferences.get("selected_location_values"),
+            candidate_preferences.get("location_query"),
+        )
+        if not candidate_scope_tokens:
+            continue
+        scope_overlap = scope_tokens & candidate_scope_tokens
+        if not scope_overlap:
+            continue
+        candidate_active_agent_id = str(candidate_preferences.get("active_search_agent_id") or "").strip()
+        rank = (
+            float(len(scope_overlap)),
+            float(int(scope_overlap == scope_tokens)),
+            float(int(scope_overlap == scope_tokens == candidate_scope_tokens)),
+            float(int(bool(current_active_agent_id and candidate_active_agent_id and current_active_agent_id == candidate_active_agent_id))),
+            float(-abs(len(candidate_scope_tokens) - len(scope_tokens))),
+            _property_research_timestamp_rank(
+                run_row.get("updated_at") or run_row.get("generated_at") or run_row.get("created_at")
+            ),
+            float(-index),
+        )
+        if rank > best_rank:
+            best_rank = rank
+            best_overlay = overlay
+    return best_overlay
+
+
 def _property_lookup_candidate_in_saved_shortlist(
     product: Any,
     *,
@@ -6273,6 +6392,21 @@ def property_research_packet(
             **preferences,
             **search_agent_distance_overlay,
         }
+    recent_run_distance_overlay = _property_research_recent_run_distance_overlay(
+        product=product,
+        principal_id=context.principal_id,
+        account_email=context.access_email,
+        current_preferences=preferences,
+        workspace_preferences=workspace_preferences,
+        run_preferences=run_preferences_payload,
+        candidate=candidate,
+        current_run_id=effective_run_id,
+    )
+    if recent_run_distance_overlay:
+        preferences = {
+            **preferences,
+            **recent_run_distance_overlay,
+        }
     if run_preferences_payload:
         preferences = {
             **preferences,
@@ -6334,7 +6468,9 @@ def property_research_packet(
         facts=facts,
         preferences=preferences,
     )
-    if (workspace_distance_overlay or search_agent_distance_overlay) and selected_distance_rows:
+    if recent_run_distance_overlay and selected_distance_rows:
+        selected_distance_copy = "Distances for the nearby filters from your latest matching search."
+    elif (workspace_distance_overlay or search_agent_distance_overlay) and selected_distance_rows:
         selected_distance_copy = "Distances for the nearby filters saved on this workspace."
     risk_fit_rows = _property_packet_risk_fit_rows(
         facts=facts,

@@ -11080,6 +11080,175 @@ def test_property_research_detail_ignores_unrelated_search_agent_distance_filter
     assert 'data-research-ranking-list' not in page.text
 
 
+def test_property_research_detail_uses_recent_matching_run_distance_filters_when_current_run_has_none(monkeypatch) -> None:
+    principal_id = "pq-research-detail-recent-run-distance-fallback"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Recent Run Distance Fallback Office")
+
+    def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
+        merged = dict(property_facts)
+        merged["nearest_supermarket_m"] = 189
+        merged["nearest_supermarket_name"] = "Billa Graben"
+        merged["nearest_supermarket_source"] = "OpenStreetMap (postal area estimate)"
+        merged["nearest_playground_m"] = 688
+        merged["nearest_playground_name"] = "Volksgarten Playground"
+        merged["nearest_playground_source"] = "OpenStreetMap (postal area estimate)"
+        merged["nearest_pharmacy_m"] = 133
+        merged["nearest_pharmacy_name"] = 'Graben-Apotheke "Zum schwarzen Bären"'
+        merged["nearest_pharmacy_source"] = "OpenStreetMap (postal area estimate)"
+        merged["location_hint_research_attempted"] = True
+        merged["listing_research_snapshot"] = {
+            "nearest_supermarket_m": 189,
+            "nearest_playground_m": 688,
+            "nearest_pharmacy_m": 133,
+            "location_hint_research_attempted": True,
+        }
+        merged["listing_research_meta"] = {"strategy": "provider_html_plus_geo"}
+        return merged
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        _fake_merge_property_facts_with_source_research,
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_propertyquarry_refresh_candidate_preview_if_needed",
+        lambda *, product, candidate, allow_network=False: dict(candidate),
+    )
+    monkeypatch.setattr(
+        OnboardingService,
+        "compact_status",
+        lambda self, *, principal_id: {
+            "workspace": {"name": "Recent Run Distance Fallback Office"},
+            "property_search_preferences": {},
+        },
+    )
+
+    candidate = {
+        "candidate_ref": "cand-recent-run-distance-fallback",
+        "title": "Sparse run borrows nearby brief from recent history",
+        "fit_summary": "Nearby filters should come from the latest matching run.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-recent-run-distance-fallback",
+        "property_url": "https://example.test/recent-run-distance-fallback-home",
+        "source_label": "Willhaben",
+        "fit_score": 81,
+        "property_facts": {
+            "price_display": "EUR 3,553.94",
+            "area_m2": 144.79,
+            "rooms": 3.5,
+            "postal_name": "1010 Wien",
+            "address": "1010 Wien",
+            "source_scope_location": "1010 Vienna",
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_console_context",
+        lambda **_kwargs: {
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1010 Vienna, 1020 Vienna",
+            },
+            "commercial": {},
+            "run": {
+                "run_id": "run-current-no-nearby",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1010 Vienna, 1020 Vienna",
+                    "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+                    "active_search_agent_id": "agent-e7ac5cdf51de",
+                    "keyword_preferences_json": "{}",
+                },
+                "summary": {
+                    "sources_total": 1,
+                    "listing_total": 1,
+                    "ranked_candidates": [candidate],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    def _fake_list_property_search_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True, account_email: str = ""):
+        del principal_id, limit, hydrate, account_email
+        return [
+            {
+                "run_id": "run-current-no-nearby",
+                "updated_at": "2026-07-07T01:12:00+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1010 Vienna, 1020 Vienna",
+                    "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+                    "active_search_agent_id": "agent-e7ac5cdf51de",
+                    "keyword_preferences_json": "{}",
+                },
+            },
+            {
+                "run_id": "run-unrelated-berlin-nearby",
+                "updated_at": "2026-07-07T01:11:59+00:00",
+                "property_search_preferences": {
+                    "country_code": "DE",
+                    "listing_mode": "rent",
+                    "location_query": "Berlin",
+                    "selected_location_values": ["Berlin"],
+                    "max_distance_to_supermarket_m": 200,
+                    "max_distance_to_supermarket_importance": "important",
+                },
+            },
+            {
+                "run_id": "run-vienna-nearby",
+                "updated_at": "2026-07-07T01:11:58+00:00",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1010 Vienna, 1020 Vienna, 1090 Vienna",
+                    "selected_location_values": ["1010 Vienna", "1020 Vienna", "1090 Vienna"],
+                    "active_search_agent_id": "agent-5d84dc48201d",
+                    "keyword_preferences_json": json.dumps(
+                        {
+                            "supermarket nearby": "nice_to_have",
+                            "playground nearby": "nice_to_have",
+                            "pharmacy nearby": "nice_to_have",
+                        }
+                    ),
+                    "max_distance_to_supermarket_m": 500,
+                    "max_distance_to_playground_m": 1000,
+                    "max_distance_to_medical_care_m": 500,
+                    "max_distance_to_supermarket_importance": "nice_to_have",
+                    "max_distance_to_playground_importance": "nice_to_have",
+                    "max_distance_to_medical_care_importance": "nice_to_have",
+                },
+            },
+        ]
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_property_search_runs)
+
+    page = client.get(
+        "/app/research/cand-recent-run-distance-fallback",
+        params={"run_id": "run-current-no-nearby"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert "Nearby distances" in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert "Distances for the nearby filters from your latest matching search." in page.text
+    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest pharmacy: Graben-Apotheke" in page.text
+    assert "selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "selected limit 200 m" not in page.text
+    assert "Other homes" not in page.text
+    assert 'data-research-ranking-list' not in page.text
+
+
 def test_property_research_detail_uses_run_distance_filters_even_when_run_snapshot_is_stale(monkeypatch) -> None:
     principal_id = "pq-research-detail-stale-run-distance-filters"
     client = build_property_client(principal_id=principal_id)
