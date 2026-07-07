@@ -338,6 +338,15 @@ def test_property_release_gate_wires_tour_import_manifest_into_gold_status() -> 
     assert "_completion/provider_smoke/production-e2e-provider-matrix-current.json" in release_gate
 
 
+def test_property_deploy_wrapper_uses_durable_api_artifact_path_for_import_manifest() -> None:
+    deploy_script = _read("scripts/deploy_propertyquarry.sh")
+
+    assert 'tour_import_manifest_container_receipt="/data/artifacts/property-tour-import-manifest-current.json"' in deploy_script
+    assert 'tour_import_manifest_container_receipt="/tmp/property-tour-import-manifest-current.json"' not in deploy_script
+    assert 'docker exec --user root "${api_container_name}" python /app/scripts/materialize_property_tour_export_manifest.py' in deploy_script
+    assert 'docker cp "${api_container_name}:${tour_import_manifest_container_receipt}" "${import_manifest_receipt}"' in deploy_script
+
+
 def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
 
