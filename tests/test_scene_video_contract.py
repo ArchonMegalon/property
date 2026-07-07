@@ -330,6 +330,41 @@ def test_scene_video_magicfit_readiness_prefers_accounts_json_file_over_inline_j
     assert readiness["checks"]["runtime_account_email_env_names"][0] == "MAGICFIT_ACCOUNTS_JSON_FILE[1].email"
 
 
+def test_scene_video_magicfit_readiness_ignores_chummer_magicfit_env(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "render_magicfit_property_flythrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_MAGICFIT_IGNORE_CREDIT_MARKER", "1")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "shared@example.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "shared-secret")
+
+    readiness = service.scene_video_provider_runtime_readiness("magicfit")
+
+    assert readiness["runtime_account_count"] == 0
+    assert readiness["checks"]["runtime_account_email_env_names"] == []
+    assert "magicfit_credentials_missing" in readiness["blockers"]
+
+
+def test_scene_video_omagic_readiness_ignores_chummer_magic_env(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "render_omagic_property_model_walkthrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT", "https://omagic.example/render")
+    monkeypatch.setenv("CHUMMER_EA_MAGIC_EMAIL", "shared@example.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGIC_PASSWORD", "shared-secret")
+
+    readiness = service.scene_video_provider_runtime_readiness("magic")
+
+    assert readiness["runtime_account_count"] == 0
+    assert readiness["checks"]["runtime_account_email_env_names"] == []
+    assert "omagic_credentials_missing" in readiness["blockers"]
+
+
 def test_property_walkthrough_runtime_provider_prefers_magicfit_when_omagic_is_blocked(monkeypatch) -> None:
     def _fake_readiness(provider_key):
         provider_key = str(provider_key or "").strip()

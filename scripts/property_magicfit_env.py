@@ -14,6 +14,7 @@ _MAGICFIT_SUFFIX_ALIASES = {
     "MAGICFIT_ACCOUNTS_JSON_FILE": ("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE", "MAGICFIT_ACCOUNTS_JSON_FILE"),
 }
 _RUNTIME_INCOMING_ROOT = Path("/data/incoming_property_tours")
+_BLOCKED_ENV_PREFIXES = ("CHUMMER_EA_",)
 
 
 def default_magicfit_env_files() -> tuple[Path, ...]:
@@ -30,6 +31,10 @@ def default_magicfit_env_files() -> tuple[Path, ...]:
 
 def _normalize_env_value(raw: str) -> str:
     return raw.strip().strip("'").strip('"')
+
+
+def _is_blocked_env_name(name: str) -> bool:
+    return any(str(name or "").startswith(prefix) for prefix in _BLOCKED_ENV_PREFIXES)
 
 
 def _selected_account_index(values: dict[str, str]) -> int:
@@ -142,6 +147,8 @@ def discover_magicfit_env(
     values: dict[str, str] = {}
     sources: dict[str, str] = {}
     for normalized_key, raw_value in os.environ.items():
+        if _is_blocked_env_name(normalized_key):
+            continue
         normalized_value = _normalize_env_value(str(raw_value or ""))
         if not normalized_key or not normalized_value:
             continue
@@ -162,6 +169,8 @@ def discover_magicfit_env(
                 continue
             key, value = line.split("=", 1)
             normalized_key = key.strip()
+            if _is_blocked_env_name(normalized_key):
+                continue
             normalized_value = _normalize_env_value(value)
             if not normalized_key or not normalized_value:
                 continue

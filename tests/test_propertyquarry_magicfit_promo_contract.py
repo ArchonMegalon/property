@@ -270,6 +270,21 @@ def test_propertyquarry_magicfit_env_resolves_runtime_mount_accounts_json_file_o
     assert "MAGICFIT_ACCOUNTS_JSON_FILE[2]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
 
 
+def test_propertyquarry_magicfit_env_ignores_chummer_magicfit_env(monkeypatch) -> None:
+    module = _load_magicfit_env_helper()
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "shared@example.test")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "shared-secret")
+
+    values, sources = module.discover_magicfit_env([])
+
+    assert "PROPERTYQUARRY_MAGICFIT_EMAIL" not in values
+    assert "PROPERTYQUARRY_MAGICFIT_PASSWORD" not in values
+    assert "MAGICFIT_EMAIL" not in values
+    assert "MAGICFIT_PASSWORD" not in values
+    assert "CHUMMER_EA_MAGICFIT_EMAIL" not in values
+    assert "CHUMMER_EA_MAGICFIT_EMAIL" not in sources
+
+
 def test_propertyquarry_magicfit_helpers_do_not_read_chummer_credentials() -> None:
     helper_paths = [
         ROOT / "scripts" / "property_magicfit_env.py",

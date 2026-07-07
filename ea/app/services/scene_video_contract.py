@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 _SCENE_VIDEO_RUNTIME_INCOMING_ROOT = Path("/data/incoming_property_tours")
+_SCENE_VIDEO_BLOCKED_ENV_PREFIXES = ("CHUMMER_EA_",)
 
 
 def _normalized_provider_token(value: object) -> str:
@@ -46,6 +47,10 @@ def _scene_video_env_has_any(*names: str) -> bool:
     return any(str(os.getenv(name) or "").strip() for name in names)
 
 
+def _scene_video_blocked_env_name(name: str) -> bool:
+    return any(str(name or "").startswith(prefix) for prefix in _SCENE_VIDEO_BLOCKED_ENV_PREFIXES)
+
+
 def _scene_video_matching_env_names(*names: str) -> list[str]:
     configured: list[str] = []
     seen: set[str] = set()
@@ -55,6 +60,8 @@ def _scene_video_matching_env_names(*names: str) -> list[str]:
             configured.append(name)
             seen.add(name)
     for env_name, raw_value in sorted(os.environ.items()):
+        if _scene_video_blocked_env_name(env_name):
+            continue
         if not str(raw_value or "").strip():
             continue
         if env_name in seen:
@@ -243,6 +250,8 @@ def _scene_video_magicfit_runtime_account_pairs() -> tuple[dict[str, str], ...]:
         )
 
     for email_env_name, raw_email in sorted(os.environ.items()):
+        if _scene_video_blocked_env_name(email_env_name):
+            continue
         if (
             email_env_name not in {"MAGICFIT_EMAIL", "PROPERTYQUARRY_MAGICFIT_EMAIL"}
             and not email_env_name.endswith("_MAGICFIT_EMAIL")
@@ -312,6 +321,8 @@ def _scene_video_omagic_runtime_account_pairs() -> tuple[dict[str, str], ...]:
         "PROPERTYQUARRY_MAGIC_EMAIL",
     }
     for email_env_name, raw_email in sorted(os.environ.items()):
+        if _scene_video_blocked_env_name(email_env_name):
+            continue
         if (
             email_env_name not in explicit_email_env_names
             and not email_env_name.endswith("_OMAGIC_EMAIL")
