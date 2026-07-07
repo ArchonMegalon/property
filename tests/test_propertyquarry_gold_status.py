@@ -1992,6 +1992,7 @@ def test_gold_status_prefers_scene_video_runtime_status_receipt_for_provider_run
     assert receipt["scene_video_readiness"]["provider_runtime_ready"] is False
     assert receipt["scene_video_readiness"]["provider_action_required"] is True
     assert receipt["scene_video_readiness"]["blocked_providers"] == ["magicfit", "magic", "omagic"]
+    assert provider_runtime_blocker["key"] == "scene_video_provider_runtime"
     assert receipt["scene_video_readiness"]["runtime_status"]["summary"]["blocked_count"] == 3
     assert provider_runtime_blocker["provider_blocked_count"] == 3
     assert provider_runtime_blocker["runtime_status_providers"][0]["provider"] == "magicfit"
@@ -2108,6 +2109,7 @@ def test_gold_status_blocks_when_release_hygiene_receipt_fails(tmp_path: Path) -
     blocker = next(row for row in receipt["blockers"] if row["area"] == "release_hygiene")
     assert receipt["status"] == "blocked"
     assert receipt["release_hygiene"]["status"] == "fail"
+    assert blocker["key"] == "release_hygiene"
     assert blocker["manifest_runtime_commit"] == "d8426c7"
     assert blocker["head_commit"] == "88cdc13"
     assert "release manifest runtime commit" in blocker["failures"][0]

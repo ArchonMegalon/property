@@ -2340,6 +2340,13 @@ def build_gold_status_receipt(
             notes.append("OMagic model-upload adapter deployment is blocked until the checked runtime contains the packaged adapter script.")
     notes.append(_tour_provider_missing_note(missing_provider_modes))
     ready_for_notification = status == "pass" and not blockers and not next_required_actions
+    normalized_blockers: list[dict[str, Any]] = []
+    for row in blockers:
+        normalized_row = dict(row)
+        normalized_area = str(normalized_row.get("area") or "").strip()
+        if normalized_area and not str(normalized_row.get("key") or "").strip():
+            normalized_row["key"] = normalized_area
+        normalized_blockers.append(normalized_row)
 
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
@@ -2720,7 +2727,7 @@ def build_gold_status_receipt(
             "max_age_hours": max_receipt_age_hours,
             "stale_receipts": stale_receipts,
         },
-        "blockers": blockers,
+        "blockers": normalized_blockers,
         "pass_areas": [row for row in pass_areas if row is not None],
         "next_required_actions": next_required_actions,
         "notes": notes,
