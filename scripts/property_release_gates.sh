@@ -118,6 +118,10 @@ if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container
     --receipt /data/artifacts/property-scene-video-readiness-release-gate-live-container.json \
     --output /data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json \
     > /dev/null
+  docker exec "${property_api_container}" python /app/scripts/property_scene_video_runtime_status.py \
+    --receipt /data/artifacts/property-scene-video-readiness-release-gate-live-container.json \
+    --output /data/artifacts/property-scene-video-runtime-status-release-gate-live-container.json \
+    > /dev/null
   docker exec "${property_api_container}" python /app/scripts/materialize_scene_video_provider_refresh_packet.py \
     --receipt /data/artifacts/property-scene-video-readiness-release-gate-live-container.json \
     --output /data/artifacts/property-scene-video-provider-refresh-packet-release-gate-live-container.json \
@@ -130,6 +134,8 @@ if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container
     _completion/scene_video_readiness/release-gate.json
   docker cp "${property_api_container}:/data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json" \
     _completion/scene_video_readiness/release-gate-verifier.json
+  docker cp "${property_api_container}:/data/artifacts/property-scene-video-runtime-status-release-gate-live-container.json" \
+    _completion/scene_video_readiness/runtime-status.json
   docker cp "${property_api_container}:/data/artifacts/property-scene-video-provider-refresh-packet-release-gate-live-container.json" \
     _completion/scene_video_readiness/provider-refresh-packet.json
   docker cp "${property_api_container}:/data/artifacts/property-scene-video-provider-refresh-packet-release-gate-verifier-live-container.json" \
@@ -155,6 +161,10 @@ else
   PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_scene_video_readiness.py \
     --receipt _completion/scene_video_readiness/release-gate.json \
     --output _completion/scene_video_readiness/release-gate-verifier.json \
+    > /dev/null
+  PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_scene_video_runtime_status.py \
+    --receipt _completion/scene_video_readiness/release-gate.json \
+    --output _completion/scene_video_readiness/runtime-status.json \
     > /dev/null
   PYTHONPATH=ea "${PYTHON_BIN}" scripts/materialize_scene_video_provider_refresh_packet.py \
     --receipt _completion/scene_video_readiness/release-gate.json \
@@ -289,6 +299,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-release-gate.json \
   --scene-video-readiness-receipt _completion/scene_video_readiness/release-gate.json \
   --scene-video-readiness-verifier-receipt _completion/scene_video_readiness/release-gate-verifier.json \
+  --scene-video-runtime-status-receipt _completion/scene_video_readiness/runtime-status.json \
   --scene-video-provider-refresh-packet _completion/scene_video_readiness/provider-refresh-packet.json \
   --scene-video-provider-refresh-packet-verifier-receipt _completion/scene_video_readiness/provider-refresh-packet-verifier.json \
   --write _completion/property_gold_status/release-gate.json \

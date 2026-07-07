@@ -31,6 +31,7 @@ def test_gold_status_cli_keeps_live_container_tour_receipt_as_fallback() -> None
     assert "_completion/smoke/property-live-walkthrough-quality-latest.json" in source
     assert "_completion/scene_video_readiness/release-gate.json" in source
     assert "_completion/scene_video_readiness/release-gate-verifier.json" in source
+    assert "_completion/scene_video_readiness/runtime-status.json" in source
     assert "_completion/scene_video_readiness/provider-refresh-packet.json" in source
     assert "_completion/scene_video_readiness/provider-refresh-packet-verifier.json" in source
     assert "_completion/smoke/property-live-mobile-surface-with-research-detail-pass.json" not in source
@@ -776,6 +777,125 @@ def _scene_video_readiness_verifier_payload(*, status: str = "pass") -> dict[str
         "blockers": [] if status == "pass" else ["magic_backend_mismatch"],
         "checked_providers": ["mootion", "magicfit", "magic", "omagic", "onemin_i2v"],
         "provider_count": 5,
+    }
+
+
+def _scene_video_runtime_status_payload(*, blocked: bool = False) -> dict[str, object]:
+    if blocked:
+        return {
+            "contract_name": "propertyquarry.scene_video_runtime_status.v1",
+            "generated_at": "2026-06-29T10:05:30Z",
+            "source_kind": "receipt_file",
+            "source_ref": "/tmp/scene-video-readiness.json",
+            "summary": {
+                "provider_count": 5,
+                "ready_count": 2,
+                "blocked_count": 3,
+                "blocked_providers": ["magicfit", "magic", "omagic"],
+                "action_required_count": 3,
+                "action_required_providers": ["magicfit", "magic", "omagic"],
+                "delivery_ready": True,
+            },
+            "providers": [
+                {
+                    "provider": "mootion",
+                    "provider_key": "mootion",
+                    "status": "ready",
+                    "ready": True,
+                    "attention_required": False,
+                    "execution_lane": "browseract_remote",
+                },
+                {
+                    "provider": "magicfit",
+                    "provider_key": "magicfit",
+                    "provider_backend_key": "magicfit",
+                    "status": "blocked",
+                    "ready": False,
+                    "attention_required": True,
+                    "execution_lane": "magicfit",
+                    "runtime_account_count": 0,
+                    "expected_account_count": 3,
+                    "visible_account_gap": 3,
+                    "credit_state": "unverified",
+                    "blocking_reason": "magicfit_credentials_missing",
+                    "blockers": ["magicfit_credentials_missing"],
+                    "next_action": "refresh visible MagicFit accounts before claiming provider parity",
+                    "next_action_reason": "provider_account_visibility_gap",
+                    "next_action_severity": "high",
+                },
+                {
+                    "provider": "magic",
+                    "provider_key": "magic",
+                    "provider_backend_key": "omagic",
+                    "status": "blocked",
+                    "ready": False,
+                    "attention_required": True,
+                    "execution_lane": "omagic",
+                    "runtime_account_count": 0,
+                    "expected_account_count": 8,
+                    "visible_account_gap": 8,
+                    "blocking_reason": "omagic_model_upload_adapter_disabled",
+                    "blockers": ["omagic_model_upload_adapter_disabled"],
+                    "next_action": "expose shared OMagic/Magic accounts to the runtime",
+                    "next_action_reason": "provider_account_visibility_gap",
+                    "next_action_severity": "high",
+                },
+                {
+                    "provider": "omagic",
+                    "provider_key": "omagic",
+                    "provider_backend_key": "omagic",
+                    "status": "blocked",
+                    "ready": False,
+                    "attention_required": True,
+                    "execution_lane": "omagic",
+                    "runtime_account_count": 0,
+                    "expected_account_count": 8,
+                    "visible_account_gap": 8,
+                    "blocking_reason": "omagic_model_upload_adapter_disabled",
+                    "blockers": ["omagic_model_upload_adapter_disabled"],
+                    "next_action": "configure OMagic credentials before enabling the adapter",
+                    "next_action_reason": "omagic_credentials_missing",
+                    "next_action_severity": "high",
+                },
+                {
+                    "provider": "onemin_i2v",
+                    "provider_key": "onemin_i2v",
+                    "status": "ready",
+                    "ready": True,
+                    "attention_required": False,
+                    "execution_lane": "onemin_i2v",
+                    "credit_state": "funded",
+                },
+            ],
+            "delivery": {
+                "transport": "telegram",
+                "status": "ready",
+                "configured": True,
+                "blockers": [],
+            },
+        }
+    return {
+        "contract_name": "propertyquarry.scene_video_runtime_status.v1",
+        "generated_at": "2026-06-29T10:05:30Z",
+        "source_kind": "receipt_file",
+        "source_ref": "/tmp/scene-video-readiness.json",
+        "summary": {
+            "provider_count": 5,
+            "ready_count": 5,
+            "blocked_count": 0,
+            "blocked_providers": [],
+            "action_required_count": 0,
+            "action_required_providers": [],
+            "delivery_ready": True,
+        },
+        "providers": [
+            {"provider": "mootion", "provider_key": "mootion", "status": "ready", "ready": True},
+            {"provider": "magicfit", "provider_key": "magicfit", "status": "ready", "ready": True},
+            {"provider": "magic", "provider_key": "magic", "status": "ready", "ready": True},
+            {"provider": "omagic", "provider_key": "omagic", "status": "ready", "ready": True},
+            {"provider": "onemin_i2v", "provider_key": "onemin_i2v", "status": "ready", "ready": True},
+        ],
+        "delivery": {"transport": "telegram", "status": "ready", "configured": True, "blockers": []},
     }
 
 
@@ -1600,6 +1720,10 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     walkthrough_quality = _write_json(tmp_path / "walkthrough-quality.json", _walkthrough_quality_gate_payload())
     scene_video = _write_json(tmp_path / "scene-video-readiness.json", _scene_video_readiness_payload())
     scene_video_verifier = _write_json(tmp_path / "scene-video-readiness-verifier.json", _scene_video_readiness_verifier_payload())
+    scene_video_runtime_status = _write_json(
+        tmp_path / "scene-video-runtime-status.json",
+        _scene_video_runtime_status_payload(),
+    )
     scene_video_provider_refresh_packet = _write_json(
         tmp_path / "scene-video-provider-refresh-packet.json",
         _scene_video_provider_refresh_packet_payload(),
@@ -1627,6 +1751,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         walkthrough_quality_receipt_path=walkthrough_quality,
         scene_video_readiness_receipt_path=scene_video,
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
+        scene_video_runtime_status_receipt_path=scene_video_runtime_status,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
         scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
     )
@@ -1684,6 +1809,8 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["scene_video_readiness"]["provider_action_required"] is False
     assert receipt["scene_video_readiness"]["provider_blocked_count"] == 0
     assert receipt["scene_video_readiness"]["provider_summary"]["provider_count"] == 5
+    assert receipt["scene_video_readiness"]["runtime_status"]["contract_name"] == "propertyquarry.scene_video_runtime_status.v1"
+    assert receipt["scene_video_readiness"]["runtime_status"]["summary"]["provider_count"] == 5
     assert receipt["scene_video_readiness"]["checked_providers"] == ["mootion", "magicfit", "magic", "omagic", "onemin_i2v"]
     assert receipt["scene_video_readiness"]["provider_refresh_packet"]["ready"] is True
     assert receipt["scene_video_readiness"]["provider_refresh_packet"]["checked_providers"] == ["magicfit", "omagic"]
@@ -1781,6 +1908,96 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert provider_runtime_blocker["provider_blocked_count"] == 3
     assert provider_runtime_blocker["blocked_providers"] == ["magicfit", "magic", "omagic"]
     assert scene_video_action["reason"] == "provider_account_visibility_gap"
+
+
+def test_gold_status_prefers_scene_video_runtime_status_receipt_for_provider_runtime_truth(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    ownership = _write_json(tmp_path / "tour-provider-ownership.json", _tour_provider_ownership_payload())
+    vendor_tooling = _write_json(tmp_path / "vendor-tooling.json", {"status": "pass", "next_actions": []})
+    security_posture = _write_json(tmp_path / "security-posture.json", _security_posture_payload())
+    release_hygiene = _write_json(tmp_path / "release-hygiene.json", _release_hygiene_payload())
+    furniture_style_contract = _write_json(tmp_path / "furniture-style-contract.json", _furniture_style_contract_payload())
+    bts_methodology_contract = _write_json(tmp_path / "bts-methodology-contract.json", _bts_methodology_contract_payload())
+    tour_delivery_contract = _write_json(tmp_path / "tour-delivery-contract.json", _tour_delivery_contract_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    runtime_reconstruction = _write_json(tmp_path / "runtime-reconstruction.json", _runtime_reconstruction_payload())
+    walkthrough_quality = _write_json(tmp_path / "walkthrough-quality.json", _walkthrough_quality_gate_payload())
+    scene_video = _write_json(tmp_path / "scene-video-readiness.json", _scene_video_readiness_payload())
+    scene_video_verifier = _write_json(tmp_path / "scene-video-readiness-verifier.json", _scene_video_readiness_verifier_payload())
+    scene_video_runtime_status = _write_json(
+        tmp_path / "scene-video-runtime-status-blocked.json",
+        _scene_video_runtime_status_payload(blocked=True),
+    )
+    scene_video_provider_refresh_packet = _write_json(
+        tmp_path / "scene-video-provider-refresh-packet.json",
+        _scene_video_provider_refresh_packet_payload(),
+    )
+    scene_video_provider_refresh_packet_verifier = _write_json(
+        tmp_path / "scene-video-provider-refresh-packet-verifier.json",
+        _scene_video_provider_refresh_packet_verifier_payload(),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        tour_provider_ownership_receipt_path=ownership,
+        vendor_tooling_receipt_path=vendor_tooling,
+        security_posture_receipt_path=security_posture,
+        release_hygiene_receipt_path=release_hygiene,
+        furniture_style_contract_receipt_path=furniture_style_contract,
+        bts_methodology_contract_receipt_path=bts_methodology_contract,
+        tour_delivery_contract_receipt_path=tour_delivery_contract,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+        scene_video_readiness_receipt_path=scene_video,
+        scene_video_readiness_verifier_receipt_path=scene_video_verifier,
+        scene_video_runtime_status_receipt_path=scene_video_runtime_status,
+        scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
+        scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
+    )
+
+    provider_runtime_blocker = next(row for row in receipt["blockers"] if row["area"] == "scene_video_provider_runtime")
+    scene_video_action = next(
+        row
+        for row in receipt["next_required_actions"]
+        if row.get("area") == "scene_video_provider_runtime" and row.get("provider") == "magicfit"
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["scene_video_readiness"]["actionability_ready"] is True
+    assert receipt["scene_video_readiness"]["provider_runtime_ready"] is False
+    assert receipt["scene_video_readiness"]["provider_action_required"] is True
+    assert receipt["scene_video_readiness"]["blocked_providers"] == ["magicfit", "magic", "omagic"]
+    assert receipt["scene_video_readiness"]["runtime_status"]["summary"]["blocked_count"] == 3
+    assert provider_runtime_blocker["provider_blocked_count"] == 3
+    assert provider_runtime_blocker["runtime_status_providers"][0]["provider"] == "magicfit"
+    assert scene_video_action["reason"] == "provider_account_visibility_gap"
+    assert scene_video_action["visible_account_gap"] == 3
+
 
     failing_scene_video_provider_refresh_packet_verifier = _write_json(
         tmp_path / "scene-video-provider-refresh-packet-verifier-fail.json",

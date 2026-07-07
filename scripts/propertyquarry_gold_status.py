@@ -178,6 +178,10 @@ DEFAULT_RECEIPT_PATTERNS = {
         "_completion/scene_video_readiness/release-gate-verifier.json",
         "_completion/scene_video_readiness/*readiness-verifier*.json",
     ),
+    "scene_video_runtime_status": (
+        "_completion/scene_video_readiness/runtime-status*.json",
+        "_completion/scene_video_readiness/property-scene-video-runtime-status*.json",
+    ),
     "scene_video_provider_refresh_packet": (
         "_completion/scene_video_readiness/provider-refresh-packet.json",
         "_completion/scene_video_readiness/property-scene-video-provider-refresh-packet*.json",
@@ -214,6 +218,7 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "walkthrough_quality": "_completion/smoke/property-live-walkthrough-quality-latest.json",
     "scene_video_readiness": "_completion/scene_video_readiness/release-gate.json",
     "scene_video_readiness_verifier": "_completion/scene_video_readiness/release-gate-verifier.json",
+    "scene_video_runtime_status": "_completion/scene_video_readiness/runtime-status.json",
     "scene_video_provider_refresh_packet": "_completion/scene_video_readiness/provider-refresh-packet.json",
     "scene_video_provider_refresh_packet_verifier": "_completion/scene_video_readiness/provider-refresh-packet-verifier.json",
     "id_austria": "_completion/id_austria/ID_AUSTRIA_PROVIDER_VERIFICATION.generated.json",
@@ -236,6 +241,56 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {"status": "invalid", "path": str(path), "error": "json_root_not_object"}
     return payload
+
+
+def _scene_video_runtime_status_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = payload.get("summary")
+    return dict(summary) if isinstance(summary, dict) else {}
+
+
+def _scene_video_runtime_status_provider_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return [dict(row) for row in list(payload.get("providers") or []) if isinstance(row, dict)]
+
+
+def _scene_video_runtime_status_next_actions(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    for row in _scene_video_runtime_status_provider_rows(payload):
+        provider = str(row.get("provider") or row.get("provider_key") or "").strip()
+        action = str(row.get("next_action") or "").strip()
+        reason = str(row.get("next_action_reason") or "").strip()
+        severity = str(row.get("next_action_severity") or "").strip()
+        if not provider or not (action or reason or bool(row.get("attention_required"))):
+            continue
+        normalized: dict[str, Any] = {
+            "provider": provider,
+        }
+        if action:
+            normalized["action"] = action
+        if reason:
+            normalized["reason"] = reason
+        if severity:
+            normalized["severity"] = severity
+        status = str(row.get("status") or "").strip()
+        if status:
+            normalized["status"] = status
+        execution_lane = str(row.get("execution_lane") or "").strip()
+        if execution_lane:
+            normalized["execution_lane"] = execution_lane
+        provider_backend_key = str(row.get("provider_backend_key") or "").strip()
+        if provider_backend_key:
+            normalized["provider_backend_key"] = provider_backend_key
+        blocking_reason = str(row.get("blocking_reason") or "").strip()
+        if blocking_reason:
+            normalized["blocking_reason"] = blocking_reason
+        blockers = [str(value or "").strip() for value in list(row.get("blockers") or []) if str(value or "").strip()]
+        if blockers:
+            normalized["blockers"] = blockers
+        for key in ("runtime_account_count", "expected_account_count", "visible_account_gap", "credit_state"):
+            value = row.get(key)
+            if value not in (None, ""):
+                normalized[key] = value
+        actions.append(normalized)
+    return actions
 
 
 def _receipt_is_complete_enough(payload: dict[str, Any]) -> bool:
@@ -1201,6 +1256,7 @@ def build_gold_status_receipt(
     walkthrough_quality_receipt_path: Path | None = None,
     scene_video_readiness_receipt_path: Path | None = None,
     scene_video_readiness_verifier_receipt_path: Path | None = None,
+    scene_video_runtime_status_receipt_path: Path | None = None,
     scene_video_provider_refresh_packet_path: Path | None = None,
     scene_video_provider_refresh_packet_verifier_receipt_path: Path | None = None,
     id_austria_receipt_path: Path | None = None,
@@ -1238,6 +1294,7 @@ def build_gold_status_receipt(
     walkthrough_quality = _load_json(walkthrough_quality_receipt_path) if walkthrough_quality_receipt_path is not None else {}
     scene_video_readiness = _load_json(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else {}
     scene_video_readiness_verifier = _load_json(scene_video_readiness_verifier_receipt_path) if scene_video_readiness_verifier_receipt_path is not None else {}
+    scene_video_runtime_status = _load_json(scene_video_runtime_status_receipt_path) if scene_video_runtime_status_receipt_path is not None else {}
     scene_video_provider_refresh_packet = _load_json(scene_video_provider_refresh_packet_path) if scene_video_provider_refresh_packet_path is not None else {}
     scene_video_provider_refresh_packet_verifier = (
         _load_json(scene_video_provider_refresh_packet_verifier_receipt_path)
@@ -1275,6 +1332,7 @@ def build_gold_status_receipt(
             **({"walkthrough_quality": walkthrough_quality} if walkthrough_quality_receipt_path is not None else {}),
             **({"scene_video_readiness": scene_video_readiness} if scene_video_readiness_receipt_path is not None else {}),
             **({"scene_video_readiness_verifier": scene_video_readiness_verifier} if scene_video_readiness_verifier_receipt_path is not None else {}),
+            **({"scene_video_runtime_status": scene_video_runtime_status} if scene_video_runtime_status_receipt_path is not None else {}),
             **({"scene_video_provider_refresh_packet": scene_video_provider_refresh_packet} if scene_video_provider_refresh_packet_path is not None else {}),
             **({"scene_video_provider_refresh_packet_verifier": scene_video_provider_refresh_packet_verifier} if scene_video_provider_refresh_packet_verifier_receipt_path is not None else {}),
         },
@@ -1406,21 +1464,31 @@ def build_gold_status_receipt(
             and not list(scene_video_provider_refresh_packet_verifier.get("blockers") or [])
         )
     )
-    scene_video_provider_summary = (
+    scene_video_runtime_status_summary = _scene_video_runtime_status_summary(scene_video_runtime_status)
+    scene_video_runtime_status_provider_rows = _scene_video_runtime_status_provider_rows(scene_video_runtime_status)
+    scene_video_runtime_status_blocked_rows = [
+        dict(row)
+        for row in scene_video_runtime_status_provider_rows
+        if row.get("ready") is not True
+    ]
+    scene_video_readiness_summary = (
         dict(scene_video_readiness.get("summary") or {})
         if isinstance(scene_video_readiness.get("summary"), dict)
         else {}
     )
+    scene_video_provider_summary = scene_video_runtime_status_summary or scene_video_readiness_summary
+    scene_video_readiness_next_actions = [
+        dict(action)
+        for action in list(scene_video_readiness.get("next_actions") or [])
+        if isinstance(action, dict)
+    ]
+    scene_video_runtime_next_actions = _scene_video_runtime_status_next_actions(scene_video_runtime_status)
+    scene_video_next_actions = scene_video_runtime_next_actions or scene_video_readiness_next_actions
     scene_video_blocked_provider_count = int(scene_video_provider_summary.get("blocked_count") or 0)
     scene_video_blocked_providers = [
         str(provider or "").strip()
         for provider in list(scene_video_provider_summary.get("blocked_providers") or [])
         if str(provider or "").strip()
-    ]
-    scene_video_next_actions = [
-        dict(action)
-        for action in list(scene_video_readiness.get("next_actions") or [])
-        if isinstance(action, dict)
     ]
     scene_video_action_providers = [
         str(action.get("provider") or "").strip()
@@ -1429,6 +1497,16 @@ def build_gold_status_receipt(
     ]
     if not scene_video_blocked_providers:
         scene_video_blocked_providers = sorted(set(scene_video_action_providers))
+    if not scene_video_blocked_providers and scene_video_runtime_status_blocked_rows:
+        scene_video_blocked_providers = sorted(
+            {
+                str(row.get("provider") or row.get("provider_key") or "").strip()
+                for row in scene_video_runtime_status_blocked_rows
+                if str(row.get("provider") or row.get("provider_key") or "").strip()
+            }
+        )
+    if scene_video_blocked_provider_count == 0 and scene_video_blocked_providers:
+        scene_video_blocked_provider_count = len(scene_video_blocked_providers)
     scene_video_provider_runtime_ready = (
         scene_video_readiness_receipt_path is not None
         and scene_video_blocked_provider_count == 0
@@ -1749,6 +1827,8 @@ def build_gold_status_receipt(
                 "blocked_providers": scene_video_blocked_providers,
                 "provider_summary": scene_video_provider_summary,
                 "next_actions": scene_video_next_actions[:12],
+                "runtime_status_receipt_path": str(scene_video_runtime_status_receipt_path) if scene_video_runtime_status_receipt_path is not None else "",
+                "runtime_status_providers": scene_video_runtime_status_blocked_rows[:12],
                 "action": "clear the current scene-video provider runtime gaps, rerun property_scene_video_readiness_report.py, then refresh the gold receipt before claiming Crezlo-level video/provider parity",
             }
         )
@@ -2155,7 +2235,8 @@ def build_gold_status_receipt(
             "provider_action_required": bool(scene_video_blocked_provider_count or scene_video_next_actions),
             "receipt_path": str(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else "",
             "verifier_receipt_path": str(scene_video_readiness_verifier_receipt_path),
-            "note": "Verifier pass means scene-video routing and actionability invariants hold; provider_runtime_ready shows whether MagicFit/OMagic provider capacity is actually clear.",
+            "runtime_status_receipt_path": str(scene_video_runtime_status_receipt_path) if scene_video_runtime_status_receipt_path is not None else "",
+            "note": "Verifier pass means scene-video routing and actionability invariants hold; provider_runtime_ready shows whether MagicFit/OMagic provider capacity is actually clear from the normalized runtime-status receipt when present.",
         }
         if scene_video_readiness_verifier_receipt_path is not None and scene_video_readiness_verifier_ok
         else None,
@@ -2402,6 +2483,14 @@ def build_gold_status_receipt(
             "checked_providers": scene_video_readiness_verifier.get("checked_providers") or [],
             "receipt_path": str(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else "",
             "verifier_receipt_path": str(scene_video_readiness_verifier_receipt_path) if scene_video_readiness_verifier_receipt_path is not None else "",
+            "runtime_status": {
+                "contract_name": str(scene_video_runtime_status.get("contract_name") or "").strip(),
+                "source_kind": str(scene_video_runtime_status.get("source_kind") or "").strip(),
+                "source_ref": str(scene_video_runtime_status.get("source_ref") or "").strip(),
+                "summary": scene_video_runtime_status_summary,
+                "providers": scene_video_runtime_status_provider_rows,
+                "receipt_path": str(scene_video_runtime_status_receipt_path) if scene_video_runtime_status_receipt_path is not None else "",
+            },
             "provider_refresh_packet": {
                 "status": (
                     scene_video_provider_refresh_packet_verifier.get("status")
@@ -2424,7 +2513,7 @@ def build_gold_status_receipt(
                 if scene_video_provider_refresh_packet_verifier_receipt_path is not None
                 else "",
             },
-            "note": "Scene-video verifier guards Mootion BrowserAct, Telegram delivery readiness, 1min isolation, and MagicFit/OMagic actionability without embedding secrets.",
+            "note": "Scene-video verifier guards Mootion BrowserAct, Telegram delivery readiness, 1min isolation, and MagicFit/OMagic actionability without embedding secrets; the nested runtime_status view keeps current provider blockers machine-readable.",
         },
         "export_discovery": {
             "status": export_discovery.get("status"),
@@ -2662,6 +2751,7 @@ def main() -> int:
     parser.add_argument("--walkthrough-quality-receipt", default="")
     parser.add_argument("--scene-video-readiness-receipt", default="")
     parser.add_argument("--scene-video-readiness-verifier-receipt", default="")
+    parser.add_argument("--scene-video-runtime-status-receipt", default="")
     parser.add_argument("--scene-video-provider-refresh-packet", default="")
     parser.add_argument("--scene-video-provider-refresh-packet-verifier-receipt", default="")
     parser.add_argument("--id-austria-receipt", default="")
@@ -2707,6 +2797,11 @@ def main() -> int:
             Path(args.scene_video_readiness_verifier_receipt)
             if args.scene_video_readiness_verifier_receipt
             else _default_receipt_path("scene_video_readiness_verifier")
+        ),
+        scene_video_runtime_status_receipt_path=(
+            Path(args.scene_video_runtime_status_receipt)
+            if args.scene_video_runtime_status_receipt
+            else _default_receipt_path("scene_video_runtime_status")
         ),
         scene_video_provider_refresh_packet_path=(
             Path(args.scene_video_provider_refresh_packet)

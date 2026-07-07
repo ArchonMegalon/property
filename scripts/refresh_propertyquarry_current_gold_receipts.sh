@@ -171,6 +171,7 @@ import_manifest_receipt="_completion/property_tour_exports/import-manifest-curre
 vendor_tooling_receipt="_completion/tours/property-tour-vendor-tooling-current.json"
 scene_video_receipt="_completion/scene_video_readiness/release-gate.json"
 scene_video_verifier_receipt="_completion/scene_video_readiness/release-gate-verifier.json"
+scene_video_runtime_status_receipt="_completion/scene_video_readiness/runtime-status.json"
 scene_video_refresh_packet="_completion/scene_video_readiness/provider-refresh-packet.json"
 scene_video_refresh_packet_verifier="_completion/scene_video_readiness/provider-refresh-packet-verifier.json"
 gold_status_receipt="_completion/property_gold_status/latest.json"
@@ -244,6 +245,9 @@ run_allow_fail_shell \
    docker exec '${API_CONTAINER}' python /app/scripts/verify_property_scene_video_readiness.py \
     --receipt /data/artifacts/property-scene-video-readiness-current.json \
     --output /data/artifacts/property-scene-video-readiness-verifier-current.json >/dev/null && \
+   docker exec '${API_CONTAINER}' python /app/scripts/property_scene_video_runtime_status.py \
+    --receipt /data/artifacts/property-scene-video-readiness-current.json \
+    --output /data/artifacts/property-scene-video-runtime-status-current.json >/dev/null && \
    docker exec '${API_CONTAINER}' python /app/scripts/materialize_scene_video_provider_refresh_packet.py \
     --receipt /data/artifacts/property-scene-video-readiness-current.json \
     --output /data/artifacts/property-scene-video-provider-refresh-packet-current.json >/dev/null && \
@@ -252,6 +256,7 @@ run_allow_fail_shell \
     --output /data/artifacts/property-scene-video-provider-refresh-packet-verifier-current.json >/dev/null && \
    docker cp '${API_CONTAINER}:/data/artifacts/property-scene-video-readiness-current.json' '${scene_video_receipt}' >/dev/null && \
    docker cp '${API_CONTAINER}:/data/artifacts/property-scene-video-readiness-verifier-current.json' '${scene_video_verifier_receipt}' >/dev/null && \
+   docker cp '${API_CONTAINER}:/data/artifacts/property-scene-video-runtime-status-current.json' '${scene_video_runtime_status_receipt}' >/dev/null && \
    docker cp '${API_CONTAINER}:/data/artifacts/property-scene-video-provider-refresh-packet-current.json' '${scene_video_refresh_packet}' >/dev/null && \
    docker cp '${API_CONTAINER}:/data/artifacts/property-scene-video-provider-refresh-packet-verifier-current.json' '${scene_video_refresh_packet_verifier}' >/dev/null"
 
@@ -395,6 +400,7 @@ gold_args=(
   "--walkthrough-quality-receipt" "_completion/smoke/property-live-walkthrough-quality-latest.json"
   "--scene-video-readiness-receipt" "${scene_video_receipt}"
   "--scene-video-readiness-verifier-receipt" "${scene_video_verifier_receipt}"
+  "--scene-video-runtime-status-receipt" "${scene_video_runtime_status_receipt}"
   "--scene-video-provider-refresh-packet" "${scene_video_refresh_packet}"
   "--scene-video-provider-refresh-packet-verifier-receipt" "${scene_video_refresh_packet_verifier}"
   "--id-austria-receipt" "_completion/id_austria/ID_AUSTRIA_PROVIDER_VERIFICATION.generated.json"

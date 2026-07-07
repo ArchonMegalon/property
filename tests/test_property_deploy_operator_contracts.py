@@ -364,14 +364,17 @@ def test_property_deploy_refreshes_scene_video_receipts_before_gold_status() -> 
     for required in (
         '_completion/scene_video_readiness/release-gate.json',
         '_completion/scene_video_readiness/release-gate-verifier.json',
+        '_completion/scene_video_readiness/runtime-status.json',
         '_completion/scene_video_readiness/provider-refresh-packet.json',
         '_completion/scene_video_readiness/provider-refresh-packet-verifier.json',
         'python /app/scripts/property_scene_video_readiness_report.py',
         'python /app/scripts/verify_property_scene_video_readiness.py',
+        'python /app/scripts/property_scene_video_runtime_status.py',
         'python /app/scripts/materialize_scene_video_provider_refresh_packet.py',
         'python /app/scripts/verify_scene_video_provider_refresh_packet.py',
         '--scene-video-readiness-receipt "${scene_video_receipt}"',
         '--scene-video-readiness-verifier-receipt "${scene_video_verifier_receipt}"',
+        '--scene-video-runtime-status-receipt "${scene_video_runtime_status_receipt}"',
         '--scene-video-provider-refresh-packet "${scene_video_refresh_packet}"',
         '--scene-video-provider-refresh-packet-verifier-receipt "${scene_video_refresh_packet_verifier}"',
     ):
@@ -385,8 +388,13 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
         "scripts/verify_property_scene_video_readiness.py",
         "--output /data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json",
         "--output _completion/scene_video_readiness/release-gate-verifier.json",
+        "scripts/property_scene_video_runtime_status.py",
+        "--output /data/artifacts/property-scene-video-runtime-status-release-gate-live-container.json",
+        "--output _completion/scene_video_readiness/runtime-status.json",
         "scripts/materialize_scene_video_provider_refresh_packet.py",
         "scripts/verify_scene_video_provider_refresh_packet.py",
+        "_completion/scene_video_readiness/runtime-status.json",
+        "--scene-video-runtime-status-receipt _completion/scene_video_readiness/runtime-status.json",
         "_completion/scene_video_readiness/provider-refresh-packet.json",
         "_completion/scene_video_readiness/provider-refresh-packet-verifier.json",
         "--scene-video-provider-refresh-packet _completion/scene_video_readiness/provider-refresh-packet.json",
@@ -413,6 +421,18 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
     assert "_completion/property_tour_ownership/release-gate.json" in release_gate
     assert "--tour-provider-ownership-receipt _completion/property_tour_ownership/release-gate.json" in release_gate
     assert "tests/test_property_live_mobile_surface_smoke.py" in release_gate
+
+
+def test_property_gold_refresh_wires_scene_video_runtime_status_into_gold_status() -> None:
+    refresh_script = _read("scripts/refresh_propertyquarry_current_gold_receipts.sh")
+
+    for required in (
+        "scripts/property_scene_video_runtime_status.py",
+        "property-scene-video-runtime-status-current.json",
+        "_completion/scene_video_readiness/runtime-status.json",
+        "--scene-video-runtime-status-receipt",
+    ):
+        assert required in refresh_script
 
 
 def test_property_release_gate_runs_generated_reconstruction_glb_smoke() -> None:

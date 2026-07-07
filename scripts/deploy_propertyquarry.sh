@@ -1468,6 +1468,7 @@ export_discovery_receipt="_completion/tours/property-tour-export-discovery-full-
 import_manifest_receipt="_completion/property_tour_exports/import-manifest-current.json"
 scene_video_receipt="_completion/scene_video_readiness/release-gate.json"
 scene_video_verifier_receipt="_completion/scene_video_readiness/release-gate-verifier.json"
+scene_video_runtime_status_receipt="_completion/scene_video_readiness/runtime-status.json"
 scene_video_refresh_packet="_completion/scene_video_readiness/provider-refresh-packet.json"
 scene_video_refresh_packet_verifier="_completion/scene_video_readiness/provider-refresh-packet-verifier.json"
 id_austria_receipt="_completion/id_austria/ID_AUSTRIA_PROVIDER_VERIFICATION.generated.json"
@@ -1476,6 +1477,7 @@ tour_export_discovery_container_receipt="/tmp/property-tour-export-discovery-ful
 tour_import_manifest_container_receipt="/tmp/property-tour-import-manifest-current.json"
 scene_video_container_receipt="/data/artifacts/property-scene-video-readiness-current.json"
 scene_video_verifier_container_receipt="/data/artifacts/property-scene-video-readiness-verifier-current.json"
+scene_video_runtime_status_container_receipt="/data/artifacts/property-scene-video-runtime-status-current.json"
 scene_video_refresh_packet_container_receipt="/data/artifacts/property-scene-video-provider-refresh-packet-current.json"
 scene_video_refresh_packet_verifier_container_receipt="/data/artifacts/property-scene-video-provider-refresh-packet-verifier-current.json"
 
@@ -1541,6 +1543,13 @@ if ! docker exec "${api_container_name}" python /app/scripts/verify_property_sce
   docker exec "${api_container_name}" cat "${scene_video_verifier_container_receipt}" >&2 2>/dev/null || true
   exit 1
 fi
+if ! docker exec "${api_container_name}" python /app/scripts/property_scene_video_runtime_status.py \
+  --receipt "${scene_video_container_receipt}" \
+  --output "${scene_video_runtime_status_container_receipt}" >/dev/null; then
+  echo "PropertyQuarry live scene-video runtime-status refresh failed." >&2
+  docker exec "${api_container_name}" cat "${scene_video_runtime_status_container_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
 if ! docker exec "${api_container_name}" python /app/scripts/materialize_scene_video_provider_refresh_packet.py \
   --receipt "${scene_video_container_receipt}" \
   --output "${scene_video_refresh_packet_container_receipt}" >/dev/null; then
@@ -1557,6 +1566,7 @@ if ! docker exec "${api_container_name}" python /app/scripts/verify_scene_video_
 fi
 docker cp "${api_container_name}:${scene_video_container_receipt}" "${scene_video_receipt}" >/dev/null
 docker cp "${api_container_name}:${scene_video_verifier_container_receipt}" "${scene_video_verifier_receipt}" >/dev/null
+docker cp "${api_container_name}:${scene_video_runtime_status_container_receipt}" "${scene_video_runtime_status_receipt}" >/dev/null
 docker cp "${api_container_name}:${scene_video_refresh_packet_container_receipt}" "${scene_video_refresh_packet}" >/dev/null
 docker cp "${api_container_name}:${scene_video_refresh_packet_verifier_container_receipt}" "${scene_video_refresh_packet_verifier}" >/dev/null
 
@@ -1578,6 +1588,7 @@ if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py 
   --walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-latest.json \
   --scene-video-readiness-receipt "${scene_video_receipt}" \
   --scene-video-readiness-verifier-receipt "${scene_video_verifier_receipt}" \
+  --scene-video-runtime-status-receipt "${scene_video_runtime_status_receipt}" \
   --scene-video-provider-refresh-packet "${scene_video_refresh_packet}" \
   --scene-video-provider-refresh-packet-verifier-receipt "${scene_video_refresh_packet_verifier}" \
   --id-austria-receipt "${id_austria_receipt}" \
