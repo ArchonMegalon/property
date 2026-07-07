@@ -1749,7 +1749,7 @@ def build_gold_status_receipt(
                 "blocked_providers": scene_video_blocked_providers,
                 "provider_summary": scene_video_provider_summary,
                 "next_actions": scene_video_next_actions[:12],
-                "action": "clear MagicFit credit/account visibility plus Magic/OMagic credential and upload-adapter gaps, rerun property_scene_video_readiness_report.py, then refresh the gold receipt before claiming Crezlo-level video/provider parity",
+                "action": "clear the current scene-video provider runtime gaps, rerun property_scene_video_readiness_report.py, then refresh the gold receipt before claiming Crezlo-level video/provider parity",
             }
         )
     if not export_discovery_ok:
