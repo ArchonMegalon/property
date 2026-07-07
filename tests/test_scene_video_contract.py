@@ -127,6 +127,42 @@ def test_scene_video_omagic_readiness_counts_magic_accounts_json_file(monkeypatc
     ]
 
 
+def test_scene_video_omagic_readiness_resolves_runtime_accounts_json_file_to_host_incoming_root(monkeypatch, tmp_path: Path) -> None:
+    _clear_scene_video_provider_env(monkeypatch)
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "render_omagic_property_model_walkthrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    incoming_root = tmp_path / "state" / "incoming_property_tours"
+    accounts_path = incoming_root / "_operator-import-lane" / "scene_video_provider_accounts" / "omagic-accounts.json"
+    accounts_path.parent.mkdir(parents=True, exist_ok=True)
+    accounts_path.write_text(
+        json.dumps(
+            [
+                {"email": f"magic-{index}@example.com", "password": "secret"}
+                for index in range(1, 9)
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR", str(incoming_root))
+    monkeypatch.setenv(
+        "MAGIC_ACCOUNTS_JSON_FILE",
+        "/data/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts/omagic-accounts.json",
+    )
+
+    readiness = service.scene_video_provider_runtime_readiness("magic")
+
+    assert readiness["provider_key"] == "omagic"
+    assert readiness["runtime_account_count"] == 8
+    assert readiness["checks"]["runtime_account_email_env_names"][0] == "MAGIC_ACCOUNTS_JSON_FILE[1].email"
+    assert readiness["checks"]["account_config_env_names"] == ["MAGIC_ACCOUNTS_JSON_FILE"]
+    assert readiness["blockers"] == [
+        "omagic_model_upload_adapter_disabled",
+        "omagic_model_upload_endpoint_missing",
+    ]
+
+
 def test_scene_video_omagic_readiness_prefers_accounts_json_file_over_inline_json(monkeypatch, tmp_path: Path) -> None:
     _clear_scene_video_provider_env(monkeypatch)
     script_dir = tmp_path / "scripts"

@@ -9,6 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+_SCENE_VIDEO_RUNTIME_INCOMING_ROOT = Path("/data/incoming_property_tours")
+
+
 def _normalized_provider_token(value: object) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_")
     return " ".join(normalized.split()).replace(" ", "_")
@@ -62,6 +65,42 @@ def _scene_video_matching_env_names(*names: str) -> list[str]:
     return configured
 
 
+def _scene_video_is_runtime_incoming_path(path: Path) -> bool:
+    normalized = str(path).strip()
+    runtime_root = str(_SCENE_VIDEO_RUNTIME_INCOMING_ROOT)
+    return normalized == runtime_root or normalized.startswith(f"{runtime_root}/")
+
+
+def _scene_video_host_incoming_root() -> Path:
+    configured = str(
+        os.getenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR")
+        or os.getenv("PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR")
+        or ""
+    ).strip()
+    if configured:
+        configured_path = Path(configured).expanduser()
+        if not _scene_video_is_runtime_incoming_path(configured_path):
+            return configured_path
+    repo_root = Path(
+        os.getenv("PROPERTYQUARRY_REPO_ROOT")
+        or os.getenv("PROPERTYQUARRY_ROOT")
+        or os.getenv("EA_REPO_ROOT")
+        or "/docker/property"
+    ).expanduser()
+    return repo_root / "state" / "incoming_property_tours"
+
+
+def _scene_video_resolve_accounts_json_file_path(raw_path: str) -> Path:
+    path = Path(raw_path).expanduser()
+    if path.is_file() or not _scene_video_is_runtime_incoming_path(path):
+        return path
+    try:
+        relative = path.relative_to(_SCENE_VIDEO_RUNTIME_INCOMING_ROOT)
+    except ValueError:
+        return path
+    return _scene_video_host_incoming_root() / relative
+
+
 def _scene_video_account_rows_from_sources(
     *,
     inline_env_names: tuple[str, ...],
@@ -89,7 +128,7 @@ def _scene_video_account_rows_from_sources(
             rows.append((source_env_name, index, row))
 
     for env_name in _scene_video_matching_env_names(*file_env_names):
-        file_path = Path(str(os.getenv(env_name) or "").strip()).expanduser()
+        file_path = _scene_video_resolve_accounts_json_file_path(str(os.getenv(env_name) or "").strip())
         if not file_path.is_file():
             continue
         try:

@@ -136,6 +136,11 @@ def test_scene_video_provider_accounts_env_merge_writes_file_env_targets(tmp_pat
     assert receipt["account_file_dir"] == str(account_dir)
     assert receipt["planned_account_files"] == [str(magicfit_target), str(omagic_target)]
     assert receipt["written_account_files"] == [str(magicfit_target), str(omagic_target)]
+    assert receipt["env_account_file_values"] == {
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE": str(magicfit_target),
+        "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE": str(omagic_target),
+        "PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE": str(omagic_target),
+    }
     assert magicfit_target.exists()
     assert omagic_target.exists()
     assert magicfit_target.stat().st_mode & 0o777 == 0o600
@@ -147,6 +152,43 @@ def test_scene_video_provider_accounts_env_merge_writes_file_env_targets(tmp_pat
     assert "omagic0@example.test" not in rendered_receipt
     assert json.loads(magicfit_target.read_text(encoding="utf-8"))[0]["email"] == "magicfit0@example.test"
     assert json.loads(omagic_target.read_text(encoding="utf-8"))[0]["email"] == "omagic0@example.test"
+
+
+def test_scene_video_provider_accounts_env_merge_default_file_env_targets_bridge_runtime_mount(tmp_path: Path, monkeypatch) -> None:
+    module = _load_script()
+    env_file = tmp_path / ".env"
+    env_file.write_text("ONEMIN_AI_API_KEY='keep-this'\n", encoding="utf-8")
+    (tmp_path / "docker-compose.property.yml").write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    receipt = module.merge_accounts_env(
+        env_file=env_file,
+        magicfit_accounts=_accounts("magicfit", 3),
+        omagic_accounts=[],
+        expected_magicfit_count=3,
+        expected_omagic_count=None,
+        magicfit_account_index=1,
+        write_magic_alias=True,
+        write_file_env=True,
+        write=True,
+    )
+
+    account_dir = (tmp_path / "state" / "incoming_property_tours" / "_operator-import-lane" / "scene_video_provider_accounts").resolve()
+    host_target = account_dir / "magicfit-accounts.json"
+    runtime_target = "/data/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts/magicfit-accounts.json"
+    rendered_env = env_file.read_text(encoding="utf-8")
+
+    assert receipt["status"] == "pass"
+    assert receipt["write_mode"] == "file_env"
+    assert receipt["account_file_dir"] == str(account_dir)
+    assert receipt["planned_account_files"] == [str(host_target)]
+    assert receipt["written_account_files"] == [str(host_target)]
+    assert receipt["env_account_file_values"] == {
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE": runtime_target,
+    }
+    assert host_target.exists()
+    assert runtime_target in rendered_env
+    assert str(host_target) not in rendered_env
 
 
 def test_scene_video_provider_accounts_env_merge_file_env_dry_run_reports_targets_without_writing(tmp_path: Path) -> None:
@@ -172,6 +214,9 @@ def test_scene_video_provider_accounts_env_merge_file_env_dry_run_reports_target
     assert receipt["write_mode"] == "file_env"
     assert receipt["planned_account_files"] == [str(account_dir / "magicfit-accounts.json")]
     assert receipt["written_account_files"] == []
+    assert receipt["env_account_file_values"] == {
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE": str(account_dir / "magicfit-accounts.json"),
+    }
     assert not (account_dir / "magicfit-accounts.json").exists()
     assert env_file.read_text(encoding="utf-8") == "ONEMIN_AI_API_KEY='keep-this'\n"
 
@@ -331,6 +376,9 @@ def test_scene_video_provider_accounts_env_merge_cli_writes_file_env_targets(tmp
     assert stdout["write_mode"] == "file_env"
     assert stdout["planned_account_files"] == [str(target)]
     assert stdout["written_account_files"] == [str(target)]
+    assert stdout["env_account_file_values"] == {
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE": str(target),
+    }
     assert target.exists()
     assert target.stat().st_mode & 0o777 == 0o600
     assert "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE=" in env_file.read_text(encoding="utf-8")

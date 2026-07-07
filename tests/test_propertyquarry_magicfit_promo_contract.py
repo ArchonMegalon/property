@@ -214,6 +214,62 @@ def test_propertyquarry_magicfit_env_prefers_account_json_file_over_inline_json(
     assert "MAGICFIT_ACCOUNTS_JSON_FILE[1]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
 
 
+def test_propertyquarry_magicfit_env_resolves_runtime_mount_accounts_json_file_on_host(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_magicfit_env_helper()
+    for key in (
+        "PROPERTYQUARRY_MAGICFIT_EMAIL",
+        "PROPERTYQUARRY_MAGICFIT_PASSWORD",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX",
+        "MAGICFIT_EMAIL",
+        "MAGICFIT_PASSWORD",
+        "MAGICFIT_ACCOUNTS_JSON",
+        "MAGICFIT_ACCOUNTS_JSON_FILE",
+        "MAGICFIT_ACCOUNT_INDEX",
+        "PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR",
+        "PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("PROPERTYQUARRY_ROOT", str(tmp_path))
+    accounts_file = (
+        tmp_path
+        / "state"
+        / "incoming_property_tours"
+        / "_operator-import-lane"
+        / "scene_video_provider_accounts"
+        / "magicfit-accounts.json"
+    )
+    accounts_file.parent.mkdir(parents=True, exist_ok=True)
+    accounts_file.write_text(
+        json.dumps(
+            [
+                {"email": "magicfit-one@example.test", "password": "secret-one"},
+                {"email": "magicfit-two@example.test", "password": "secret-two"},
+                {"email": "magicfit-three@example.test", "password": "secret-three"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "MAGICFIT_ACCOUNT_INDEX=2\n"
+        "MAGICFIT_ACCOUNTS_JSON_FILE=/data/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts/magicfit-accounts.json\n",
+        encoding="utf-8",
+    )
+
+    values, sources = module.discover_magicfit_env([env_file])
+
+    assert values["PROPERTYQUARRY_MAGICFIT_EMAIL"] == "magicfit-two@example.test"
+    assert values["PROPERTYQUARRY_MAGICFIT_PASSWORD"] == "secret-two"
+    assert values["MAGICFIT_EMAIL"] == "magicfit-two@example.test"
+    assert values["MAGICFIT_PASSWORD"] == "secret-two"
+    assert "MAGICFIT_ACCOUNTS_JSON_FILE[2]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
+
+
 def test_propertyquarry_magicfit_helpers_do_not_read_chummer_credentials() -> None:
     helper_paths = [
         ROOT / "scripts" / "property_magicfit_env.py",

@@ -224,7 +224,8 @@ python3 scripts/merge_scene_video_provider_accounts_env.py \
 
 Default file-env install target:
 
-- `state/scene_video_provider_accounts/magicfit-accounts.json`
+- host file path: `state/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts/magicfit-accounts.json`
+- runtime env value: `/data/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts/magicfit-accounts.json`
 
 This writes only:
 
@@ -292,7 +293,8 @@ python3 scripts/merge_scene_video_provider_accounts_env.py \
 
 Default file-env install target:
 
-- `state/scene_video_provider_accounts/omagic-accounts.json`
+- host file path: `state/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts/omagic-accounts.json`
+- runtime env value: `/data/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts/omagic-accounts.json`
 
 This writes:
 

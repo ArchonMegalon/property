@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -21,7 +22,9 @@ ALLOWED_UPDATE_KEYS = {
 PROTECTED_KEY_PREFIXES = ("ONEMIN_", "PROPERTYQUARRY_ONEMIN_")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SECURE_FILE_MODE = 0o600
-DEFAULT_FILE_ENV_DIR = "state/scene_video_provider_accounts"
+RUNTIME_INCOMING_ROOT = Path("/data/incoming_property_tours")
+DEFAULT_FILE_ENV_DIR = "state/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts"
+DEFAULT_FILE_ENV_SUBDIR = Path("_operator-import-lane") / "scene_video_provider_accounts"
 
 
 def _load_accounts(path: str) -> list[dict[str, str]]:
@@ -167,10 +170,55 @@ def _atomic_write(path: Path, text: str) -> None:
     path.chmod(SECURE_FILE_MODE)
 
 
+def _repo_root(env_file: Path) -> Path:
+    env_parent = env_file.expanduser().resolve().parent
+    candidates = [env_parent, *env_parent.parents, Path.cwd().resolve(), Path("/docker/property")]
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if (candidate / "docker-compose.property.yml").is_file():
+            return candidate.resolve()
+    return env_parent
+
+
+def _is_runtime_incoming_path(path: Path) -> bool:
+    normalized = str(path).strip()
+    runtime_root = str(RUNTIME_INCOMING_ROOT)
+    return normalized == runtime_root or normalized.startswith(f"{runtime_root}/")
+
+
+def _host_incoming_root(env_file: Path) -> Path:
+    configured = str(
+        os.getenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR")
+        or os.getenv("PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR")
+        or ""
+    ).strip()
+    if configured:
+        configured_path = Path(configured).expanduser()
+        if not _is_runtime_incoming_path(configured_path):
+            return configured_path.resolve()
+    repo_root = _repo_root(env_file)
+    if (repo_root / "docker-compose.property.yml").is_file():
+        return (repo_root / "state" / "incoming_property_tours").resolve()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return RUNTIME_INCOMING_ROOT
+
+
 def _stable_account_file_dir(env_file: Path, configured_dir: str) -> Path:
     if str(configured_dir or "").strip():
-        return Path(configured_dir).expanduser()
-    return (env_file.expanduser().resolve().parent / DEFAULT_FILE_ENV_DIR).resolve()
+        configured_path = Path(configured_dir).expanduser()
+    else:
+        configured_path = _host_incoming_root(env_file) / DEFAULT_FILE_ENV_SUBDIR
+    if _is_runtime_incoming_path(configured_path):
+        try:
+            relative = configured_path.relative_to(RUNTIME_INCOMING_ROOT)
+        except ValueError:
+            return configured_path.resolve()
+        return (_host_incoming_root(env_file) / relative).resolve()
+    return configured_path.resolve()
 
 
 def _stable_account_file_path(account_file_dir: Path, provider: str) -> Path:
@@ -201,6 +249,17 @@ def _write_backup(path: Path, existing: str) -> str:
     backup_path.write_text(existing, encoding="utf-8")
     backup_path.chmod(SECURE_FILE_MODE)
     return str(backup_path)
+
+
+def _env_account_file_value(env_file: Path, path: Path) -> str:
+    resolved_path = path.expanduser().resolve()
+    if _is_runtime_incoming_path(resolved_path):
+        return str(resolved_path)
+    try:
+        relative = resolved_path.relative_to(_host_incoming_root(env_file))
+    except ValueError:
+        return str(resolved_path)
+    return str((RUNTIME_INCOMING_ROOT / relative).resolve())
 
 
 def build_updates(
@@ -267,14 +326,24 @@ def merge_accounts_env(
         if write_file_env
         else None
     )
-    magicfit_accounts_env_file = (
-        str(_stable_account_file_path(resolved_account_file_dir, "magicfit"))
+    magicfit_accounts_file_path = (
+        _stable_account_file_path(resolved_account_file_dir, "magicfit")
         if resolved_account_file_dir is not None and magicfit_accounts
+        else None
+    )
+    omagic_accounts_file_path = (
+        _stable_account_file_path(resolved_account_file_dir, "omagic")
+        if resolved_account_file_dir is not None and omagic_accounts
+        else None
+    )
+    magicfit_accounts_env_file = (
+        _env_account_file_value(env_file, magicfit_accounts_file_path)
+        if magicfit_accounts_file_path is not None
         else ""
     )
     omagic_accounts_env_file = (
-        str(_stable_account_file_path(resolved_account_file_dir, "omagic"))
-        if resolved_account_file_dir is not None and omagic_accounts
+        _env_account_file_value(env_file, omagic_accounts_file_path)
+        if omagic_accounts_file_path is not None
         else ""
     )
     updates = build_updates(
@@ -296,15 +365,24 @@ def merge_accounts_env(
     if write and updates:
         if write_file_env and resolved_account_file_dir is not None:
             if magicfit_accounts:
-                magicfit_path = Path(magicfit_accounts_env_file)
+                magicfit_path = Path(magicfit_accounts_file_path or "")
                 _write_accounts_file(magicfit_path, magicfit_accounts)
                 written_account_files.append(str(magicfit_path))
             if omagic_accounts:
-                omagic_path = Path(omagic_accounts_env_file)
+                omagic_path = Path(omagic_accounts_file_path or "")
                 _write_accounts_file(omagic_path, omagic_accounts)
                 written_account_files.append(str(omagic_path))
         backup_path = _write_backup(env_file, existing)
         _atomic_write(env_file, merged)
+    env_account_file_values = {
+        key: value
+        for key, value in (
+            ("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE", magicfit_accounts_env_file),
+            ("PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE", omagic_accounts_env_file),
+            ("PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE", omagic_accounts_env_file),
+        )
+        if value
+    }
     return {
         "status": "pass",
         "dry_run": not write,
@@ -314,8 +392,13 @@ def merge_accounts_env(
         "secure_file_mode": oct(SECURE_FILE_MODE),
         "updated_keys": updated_keys,
         "account_file_dir": str(resolved_account_file_dir) if resolved_account_file_dir is not None else "",
-        "planned_account_files": [path for path in (magicfit_accounts_env_file, omagic_accounts_env_file) if path],
+        "planned_account_files": [
+            str(path)
+            for path in (magicfit_accounts_file_path, omagic_accounts_file_path)
+            if path is not None
+        ],
         "written_account_files": written_account_files,
+        "env_account_file_values": env_account_file_values,
         "provider_account_counts": {
             "magicfit": len(magicfit_accounts),
             "omagic": len(omagic_accounts),

@@ -13,6 +13,7 @@ _MAGICFIT_SUFFIX_ALIASES = {
     "MAGICFIT_ACCOUNTS_JSON": ("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON", "MAGICFIT_ACCOUNTS_JSON"),
     "MAGICFIT_ACCOUNTS_JSON_FILE": ("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE", "MAGICFIT_ACCOUNTS_JSON_FILE"),
 }
+_RUNTIME_INCOMING_ROOT = Path("/data/incoming_property_tours")
 
 
 def default_magicfit_env_files() -> tuple[Path, ...]:
@@ -55,6 +56,37 @@ def _load_accounts_from_json_text(raw_accounts: str) -> list[dict[str, object]]:
     return [row for row in loaded if isinstance(row, dict)]
 
 
+def _is_runtime_incoming_path(path: Path) -> bool:
+    normalized = str(path).strip()
+    runtime_root = str(_RUNTIME_INCOMING_ROOT)
+    return normalized == runtime_root or normalized.startswith(f"{runtime_root}/")
+
+
+def _host_incoming_root() -> Path:
+    configured = str(
+        os.getenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR")
+        or os.getenv("PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR")
+        or ""
+    ).strip()
+    if configured:
+        configured_path = Path(configured).expanduser()
+        if not _is_runtime_incoming_path(configured_path):
+            return configured_path
+    property_root = Path(os.environ.get("PROPERTYQUARRY_ROOT") or "/docker/property").expanduser()
+    return property_root / "state" / "incoming_property_tours"
+
+
+def _resolve_accounts_json_file_path(raw_path: str) -> Path:
+    path = Path(raw_path).expanduser()
+    if path.is_file() or not _is_runtime_incoming_path(path):
+        return path
+    try:
+        relative = path.relative_to(_RUNTIME_INCOMING_ROOT)
+    except ValueError:
+        return path
+    return _host_incoming_root() / relative
+
+
 def _apply_accounts_json_defaults(values: dict[str, str], sources: dict[str, str]) -> None:
     if values.get("PROPERTYQUARRY_MAGICFIT_EMAIL") and values.get("PROPERTYQUARRY_MAGICFIT_PASSWORD"):
         return
@@ -65,7 +97,7 @@ def _apply_accounts_json_defaults(values: dict[str, str], sources: dict[str, str
         else "MAGICFIT_ACCOUNTS_JSON_FILE"
     )
     if accounts_path:
-        path = Path(accounts_path).expanduser()
+        path = _resolve_accounts_json_file_path(accounts_path)
         if not path.is_file():
             return
         try:
