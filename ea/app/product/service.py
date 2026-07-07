@@ -15094,7 +15094,7 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
             return "Walkthrough not available yet."
         return "Tour not available yet."
     if normalized_kind == "flythrough":
-        if normalized_reason == "magicfit_not_enough_credits":
+        if normalized_reason in {"magicfit_not_enough_credits", "magicfit_insufficient_credits"}:
             return "Walkthrough rendering is paused until render credits are available."
         if normalized_reason == "omagic_model_upload_adapter_missing":
             return "Walkthrough rendering is not configured for model upload yet."
@@ -15141,14 +15141,15 @@ def _property_visual_terminal_status_for_reason(*, request_kind: str, reason: st
         return ""
     if (
         normalized_reason not in {
-        "fit_below_threshold",
-        "provider_export_missing",
-        "listing_360_media_missing",
-        "pure_360_assets_unavailable",
-        "floorplan_assets_unavailable",
-        "gallery_assets_unavailable",
-        "property_tour_execution_failed",
-        "crezlo_property_tour_not_configured",
+            "fit_below_threshold",
+            "provider_export_missing",
+            "listing_360_media_missing",
+            "pure_360_assets_unavailable",
+            "floorplan_assets_unavailable",
+            "gallery_assets_unavailable",
+            "property_tour_execution_failed",
+            "crezlo_property_tour_not_configured",
+            "magicfit_insufficient_credits",
         }
         and not normalized_reason.endswith(
             (
@@ -19554,12 +19555,17 @@ def _render_property_flythrough_into_hosted_tour(
     tour_context_json: dict[str, object] | None = None,
 ) -> dict[str, object]:
     normalized_preferred_provider = _normalize_provider_preference(preferred_provider_key)
+    explicit_provider_requested = bool(normalized_preferred_provider)
     auto_selected_provider_key = ""
-    if not normalized_preferred_provider:
+    provider_resolution: dict[str, object] = {}
+    runtime_readiness: dict[str, object] = {}
+    route_payload: dict[str, object] = {}
+    if not explicit_provider_requested:
         with contextlib.suppress(Exception):
             from app.services.scene_video_contract import resolve_property_walkthrough_runtime_provider
 
-            provider_resolution = resolve_property_walkthrough_runtime_provider("")
+            provider_resolution = dict(resolve_property_walkthrough_runtime_provider("") or {})
+            runtime_readiness = dict(provider_resolution.get("runtime_readiness_json") or {})
             auto_selected_provider_key = str(
                 provider_resolution.get("provider_backend_key")
                 or provider_resolution.get("provider_key")
@@ -19567,6 +19573,51 @@ def _render_property_flythrough_into_hosted_tour(
             ).strip()
             if auto_selected_provider_key:
                 normalized_preferred_provider = _normalize_provider_preference(auto_selected_provider_key)
+    runtime_checked_provider_keys = [
+        str(entry.get("provider_key") or "").strip()
+        for entry in list(provider_resolution.get("checked") or [])
+        if str(entry.get("provider_key") or "").strip()
+    ]
+    if auto_selected_provider_key:
+        route_payload["media_route_auto_selected_provider_key"] = auto_selected_provider_key
+    if provider_resolution:
+        route_payload["media_route_runtime_provider_resolution_json"] = dict(provider_resolution)
+    if runtime_readiness:
+        route_payload["media_route_runtime_readiness_json"] = dict(runtime_readiness)
+    if runtime_checked_provider_keys:
+        route_payload["media_route_runtime_checked_provider_keys"] = list(runtime_checked_provider_keys)
+    if (
+        not explicit_provider_requested
+        and str(provider_resolution.get("selected_via") or "").strip() == "auto_no_ready_provider"
+        and not bool(runtime_readiness.get("ready"))
+    ):
+        runtime_blockers = [
+            str(value or "").strip()
+            for value in list(runtime_readiness.get("blockers") or [])
+            if str(value or "").strip()
+        ]
+        blocked_reason = runtime_blockers[0] if runtime_blockers else "flythrough_provider_unavailable"
+        route_payload.update(
+            {
+                "media_route_status": "blocked",
+                "media_route_provider_key": normalized_preferred_provider or auto_selected_provider_key,
+                "media_route_reason": blocked_reason,
+                "media_route_candidates": list(runtime_checked_provider_keys),
+            }
+        )
+        _write_hosted_property_visual_progress(
+            tour_url=tour_url,
+            request_kind="flythrough",
+            status="blocked",
+            progress_pct=0,
+            detail=_property_visual_unavailable_detail(
+                request_kind="flythrough",
+                reason=blocked_reason,
+            ),
+            reason=blocked_reason,
+            provider_key=normalized_preferred_provider or auto_selected_provider_key,
+        )
+        return {"status": "blocked", "reason": blocked_reason, **route_payload}
     _write_hosted_property_visual_progress(
         tour_url=tour_url,
         request_kind="flythrough",
@@ -19586,13 +19637,12 @@ def _render_property_flythrough_into_hosted_tour(
         )
     )
     route_payload = {
+        **route_payload,
         "media_route_status": route.status,
         "media_route_provider_key": route.provider_key,
         "media_route_reason": route.reason,
         "media_route_candidates": list(route.candidates),
     }
-    if auto_selected_provider_key:
-        route_payload["media_route_auto_selected_provider_key"] = auto_selected_provider_key
     if not route.ok:
         _write_hosted_property_visual_progress(
             tour_url=tour_url,
@@ -37134,6 +37184,116 @@ class ProductService:
                 source_ref=normalized_source_ref,
                 property_url=normalized_property_url,
             )
+            if normalized_kind == "flythrough" and existing_hosted_tour_url and not existing_walkthrough_url:
+                walkthrough_runtime_resolution: dict[str, object] = {}
+                walkthrough_runtime_readiness: dict[str, object] = {}
+                with contextlib.suppress(Exception):
+                    from app.services.scene_video_contract import resolve_property_walkthrough_runtime_provider
+
+                    walkthrough_runtime_resolution = dict(
+                        resolve_property_walkthrough_runtime_provider(walkthrough_provider_key) or {}
+                    )
+                    walkthrough_runtime_readiness = dict(
+                        walkthrough_runtime_resolution.get("runtime_readiness_json") or {}
+                    )
+                requested_walkthrough_provider = _normalize_provider_preference(walkthrough_provider_key)
+                runtime_blockers = [
+                    str(value or "").strip()
+                    for value in list(walkthrough_runtime_readiness.get("blockers") or [])
+                    if str(value or "").strip()
+                ]
+                walkthrough_blocked_reason = runtime_blockers[0] if runtime_blockers else ""
+                walkthrough_preflight_status = ""
+                if (
+                    walkthrough_runtime_readiness
+                    and not bool(walkthrough_runtime_readiness.get("ready"))
+                    and (
+                        requested_walkthrough_provider
+                        or str(walkthrough_runtime_resolution.get("selected_via") or "").strip() == "auto_no_ready_provider"
+                    )
+                ):
+                    walkthrough_preflight_status = (
+                        _property_visual_terminal_status_for_reason(
+                            request_kind="flythrough",
+                            reason=walkthrough_blocked_reason,
+                        )
+                        or "blocked"
+                    )
+                if walkthrough_preflight_status:
+                    preserved_tour_status = (
+                        str(existing_visual_state.get("tour_status") or "").strip().lower()
+                        or ("ready" if str(existing_hosted_tour_url or "").strip() else "")
+                    )
+                    persisted_requested_at = (
+                        str(existing_visual_state.get("flythrough_requested_at") or "").strip()
+                        or request_opened_at
+                    )
+                    visual_state = {
+                        "tour_url": str(existing_hosted_tour_url or "").strip(),
+                        "vendor_tour_url": str(existing_verified_tour_url or existing_visual_state.get("vendor_tour_url") or "").strip(),
+                        "tour_status": preserved_tour_status,
+                        "tour_eta_minutes": str(existing_visual_state.get("tour_eta_minutes") or "").strip(),
+                        "tour_requested_at": str(existing_visual_state.get("tour_requested_at") or "").strip(),
+                        "tour_status_updated_at": str(existing_visual_state.get("tour_status_updated_at") or "").strip(),
+                        "tour_progress_pct": str(existing_visual_state.get("tour_progress_pct") or "").strip(),
+                        "flythrough_url": "",
+                        "flythrough_status": walkthrough_preflight_status,
+                        "flythrough_eta_minutes": "",
+                        "flythrough_requested_at": persisted_requested_at,
+                        "flythrough_status_updated_at": request_opened_at,
+                        "flythrough_progress_pct": "0",
+                        "flythrough_reason": walkthrough_blocked_reason,
+                        "blocked_reason": "",
+                        "generated_reconstruction_url": str(existing_visual_state.get("generated_reconstruction_url") or "").strip(),
+                        "diorama_style_hint": resolved_style_hint,
+                    }
+                    self._persist_property_search_visual_state(
+                        principal_id=principal_id,
+                        run_id=str(run_id or "").strip(),
+                        candidate_ref=str(candidate_ref or "").strip(),
+                        source_ref=normalized_source_ref,
+                        property_url=normalized_property_url,
+                        visual_state=visual_state,
+                    )
+                    return {
+                        "generated_at": request_opened_at,
+                        "status": walkthrough_preflight_status,
+                        "property_url": normalized_property_url,
+                        "title": "Selected property",
+                        "listing_id": "",
+                        "variant_key": str(variant_key or "layout_first").strip() or "layout_first",
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": resolved_binding_id,
+                        "tour_url": str(existing_hosted_tour_url or "").strip(),
+                        "vendor_tour_url": str(existing_verified_tour_url or existing_visual_state.get("vendor_tour_url") or "").strip(),
+                        "editor_url": "",
+                        "delivery_email": str(recipient_email or "").strip().lower(),
+                        "delivery_status": "skipped",
+                        "blocked_reason": "",
+                        "generated_reconstruction_url": str(existing_visual_state.get("generated_reconstruction_url") or "").strip(),
+                        "human_task_id": "",
+                        "source_ref": normalized_source_ref,
+                        "external_id": str(external_id or normalized_property_url).strip(),
+                        "request_kind": normalized_kind,
+                        "run_id": str(run_id or "").strip(),
+                        "candidate_ref": str(candidate_ref or "").strip(),
+                        "flythrough_url": "",
+                        "flythrough_status": walkthrough_preflight_status,
+                        "flythrough_reason": walkthrough_blocked_reason,
+                        "tour_status": preserved_tour_status,
+                        "status_label": "Walkthrough not ready",
+                        "status_detail": _property_visual_unavailable_detail(
+                            request_kind="flythrough",
+                            reason=walkthrough_blocked_reason,
+                        ),
+                        "eta_label": "",
+                        "progress_pct": 0,
+                        "poll_after_seconds": 0,
+                        "tour_media_mode": "runtime_readiness_blocked",
+                        "personal_fit_assessment": {},
+                        "diorama_style_hint": resolved_style_hint,
+                    }
             title = "Selected property"
             human_task_id = ""
             try:

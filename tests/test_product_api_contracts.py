@@ -15217,6 +15217,27 @@ def test_property_visual_request_queue_walkthrough_preserves_existing_tour_state
     monkeypatch.setattr(product_service, "_existing_hosted_property_tour_url_for_identity", lambda **kwargs: "")
     monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda _tour_url: "")
     monkeypatch.setattr(
+        "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
+        lambda value, allow_non_final_fallback=False: {
+            "provider_key": "magicfit",
+            "provider_backend_key": "magicfit",
+            "runtime_readiness_json": {
+                "provider_key": "magicfit",
+                "provider_backend_key": "magicfit",
+                "ready": True,
+                "status": "ready",
+                "blockers": [],
+                "checks": {},
+            },
+            "checked": [
+                {"provider_key": "omagic", "ready": False, "status": "blocked", "blockers": ["omagic_model_upload_adapter_missing"]},
+                {"provider_key": "magicfit", "ready": True, "status": "ready", "blockers": []},
+            ],
+            "selected_via": "auto_final_ready",
+            "explicit_requested": False,
+        },
+    )
+    monkeypatch.setattr(
         ProductService,
         "_persist_property_search_visual_state",
         lambda self, **kwargs: persisted.update(dict(kwargs.get("visual_state") or {})),
@@ -15248,6 +15269,96 @@ def test_property_visual_request_queue_walkthrough_preserves_existing_tour_state
     assert persisted["tour_status"] == "ready"
     assert persisted["tour_progress_pct"] == "100"
     assert persisted["flythrough_status"] == "queued"
+    assert persisted["diorama_style_hint"] == "Urban jungle with plants"
+
+
+def test_property_visual_request_queue_walkthrough_fails_closed_when_runtime_provider_is_blocked(monkeypatch) -> None:
+    principal_id = "property-visual-request-walkthrough-runtime-blocked"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    persisted: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {
+            "tour_url": "https://propertyquarry.com/tours/runtime-blocked-tour",
+            "vendor_tour_url": "",
+            "tour_status": "ready",
+            "tour_requested_at": "2026-07-03T09:00:00+00:00",
+            "tour_status_updated_at": "2026-07-03T09:02:00+00:00",
+            "tour_progress_pct": "100",
+        },
+    )
+    monkeypatch.setattr(product_service, "_existing_hosted_property_tour_url_for_identity", lambda **kwargs: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
+        lambda value, allow_non_final_fallback=False: {
+            "provider_key": "magicfit",
+            "provider_backend_key": "magicfit",
+            "runtime_readiness_json": {
+                "provider_key": "magicfit",
+                "provider_backend_key": "magicfit",
+                "ready": False,
+                "status": "blocked",
+                "blockers": ["magicfit_insufficient_credits"],
+                "checks": {"credit_state": "insufficient"},
+            },
+            "checked": [
+                {"provider_key": "omagic", "ready": False, "status": "blocked", "blockers": ["omagic_model_upload_adapter_missing"]},
+                {"provider_key": "magicfit", "ready": False, "status": "blocked", "blockers": ["magicfit_insufficient_credits"]},
+                {"provider_key": "onemin_i2v", "ready": False, "status": "blocked", "blockers": ["onemin_i2v_insufficient_credits"]},
+            ],
+            "selected_via": "auto_no_ready_provider",
+            "explicit_requested": False,
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: persisted.update(dict(kwargs.get("visual_state") or {})),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_tour_followup",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("followup should not open for blocked runtime readiness")),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_start_property_tour_followup_worker",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("worker should not start for blocked runtime readiness")),
+    )
+
+    response = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/walkthrough-runtime-blocked-1",
+        request_kind="flythrough",
+        source_ref="willhaben:walkthrough-runtime-blocked-1",
+        run_id="run-walkthrough-runtime-blocked-1",
+        candidate_ref="candidate-walkthrough-runtime-blocked-1",
+        auto_deliver=False,
+        allow_floorplan_only=True,
+        diorama_style_hint="Urban jungle with plants",
+    )
+
+    assert response["status"] == "skipped"
+    assert response["tour_url"] == "https://propertyquarry.com/tours/runtime-blocked-tour"
+    assert response["tour_status"] == "ready"
+    assert response["flythrough_status"] == "skipped"
+    assert response["flythrough_reason"] == "magicfit_insufficient_credits"
+    assert response["status_label"] == "Walkthrough not ready"
+    assert response["status_detail"] == "Walkthrough rendering is paused until render credits are available."
+    assert response["human_task_id"] == ""
+    assert response["poll_after_seconds"] == 0
+    assert response["tour_media_mode"] == "runtime_readiness_blocked"
+    assert persisted["tour_url"] == "https://propertyquarry.com/tours/runtime-blocked-tour"
+    assert persisted["tour_status"] == "ready"
+    assert persisted["tour_progress_pct"] == "100"
+    assert persisted["flythrough_status"] == "skipped"
+    assert persisted["flythrough_reason"] == "magicfit_insufficient_credits"
     assert persisted["diorama_style_hint"] == "Urban jungle with plants"
 
 

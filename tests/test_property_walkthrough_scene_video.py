@@ -408,6 +408,85 @@ def test_render_property_flythrough_blank_provider_uses_runtime_selected_magicfi
     assert result["media_route_auto_selected_provider_key"] == "magicfit"
 
 
+def test_render_property_flythrough_blank_provider_fails_closed_when_no_runtime_provider_is_ready(monkeypatch) -> None:
+    progress_updates: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
+        lambda value, allow_non_final_fallback=False: {
+            "provider_key": "magicfit",
+            "provider_backend_key": "magicfit",
+            "runtime_readiness_json": {
+                "provider_key": "magicfit",
+                "provider_backend_key": "magicfit",
+                "ready": False,
+                "status": "blocked",
+                "blockers": ["magicfit_insufficient_credits"],
+                "checks": {"credit_state": "insufficient"},
+            },
+            "checked": [
+                {"provider_key": "omagic", "ready": False, "status": "blocked", "blockers": ["omagic_model_upload_adapter_missing"]},
+                {"provider_key": "magicfit", "ready": False, "status": "blocked", "blockers": ["magicfit_insufficient_credits"]},
+                {"provider_key": "onemin_i2v", "ready": False, "status": "blocked", "blockers": ["onemin_i2v_insufficient_credits"]},
+            ],
+            "selected_via": "auto_no_ready_provider",
+            "explicit_requested": False,
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_write_hosted_property_visual_progress",
+        lambda **kwargs: progress_updates.append(dict(kwargs)) or dict(kwargs),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_magicfit_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_magicfit_path")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_onemin_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_onemin_path")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_omagic_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_omagic_path")),
+    )
+
+    result = product_service._render_property_flythrough_into_hosted_tour(
+        tour_url="/tours/sample-flat",
+        title="Sample Flat",
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "magicfit_insufficient_credits"
+    assert result["media_route_status"] == "blocked"
+    assert result["media_route_provider_key"] == "magicfit"
+    assert result["media_route_reason"] == "magicfit_insufficient_credits"
+    assert result["media_route_auto_selected_provider_key"] == "magicfit"
+    assert result["media_route_candidates"] == ["omagic", "magicfit", "onemin_i2v"]
+    assert result["media_route_runtime_provider_resolution_json"]["selected_via"] == "auto_no_ready_provider"
+    assert result["media_route_runtime_readiness_json"]["status"] == "blocked"
+    assert (
+        product_service._property_visual_terminal_status_for_reason(
+            request_kind="flythrough",
+            reason="magicfit_insufficient_credits",
+        )
+        == "skipped"
+    )
+    assert progress_updates == [
+        {
+            "tour_url": "/tours/sample-flat",
+            "request_kind": "flythrough",
+            "status": "blocked",
+            "progress_pct": 0,
+            "detail": "Walkthrough rendering is paused until render credits are available.",
+            "reason": "magicfit_insufficient_credits",
+            "provider_key": "magicfit",
+        }
+    ]
+
+
 def test_render_property_flythrough_blank_provider_can_publish_with_runtime_selected_onemin(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
