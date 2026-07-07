@@ -91,8 +91,10 @@ def test_scene_video_provider_refresh_packet_names_env_contracts_without_secrets
     assert "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE" in rendered
     assert "PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE" in rendered
     assert "merge_scene_video_provider_accounts_env.py" in rendered
-    assert "--magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write" in rendered
-    assert "--omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count 8 --write" in rendered
+    assert "--magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write-file-env --write" in rendered
+    assert "--omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count 8 --write-file-env --write" in rendered
+    assert "state/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts" in rendered
+    assert "/data/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts" in rendered
     assert "provider_backend_key=magicfit" in rendered
     assert "playable hosted walkthrough video" in rendered
     assert "clear MagicFit credit marker only after" in rendered
@@ -212,7 +214,7 @@ def test_scene_video_provider_refresh_packet_verifier_rejects_missing_secure_jso
     packet = materializer.build_packet(_receipt(), receipt_path=tmp_path / "receipt.json")
     providers = {row["provider"]: row for row in packet["providers"]}
     providers["magicfit"]["post_refresh_checks"] = [
-        "merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write"
+        "merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write-file-env --write"
     ]
 
     receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
@@ -249,7 +251,7 @@ def test_scene_video_provider_refresh_packet_verifier_rejects_magicfit_proof_gap
     proof["proof_render_checks"] = []
     providers["magicfit"]["post_refresh_checks"] = [
         "set provider account JSON file mode to 0o600 before merge",
-        "merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write",
+        "merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write-file-env --write",
     ]
 
     receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
@@ -278,7 +280,7 @@ def test_scene_video_provider_refresh_packet_verifier_rejects_omagic_adapter_pro
     adapter["proof_render_checks"] = []
     providers["omagic"]["post_refresh_checks"] = [
         "set provider account JSON file mode to 0o600 before merge",
-        "merge provider-only OMagic/Magic account JSON with merge_scene_video_provider_accounts_env.py --omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count 8 --write",
+        "merge provider-only OMagic/Magic account JSON with merge_scene_video_provider_accounts_env.py --omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count 8 --write-file-env --write",
     ]
 
     receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
@@ -325,13 +327,39 @@ def test_scene_video_provider_refresh_packet_verifier_rejects_missing_expected_c
     packet = materializer.build_packet(_receipt(), receipt_path=tmp_path / "receipt.json")
     providers = {row["provider"]: row for row in packet["providers"]}
     providers["magicfit"]["post_refresh_checks"] = [
-        "merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --write"
+        "merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --write-file-env --write"
     ]
 
     receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
 
     assert receipt["status"] == "fail"
     assert "magicfit_expected_account_count_guard_missing" in receipt["blockers"]
+
+
+def test_scene_video_provider_refresh_packet_verifier_rejects_missing_file_env_guidance(tmp_path: Path) -> None:
+    materializer = _load_script()
+    verifier = _load_verifier()
+
+    packet = materializer.build_packet(_receipt(), receipt_path=tmp_path / "receipt.json")
+    providers = {row["provider"]: row for row in packet["providers"]}
+    providers["magicfit"]["post_refresh_checks"] = [
+        "set provider account JSON file mode to 0o600 before merge",
+        "merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 3 --write",
+    ]
+    providers["omagic"]["post_refresh_checks"] = [
+        "set provider account JSON file mode to 0o600 before merge",
+        "merge provider-only OMagic/Magic account JSON with merge_scene_video_provider_accounts_env.py --omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count 8 --write",
+    ]
+
+    receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
+
+    assert receipt["status"] == "fail"
+    assert "magicfit_write_file_env_flag_missing" in receipt["blockers"]
+    assert "magicfit_host_file_env_target_guidance_missing" in receipt["blockers"]
+    assert "magicfit_runtime_file_env_target_guidance_missing" in receipt["blockers"]
+    assert "omagic_write_file_env_flag_missing" in receipt["blockers"]
+    assert "omagic_host_file_env_target_guidance_missing" in receipt["blockers"]
+    assert "omagic_runtime_file_env_target_guidance_missing" in receipt["blockers"]
 
 
 def test_scene_video_provider_refresh_packet_verifier_rejects_missing_safe_merge_script(tmp_path: Path) -> None:

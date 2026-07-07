@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = Path("/data/artifacts/property-scene-video-readiness.generated.json")
 FALLBACK_RECEIPT = ROOT / "_completion" / "scene_video_readiness" / "release-gate.json"
 DEFAULT_OUTPUT = ROOT / "_completion" / "scene_video_readiness" / "provider-refresh-packet.json"
+FILE_ENV_HOST_TARGET = "state/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts"
+FILE_ENV_RUNTIME_TARGET = "/data/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts"
 
 
 def _utc_now() -> str:
@@ -113,7 +115,8 @@ def _magicfit_packet(row: dict[str, Any]) -> dict[str, Any]:
         "post_refresh_checks": [
             "set provider account JSON file mode to 0o600 before merge",
             f"or set PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE or MAGICFIT_ACCOUNTS_JSON_FILE to the same 0o600 account JSON file with expected count {expected_count}",
-            f"merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count {expected_count} --write",
+            f"prefer file-env mode so merge_scene_video_provider_accounts_env.py writes the provider-only account file under {FILE_ENV_HOST_TARGET} and points runtime env to {FILE_ENV_RUNTIME_TARGET}",
+            f"merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count {expected_count} --write-file-env --write",
             "select a funded MagicFit account with PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX before proof render",
             "run a MagicFit proof render and verify provider_backend_key=magicfit plus a playable hosted walkthrough video",
             "regenerate property_scene_video_readiness_report.py",
@@ -173,7 +176,8 @@ def _omagic_packet(row: dict[str, Any]) -> dict[str, Any]:
         "post_refresh_checks": [
             "set provider account JSON file mode to 0o600 before merge",
             f"or set PROPERTYQUARRY_OMAGIC_ACCOUNTS_JSON_FILE and PROPERTYQUARRY_MAGIC_ACCOUNTS_JSON_FILE to the same 0o600 account JSON file with expected count {expected_count}",
-            f"merge provider-only OMagic/Magic account JSON with merge_scene_video_provider_accounts_env.py --omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count {expected_count} --write",
+            f"prefer file-env mode so merge_scene_video_provider_accounts_env.py writes the provider-only account file under {FILE_ENV_HOST_TARGET} and points runtime env to {FILE_ENV_RUNTIME_TARGET}",
+            f"merge provider-only OMagic/Magic account JSON with merge_scene_video_provider_accounts_env.py --omagic-accounts-json-file <omagic-accounts.json> --expected-omagic-count {expected_count} --write-file-env --write",
             "configure PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT or PROPERTYQUARRY_OMAGIC_RENDER_COMMAND before enabling PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED",
             "run an OMagic model-upload proof render with real model input and verify model_input_consumed=true plus provider_backend_key=omagic in the adapter state",
             "enable PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED=1 only after the OMagic model-upload proof render succeeds",

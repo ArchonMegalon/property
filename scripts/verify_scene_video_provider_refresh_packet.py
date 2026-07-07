@@ -19,6 +19,9 @@ SENSITIVE_PATH_RE = re.compile(r"(api[_-]?key|cookie|password|secret|session|tok
 SAFE_ACCOUNT_MERGE_SCRIPT_NAME = "merge_scene_video_provider_accounts_env.py"
 ACCOUNT_JSON_MODE_GUIDANCE = "0o600"
 REQUIRED_EXPECTED_ACCOUNT_COUNTS = {"magicfit": 3, "omagic": 8}
+FILE_ENV_FLAG = "--write-file-env"
+FILE_ENV_HOST_TARGET = "state/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts"
+FILE_ENV_RUNTIME_TARGET = "/data/incoming_property_tours/_operator-import-lane/scene_video_provider_accounts"
 
 
 def _utc_now() -> str:
@@ -119,7 +122,7 @@ def _post_refresh_guidance(row: dict[str, Any]) -> str:
 
 def _has_safe_account_merge_guidance(row: dict[str, Any]) -> bool:
     guidance = _post_refresh_guidance(row)
-    return SAFE_ACCOUNT_MERGE_SCRIPT_NAME in guidance and "--write" in guidance
+    return SAFE_ACCOUNT_MERGE_SCRIPT_NAME in guidance and "--write" in guidance and FILE_ENV_FLAG in guidance
 
 
 def _has_secure_account_json_guidance(row: dict[str, Any]) -> bool:
@@ -130,6 +133,12 @@ def _has_secure_account_json_guidance(row: dict[str, Any]) -> bool:
 def _merge_guidance_blockers(provider: str, row: dict[str, Any]) -> list[str]:
     guidance = _post_refresh_guidance(row)
     blockers: list[str] = []
+    if FILE_ENV_FLAG not in guidance:
+        blockers.append(f"{provider}_write_file_env_flag_missing")
+    if FILE_ENV_HOST_TARGET not in guidance:
+        blockers.append(f"{provider}_host_file_env_target_guidance_missing")
+    if FILE_ENV_RUNTIME_TARGET not in guidance:
+        blockers.append(f"{provider}_runtime_file_env_target_guidance_missing")
     if provider == "magicfit":
         if "--magicfit-accounts-json-file" not in guidance:
             blockers.append("magicfit_account_json_file_flag_missing")
