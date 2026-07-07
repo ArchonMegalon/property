@@ -16,6 +16,7 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 - The PropertyQuarry runtime Telegram notification path is verified separately for `cf-email:person@example.test`, but gold/deploy scripts do not send messages by default. Set `PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED=1` for an explicit operator notification run; otherwise `_completion/property_gold_status/telegram-notify-report.json` records a skipped notification.
 - `scripts/check_property_release_hygiene.py` was rerun after the 2026-07-01 live proof-copy polish deploy so the manifest can track the current deployed candidate commit again instead of the earlier 2026-06-27 billing-handoff candidate.
 - The latest verified live deploy on 2026-07-07 now runs commit `b45cc35f` locally and through the PropertyQuarry release remotes; it keeps the research-detail nearby-distance fixes live, backfills nearby facts from postal-scope hints when saved runs are sparse, carries the scene-video runtime-status gold-proof wiring from `8cad0ff2`, stabilizes gold blocker keys for `scene_video_provider_runtime` and `release_hygiene`, and keeps walkthrough status readbacks aligned with actionable `flythrough_reason` truth.
+- The current integrated branch candidate on 2026-07-07 is commit `8626569f`; it refreshes the deploy-time release-hygiene receipt before gold verification and rebuilds/recreates `propertyquarry-render-tools` so the OMagic upload-adapter proof reflects the current runtime image.
 - The current 2026-07-06 gold-status proof still fails closed on scene-video provider runtime readiness until MagicFit/Magic/OMagic account visibility, credit posture, credentials, and OMagic upload-endpoint evidence are refreshed.
 - The current 2026-07-07 gold-status proof still fails closed on the same external-state `magicfit`, `magic`, and `omagic` provider-runtime blockers, but the deployed gold receipt can now surface them through nested `scene_video_readiness.runtime_status` data instead of relying on a separate standalone runtime-status report.
 - The 2026-07-01 live proof-copy polish deploy removed the default score-guide block, duplicate score explanation cards, visible proof-style selected-property badges, and stale proof-heavy public-tour/dossier/PDF fallback wording.
@@ -34,10 +35,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `4bb3ab37c82c2b2af08579ee600a836ea67019f7` |
+| Runtime commit SHA | `8626569fef329a791c55340fef215769f787dc9a` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | `local-20260707T025758Z-b45cc35f6597`; current integrated local/live candidate with the research-detail nearby-distance fixes live, postal-scope nearby-distance backfill, deployed scene-video runtime-status gold-proof wiring, stabilized gold blocker keys, public/auth shared-run smoke coverage, presentation and 3D browser gates, account/billing/auth polish, walkthrough status-reason contract alignment, OMagic adapter packaging, and explicit fail-closed scene-video provider-runtime blockers |
+| Deployment ID | `pending-next-verified-deploy`; integrated branch candidate adds deploy-side release-hygiene refresh plus render-tools runtime refresh before gold verification |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
