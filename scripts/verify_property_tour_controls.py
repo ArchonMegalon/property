@@ -42,7 +42,6 @@ OPTIONAL_PROVIDER_CONFIGURED_BLOCKER_REASONS = {
     },
     "pano2vr": {
         "pano2vr_entry_missing_or_not_verified",
-        "pano2vr_placeholder_field_empty_or_unusable",
     },
 }
 PROVIDER_DELIVERY_REQUIREMENTS = {
@@ -837,11 +836,7 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
 
 def _missing_evidence_blocks_public_tour(row: dict[str, str]) -> bool:
     provider = str(row.get("provider") or "").strip().lower()
-    if provider in PUBLIC_REQUIRED_PROVIDER_MODES:
-        return True
-    configured_reasons = OPTIONAL_PROVIDER_CONFIGURED_BLOCKER_REASONS.get(provider) or set()
-    reason = str(row.get("reason") or "").strip().lower()
-    return reason in configured_reasons
+    return provider in PUBLIC_REQUIRED_PROVIDER_MODES
 
 
 def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, object]) -> list[dict[str, object]]:

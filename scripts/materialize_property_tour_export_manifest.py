@@ -336,6 +336,15 @@ def _missing_import_targets(receipt: dict[str, Any], *, providers: set[str], inc
         if not slug:
             continue
         missing_rows = [row for row in list(tour.get("missing_evidence") or []) if isinstance(row, dict)]
+        for provider in list(tour.get("supplemental_missing_provider_modes") or []):
+            if provider not in {str(row.get("provider") or "").strip().lower() for row in missing_rows}:
+                missing_rows.append(
+                    {
+                        "provider": provider,
+                        "reason": _default_missing_reason(provider),
+                        "action": _default_missing_action(provider),
+                    }
+                )
         if not missing_rows:
             missing_rows = [
                 {
@@ -392,8 +401,43 @@ def build_export_manifest(
         require_all_provider_modes=True,
     )
     requested_providers = providers or set(IMPORTABLE_PROVIDERS)
+    requested_providers = {provider for provider in requested_providers if provider in IMPORTABLE_PROVIDERS}
     missing_modes = set(str(provider) for provider in list(receipt.get("missing_provider_modes") or []))
-    selected_providers = {provider for provider in requested_providers if provider in missing_modes and provider in IMPORTABLE_PROVIDERS}
+    missing_evidence_providers: set[str] = set()
+    supplemental_missing_by_tour: dict[str, set[str]] = {}
+    supplemental_missing_providers: set[str] = set()
+    for tour in list(receipt.get("tours") or []):
+        if not isinstance(tour, dict):
+            continue
+        slug = str(tour.get("slug") or "").strip()
+        if not slug:
+            continue
+        for row in list(tour.get("missing_evidence") or []):
+            if not isinstance(row, dict):
+                continue
+            provider = str(row.get("provider") or "").strip().lower()
+            if provider in IMPORTABLE_PROVIDERS:
+                missing_evidence_providers.add(provider)
+        controls = [row for row in list(tour.get("controls") or []) if isinstance(row, dict)]
+        ready_control_providers = {
+            str(control.get("provider") or "").strip().lower()
+            for control in controls
+            if str(control.get("status") or "").strip().lower() == "ready"
+        }
+        if "krpano" in requested_providers and "krpano" not in ready_control_providers:
+            supplemental_missing_by_tour.setdefault(slug, set()).add("krpano")
+            supplemental_missing_providers.add("krpano")
+    for tour in list(receipt.get("tours") or []):
+        if not isinstance(tour, dict):
+            continue
+        slug = str(tour.get("slug") or "").strip()
+        if slug and supplemental_missing_by_tour.get(slug):
+            tour["supplemental_missing_provider_modes"] = sorted(supplemental_missing_by_tour[slug])
+    selected_providers = {
+        provider
+        for provider in requested_providers
+        if provider in missing_modes or provider in missing_evidence_providers or provider in supplemental_missing_providers
+    }
     imports = _missing_import_targets(
         receipt,
         providers=selected_providers,
@@ -474,57 +518,4 @@ def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             readme_path.write_text(readme_body, encoding="utf-8")
         except OSError as exc:
             readme_write_error = f"{type(exc).__name__}: {exc}"
-            artifact_readme_path, artifact_readme_write_error = _write_first_available_fallback_readme(
-                slug=slug,
-                provider=provider,
-                body=readme_body,
-            )
-            if not artifact_readme_write_error:
-                active_readme_path = artifact_readme_path
-        prepared.append(
-            {
-                "slug": slug,
-                "provider": provider,
-                "export_dir": str(export_dir),
-                "readme": str(active_readme_path),
-                "drop_readme": str(readme_path),
-                "artifact_readme": str(artifact_readme_path),
-                "drop_status": drop_status,
-                "readme_write_error": readme_write_error,
-                "artifact_readme_write_error": artifact_readme_write_error,
-            }
-        )
-    return prepared
-
-
-def _parse_provider_filter(raw: str) -> set[str]:
-    values = {part.strip().lower() for part in str(raw or "").split(",") if part.strip()}
-    return {value for value in values if value in IMPORTABLE_PROVIDERS} or set(IMPORTABLE_PROVIDERS)
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Materialize a PropertyQuarry tour/walkthrough import manifest from current missing evidence.")
-    parser.add_argument("--tour-root", default="", help="Tour root. Defaults to EA_PUBLIC_TOUR_DIR.")
-    parser.add_argument("--incoming-root", default="", help="Where operators should drop exports. Defaults to PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR or /data/incoming_property_tours.")
-    parser.add_argument("--providers", default="3dvista,pano2vr,krpano,magicfit", help="Comma-separated provider filter.")
-    parser.add_argument("--limit-per-provider", type=int, default=1)
-    parser.add_argument("--prepare-dirs", action="store_true", help="Create incoming export directories with per-provider README instructions.")
-    parser.add_argument("--write", default="", help="Output manifest path. Defaults to EA_ARTIFACT_DIR/property-tour-export-import-manifest.json.")
-    args = parser.parse_args()
-    manifest = build_export_manifest(
-        tour_root=Path(args.tour_root) if str(args.tour_root or "").strip() else None,
-        incoming_root=Path(args.incoming_root) if str(args.incoming_root or "").strip() else None,
-        providers=_parse_provider_filter(args.providers),
-        limit_per_provider=max(1, int(args.limit_per_provider or 1)),
-    )
-    if args.prepare_dirs:
-        manifest["prepared_drop_dirs"] = prepare_export_drop_dirs(manifest)
-    write_path = Path(args.write).expanduser().resolve() if str(args.write or "").strip() else _artifact_dir() / "property-tour-export-import-manifest.json"
-    write_path.parent.mkdir(parents=True, exist_ok=True)
-    write_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps({key: manifest[key] for key in ("status", "tour_root", "incoming_root", "missing_provider_modes", "import_count", "drop_status_summary", "imports", "next_command")}, indent=2, sort_keys=True))
-    return 0 if manifest["status"] in {"pass", "waiting_for_verified_assets", "partial_ready_for_import", "ready_for_import"} else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+            artifact_readme_path, artifact_readme_write_error = _wr
