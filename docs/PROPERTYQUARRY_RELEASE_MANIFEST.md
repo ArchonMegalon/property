@@ -15,7 +15,7 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 - The backend repair lane at `https://propertyquarry.directoryup.com/admin/login` is reachable without reCAPTCHA and exposes a password-recovery URL, but the locally seeded shared account did not authenticate there on 2026-06-27; the remaining self-service repair dependency is the real Brilliant Directories admin username/password or a completed backend password reset.
 - The PropertyQuarry runtime Telegram notification path is verified separately for `cf-email:person@example.test`, but gold/deploy scripts do not send messages by default. Set `PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED=1` for an explicit operator notification run; otherwise `_completion/property_gold_status/telegram-notify-report.json` records a skipped notification.
 - `scripts/check_property_release_hygiene.py` was rerun after the 2026-07-01 live proof-copy polish deploy so the manifest can track the current deployed candidate commit again instead of the earlier 2026-06-27 billing-handoff candidate.
-- The latest verified live deploy on 2026-07-07 now runs commit `660ecbc6` locally and through the PropertyQuarry release remotes; it keeps the research-detail nearby-distance fixes live, backfills nearby facts from postal-scope hints when saved runs are sparse, carries the scene-video runtime-status gold-proof wiring from `8cad0ff2`, and stabilizes gold blocker keys for `scene_video_provider_runtime` and `release_hygiene`.
+- The latest verified live deploy on 2026-07-07 now runs commit `b45cc35f` locally and through the PropertyQuarry release remotes; it keeps the research-detail nearby-distance fixes live, backfills nearby facts from postal-scope hints when saved runs are sparse, carries the scene-video runtime-status gold-proof wiring from `8cad0ff2`, stabilizes gold blocker keys for `scene_video_provider_runtime` and `release_hygiene`, and keeps walkthrough status readbacks aligned with actionable `flythrough_reason` truth.
 - The current 2026-07-06 gold-status proof still fails closed on scene-video provider runtime readiness until MagicFit/Magic/OMagic account visibility, credit posture, credentials, and OMagic upload-endpoint evidence are refreshed.
 - The current 2026-07-07 gold-status proof still fails closed on the same external-state `magicfit`, `magic`, and `omagic` provider-runtime blockers, but the deployed gold receipt can now surface them through nested `scene_video_readiness.runtime_status` data instead of relying on a separate standalone runtime-status report.
 - The 2026-07-01 live proof-copy polish deploy removed the default score-guide block, duplicate score explanation cards, visible proof-style selected-property badges, and stale proof-heavy public-tour/dossier/PDF fallback wording.
@@ -34,10 +34,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `660ecbc63f1530a9bd20888ca86216ff7571ed32` |
+| Runtime commit SHA | `b45cc35f659727368f95eba252802ada1916bb26` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | `local-20260707T022327Z-660ecbc63f15`; current integrated local/live candidate with the research-detail nearby-distance fixes live, postal-scope nearby-distance backfill, deployed scene-video runtime-status gold-proof wiring, stabilized gold blocker keys, public/auth shared-run smoke coverage, presentation and 3D browser gates, account/billing/auth polish, OMagic adapter packaging, and explicit fail-closed scene-video provider-runtime blockers |
+| Deployment ID | `local-20260707T025758Z-b45cc35f6597`; current integrated local/live candidate with the research-detail nearby-distance fixes live, postal-scope nearby-distance backfill, deployed scene-video runtime-status gold-proof wiring, stabilized gold blocker keys, public/auth shared-run smoke coverage, presentation and 3D browser gates, account/billing/auth polish, walkthrough status-reason contract alignment, OMagic adapter packaging, and explicit fail-closed scene-video provider-runtime blockers |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
@@ -45,12 +45,12 @@ That means the billing account lane still requires a second vendor login even th
 The live gold-proof wiring deploy on 2026-07-07 verified:
 
 - The live gold-blocker key stabilization deploy on 2026-07-07 verified:
-  - Commit `660ecbc6` is the current deployed runtime candidate. It keeps the scene-video runtime-status gold-proof wiring live, stabilizes gold blocker keys, and preserves the authenticated research-detail nearby-distance rail truth verified below.
+  - Commit `b45cc35f` is the current deployed runtime candidate. It keeps the scene-video runtime-status gold-proof wiring live, stabilizes gold blocker keys, preserves the authenticated research-detail nearby-distance rail truth verified below, and returns actionable walkthrough `flythrough_reason` values on status readback without exposing hidden internal skip reasons.
   - `pytest -q tests/test_propertyquarry_gold_status.py -k 'scene_video or release_hygiene' --tb=short` returned `2 passed`.
   - `python3 -m py_compile scripts/propertyquarry_gold_status.py tests/test_propertyquarry_gold_status.py` passed.
   - A direct gold-status run (`python3 scripts/propertyquarry_gold_status.py --write /tmp/propertyquarry-gold-status-current.json`) now emits blocker keys `scene_video_provider_runtime` and `release_hygiene` instead of null blocker keys.
   - `make deploy` rebuilt the live `propertyquarry-api` image and restarted `propertyquarry-api` plus `propertyquarry-scheduler`; both containers returned healthy afterward.
-  - `curl -fsS http://127.0.0.1:8097/version` returned `release_commit_sha=660ecbc63f1530a9bd20888ca86216ff7571ed32` with deployment id `local-20260707T022327Z-660ecbc63f15`.
+  - `curl -fsS http://127.0.0.1:8097/version` returned `release_commit_sha=b45cc35f659727368f95eba252802ada1916bb26` with deployment id `local-20260707T025758Z-b45cc35f6597`.
 
 - Commit `1a5f25d2` was the deployed runtime candidate for the gold-proof wiring deploy, and its parent `8cad0ff2` is the code change that wires `property_scene_video_runtime_status.py` into deploy, release-gate, gold-refresh, and gold-status proof.
 - Focused wiring regressions passed:
@@ -67,7 +67,7 @@ The live gold-proof wiring deploy on 2026-07-07 verified:
 The live no-fallback nearby-distance rail deploy on 2026-07-06 verified:
 
 - The live authenticated research-detail reconciliation on 2026-07-07 verified:
-  - `curl -fsS http://127.0.0.1:8097/version` returned `release_commit_sha=660ecbc63f1530a9bd20888ca86216ff7571ed32` with deployment id `local-20260707T022327Z-660ecbc63f15`.
+  - `curl -fsS http://127.0.0.1:8097/version` returned `release_commit_sha=b45cc35f659727368f95eba252802ada1916bb26` with deployment id `local-20260707T025758Z-b45cc35f6597`.
   - Authenticated origin probe on `http://127.0.0.1:8097/app/research/26abb3749ce943c0?run_id=5aa064d3f2cd480782d0006e8314dd0d` with `Host: propertyquarry.com`, `x-ea-api-token`, and `x-ea-principal-id` rendered `Nearby distances`, `data-research-selected-distances`, and the copy `Distances for the nearby filters saved on this workspace.`
   - The same live page rendered the selected-distance rows `Nearest supermarket: Billa is 189 m away; selected limit 500 m.`, `Nearest playground is 688 m away; selected limit 1000 m.`, `Nearest library: Wissenschaftliches Kabinett - Simon Weber-Unger is 260 m away; selected limit 1000 m.`, `Nearest pharmacy: Graben-Apotheke "Zum schwarzen Bären" is 133 m away; selected limit 500 m.`, `Nearest market: Gemma – Vienna City Market is 472 m away; selected limit 5000 m.`, `Nearest underground: Graben is 133 m away; selected limit 500 m.`, and `Nearest school distance is not listed yet; selected limit 2000 m.`
   - The same probe returned no `Other homes` copy and no `data-research-ranking-list` marker.
