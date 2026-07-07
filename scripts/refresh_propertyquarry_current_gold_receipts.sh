@@ -32,6 +32,11 @@ consumes for flagship live proof: public/auth/mobile/provider smokes, tour
 controls, export discovery, vendor tooling, walkthrough quality, browser-rendered
 3D, billing/ID Austria, scene-video readiness, runtime reconstruction, and the
 static contract receipts that were previously going stale.
+
+Optional notifications:
+  PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED=1
+    sends the current scene-video provider refresh ask to Telegram when the
+    refreshed runtime receipts still show actionable MagicFit/OMagic gaps.
 EOF
   exit 0
 fi
@@ -409,6 +414,33 @@ gold_args=(
 if (( fail_on_blocked == 1 )); then
   gold_args+=("--fail-on-blocked")
 fi
+
+scene_video_refresh_notification_principal_id="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID:-${EA_PRINCIPAL_ID:-propertyquarry-operator}}"
+scene_video_refresh_notification_base_url="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL:-https://propertyquarry.com}"
+scene_video_refresh_notification_state="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE:-_completion/scene_video_readiness/provider-refresh-telegram-state.json}"
+scene_video_refresh_notification_report="_completion/scene_video_readiness/provider-refresh-telegram-report.json"
+scene_video_refresh_notification_enabled="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED:-0}"
+case "${scene_video_refresh_notification_enabled,,}" in
+  1|true|yes|y|on|enabled)
+    log_step "Scene-video provider refresh notification"
+    if ! env PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_notify_scene_video_provider_refresh.py \
+      --packet "${scene_video_refresh_packet}" \
+      --verifier "${scene_video_refresh_packet_verifier}" \
+      --runtime-status "${scene_video_runtime_status_receipt}" \
+      --state-file "${scene_video_refresh_notification_state}" \
+      --principal-id "${scene_video_refresh_notification_principal_id}" \
+      --base-url "${scene_video_refresh_notification_base_url}" \
+      --write "${scene_video_refresh_notification_report}" >/dev/null; then
+      had_failures=1
+      warn_step "Scene-video provider refresh notification failed"
+      cat "${scene_video_refresh_notification_report}" >&2 2>/dev/null || true
+    fi
+    ;;
+  *)
+    mkdir -p "$(dirname "${scene_video_refresh_notification_report}")"
+    printf '{"status":"skipped","reason":"PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED_not_set"}\n' > "${scene_video_refresh_notification_report}"
+    ;;
+esac
 
 log_step "Gold-status receipt"
 if ! env PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py "${gold_args[@]}" >/dev/null; then

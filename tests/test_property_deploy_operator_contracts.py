@@ -454,6 +454,27 @@ def test_property_gold_refresh_wires_scene_video_runtime_status_into_gold_status
         assert required in refresh_script
 
 
+def test_property_gold_refresh_can_send_scene_video_provider_refresh_notification() -> None:
+    refresh_script = _read("scripts/refresh_propertyquarry_current_gold_receipts.sh")
+
+    for required in (
+        "scripts/propertyquarry_notify_scene_video_provider_refresh.py",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE",
+        "_completion/scene_video_readiness/provider-refresh-telegram-report.json",
+        '--packet "${scene_video_refresh_packet}"',
+        '--verifier "${scene_video_refresh_packet_verifier}"',
+        '--runtime-status "${scene_video_runtime_status_receipt}"',
+        'printf \'{"status":"skipped","reason":"PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED_not_set"}\\n\' > "${scene_video_refresh_notification_report}"',
+        "Scene-video provider refresh notification failed",
+    ):
+        assert required in refresh_script
+
+    assert refresh_script.index('scene_video_refresh_notification_report="_completion/scene_video_readiness/provider-refresh-telegram-report.json"') < refresh_script.index('log_step "Gold-status receipt"')
+
+
 def test_property_release_gate_runs_generated_reconstruction_glb_smoke() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
 
