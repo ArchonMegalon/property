@@ -15,8 +15,9 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 - The backend repair lane at `https://propertyquarry.directoryup.com/admin/login` is reachable without reCAPTCHA and exposes a password-recovery URL, but the locally seeded shared account did not authenticate there on 2026-06-27; the remaining self-service repair dependency is the real Brilliant Directories admin username/password or a completed backend password reset.
 - The PropertyQuarry runtime Telegram notification path is verified separately for `cf-email:person@example.test`, but gold/deploy scripts do not send messages by default. Set `PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED=1` for an explicit operator notification run; otherwise `_completion/property_gold_status/telegram-notify-report.json` records a skipped notification.
 - `scripts/check_property_release_hygiene.py` was rerun after the 2026-07-01 live proof-copy polish deploy so the manifest can track the current deployed candidate commit again instead of the earlier 2026-06-27 billing-handoff candidate.
-- The latest 2026-07-06 live deploy now runs commit `8598c091` locally and through the PropertyQuarry release remotes; it keeps the research-detail nearby-distance backfill live, retries sparse nearby facts when cached postal-area map coordinates exist without `nearest_*` rows, removes the generic nearby-distance fallback rail when a run saved no nearby filters, preserves the selected-distance rail when a run did save nearby filters, restores the generic `3D Tour` marker on the public Matterport control shell, and accepts hosted flythrough-pane walkthrough chips in the presentation gate.
+- The latest verified live deploy on 2026-07-07 now runs commit `2af21112` locally and through the PropertyQuarry release remotes; it keeps the research-detail nearby-distance fixes live and backfills nearby facts from postal-scope hints when saved runs are sparse.
 - The current 2026-07-06 gold-status proof still fails closed on scene-video provider runtime readiness until MagicFit/Magic/OMagic account visibility, credit posture, credentials, and OMagic upload-endpoint evidence are refreshed.
+- Commit `8cad0ff2` is now pushed on `main` but not yet deployed; it wires `property_scene_video_runtime_status.py` into deploy, release-gate, gold-refresh, and gold-status proof so the current `magicfit`, `magic`, and `omagic` runtime blockers stay machine-readable in the gold receipt instead of living only in the standalone readiness report.
 - The 2026-07-01 live proof-copy polish deploy removed the default score-guide block, duplicate score explanation cards, visible proof-style selected-property badges, and stale proof-heavy public-tour/dossier/PDF fallback wording.
 - The later 2026-07-01 minimal-copy deploy tightened the packet dashboard, workbench research tasks, save feedback, and public-tour language again: visible `Analytics`, `Engagement`, `Next best action`, `Share state`, `Reviewed feedback`, `Optimization recommendations`, `Saved durably`, and `Watch-outs` labels were replaced with calmer customer-facing labels such as `Views`, `Replies`, `Next step`, `Responses`, `Page ideas`, `Saved`, and `Check first`.
 
@@ -33,13 +34,26 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `8598c091fbc1376c61007398d95732783a3450cb` |
+| Runtime commit SHA | `2af211126089bac4ce7d7c2f8ac02a96eea7e19f` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | `local-20260706T213230Z-8598c091fbc1`; current integrated local/live candidate with nearby-distance backfill on research detail, sparse-nearby retry from cached map coordinates, no-fallback nearby rail when a run saved no nearby filters, selected-distance rail preservation when a run did save nearby filters, hosted walkthrough-chip gate parity, public tour-shell marker repair, public/auth shared-run smoke coverage, presentation and 3D browser gates, account/billing/auth polish, OMagic adapter packaging, and explicit fail-closed scene-video provider-runtime blockers |
+| Deployment ID | `local-20260707T014543Z-2af21112`; current integrated local/live candidate with the research-detail nearby-distance fixes live, postal-scope nearby-distance backfill, public/auth shared-run smoke coverage, presentation and 3D browser gates, account/billing/auth polish, OMagic adapter packaging, and explicit fail-closed scene-video provider-runtime blockers |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The head-only gold-proof wiring pass on 2026-07-07 verified:
+
+- Commit `8cad0ff2` is the current branch head and is pushed to `origin/main`; it is not deployed yet.
+- Focused wiring regressions passed:
+  - `pytest -q tests/test_property_deploy_operator_contracts.py -k 'scene_video or gold_refresh' --tb=short` returned `4 passed`.
+  - `pytest -q tests/test_propertyquarry_gold_status.py -k 'scene_video' --tb=short` returned `1 passed`.
+  - `python3 -m py_compile scripts/propertyquarry_gold_status.py tests/test_property_deploy_operator_contracts.py tests/test_propertyquarry_gold_status.py` passed.
+  - `bash -n scripts/deploy_propertyquarry.sh scripts/property_release_gates.sh scripts/refresh_propertyquarry_current_gold_receipts.sh` passed.
+- Live runtime truth still fails closed on the same external-state blockers: `docker exec propertyquarry-api python /app/scripts/property_scene_video_runtime_status.py --format operator` reported `ready 2/5 | blocked 3 | action_required 3`, with `magicfit`, `magic`, and `omagic` blocked.
+- The refreshed `_completion/scene_video_readiness/runtime-status.json` now exists with contract `propertyquarry.scene_video_runtime_status.v1` and summary `ready_count=2`, `blocked_count=3`, `action_required_count=3`.
+- A direct gold-status run with current receipts (`python3 scripts/propertyquarry_gold_status.py --write /tmp/propertyquarry-gold-status-smoke.json`) now emits nested `scene_video_readiness.runtime_status`, carries blocked providers `["magicfit", "magic", "omagic"]`, and records the runtime-status receipt path `/docker/property/_completion/scene_video_readiness/runtime-status.json`.
+- `curl -fsS http://127.0.0.1:8097/version` returned `release_commit_sha=2af211126089bac4ce7d7c2f8ac02a96eea7e19f` with deployment id `local-20260707T014543Z-2af21112`, so branch/deployment reconciliation remains open by one pushed commit until a fresh deploy updates the runtime from `2af21112` to `8cad0ff2`.
 
 The live no-fallback nearby-distance rail deploy on 2026-07-06 verified:
 
