@@ -6337,7 +6337,9 @@ def _property_research_location_hint_queries(
         _push(street_address)
     for key in ("address", "postal_name"):
         value = str(payload.get(key) or "").strip()
-        if not value or _property_location_value_is_source_scope_placeholder(value, payload):
+        if not value:
+            continue
+        if _property_location_value_is_source_scope_placeholder(value, payload) and not _property_postal_code_core(value):
             continue
         _push(value)
     for row in list(payload.get("listing_postal_evidence") or []):

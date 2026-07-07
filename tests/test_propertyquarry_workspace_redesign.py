@@ -10973,6 +10973,153 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
     assert 'data-research-ranking-list' not in page.text
 
 
+def test_property_research_detail_backfills_postal_scope_nearby_distances_for_matching_search_agent_overlay(monkeypatch) -> None:
+    principal_id = "pq-research-detail-search-agent-postal-nearby"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Search Agent Postal Nearby Office")
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_source_research_snapshot",
+        lambda property_url, image_urls=(): {},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_location_hint_snapshot",
+        lambda query: {
+            "map_lat": 48.2083622,
+            "map_lng": 16.3693966,
+            "map_location_precision": "postal_area",
+            "location_hint_research_attempted": True,
+            "nearest_supermarket_m": 189,
+            "nearest_supermarket_name": "Billa Graben",
+            "nearest_supermarket_source": "OpenStreetMap (postal area estimate)",
+            "nearest_playground_m": 688,
+            "nearest_playground_name": "Volksgarten Playground",
+            "nearest_playground_source": "OpenStreetMap (postal area estimate)",
+            "nearest_pharmacy_m": 133,
+            "nearest_pharmacy_name": 'Graben-Apotheke "Zum schwarzen Bären"',
+            "nearest_pharmacy_source": "OpenStreetMap (postal area estimate)",
+        }
+        if query == "1010 Wien"
+        else {},
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_propertyquarry_refresh_candidate_preview_if_needed",
+        lambda *, product, candidate, allow_network=False: dict(candidate),
+    )
+    monkeypatch.setattr(
+        OnboardingService,
+        "compact_status",
+        lambda self, *, principal_id: {
+            "workspace": {"name": "Search Agent Postal Nearby Office"},
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+                "search_agents": [
+                    {
+                        "agent_id": "agent-vienna-nearby",
+                        "enabled": False,
+                        "is_active": False,
+                        "location_query": "1010 Vienna, 1020 Vienna, 1090 Vienna",
+                        "selected_location_values": ["1010 Vienna", "1020 Vienna", "1090 Vienna"],
+                        "preferences_json": {
+                            "country_code": "AT",
+                            "listing_mode": "rent",
+                            "location_query": "1010 Vienna, 1020 Vienna, 1090 Vienna",
+                            "selected_location_values": ["1010 Vienna", "1020 Vienna", "1090 Vienna"],
+                            "keyword_preferences_json": json.dumps(
+                                {
+                                    "supermarket nearby": "nice_to_have",
+                                    "playground nearby": "nice_to_have",
+                                    "pharmacy nearby": "nice_to_have",
+                                }
+                            ),
+                            "max_distance_to_supermarket_m": 500,
+                            "max_distance_to_supermarket_importance": "nice_to_have",
+                            "max_distance_to_playground_m": 1000,
+                            "max_distance_to_playground_importance": "nice_to_have",
+                            "max_distance_to_medical_care_m": 500,
+                            "max_distance_to_medical_care_importance": "nice_to_have",
+                        },
+                    }
+                ],
+            },
+        },
+    )
+
+    candidate = {
+        "candidate_ref": "cand-search-agent-postal-nearby",
+        "title": "Postal nearby fallback home",
+        "fit_summary": "Daily-life distances should backfill from the postal hint.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-search-agent-postal-nearby",
+        "property_url": "https://example.test/search-agent-postal-nearby-home",
+        "source_label": "Willhaben",
+        "fit_score": 81,
+        "property_facts": {
+            "price_display": "EUR 3,553.94",
+            "area_m2": 144.79,
+            "rooms": 3.5,
+            "postal_name": "1010 Wien",
+            "address": "1010 Wien",
+            "source_scope_location": "1010 Vienna",
+            "source_postal_code": "1010",
+            "source_city": "Vienna",
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_console_context",
+        lambda **_kwargs: {
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+            },
+            "commercial": {},
+            "run": {
+                "run_id": "run-search-agent-postal-nearby",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1010 Vienna, 1020 Vienna",
+                    "keywords": "",
+                    "keyword_preferences": {},
+                    "keyword_preferences_json": "{}",
+                },
+                "summary": {
+                    "sources_total": 1,
+                    "listing_total": 1,
+                    "ranked_candidates": [candidate],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    page = client.get(
+        "/app/research/cand-search-agent-postal-nearby",
+        params={"run_id": "run-search-agent-postal-nearby"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert "Nearby distances" in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert "Distances for the nearby filters saved on this workspace." in page.text
+    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest pharmacy: Graben-Apotheke" in page.text
+    assert "selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Other homes" not in page.text
+    assert 'data-research-ranking-list' not in page.text
+
+
 def test_property_research_detail_ignores_unrelated_search_agent_distance_filters_when_run_has_none(monkeypatch) -> None:
     principal_id = "pq-research-detail-unrelated-search-agent-filters"
     client = build_property_client(principal_id=principal_id)

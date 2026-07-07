@@ -3945,6 +3945,18 @@ def test_property_source_scope_placeholder_detection_keeps_street_addresses_conc
     assert product_service._property_candidate_has_concrete_location(facts)
 
 
+def test_property_location_hint_queries_keep_postal_scope_placeholders_for_poi_backfill() -> None:
+    facts = {
+        "postal_name": "1010 Wien",
+        "address": "1010 Wien",
+        "source_scope_location": "1010 Vienna",
+        "source_postal_code": "1010",
+        "source_city": "Vienna",
+    }
+
+    assert product_service._property_research_location_hint_queries(facts=facts) == ("1010 Wien",)
+
+
 def test_property_location_match_uses_listing_postal_evidence_over_source_scope() -> None:
     dirty_scope_facts = {
         "postal_name": "1010 Vienna",
