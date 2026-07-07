@@ -10629,6 +10629,190 @@ def test_property_research_detail_hides_nearby_distance_panel_when_no_filters_se
     assert 'data-research-ranking-list' not in page.text
 
 
+def test_property_research_detail_supports_lifestyle_distance_filters(monkeypatch) -> None:
+    principal_id = "pq-research-detail-lifestyle-distance"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Lifestyle Distance Office")
+
+    candidate = {
+        "candidate_ref": "cand-lifestyle-distance",
+        "title": "Lifestyle brief keeps the right nearby rail",
+        "fit_summary": "Useful if the coffee-and-lifestyle radius is really close.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-lifestyle-distance",
+        "property_url": "https://example.test/lifestyle-distance-home",
+        "source_label": "Willhaben",
+        "fit_score": 80,
+        "property_facts": {
+            "price_display": "EUR 2,150",
+            "area_m2": 84,
+            "rooms": 3,
+            "postal_name": "1020 Wien",
+            "nearest_starbucks_m": 240,
+            "nearest_starbucks_name": "Starbucks Praterstern",
+            "nearest_starbucks_source": "OpenStreetMap",
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        lambda *, property_url, property_facts, image_urls=(): dict(property_facts),
+    )
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+                "enable_lifestyle_research": True,
+                "max_distance_to_starbucks_m": 300,
+                "max_distance_to_starbucks_importance": "nice_to_have",
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    page = client.get(
+        "/app/research/cand-lifestyle-distance",
+        params={"run_id": "run-lifestyle-distance-detail"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert "Nearby distances" in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert "Nearest starbucks: Starbucks Praterstern is 240 m away; selected limit 300 m | source: OpenStreetMap." in page.text
+    assert "Other homes" not in page.text
+    assert 'data-research-ranking-list' not in page.text
+
+
+def test_property_research_detail_uses_matching_workspace_distance_filters_when_run_has_none(monkeypatch) -> None:
+    principal_id = "pq-research-detail-workspace-distance-fallback"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Workspace Distance Fallback Office")
+
+    def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
+        merged = dict(property_facts)
+        merged["nearest_supermarket_m"] = 189
+        merged["nearest_supermarket_name"] = "Billa Graben"
+        merged["nearest_supermarket_source"] = "OpenStreetMap (postal area estimate)"
+        merged["location_hint_research_attempted"] = True
+        merged["listing_research_snapshot"] = {
+            "nearest_supermarket_m": 189,
+            "location_hint_research_attempted": True,
+        }
+        merged["listing_research_meta"] = {"strategy": "provider_html_plus_geo"}
+        return merged
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        _fake_merge_property_facts_with_source_research,
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_propertyquarry_refresh_candidate_preview_if_needed",
+        lambda *, product, candidate, allow_network=False: dict(candidate),
+    )
+    monkeypatch.setattr(
+        OnboardingService,
+        "compact_status",
+        lambda self, *, principal_id: {
+            "workspace": {"name": "Workspace Distance Fallback Office"},
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1010 Vienna, 1020 Vienna",
+                "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+                "max_distance_to_supermarket_m": 500,
+                "max_distance_to_supermarket_importance": "nice_to_have",
+            },
+        },
+    )
+
+    candidate = {
+        "candidate_ref": "cand-workspace-distance-fallback",
+        "title": "Old run inherits workspace nearby brief",
+        "fit_summary": "The nearby rail should come from the saved workspace brief.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-workspace-distance-fallback",
+        "property_url": "https://example.test/workspace-distance-fallback-home",
+        "source_label": "Willhaben",
+        "fit_score": 81,
+        "property_facts": {
+            "price_display": "EUR 3,553.94",
+            "area_m2": 144.79,
+            "rooms": 3.5,
+            "postal_name": "1010 Wien",
+            "address": "1010 Wien",
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_console_context",
+        lambda **_kwargs: {
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+            },
+            "commercial": {},
+            "run": {
+                "run_id": "run-workspace-distance-fallback",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1010 Vienna, 1020 Vienna",
+                    "keywords": "",
+                    "keyword_preferences": {},
+                    "keyword_preferences_json": "{}",
+                },
+                "summary": {
+                    "sources_total": 1,
+                    "listing_total": 1,
+                    "ranked_candidates": [candidate],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    page = client.get(
+        "/app/research/cand-workspace-distance-fallback",
+        params={"run_id": "run-workspace-distance-fallback"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert "Nearby distances" in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert "Distances for the nearby filters saved on this workspace." in page.text
+    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Other homes" not in page.text
+    assert 'data-research-ranking-list' not in page.text
+
+
 def test_property_research_detail_uses_matching_search_agent_distance_filters_when_run_has_none(monkeypatch) -> None:
     principal_id = "pq-research-detail-search-agent-distance-fallback"
     client = build_property_client(principal_id=principal_id)
@@ -10980,7 +11164,8 @@ def test_property_research_detail_uses_run_distance_filters_even_when_run_snapsh
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
     assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m" in page.text
-    assert "Nearest playground distance is not listed yet; selected limit 450 m." in page.text
+    assert "Nearest playground" in page.text
+    assert "selected limit 450 m" in page.text
 
 
 def test_property_workspace_payload_drops_oversized_inline_candidate_previews() -> None:

@@ -2715,6 +2715,53 @@ def _property_research_search_agent_overlay_rank(
     )
 
 
+def _property_research_workspace_distance_overlay(
+    *,
+    workspace_preferences: dict[str, object],
+    current_preferences: dict[str, object],
+    run_preferences: dict[str, object],
+    candidate: dict[str, object],
+) -> dict[str, object]:
+    if _property_research_has_distance_preferences(current_preferences) or _property_research_has_distance_preferences(run_preferences):
+        return {}
+    overlay = _property_research_distance_preference_overlay(workspace_preferences, active_only=True)
+    if not overlay:
+        return {}
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    scope_tokens = _property_research_location_scope_tokens(
+        run_preferences.get("selected_location_values"),
+        run_preferences.get("location_query"),
+        current_preferences.get("selected_location_values"),
+        current_preferences.get("location_query"),
+        candidate.get("location_label"),
+        facts.get("postal_name"),
+        facts.get("address"),
+        facts.get("district"),
+        facts.get("source_scope_location"),
+    )
+    workspace_country_code = normalize_country_code(workspace_preferences.get("country_code") or "")
+    expected_country_code = normalize_country_code(
+        run_preferences.get("country_code") or current_preferences.get("country_code") or workspace_preferences.get("country_code") or ""
+    )
+    if expected_country_code and workspace_country_code and workspace_country_code != expected_country_code:
+        return {}
+    workspace_listing_mode = normalize_listing_mode(workspace_preferences.get("listing_mode") or "")
+    expected_listing_mode = normalize_listing_mode(
+        run_preferences.get("listing_mode") or current_preferences.get("listing_mode") or workspace_preferences.get("listing_mode") or ""
+    )
+    if expected_listing_mode and workspace_listing_mode and workspace_listing_mode != expected_listing_mode:
+        return {}
+    workspace_scope_tokens = _property_research_location_scope_tokens(
+        workspace_preferences.get("selected_location_values"),
+        workspace_preferences.get("location_query"),
+    )
+    if scope_tokens and not workspace_scope_tokens:
+        return {}
+    if scope_tokens and workspace_scope_tokens and not (scope_tokens & workspace_scope_tokens):
+        return {}
+    return overlay
+
+
 def _property_research_search_agent_distance_overlay(
     *,
     preferences: dict[str, object],
@@ -6192,10 +6239,6 @@ def property_research_packet(
         if isinstance(status.get("property_search_preferences"), dict)
         else {}
     )
-    search_agent_overlay_preferences = {
-        **workspace_preferences,
-        **preferences,
-    }
     run_preferences_payload = (
         dict(property_context.get("run", {}).get("property_search_preferences") or property_context.get("run", {}).get("preferences") or {})
         if isinstance(property_context.get("run"), dict)
@@ -6205,6 +6248,21 @@ def property_research_packet(
         )
         else {}
     )
+    workspace_distance_overlay = _property_research_workspace_distance_overlay(
+        workspace_preferences=workspace_preferences,
+        current_preferences=preferences,
+        run_preferences=run_preferences_payload,
+        candidate=candidate,
+    )
+    if workspace_distance_overlay:
+        preferences = {
+            **preferences,
+            **workspace_distance_overlay,
+        }
+    search_agent_overlay_preferences = {
+        **workspace_preferences,
+        **preferences,
+    }
     search_agent_distance_overlay = _property_research_search_agent_distance_overlay(
         preferences=search_agent_overlay_preferences,
         run_preferences=run_preferences_payload,
@@ -6276,7 +6334,7 @@ def property_research_packet(
         facts=facts,
         preferences=preferences,
     )
-    if search_agent_distance_overlay and selected_distance_rows:
+    if (workspace_distance_overlay or search_agent_distance_overlay) and selected_distance_rows:
         selected_distance_copy = "Distances for the nearby filters saved on this workspace."
     risk_fit_rows = _property_packet_risk_fit_rows(
         facts=facts,
