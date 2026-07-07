@@ -34,7 +34,7 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `b45cc35f659727368f95eba252802ada1916bb26` |
+| Runtime commit SHA | `4bb3ab37c82c2b2af08579ee600a836ea67019f7` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | `local-20260707T025758Z-b45cc35f6597`; current integrated local/live candidate with the research-detail nearby-distance fixes live, postal-scope nearby-distance backfill, deployed scene-video runtime-status gold-proof wiring, stabilized gold blocker keys, public/auth shared-run smoke coverage, presentation and 3D browser gates, account/billing/auth polish, walkthrough status-reason contract alignment, OMagic adapter packaging, and explicit fail-closed scene-video provider-runtime blockers |

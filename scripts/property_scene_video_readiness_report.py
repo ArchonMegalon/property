@@ -42,6 +42,9 @@ SAFE_CHECK_KEYS = {
     "model_upload_command_env_names",
     "model_upload_endpoint_env_names",
     "model_upload_supported",
+    "mootion_browseract_remote",
+    "mootion_execution_lane",
+    "mootion_local_worker_blockers",
     "public_provider_key",
     "runtime_account_count",
     "runtime_account_email_env_names",
@@ -386,26 +389,7 @@ def _provider_row(provider: str) -> dict[str, Any]:
     blockers = list(readiness.get("blockers") or [])
     ready = bool(readiness.get("ready"))
     status = str(readiness.get("status") or "blocked")
-    execution_lane = ""
-    if str(readiness.get("provider_key") or "").strip() == "mootion":
-        remote = mootion_browseract_bridge_readiness()
-        checks["mootion_browseract_remote"] = remote
-        local_only_blockers = [
-            str(blocker or "").strip()
-            for blocker in blockers
-            if str(blocker or "").strip() in MOOTION_LOCAL_WORKER_BLOCKERS
-        ]
-        non_remote_blockers = [
-            str(blocker or "").strip()
-            for blocker in blockers
-            if str(blocker or "").strip() and str(blocker or "").strip() not in MOOTION_LOCAL_WORKER_BLOCKERS
-        ]
-        if remote.get("ready") is True and not non_remote_blockers:
-            checks["mootion_local_worker_blockers"] = local_only_blockers
-            ready = True
-            status = "ready"
-            blockers = []
-            execution_lane = "browseract_remote"
+    execution_lane = str(readiness.get("execution_lane") or "").strip()
     return {
         "requested_provider": provider,
         "provider_key": readiness.get("provider_key"),

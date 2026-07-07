@@ -387,6 +387,73 @@ def test_scene_video_omagic_readiness_ignores_chummer_magic_env(monkeypatch, tmp
     assert "omagic_credentials_missing" in readiness["blockers"]
 
 
+def test_scene_video_mootion_readiness_prefers_browseract_remote_lane_when_available(monkeypatch, tmp_path: Path) -> None:
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "mootion_movie_worker.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setattr(service, "_scene_video_docker_socket_readiness", lambda: (False, "/var/run/docker.sock", "docker_socket_missing"))
+    monkeypatch.setattr(service, "_scene_video_docker_daemon_readiness", lambda path: (False, "docker_cli_missing"))
+    monkeypatch.setattr(service.shutil, "which", lambda command: "")
+    monkeypatch.setattr(
+        service,
+        "mootion_browseract_bridge_readiness",
+        lambda: {
+            "ready": True,
+            "status": "ready",
+            "target_count": 1,
+            "targets": [
+                {
+                    "binding_id": "binding-1",
+                    "external_account_ref": "mootion-scene-video-bridge",
+                    "status": "enabled",
+                    "workflow_configured": True,
+                    "run_url_configured": False,
+                }
+            ],
+        },
+    )
+
+    readiness = service.scene_video_provider_runtime_readiness("mootion")
+
+    assert readiness["ready"] is True
+    assert readiness["status"] == "ready"
+    assert readiness["execution_lane"] == "browseract_remote"
+    assert readiness["blockers"] == []
+    assert readiness["checks"]["mootion_local_worker_blockers"] == [
+        "mootion_docker_socket_missing",
+        "mootion_docker_cli_missing",
+    ]
+    assert readiness["checks"]["mootion_browseract_remote"]["target_count"] == 1
+
+
+def test_scene_video_mootion_readiness_keeps_remote_bridge_requirement_fail_closed(monkeypatch, tmp_path: Path) -> None:
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    monkeypatch.setattr(service, "resolve_scene_video_script_path", lambda script_name: tmp_path / "scripts" / "missing-mootion-worker.py")
+    monkeypatch.setattr(service, "_scene_video_docker_socket_readiness", lambda: (False, "/var/run/docker.sock", "docker_socket_missing"))
+    monkeypatch.setattr(service, "_scene_video_docker_daemon_readiness", lambda path: (False, "docker_cli_missing"))
+    monkeypatch.setattr(service.shutil, "which", lambda command: "")
+    monkeypatch.setattr(
+        service,
+        "mootion_browseract_bridge_readiness",
+        lambda: {
+            "ready": True,
+            "status": "ready",
+            "target_count": 1,
+            "targets": [{"binding_id": "binding-1", "status": "enabled", "workflow_configured": True, "run_url_configured": False}],
+        },
+    )
+
+    readiness = service.scene_video_provider_runtime_readiness("mootion")
+
+    assert readiness["ready"] is False
+    assert "mootion_worker_script_missing" in readiness["blockers"]
+    assert readiness["checks"]["mootion_browseract_remote"]["ready"] is True
+    assert "execution_lane" not in readiness
+
+
 def test_property_walkthrough_runtime_provider_prefers_magicfit_when_omagic_is_blocked(monkeypatch) -> None:
     def _fake_readiness(provider_key):
         provider_key = str(provider_key or "").strip()

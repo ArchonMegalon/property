@@ -6467,6 +6467,7 @@ def property_research_packet(
     selected_distance_rows, selected_distance_copy = _property_distance_panel_rows(
         facts=facts,
         preferences=preferences,
+        single_selected_distance_filter=True,
     )
     if recent_run_distance_overlay and selected_distance_rows:
         selected_distance_copy = "Distances for the nearby filters from your latest matching search."

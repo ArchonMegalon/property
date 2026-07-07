@@ -1607,6 +1607,48 @@ def _property_csv_tokens(value: object) -> set[str]:
     return {part.casefold() for part in parts if part}
 
 
+def _property_ordered_keyword_markers(preferences: dict[str, object]) -> tuple[str, ...]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def _append_raw_keyword_order(raw_value: object) -> None:
+        text = str(raw_value or "").strip()
+        if not text:
+            return
+        for token in text.replace(";", ",").split(","):
+            normalized = str(token or "").strip().casefold()
+            if not normalized or normalized in seen:
+                continue
+            ordered.append(normalized)
+            seen.add(normalized)
+
+    def _append_markers_from_preference_object(value: object) -> None:
+        if not isinstance(value, dict):
+            raw_json = str(value or "").strip()
+            if not raw_json:
+                return
+            try:
+                parsed = json.loads(raw_json)
+            except json.JSONDecodeError:
+                return
+            if not isinstance(parsed, dict):
+                return
+            value = parsed
+        for marker in value.keys():
+            normalized = str(marker or "").strip().casefold()
+            if not normalized or normalized in seen:
+                continue
+            ordered.append(normalized)
+            seen.add(normalized)
+
+    _append_raw_keyword_order(preferences.get("keywords"))
+    _append_raw_keyword_order(preferences.get("avoid_keywords"))
+    _append_markers_from_preference_object(preferences.get("keyword_preferences"))
+    _append_markers_from_preference_object(preferences.get("keyword_preferences_json"))
+
+    return tuple(ordered)
+
+
 def _property_keyword_preference_states(preferences: dict[str, object]) -> dict[str, str]:
     source: dict[str, object] = {}
     raw_value = preferences.get("keyword_preferences")
@@ -1651,13 +1693,28 @@ def _property_selected_distance_filter_active(
     keyword_states: dict[str, str],
     allow_preference_only: bool = True,
 ) -> bool:
+    normalized_markers = {str(marker or "").strip().casefold() for marker in keyword_markers if str(marker or "").strip()}
+    selected_marker_states = {marker: keyword_states.get(marker) for marker in keyword_tokens}
+    has_explicit_selected_keyword_state = any(str(value or "").strip() for value in selected_marker_states.values())
+    if has_explicit_selected_keyword_state:
+        return any(_property_preference_value_is_selected(keyword_states.get(marker)) for marker in normalized_markers)
+
+    explicit_marker_states = {marker: keyword_states.get(marker) for marker in normalized_markers}
+    has_explicit_marker_state = any(str(value or "").strip() for value in explicit_marker_states.values())
+    has_explicit_marker_preference = any(
+        _property_preference_value_is_selected(value)
+        for value in explicit_marker_states.values()
+        if str(value or "").strip()
+    )
+    if has_explicit_marker_state and normalized_markers:
+        return has_explicit_marker_preference
+
     if allow_preference_only and preference_keys and _property_positive_preference_distance(preferences, preference_keys) is not None:
         return True
     if allow_preference_only and any(_property_preference_value_is_selected(preferences.get(key)) for key in importance_keys):
         return True
     if any(_property_preference_value_is_selected(preferences.get(key)) for key in legacy_boolean_keys):
         return True
-    normalized_markers = {str(marker or "").strip().casefold() for marker in keyword_markers if str(marker or "").strip()}
     if normalized_markers & keyword_tokens:
         return True
     for marker in normalized_markers:
@@ -1947,9 +2004,11 @@ def _property_selected_distance_rows(
 ) -> list[dict[str, str]]:
     keyword_tokens = _property_csv_tokens(preferences.get("keywords")) | _property_csv_tokens(preferences.get("avoid_keywords"))
     keyword_states = _property_keyword_preference_states(preferences)
-    rows: list[dict[str, str]] = []
+    ordered_markers = _property_ordered_keyword_markers(preferences)
+    marker_position = {marker: index for index, marker in enumerate(ordered_markers)}
+    rows: list[tuple[int, int, dict[str, str]]] = []
     seen_titles: set[str] = set()
-    for spec in _PROPERTY_RESEARCH_DISTANCE_ROW_SPECS:
+    for spec_index, spec in enumerate(_PROPERTY_RESEARCH_DISTANCE_ROW_SPECS):
         title = str(spec.get("title") or "").strip()
         if not title or title.casefold() in seen_titles:
             continue
@@ -2012,9 +2071,16 @@ def _property_selected_distance_rows(
             tag = "To check"
         if not detail.endswith("."):
             detail = f"{detail}."
-        rows.append(_object_detail_row(title, detail, tag))
+        marker_positions: list[int] = []
+        for marker in keyword_markers:
+            normalized_marker = str(marker or "").strip().casefold()
+            if normalized_marker in marker_position:
+                marker_positions.append(marker_position[normalized_marker])
+        preferred_position = min(marker_positions) if marker_positions else len(ordered_markers) + spec_index + 1
+        rows.append((preferred_position, spec_index, _object_detail_row(title, detail, tag)))
         seen_titles.add(title.casefold())
-    return rows
+    rows.sort(key=lambda item: (item[0], item[1]))
+    return [_object_detail_row for _position, _spec_index, _object_detail_row in rows]
 
 
 def _property_available_nearby_distance_rows(
@@ -2059,11 +2125,14 @@ def _property_distance_panel_rows(
     *,
     facts: dict[str, object],
     preferences: dict[str, object],
+    single_selected_distance_filter: bool = False,
 ) -> tuple[list[dict[str, str]], str]:
     selected_rows = _property_selected_distance_rows(
         facts=facts,
         preferences=preferences,
     )
+    if single_selected_distance_filter and selected_rows:
+        selected_rows = selected_rows[:1]
     if selected_rows:
         return selected_rows, "Distances for the nearby filters in this search."
     return [], ""

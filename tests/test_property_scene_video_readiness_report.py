@@ -97,28 +97,31 @@ def test_scene_video_readiness_report_promotes_mootion_when_browseract_bridge_re
         lambda provider: {
             "provider_key": "mootion",
             "provider_backend_key": "mootion",
-            "ready": False,
-            "status": "blocked",
-            "blockers": ["mootion_docker_socket_missing", "mootion_docker_cli_missing"],
-            "checks": {"script_exists": True, "docker_socket_configured": False, "docker_cli_configured": False},
-        },
-    )
-    monkeypatch.setattr(
-        module,
-        "mootion_browseract_bridge_readiness",
-        lambda: {
             "ready": True,
             "status": "ready",
-            "target_count": 1,
-            "targets": [
-                {
-                    "binding_id": "binding-1",
-                    "external_account_ref": "mootion-scene-video-bridge",
-                    "status": "enabled",
-                    "workflow_configured": True,
-                    "run_url_configured": False,
-                }
-            ],
+            "blockers": [],
+            "execution_lane": "browseract_remote",
+            "checks": {
+                "script_exists": True,
+                "docker_socket_configured": False,
+                "docker_cli_configured": False,
+                "mootion_local_worker_blockers": ["mootion_docker_socket_missing", "mootion_docker_cli_missing"],
+                "mootion_execution_lane": "browseract_remote",
+                "mootion_browseract_remote": {
+                    "ready": True,
+                    "status": "ready",
+                    "target_count": 1,
+                    "targets": [
+                        {
+                            "binding_id": "binding-1",
+                            "external_account_ref": "mootion-scene-video-bridge",
+                            "status": "enabled",
+                            "workflow_configured": True,
+                            "run_url_configured": False,
+                        }
+                    ],
+                },
+            },
         },
     )
 
@@ -148,17 +151,17 @@ def test_scene_video_readiness_report_actions_missing_mootion_remote_lane(monkey
             "ready": True,
             "status": "ready",
             "blockers": [],
-            "checks": {"script_exists": True, "docker_socket_configured": True, "docker_cli_configured": True},
-        },
-    )
-    monkeypatch.setattr(
-        module,
-        "mootion_browseract_bridge_readiness",
-        lambda: {
-            "ready": False,
-            "status": "unavailable",
-            "target_count": 0,
-            "targets": [],
+            "checks": {
+                "script_exists": True,
+                "docker_socket_configured": True,
+                "docker_cli_configured": True,
+                "mootion_browseract_remote": {
+                    "ready": False,
+                    "status": "unavailable",
+                    "target_count": 0,
+                    "targets": [],
+                },
+            },
         },
     )
 

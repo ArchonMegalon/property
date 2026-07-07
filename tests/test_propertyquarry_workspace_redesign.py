@@ -1148,6 +1148,157 @@ def test_propertyquarry_selected_distance_rows_follow_selected_nearby_filters() 
     assert "Medical care" not in details_by_title
 
 
+def test_propertyquarry_single_distance_row_follows_user_keyword_priority() -> None:
+    selected_distance_rows, _ = landing_property_research._property_distance_panel_rows(
+        facts={
+            "nearest_playground_m": 320,
+            "nearest_playground_name": "Volksgarten Playground",
+            "nearest_supermarket_m": 280,
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "nearest_supermarket_source": "OpenStreetMap",
+            "nearest_playground_source": "OpenStreetMap",
+        },
+        preferences={
+            "keywords": "playground nearby, supermarket nearby",
+            "keyword_preferences": {
+                "playground nearby": "important",
+                "supermarket nearby": "important",
+            },
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_playground_m": 450,
+        },
+        single_selected_distance_filter=True,
+    )
+    assert len(selected_distance_rows) == 1
+    assert selected_distance_rows[0]["title"] == "Playground"
+    assert "Nearest playground: Volksgarten Playground is 320 m away; selected limit 450 m | source: OpenStreetMap." in selected_distance_rows[0]["detail"]
+
+
+def test_propertyquarry_selected_distance_rows_prefers_explicit_keyword_preferences() -> None:
+    rows = landing_property_research._property_selected_distance_rows(
+        facts={
+            "nearest_supermarket_m": 280,
+            "nearest_playground_m": 320,
+            "nearest_pharmacy_m": 180,
+        },
+        preferences={
+            "keywords": "supermarket nearby, playground nearby, pharmacy nearby",
+            "keyword_preferences": {
+                "supermarket nearby": "important",
+                "playground nearby": "any",
+                "pharmacy nearby": "off",
+            },
+        },
+    )
+
+    details_by_title = {row["title"]: row["detail"] for row in rows}
+    assert set(details_by_title) == {"Supermarket"}
+    assert details_by_title["Supermarket"] == "Nearest supermarket is 280 m away."
+
+
+def test_propertyquarry_selected_distance_rows_targets_marker_specific_state() -> None:
+    rows = landing_property_research._property_selected_distance_rows(
+        facts={
+            "nearest_supermarket_m": 280,
+            "nearest_playground_m": 320,
+        },
+        preferences={
+            "keywords": "supermarket nearby",
+            "keyword_preferences": {
+                "playground nearby": "off",
+                "pharmacy nearby": "must_have",
+            },
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_playground_m": 450,
+            "max_distance_to_medical_care_m": 300,
+        },
+    )
+
+    details_by_title = {row["title"]: row["detail"] for row in rows}
+    assert "Supermarket" in details_by_title
+    assert details_by_title["Supermarket"] == "Nearest supermarket is 280 m away; selected limit 500 m."
+    assert "Playground" not in details_by_title
+
+
+def test_propertyquarry_selected_distance_rows_prefers_avoid_keyword_priority() -> None:
+    selected_distance_rows, _ = landing_property_research._property_distance_panel_rows(
+        facts={
+            "nearest_playground_m": 320,
+            "nearest_supermarket_m": 280,
+            "nearest_playground_name": "Volksgarten Playground",
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "nearest_supermarket_source": "OpenStreetMap",
+            "nearest_playground_source": "OpenStreetMap",
+        },
+        preferences={
+            "avoid_keywords": "playground nearby, supermarket nearby",
+            "max_distance_to_playground_m": 450,
+            "max_distance_to_supermarket_m": 500,
+        },
+        single_selected_distance_filter=True,
+    )
+    assert len(selected_distance_rows) == 1
+    assert selected_distance_rows[0]["title"] == "Playground"
+
+
+def test_propertyquarry_selected_distance_rows_prefers_json_keyword_preference_order() -> None:
+    selected_distance_rows, _ = landing_property_research._property_distance_panel_rows(
+        facts={
+            "nearest_playground_m": 320,
+            "nearest_supermarket_m": 280,
+            "nearest_playground_name": "Volksgarten Playground",
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "nearest_supermarket_source": "OpenStreetMap",
+            "nearest_playground_source": "OpenStreetMap",
+        },
+        preferences={
+            "keywords": "playground nearby, supermarket nearby",
+            "keyword_preferences_json": "{\"playground nearby\": \"important\", \"supermarket nearby\": \"important\"}",
+            "max_distance_to_playground_m": 450,
+            "max_distance_to_supermarket_m": 500,
+        },
+        single_selected_distance_filter=True,
+    )
+    assert len(selected_distance_rows) == 1
+    assert selected_distance_rows[0]["title"] == "Playground"
+
+
+def test_propertyquarry_selected_distance_rows_prefers_explicit_state_over_tokens() -> None:
+    rows = landing_property_research._property_selected_distance_rows(
+        facts={
+            "nearest_supermarket_m": 280,
+            "nearest_playground_m": 320,
+            "nearest_pharmacy_m": 180,
+        },
+        preferences={
+            "keywords": "supermarket nearby, playground nearby, pharmacy nearby",
+            "keyword_preferences": {
+                "supermarket nearby": "important",
+            },
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_playground_m": 450,
+            "max_distance_to_medical_care_m": 300,
+        },
+    )
+    details_by_title = {row["title"]: row["detail"] for row in rows}
+    assert set(details_by_title) == {"Supermarket"}
+    assert details_by_title["Supermarket"] == "Nearest supermarket is 280 m away; selected limit 500 m."
+
+
+def test_propertyquarry_selected_distance_rows_falls_back_to_keyword_tokens() -> None:
+    rows = landing_property_research._property_selected_distance_rows(
+        facts={
+            "nearest_supermarket_m": 280,
+            "nearest_playground_m": 320,
+            "nearest_pharmacy_m": 180,
+        },
+        preferences={"keywords": "supermarket nearby, playground nearby, pharmacy nearby"},
+    )
+
+    details_by_title = {row["title"]: row["detail"] for row in rows}
+    assert set(details_by_title) == {"Supermarket", "Playground", "Pharmacy"}
+
+
 def test_propertyquarry_selected_distance_rows_support_legacy_nearby_preference_flags() -> None:
     rows = landing_property_research._property_selected_distance_rows(
         facts={
@@ -10428,8 +10579,8 @@ def test_property_research_detail_replaces_other_homes_with_selected_distance_ch
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
     assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m" in page.text
-    assert "Nearest playground distance is not listed yet; selected limit 450 m." in page.text
-    assert "Nearest pharmacy distance is not listed yet; selected limit 300 m." in page.text
+    assert "Nearest playground distance is not listed yet; selected limit 450 m." not in page.text
+    assert "Nearest pharmacy distance is not listed yet; selected limit 300 m." not in page.text
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
     assert "Sibling home should not render" not in page.text
@@ -10705,6 +10856,94 @@ def test_property_research_detail_supports_lifestyle_distance_filters(monkeypatc
     assert 'data-research-ranking-list' not in page.text
 
 
+def test_property_research_detail_respects_explicit_keyword_preference_states(monkeypatch) -> None:
+    principal_id = "pq-research-detail-explicit-keyword-states"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Explicit Keyword Distance Office")
+
+    candidate = {
+        "candidate_ref": "cand-explicit-keyword-states",
+        "title": "Explicit keywords choose one filter",
+        "fit_summary": "Nearby rows should follow explicit states only.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-explicit-keyword-states",
+        "property_url": "https://example.test/explicit-keyword-states-home",
+        "source_label": "Willhaben",
+        "fit_score": 77,
+        "property_facts": {
+            "price_display": "EUR 2,650",
+            "area_m2": 90,
+            "rooms": 3,
+            "postal_name": "1020 Wien",
+            "nearest_supermarket_m": 280,
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "nearest_supermarket_source": "OpenStreetMap",
+            "nearest_playground_m": 320,
+            "nearest_playground_name": "Prater Park Playground",
+            "nearest_playground_source": "OpenStreetMap",
+            "nearest_pharmacy_m": 180,
+            "nearest_pharmacy_name": "City Pharmacy",
+            "nearest_pharmacy_source": "OpenStreetMap",
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        lambda *, property_url, property_facts, image_urls=(): dict(property_facts),
+    )
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+                "keywords": "supermarket nearby, playground nearby, pharmacy nearby",
+                "keyword_preferences": {
+                    "supermarket nearby": "important",
+                    "playground nearby": "off",
+                    "pharmacy nearby": "any",
+                },
+                "max_distance_to_supermarket_m": 500,
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    page = client.get(
+        "/app/research/cand-explicit-keyword-states",
+        params={"run_id": "run-explicit-keyword-states"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert "Nearby distances" in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m | source: OpenStreetMap." in page.text
+    assert "Nearest playground" not in page.text
+    assert "Nearest pharmacy" not in page.text
+    assert "Other homes" not in page.text
+    assert 'data-research-ranking-list' not in page.text
+
+
 def test_property_research_detail_uses_matching_workspace_distance_filters_when_run_has_none(monkeypatch) -> None:
     principal_id = "pq-research-detail-workspace-distance-fallback"
     client = build_property_client(principal_id=principal_id)
@@ -10964,10 +11203,10 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
     assert "Distances for the nearby filters saved on this workspace." in page.text
+    unescaped_page = html.unescape(page.text)
     assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
-    assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." in page.text
-    assert "Nearest pharmacy: Graben-Apotheke" in page.text
-    assert "selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." not in page.text
+    assert "Nearest pharmacy: Graben-Apotheke" not in unescaped_page
     assert "selected limit 200 m" not in page.text
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
@@ -11112,10 +11351,10 @@ def test_property_research_detail_backfills_postal_scope_nearby_distances_for_ma
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
     assert "Distances for the nearby filters saved on this workspace." in page.text
+    unescaped_page = html.unescape(page.text)
     assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
-    assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." in page.text
-    assert "Nearest pharmacy: Graben-Apotheke" in page.text
-    assert "selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." not in page.text
+    assert "Nearest pharmacy: Graben-Apotheke" not in unescaped_page
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
 
@@ -11387,10 +11626,10 @@ def test_property_research_detail_uses_recent_matching_run_distance_filters_when
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
     assert "Distances for the nearby filters from your latest matching search." in page.text
+    unescaped_page = html.unescape(page.text)
     assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
-    assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." in page.text
-    assert "Nearest pharmacy: Graben-Apotheke" in page.text
-    assert "selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." not in page.text
+    assert "Nearest pharmacy: Graben-Apotheke" not in unescaped_page
     assert "selected limit 200 m" not in page.text
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
@@ -11480,8 +11719,8 @@ def test_property_research_detail_uses_run_distance_filters_even_when_run_snapsh
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
     assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m" in page.text
-    assert "Nearest playground" in page.text
-    assert "selected limit 450 m" in page.text
+    assert "Nearest playground" not in page.text
+    assert "selected limit 450 m" not in page.text
 
 
 def test_property_workspace_payload_drops_oversized_inline_candidate_previews() -> None:

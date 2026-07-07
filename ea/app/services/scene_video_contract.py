@@ -7,10 +7,26 @@ import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 _SCENE_VIDEO_RUNTIME_INCOMING_ROOT = Path("/data/incoming_property_tours")
 _SCENE_VIDEO_BLOCKED_ENV_PREFIXES = ("CHUMMER_EA_",)
+_MOOTION_LOCAL_WORKER_BLOCKERS = {
+    "mootion_docker_socket_missing",
+    "mootion_docker_cli_missing",
+    "mootion_docker_daemon_unavailable",
+}
+_MOOTION_BROWSERACT_WORKFLOW_KEYS = (
+    "mootion_movie_workflow_id",
+    "browseract_mootion_movie_workflow_id",
+    "workflow_id",
+)
+_MOOTION_BROWSERACT_RUN_URL_KEYS = (
+    "mootion_movie_run_url",
+    "browseract_mootion_movie_run_url",
+    "run_url",
+)
 
 
 def _normalized_provider_token(value: object) -> str:
@@ -545,6 +561,99 @@ def _scene_video_docker_socket_readiness() -> tuple[bool, str, str]:
     return ready, socket_path, "docker_socket_ready" if ready else "docker_socket_missing"
 
 
+def _scene_video_collect_tokens(value: object) -> set[str]:
+    tokens: set[str] = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            tokens.update(_scene_video_collect_tokens(key))
+            tokens.update(_scene_video_collect_tokens(item))
+        return tokens
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            tokens.update(_scene_video_collect_tokens(item))
+        return tokens
+    text = str(value or "").strip().lower()
+    if text:
+        tokens.add(text)
+    return tokens
+
+
+def _scene_video_mootion_binding_workflow_configured(metadata: dict[str, object]) -> tuple[bool, bool]:
+    workflow_configured = any(str(metadata.get(key) or "").strip() for key in _MOOTION_BROWSERACT_WORKFLOW_KEYS)
+    run_url_configured = any(str(metadata.get(key) or "").strip() for key in _MOOTION_BROWSERACT_RUN_URL_KEYS)
+    return workflow_configured, run_url_configured
+
+
+def _scene_video_mootion_browseract_target_from_binding(binding: object) -> dict[str, Any]:
+    if str(getattr(binding, "connector_name", "") or "").strip().lower() != "browseract":
+        return {}
+    status = str(getattr(binding, "status", "") or "").strip().lower()
+    if status not in {"enabled", "ready", "active"}:
+        return {}
+    metadata = dict(getattr(binding, "auth_metadata_json", {}) or {})
+    scope = dict(getattr(binding, "scope_json", {}) or {})
+    workflow_configured, run_url_configured = _scene_video_mootion_binding_workflow_configured(metadata)
+    if not workflow_configured and not run_url_configured:
+        return {}
+    tokens: set[str] = set()
+    for value in (
+        metadata.get("service_key"),
+        metadata.get("browseract_service_key"),
+        metadata.get("capability_key"),
+        metadata.get("tool_name"),
+        metadata.get("mootion_browseract_bridge"),
+        getattr(binding, "external_account_ref", ""),
+        scope.get("services"),
+        scope.get("scopes"),
+        scope.get("assistant_surfaces"),
+        scope.get("tags"),
+        metadata.get("services"),
+        metadata.get("scopes"),
+        metadata.get("assistant_surfaces"),
+        metadata.get("tags"),
+    ):
+        tokens.update(_scene_video_collect_tokens(value))
+    accounts = metadata.get("service_accounts_json")
+    if isinstance(accounts, dict):
+        tokens.update(_scene_video_collect_tokens(list(accounts.keys())))
+    if not bool(metadata.get("mootion_browseract_bridge")) and not any("mootion" in token for token in tokens):
+        return {}
+    return {
+        "binding_id": str(getattr(binding, "binding_id", "") or "").strip(),
+        "external_account_ref": str(getattr(binding, "external_account_ref", "") or "").strip(),
+        "status": status,
+        "workflow_configured": workflow_configured,
+        "run_url_configured": run_url_configured,
+    }
+
+
+def mootion_browseract_bridge_readiness() -> dict[str, Any]:
+    try:
+        from app.services.tool_runtime import build_tool_runtime
+
+        tool_runtime = build_tool_runtime()
+        bindings = tool_runtime.list_connector_bindings_for_connector("browseract", limit=500)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ready": False,
+            "status": "unavailable",
+            "target_count": 0,
+            "targets": [],
+            "error": str(exc or exc.__class__.__name__)[:240],
+        }
+    targets = [
+        target
+        for target in (_scene_video_mootion_browseract_target_from_binding(binding) for binding in bindings)
+        if target
+    ]
+    return {
+        "ready": bool(targets),
+        "status": "ready" if targets else "blocked",
+        "target_count": len(targets),
+        "targets": targets,
+    }
+
+
 def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, object]:
     contract_provider_key = normalize_scene_video_contract_provider(provider_key, default="mootion")
     backend_provider_key = normalize_scene_video_backend_provider(provider_key, default="mootion")
@@ -654,6 +763,7 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
         docker_cli_path = shutil.which("docker") or ""
         docker_daemon_ready, docker_daemon_detail = _scene_video_docker_daemon_readiness(docker_cli_path)
         docker_socket_ready, docker_socket_path, docker_socket_detail = _scene_video_docker_socket_readiness()
+        remote_bridge = mootion_browseract_bridge_readiness()
         checks = {
             "script_path": str(script_path),
             "script_exists": script_path.exists(),
@@ -664,6 +774,7 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
             "docker_socket_detail": docker_socket_detail,
             "docker_daemon_ready": docker_daemon_ready,
             "docker_daemon_detail": docker_daemon_detail,
+            "mootion_browseract_remote": remote_bridge,
         }
         if not checks["script_exists"]:
             blockers.append("mootion_worker_script_missing")
@@ -673,6 +784,12 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
             blockers.append("mootion_docker_cli_missing")
         elif not docker_daemon_ready:
             blockers.append("mootion_docker_daemon_unavailable")
+        local_only_blockers = [blocker for blocker in blockers if blocker in _MOOTION_LOCAL_WORKER_BLOCKERS]
+        non_remote_blockers = [blocker for blocker in blockers if blocker and blocker not in _MOOTION_LOCAL_WORKER_BLOCKERS]
+        if remote_bridge.get("ready") is True and not non_remote_blockers:
+            checks["mootion_local_worker_blockers"] = local_only_blockers
+            checks["mootion_execution_lane"] = "browseract_remote"
+            blockers = []
     ready = not blockers
     readiness = {
         "provider_key": contract_provider_key,
@@ -682,6 +799,9 @@ def scene_video_provider_runtime_readiness(provider_key: object) -> dict[str, ob
         "blockers": blockers,
         "checks": checks,
     }
+    execution_lane = str(checks.get("mootion_execution_lane") or "").strip()
+    if execution_lane:
+        readiness["execution_lane"] = execution_lane
     for receipt_key in (
         "public_provider_key",
         "backend_adapter_key",
