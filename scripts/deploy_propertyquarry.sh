@@ -60,6 +60,9 @@ Environment:
                                   Public URL included in the gold notification. Defaults to https://propertyquarry.com.
   PROPERTYQUARRY_GOLD_NOTIFICATION_STATE
                                   Send-once state file for green gold notifications.
+  PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME
+                                  Prefer the live API container for PropertyQuarry Telegram notifications
+                                  before falling back to the host runtime. Defaults to 1 in this deploy lane.
   PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED
                                   1 enables the Telegram scene-video provider refresh notification when
                                   current runtime receipts still show actionable MagicFit/OMagic gaps.
@@ -1586,6 +1589,8 @@ scene_video_refresh_notification_principal_id="$(effective_env_value PROPERTYQUA
 scene_video_refresh_notification_principal_id="${scene_video_refresh_notification_principal_id:-${EA_PRINCIPAL_ID:-propertyquarry-operator}}"
 scene_video_refresh_notification_base_url="$(effective_env_value PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL)"
 scene_video_refresh_notification_base_url="${scene_video_refresh_notification_base_url:-https://propertyquarry.com}"
+notification_prefer_container_runtime="$(effective_env_value PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME)"
+notification_prefer_container_runtime="${notification_prefer_container_runtime:-1}"
 scene_video_refresh_notification_state="$(effective_env_value PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE)"
 scene_video_refresh_notification_state="${scene_video_refresh_notification_state:-_completion/scene_video_readiness/provider-refresh-telegram-state.json}"
 scene_video_refresh_notification_report="_completion/scene_video_readiness/provider-refresh-telegram-report.json"
@@ -1598,6 +1603,7 @@ case "${scene_video_refresh_notification_enabled,,}" in
       EA_TELEGRAM_BOT_REGISTRY_JSON="${telegram_bot_registry_json}" \
       EA_TELEGRAM_BOT_TOKEN="${telegram_bot_token}" \
       EA_TELEGRAM_BOT_HANDLE="${telegram_bot_handle}" \
+      PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME="${notification_prefer_container_runtime}" \
       PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_notify_scene_video_provider_refresh.py \
         --packet "${scene_video_refresh_packet}" \
         --verifier "${scene_video_refresh_packet_verifier}" \
@@ -1662,6 +1668,7 @@ case "${gold_notification_enabled,,}" in
       EA_TELEGRAM_BOT_REGISTRY_JSON="${telegram_bot_registry_json}" \
       EA_TELEGRAM_BOT_TOKEN="${telegram_bot_token}" \
       EA_TELEGRAM_BOT_HANDLE="${telegram_bot_handle}" \
+      PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME="${notification_prefer_container_runtime}" \
       PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_notify_gold_status.py \
         --receipt "${gold_status_receipt}" \
         --state-file "${gold_notification_state}" \

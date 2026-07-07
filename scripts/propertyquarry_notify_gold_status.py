@@ -34,6 +34,11 @@ _DIRECT_CHAT_ENV_KEYS = (
     "EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID",
     "EA_TELEGRAM_DEFAULT_CHAT_ID",
 )
+_PREFER_CONTAINER_RUNTIME_ENV_KEYS = (
+    "PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME",
+    "PROPERTYQUARRY_GOLD_NOTIFICATION_PREFER_CONTAINER_RUNTIME",
+    "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PREFER_CONTAINER_RUNTIME",
+)
 _RUNTIME_CONTAINER_ENV_KEYS = (
     "PROPERTYQUARRY_API_CONTAINER_NAME",
     "PROPERTYQUARRY_GOLD_NOTIFICATION_RUNTIME_CONTAINER",
@@ -77,6 +82,10 @@ def _load_local_env_defaults() -> None:
         _load_dotenv_defaults(path)
 
 
+def _env_truthy(value: object) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+
+
 def _direct_chat_id() -> str:
     for key in _DIRECT_CHAT_ENV_KEYS:
         value = str(os.getenv(key) or "").strip()
@@ -91,6 +100,16 @@ def _runtime_container_name() -> str:
         if value:
             return value
     return "propertyquarry-api"
+
+
+def _prefer_container_runtime() -> bool:
+    for key in _PREFER_CONTAINER_RUNTIME_ENV_KEYS:
+        if key not in os.environ:
+            continue
+        value = str(os.getenv(key) or "").strip()
+        if value:
+            return _env_truthy(value)
+    return False
 
 
 def _resolve_receipt_path(raw_path: str) -> Path:
@@ -219,6 +238,109 @@ def _receipt_ready_for_notification(payload: dict[str, Any]) -> bool:
     return payload.get("ready_for_notification") is True
 
 
+def deliver_notification_for_principal(
+    *,
+    principal_id: str,
+    text: str,
+    url_buttons: list[list[tuple[str, str]]] | None = None,
+    prefer_container_runtime: bool | None = None,
+) -> dict[str, Any]:
+    prefer_container = _prefer_container_runtime() if prefer_container_runtime is None else bool(prefer_container_runtime)
+    runtime_error = ""
+    container_runtime_error = ""
+    delivery_mode = ""
+    message_ids: list[str] = []
+
+    if prefer_container:
+        try:
+            receipt = _send_container_runtime_telegram_message(
+                principal_id=principal_id,
+                text=text,
+                url_buttons=url_buttons,
+            )
+            delivery_mode = "container_runtime_preferred"
+            message_ids = [str(value) for value in list(receipt.get("message_ids") or []) if str(value or "").strip()]
+        except Exception as exc:
+            container_runtime_error = f"{type(exc).__name__}: {exc}"
+        else:
+            report: dict[str, Any] = {
+                "delivery_mode": delivery_mode,
+                "message_ids": message_ids,
+            }
+            if container_runtime_error:
+                report["container_runtime_error"] = container_runtime_error
+            return report
+
+    try:
+        runtime = build_tool_runtime()
+    except Exception as exc:
+        runtime_error = f"{type(exc).__name__}: {exc}"
+        if not prefer_container:
+            try:
+                receipt = _send_container_runtime_telegram_message(
+                    principal_id=principal_id,
+                    text=text,
+                    url_buttons=url_buttons,
+                )
+                delivery_mode = "container_runtime_fallback"
+                message_ids = [str(value) for value in list(receipt.get("message_ids") or []) if str(value or "").strip()]
+            except Exception as container_exc:
+                container_runtime_error = f"{type(container_exc).__name__}: {container_exc}"
+                chat_id = _direct_chat_id()
+                if not chat_id:
+                    raise
+                receipt = _send_direct_telegram_message(
+                    chat_id=chat_id,
+                    text=text,
+                    url_buttons=url_buttons,
+                )
+                delivery_mode = "direct_chat_fallback"
+                message_ids = [str(value) for value in list(receipt.get("message_ids") or []) if str(value or "").strip()]
+        else:
+            chat_id = _direct_chat_id()
+            if not chat_id:
+                raise
+            receipt = _send_direct_telegram_message(
+                chat_id=chat_id,
+                text=text,
+                url_buttons=url_buttons,
+            )
+            delivery_mode = "direct_chat_fallback"
+            message_ids = [str(value) for value in list(receipt.get("message_ids") or []) if str(value or "").strip()]
+    else:
+        try:
+            receipt = send_telegram_message_for_principal(
+                runtime,
+                principal_id=principal_id,
+                text=text,
+                url_buttons=url_buttons,
+            )
+            delivery_mode = "principal_binding"
+            message_ids = [str(value) for value in list(receipt.message_ids) if str(value or "").strip()]
+        except Exception as exc:
+            runtime_error = f"{type(exc).__name__}: {exc}"
+            chat_id = _direct_chat_id()
+            if not chat_id:
+                raise
+            receipt = _send_direct_telegram_message(
+                chat_id=chat_id,
+                text=text,
+                url_buttons=url_buttons,
+            )
+            delivery_mode = "direct_chat_fallback"
+            message_ids = [str(value) for value in list(receipt.get("message_ids") or []) if str(value or "").strip()]
+
+    report = {
+        "delivery_mode": delivery_mode,
+        "message_ids": message_ids,
+    }
+    if runtime_error:
+        report["runtime_error"] = runtime_error
+    if container_runtime_error:
+        report["container_runtime_error"] = container_runtime_error
+    return report
+
+
 def build_notification_report(
     *,
     payload: dict[str, Any],
@@ -265,58 +387,17 @@ def build_notification_report(
 
     message = _build_message(payload=payload, receipt_path=receipt_path, base_url=base_url)
     url_buttons = [[("Open PropertyQuarry", base_url)]]
-    runtime_error = ""
-    container_runtime_error = ""
-    try:
-        runtime = build_tool_runtime()
-    except Exception as exc:
-        runtime_error = f"{type(exc).__name__}: {exc}"
-        try:
-            receipt = _send_container_runtime_telegram_message(
-                principal_id=principal_id,
-                text=message,
-                url_buttons=url_buttons,
-            )
-            report["delivery_mode"] = "container_runtime_fallback"
-            report["message_ids"] = list(receipt.get("message_ids") or [])
-        except Exception as container_exc:
-            container_runtime_error = f"{type(container_exc).__name__}: {container_exc}"
-            chat_id = _direct_chat_id()
-            if not chat_id:
-                raise
-            receipt = _send_direct_telegram_message(
-                chat_id=chat_id,
-                text=message,
-                url_buttons=url_buttons,
-            )
-            report["delivery_mode"] = "direct_chat_fallback"
-            report["message_ids"] = list(receipt.get("message_ids") or [])
-    else:
-        try:
-            receipt = send_telegram_message_for_principal(
-                runtime,
-                principal_id=principal_id,
-                text=message,
-                url_buttons=url_buttons,
-            )
-            report["delivery_mode"] = "principal_binding"
-            report["message_ids"] = list(receipt.message_ids)
-        except Exception as exc:
-            runtime_error = f"{type(exc).__name__}: {exc}"
-            chat_id = _direct_chat_id()
-            if not chat_id:
-                raise
-            receipt = _send_direct_telegram_message(
-                chat_id=chat_id,
-                text=message,
-                url_buttons=url_buttons,
-            )
-            report["delivery_mode"] = "direct_chat_fallback"
-            report["message_ids"] = list(receipt.get("message_ids") or [])
-    if runtime_error:
-        report["runtime_error"] = runtime_error
-    if container_runtime_error:
-        report["container_runtime_error"] = container_runtime_error
+    delivery = deliver_notification_for_principal(
+        principal_id=principal_id,
+        text=message,
+        url_buttons=url_buttons,
+    )
+    report["delivery_mode"] = str(delivery.get("delivery_mode") or "").strip()
+    report["message_ids"] = [str(value) for value in list(delivery.get("message_ids") or []) if str(value or "").strip()]
+    if delivery.get("runtime_error"):
+        report["runtime_error"] = str(delivery.get("runtime_error") or "").strip()
+    if delivery.get("container_runtime_error"):
+        report["container_runtime_error"] = str(delivery.get("container_runtime_error") or "").strip()
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
         json.dumps(

@@ -72,6 +72,7 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID",
         "PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL",
         "PROPERTYQUARRY_GOLD_NOTIFICATION_STATE",
+        "PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME",
         "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED",
         "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID",
         "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL",
@@ -415,6 +416,7 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
         "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID",
         "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL",
         "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE",
+        "PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME",
     ):
         assert required in release_gate
 
@@ -463,6 +465,7 @@ def test_property_gold_refresh_can_send_scene_video_provider_refresh_notificatio
         "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID",
         "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL",
         "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE",
+        "PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME",
         "_completion/scene_video_readiness/provider-refresh-telegram-report.json",
         '--packet "${scene_video_refresh_packet}"',
         '--verifier "${scene_video_refresh_packet_verifier}"',
@@ -497,6 +500,7 @@ def test_property_release_gate_sends_gold_notification_when_green() -> None:
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID" in release_gate
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL" in release_gate
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_STATE" in release_gate
+    assert "PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME" in release_gate
     assert "_completion/property_gold_status/telegram-notify-report.json" in release_gate
     assert "warning: PropertyQuarry gold notification script failed." in release_gate
 

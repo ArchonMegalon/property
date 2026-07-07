@@ -206,59 +206,17 @@ def build_notification_report(
 
     message = _build_message(packet=packet, packet_path=packet_path, runtime_status=runtime_status)
     url_buttons = [[("Open PropertyQuarry", base_url)]]
-    runtime_error = ""
-    container_runtime_error = ""
-    try:
-        runtime = gold_notify.build_tool_runtime()
-    except Exception as exc:
-        runtime_error = f"{type(exc).__name__}: {exc}"
-        try:
-            receipt = gold_notify._send_container_runtime_telegram_message(
-                principal_id=principal_id,
-                text=message,
-                url_buttons=url_buttons,
-            )
-            report["delivery_mode"] = "container_runtime_fallback"
-            report["message_ids"] = list(receipt.get("message_ids") or [])
-        except Exception as container_exc:
-            container_runtime_error = f"{type(container_exc).__name__}: {container_exc}"
-            chat_id = gold_notify._direct_chat_id()
-            if not chat_id:
-                raise
-            receipt = gold_notify._send_direct_telegram_message(
-                chat_id=chat_id,
-                text=message,
-                url_buttons=url_buttons,
-            )
-            report["delivery_mode"] = "direct_chat_fallback"
-            report["message_ids"] = list(receipt.get("message_ids") or [])
-    else:
-        try:
-            receipt = gold_notify.send_telegram_message_for_principal(
-                runtime,
-                principal_id=principal_id,
-                text=message,
-                url_buttons=url_buttons,
-            )
-            report["delivery_mode"] = "principal_binding"
-            report["message_ids"] = list(receipt.message_ids)
-        except Exception as exc:
-            runtime_error = f"{type(exc).__name__}: {exc}"
-            chat_id = gold_notify._direct_chat_id()
-            if not chat_id:
-                raise
-            receipt = gold_notify._send_direct_telegram_message(
-                chat_id=chat_id,
-                text=message,
-                url_buttons=url_buttons,
-            )
-            report["delivery_mode"] = "direct_chat_fallback"
-            report["message_ids"] = list(receipt.get("message_ids") or [])
-
-    if runtime_error:
-        report["runtime_error"] = runtime_error
-    if container_runtime_error:
-        report["container_runtime_error"] = container_runtime_error
+    delivery = gold_notify.deliver_notification_for_principal(
+        principal_id=principal_id,
+        text=message,
+        url_buttons=url_buttons,
+    )
+    report["delivery_mode"] = str(delivery.get("delivery_mode") or "").strip()
+    report["message_ids"] = [str(value) for value in list(delivery.get("message_ids") or []) if str(value or "").strip()]
+    if delivery.get("runtime_error"):
+        report["runtime_error"] = str(delivery.get("runtime_error") or "").strip()
+    if delivery.get("container_runtime_error"):
+        report["container_runtime_error"] = str(delivery.get("container_runtime_error") or "").strip()
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(

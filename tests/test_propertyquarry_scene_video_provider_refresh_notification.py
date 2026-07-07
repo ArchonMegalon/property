@@ -179,6 +179,53 @@ def test_scene_video_provider_refresh_notification_falls_back_to_direct_chat(tmp
     assert sent["chat_id"] == "1354554303"
 
 
+def test_scene_video_provider_refresh_notification_prefers_container_runtime_when_enabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    packet = _packet()
+    verifier = _verifier()
+    runtime_status = _runtime_status()
+    packet_path = _write_json(tmp_path / "packet.json", packet)
+    verifier_path = _write_json(tmp_path / "verifier.json", verifier)
+    runtime_status_path = _write_json(tmp_path / "runtime.json", runtime_status)
+    state_path = tmp_path / "state.json"
+    observed: dict[str, object] = {}
+
+    monkeypatch.setenv("PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME", "1")
+    monkeypatch.setattr(
+        notify_refresh.gold_notify,
+        "build_tool_runtime",
+        lambda: (_ for _ in ()).throw(AssertionError("should not build runtime")),
+    )
+    monkeypatch.setattr(
+        notify_refresh.gold_notify,
+        "_send_container_runtime_telegram_message",
+        lambda **kwargs: observed.update(kwargs) or {"message_ids": ["5093"], "container_name": "propertyquarry-api"},
+    )
+
+    report = notify_refresh.build_notification_report(
+        packet=packet,
+        packet_path=packet_path,
+        verifier=verifier,
+        verifier_path=verifier_path,
+        runtime_status=runtime_status,
+        runtime_status_path=runtime_status_path,
+        state_path=state_path,
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        base_url="https://propertyquarry.com",
+        force=False,
+    )
+
+    assert report["sent"] is True
+    assert report["delivery_mode"] == "container_runtime_preferred"
+    assert report["message_ids"] == ["5093"]
+    assert observed["principal_id"] == "cf-email:tibor.girschele@gmail.com"
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state_payload["delivery_mode"] == "container_runtime_preferred"
+    assert state_payload["message_ids"] == ["5093"]
+
+
 def test_scene_video_provider_refresh_notification_dedupes_semantically_identical_receipts(
     tmp_path: Path,
     monkeypatch,

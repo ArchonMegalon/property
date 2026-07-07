@@ -281,11 +281,13 @@ fi
 scene_video_refresh_notification_principal_id="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID:-${EA_PRINCIPAL_ID:-propertyquarry-operator}}"
 scene_video_refresh_notification_base_url="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL:-${live_mobile_base_url}}"
 scene_video_refresh_notification_state="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE:-_completion/scene_video_readiness/provider-refresh-telegram-state.json}"
+notification_prefer_container_runtime="${PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME:-1}"
 scene_video_refresh_notification_report="_completion/scene_video_readiness/provider-refresh-telegram-report.json"
 scene_video_refresh_notification_enabled="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED:-0}"
 case "${scene_video_refresh_notification_enabled,,}" in
   1|true|yes|y|on|enabled)
-    if ! PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_notify_scene_video_provider_refresh.py \
+    if ! PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME="${notification_prefer_container_runtime}" \
+      PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_notify_scene_video_provider_refresh.py \
       --packet _completion/scene_video_readiness/provider-refresh-packet.json \
       --verifier _completion/scene_video_readiness/provider-refresh-packet-verifier.json \
       --runtime-status _completion/scene_video_readiness/runtime-status.json \
@@ -336,7 +338,8 @@ gold_notification_report="_completion/property_gold_status/telegram-notify-repor
 gold_notification_enabled="${PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED:-0}"
 case "${gold_notification_enabled,,}" in
   1|true|yes|y|on|enabled)
-    if ! PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_notify_gold_status.py \
+    if ! PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME="${notification_prefer_container_runtime}" \
+      PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_notify_gold_status.py \
       --receipt _completion/property_gold_status/release-gate.json \
       --state-file "${gold_notification_state}" \
       --principal-id "${gold_notification_principal_id}" \

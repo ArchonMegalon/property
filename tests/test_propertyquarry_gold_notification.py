@@ -250,6 +250,50 @@ def test_gold_notification_falls_back_to_container_runtime_when_host_runtime_boo
     assert state_payload["message_ids"] == ["4301"]
 
 
+def test_gold_notification_prefers_container_runtime_when_enabled(tmp_path: Path, monkeypatch) -> None:
+    receipt_payload = {
+        "status": "pass",
+        "ready_for_notification": True,
+        "generated_at": "2026-06-27T08:14:13Z",
+        "pass_areas": [{"area": "billing_handoff"}],
+    }
+    receipt_path = _write_json(
+        tmp_path / "_completion" / "propertyquarry-gold-status-latest.json",
+        receipt_payload,
+    )
+    state_path = tmp_path / "_completion" / "propertyquarry-gold-notification-state.json"
+    observed: dict[str, object] = {}
+
+    monkeypatch.setenv("PROPERTYQUARRY_NOTIFICATION_PREFER_CONTAINER_RUNTIME", "1")
+    monkeypatch.setattr(
+        notify_gold_status,
+        "build_tool_runtime",
+        lambda: (_ for _ in ()).throw(AssertionError("should not build runtime")),
+    )
+    monkeypatch.setattr(
+        notify_gold_status,
+        "_send_container_runtime_telegram_message",
+        lambda **kwargs: observed.update(kwargs) or {"message_ids": ["4302"], "container_name": "propertyquarry-api"},
+    )
+
+    report = notify_gold_status.build_notification_report(
+        payload=receipt_payload,
+        receipt_path=receipt_path,
+        state_path=state_path,
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        base_url="https://propertyquarry.com",
+        force=False,
+    )
+
+    assert report["sent"] is True
+    assert report["delivery_mode"] == "container_runtime_preferred"
+    assert report["message_ids"] == ["4302"]
+    assert observed["principal_id"] == "cf-email:tibor.girschele@gmail.com"
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state_payload["delivery_mode"] == "container_runtime_preferred"
+    assert state_payload["message_ids"] == ["4302"]
+
+
 def test_gold_notification_dedupes_same_pass_receipt(tmp_path: Path, monkeypatch) -> None:
     receipt_payload = {
         "status": "pass",
