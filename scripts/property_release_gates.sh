@@ -278,6 +278,31 @@ else
     --write _completion/provider_smoke/release-gate-provider-matrix.json \
     > /dev/null
 fi
+scene_video_refresh_notification_principal_id="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID:-${EA_PRINCIPAL_ID:-propertyquarry-operator}}"
+scene_video_refresh_notification_base_url="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL:-${live_mobile_base_url}}"
+scene_video_refresh_notification_state="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE:-_completion/scene_video_readiness/provider-refresh-telegram-state.json}"
+scene_video_refresh_notification_report="_completion/scene_video_readiness/provider-refresh-telegram-report.json"
+scene_video_refresh_notification_enabled="${PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED:-0}"
+case "${scene_video_refresh_notification_enabled,,}" in
+  1|true|yes|y|on|enabled)
+    if ! PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_notify_scene_video_provider_refresh.py \
+      --packet _completion/scene_video_readiness/provider-refresh-packet.json \
+      --verifier _completion/scene_video_readiness/provider-refresh-packet-verifier.json \
+      --runtime-status _completion/scene_video_readiness/runtime-status.json \
+      --state-file "${scene_video_refresh_notification_state}" \
+      --principal-id "${scene_video_refresh_notification_principal_id}" \
+      --base-url "${scene_video_refresh_notification_base_url}" \
+      --write "${scene_video_refresh_notification_report}" >/dev/null; then
+      echo "warning: PropertyQuarry scene-video provider refresh notification script failed." >&2
+      cat "${scene_video_refresh_notification_report}" >&2 2>/dev/null || true
+    fi
+    ;;
+  *)
+    mkdir -p "$(dirname "${scene_video_refresh_notification_report}")"
+    printf '{"status":"skipped","reason":"PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED_not_set"}\n' > "${scene_video_refresh_notification_report}"
+    ;;
+esac
+
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --performance-receipt _completion/smoke/property-auth-performance-release-gate.json \
   --tour-control-receipt _completion/property_tour_controls/release-gate.json \

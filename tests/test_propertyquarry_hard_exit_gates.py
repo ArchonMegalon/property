@@ -666,5 +666,9 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     assert "_completion/tours/property-runtime-reconstruction-release-gate.json" in release
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED" in deploy
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED_not_set" in deploy
+    assert "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED" in deploy
+    assert "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED_not_set" in deploy
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED" in release
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED_not_set" in release
+    assert "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED" in release
+    assert "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED_not_set" in release

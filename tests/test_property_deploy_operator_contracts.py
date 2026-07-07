@@ -54,6 +54,7 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "scripts/property_live_provider_smoke.py",
         "scripts/propertyquarry_gold_status.py",
         "scripts/propertyquarry_notify_gold_status.py",
+        "scripts/propertyquarry_notify_scene_video_provider_refresh.py",
         "propertyquarry_deploy_public_smoke.json",
         "propertyquarry_deploy_authenticated_smoke.json",
         "propertyquarry_deploy_market_scope_smoke.json",
@@ -61,6 +62,7 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "_completion/property_gold_status/release-gate.json",
         "propertyquarry-gold-status-latest.json",
         "_completion/property_gold_status/telegram-notify-report.json",
+        "_completion/scene_video_readiness/provider-refresh-telegram-report.json",
         "PROPERTYQUARRY_DEPLOY_PUBLIC_SMOKE_TIMEOUT_SECONDS:-8",
         "PROPERTYQUARRY_DEPLOY_AUTHENTICATED_SMOKE_TIMEOUT_SECONDS:-20",
         "PROPERTYQUARRY_DEPLOY_MARKET_SCOPE_SMOKE_TIMEOUT_SECONDS:-8",
@@ -70,6 +72,10 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID",
         "PROPERTYQUARRY_GOLD_NOTIFICATION_BASE_URL",
         "PROPERTYQUARRY_GOLD_NOTIFICATION_STATE",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BOOTSTRAP_EDGE",
         "PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE",
         "PROPERTYQUARRY_DEPLOY_TMP_DIR",
@@ -134,6 +140,7 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         'up -d --no-deps --force-recreate "${api_service}"',
         'up -d --no-deps --force-recreate "${scheduler_service}"',
         "Warning: PropertyQuarry gold notification script failed.",
+        "Warning: PropertyQuarry scene-video provider refresh notification script failed.",
         "--live-mobile-receipt _completion/smoke/property-live-mobile-surface-latest.json",
         "--public-smoke-receipt _completion/smoke/property-live-public-latest.json",
         "--authenticated-smoke-receipt _completion/smoke/property-live-authenticated-latest.json",
@@ -367,11 +374,13 @@ def test_property_deploy_refreshes_scene_video_receipts_before_gold_status() -> 
         '_completion/scene_video_readiness/runtime-status.json',
         '_completion/scene_video_readiness/provider-refresh-packet.json',
         '_completion/scene_video_readiness/provider-refresh-packet-verifier.json',
+        '_completion/scene_video_readiness/provider-refresh-telegram-report.json',
         'python /app/scripts/property_scene_video_readiness_report.py',
         'python /app/scripts/verify_property_scene_video_readiness.py',
         'python /app/scripts/property_scene_video_runtime_status.py',
         'python /app/scripts/materialize_scene_video_provider_refresh_packet.py',
         'python /app/scripts/verify_scene_video_provider_refresh_packet.py',
+        'scripts/propertyquarry_notify_scene_video_provider_refresh.py',
         '--scene-video-readiness-receipt "${scene_video_receipt}"',
         '--scene-video-readiness-verifier-receipt "${scene_video_verifier_receipt}"',
         '--scene-video-runtime-status-receipt "${scene_video_runtime_status_receipt}"',
@@ -379,6 +388,7 @@ def test_property_deploy_refreshes_scene_video_receipts_before_gold_status() -> 
         '--scene-video-provider-refresh-packet-verifier-receipt "${scene_video_refresh_packet_verifier}"',
     ):
         assert required in deploy_script
+    assert deploy_script.index('scene_video_refresh_notification_report="_completion/scene_video_readiness/provider-refresh-telegram-report.json"') < deploy_script.index('if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py')
 
 
 def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_gold_status() -> None:
@@ -393,15 +403,22 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
         "--output _completion/scene_video_readiness/runtime-status.json",
         "scripts/materialize_scene_video_provider_refresh_packet.py",
         "scripts/verify_scene_video_provider_refresh_packet.py",
+        "scripts/propertyquarry_notify_scene_video_provider_refresh.py",
         "_completion/scene_video_readiness/runtime-status.json",
         "--scene-video-runtime-status-receipt _completion/scene_video_readiness/runtime-status.json",
         "_completion/scene_video_readiness/provider-refresh-packet.json",
         "_completion/scene_video_readiness/provider-refresh-packet-verifier.json",
+        "_completion/scene_video_readiness/provider-refresh-telegram-report.json",
         "--scene-video-provider-refresh-packet _completion/scene_video_readiness/provider-refresh-packet.json",
         "--scene-video-provider-refresh-packet-verifier-receipt _completion/scene_video_readiness/provider-refresh-packet-verifier.json",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL",
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE",
     ):
         assert required in release_gate
 
+    assert release_gate.index('scene_video_refresh_notification_report="_completion/scene_video_readiness/provider-refresh-telegram-report.json"') < release_gate.index('PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py')
     assert "> /data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json" not in release_gate
     assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE" in release_gate
     assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE" in release_gate
@@ -420,6 +437,8 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
     assert "scripts/verify_property_tour_provider_ownership.py" in release_gate
     assert "_completion/property_tour_ownership/release-gate.json" in release_gate
     assert "--tour-provider-ownership-receipt _completion/property_tour_ownership/release-gate.json" in release_gate
+    assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED" in release_gate
+    assert "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED" in release_gate
     assert "tests/test_property_live_mobile_surface_smoke.py" in release_gate
 
 

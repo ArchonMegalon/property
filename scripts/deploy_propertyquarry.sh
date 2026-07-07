@@ -60,6 +60,18 @@ Environment:
                                   Public URL included in the gold notification. Defaults to https://propertyquarry.com.
   PROPERTYQUARRY_GOLD_NOTIFICATION_STATE
                                   Send-once state file for green gold notifications.
+  PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED
+                                  1 enables the Telegram scene-video provider refresh notification when
+                                  current runtime receipts still show actionable MagicFit/OMagic gaps.
+                                  Defaults to 0.
+  PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID
+                                  Telegram notification principal for the scene-video provider refresh ask.
+                                  Defaults to EA_PRINCIPAL_ID or propertyquarry-operator.
+  PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL
+                                  Public URL included in the scene-video provider refresh notification.
+                                  Defaults to https://propertyquarry.com.
+  PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE
+                                  Send-once state file for scene-video provider refresh notifications.
   PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BOOTSTRAP_EDGE
                                   1|0|auto. When billing.propertyquarry.com is configured, keeps the
                                   Cloudflare billing worker aligned with the current billing host and
@@ -1569,6 +1581,40 @@ docker cp "${api_container_name}:${scene_video_verifier_container_receipt}" "${s
 docker cp "${api_container_name}:${scene_video_runtime_status_container_receipt}" "${scene_video_runtime_status_receipt}" >/dev/null
 docker cp "${api_container_name}:${scene_video_refresh_packet_container_receipt}" "${scene_video_refresh_packet}" >/dev/null
 docker cp "${api_container_name}:${scene_video_refresh_packet_verifier_container_receipt}" "${scene_video_refresh_packet_verifier}" >/dev/null
+
+scene_video_refresh_notification_principal_id="$(effective_env_value PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_PRINCIPAL_ID)"
+scene_video_refresh_notification_principal_id="${scene_video_refresh_notification_principal_id:-${EA_PRINCIPAL_ID:-propertyquarry-operator}}"
+scene_video_refresh_notification_base_url="$(effective_env_value PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_BASE_URL)"
+scene_video_refresh_notification_base_url="${scene_video_refresh_notification_base_url:-https://propertyquarry.com}"
+scene_video_refresh_notification_state="$(effective_env_value PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_STATE)"
+scene_video_refresh_notification_state="${scene_video_refresh_notification_state:-_completion/scene_video_readiness/provider-refresh-telegram-state.json}"
+scene_video_refresh_notification_report="_completion/scene_video_readiness/provider-refresh-telegram-report.json"
+scene_video_refresh_notification_enabled="$(effective_env_value PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED)"
+scene_video_refresh_notification_enabled="${scene_video_refresh_notification_enabled:-0}"
+case "${scene_video_refresh_notification_enabled,,}" in
+  1|true|yes|y|on|enabled)
+    if ! DATABASE_URL="${database_url}" \
+      EA_STORAGE_BACKEND="${storage_backend}" \
+      EA_TELEGRAM_BOT_REGISTRY_JSON="${telegram_bot_registry_json}" \
+      EA_TELEGRAM_BOT_TOKEN="${telegram_bot_token}" \
+      EA_TELEGRAM_BOT_HANDLE="${telegram_bot_handle}" \
+      PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_notify_scene_video_provider_refresh.py \
+        --packet "${scene_video_refresh_packet}" \
+        --verifier "${scene_video_refresh_packet_verifier}" \
+        --runtime-status "${scene_video_runtime_status_receipt}" \
+        --state-file "${scene_video_refresh_notification_state}" \
+        --principal-id "${scene_video_refresh_notification_principal_id}" \
+        --base-url "${scene_video_refresh_notification_base_url}" \
+        --write "${scene_video_refresh_notification_report}" >/dev/null; then
+      echo "Warning: PropertyQuarry scene-video provider refresh notification script failed." >&2
+      cat "${scene_video_refresh_notification_report}" >&2 2>/dev/null || true
+    fi
+    ;;
+  *)
+    mkdir -p "$(dirname "${scene_video_refresh_notification_report}")"
+    printf '{"status":"skipped","reason":"PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED_not_set"}\n' > "${scene_video_refresh_notification_report}"
+    ;;
+esac
 
 settle_runtime_priorities 4
 
