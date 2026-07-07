@@ -15,7 +15,7 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 - The backend repair lane at `https://propertyquarry.directoryup.com/admin/login` is reachable without reCAPTCHA and exposes a password-recovery URL, but the locally seeded shared account did not authenticate there on 2026-06-27; the remaining self-service repair dependency is the real Brilliant Directories admin username/password or a completed backend password reset.
 - The PropertyQuarry runtime Telegram notification path is verified separately for `cf-email:person@example.test`, but gold/deploy scripts do not send messages by default. Set `PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED=1` for an explicit operator notification run; otherwise `_completion/property_gold_status/telegram-notify-report.json` records a skipped notification.
 - `scripts/check_property_release_hygiene.py` was rerun after the 2026-07-01 live proof-copy polish deploy so the manifest can track the current deployed candidate commit again instead of the earlier 2026-06-27 billing-handoff candidate.
-- The latest verified live deploy on 2026-07-07 now runs commit `1a5f25d2` locally and through the PropertyQuarry release remotes; it keeps the research-detail nearby-distance fixes live, backfills nearby facts from postal-scope hints when saved runs are sparse, and now carries the scene-video runtime-status gold-proof wiring from `8cad0ff2`.
+- The latest verified live deploy on 2026-07-07 now runs commit `660ecbc6` locally and through the PropertyQuarry release remotes; it keeps the research-detail nearby-distance fixes live, backfills nearby facts from postal-scope hints when saved runs are sparse, carries the scene-video runtime-status gold-proof wiring from `8cad0ff2`, and stabilizes gold blocker keys for `scene_video_provider_runtime` and `release_hygiene`.
 - The current 2026-07-06 gold-status proof still fails closed on scene-video provider runtime readiness until MagicFit/Magic/OMagic account visibility, credit posture, credentials, and OMagic upload-endpoint evidence are refreshed.
 - The current 2026-07-07 gold-status proof still fails closed on the same external-state `magicfit`, `magic`, and `omagic` provider-runtime blockers, but the deployed gold receipt can now surface them through nested `scene_video_readiness.runtime_status` data instead of relying on a separate standalone runtime-status report.
 - The 2026-07-01 live proof-copy polish deploy removed the default score-guide block, duplicate score explanation cards, visible proof-style selected-property badges, and stale proof-heavy public-tour/dossier/PDF fallback wording.
@@ -34,17 +34,25 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `1a5f25d26c14450a3e22c7660a74f8fa56c76561` |
+| Runtime commit SHA | `660ecbc63f1530a9bd20888ca86216ff7571ed32` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | `local-20260707T021543Z-1a5f25d26c14`; current integrated local/live candidate with the research-detail nearby-distance fixes live, postal-scope nearby-distance backfill, deployed scene-video runtime-status gold-proof wiring, public/auth shared-run smoke coverage, presentation and 3D browser gates, account/billing/auth polish, OMagic adapter packaging, and explicit fail-closed scene-video provider-runtime blockers |
+| Deployment ID | `local-20260707T022327Z-660ecbc63f15`; current integrated local/live candidate with the research-detail nearby-distance fixes live, postal-scope nearby-distance backfill, deployed scene-video runtime-status gold-proof wiring, stabilized gold blocker keys, public/auth shared-run smoke coverage, presentation and 3D browser gates, account/billing/auth polish, OMagic adapter packaging, and explicit fail-closed scene-video provider-runtime blockers |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
 The live gold-proof wiring deploy on 2026-07-07 verified:
 
-- Commit `1a5f25d2` is the current deployed runtime candidate, and its parent `8cad0ff2` is the code change that wires `property_scene_video_runtime_status.py` into deploy, release-gate, gold-refresh, and gold-status proof.
+- The live gold-blocker key stabilization deploy on 2026-07-07 verified:
+  - Commit `660ecbc6` is the current deployed runtime candidate. It keeps the scene-video runtime-status gold-proof wiring live, stabilizes gold blocker keys, and preserves the authenticated research-detail nearby-distance rail truth verified below.
+  - `pytest -q tests/test_propertyquarry_gold_status.py -k 'scene_video or release_hygiene' --tb=short` returned `2 passed`.
+  - `python3 -m py_compile scripts/propertyquarry_gold_status.py tests/test_propertyquarry_gold_status.py` passed.
+  - A direct gold-status run (`python3 scripts/propertyquarry_gold_status.py --write /tmp/propertyquarry-gold-status-current.json`) now emits blocker keys `scene_video_provider_runtime` and `release_hygiene` instead of null blocker keys.
+  - `make deploy` rebuilt the live `propertyquarry-api` image and restarted `propertyquarry-api` plus `propertyquarry-scheduler`; both containers returned healthy afterward.
+  - `curl -fsS http://127.0.0.1:8097/version` returned `release_commit_sha=660ecbc63f1530a9bd20888ca86216ff7571ed32` with deployment id `local-20260707T022327Z-660ecbc63f15`.
+
+- Commit `1a5f25d2` was the deployed runtime candidate for the gold-proof wiring deploy, and its parent `8cad0ff2` is the code change that wires `property_scene_video_runtime_status.py` into deploy, release-gate, gold-refresh, and gold-status proof.
 - Focused wiring regressions passed:
   - `pytest -q tests/test_property_deploy_operator_contracts.py -k 'scene_video or gold_refresh' --tb=short` returned `4 passed`.
   - `pytest -q tests/test_propertyquarry_gold_status.py -k 'scene_video' --tb=short` returned `1 passed`.
@@ -58,7 +66,14 @@ The live gold-proof wiring deploy on 2026-07-07 verified:
 
 The live no-fallback nearby-distance rail deploy on 2026-07-06 verified:
 
-- Commit `8598c091` is the current deployed runtime candidate for removing the generic nearby-distance fallback rail from research detail pages when a run saved no nearby filters, while preserving the selected-distance rail for runs that did.
+- The live authenticated research-detail reconciliation on 2026-07-07 verified:
+  - `curl -fsS http://127.0.0.1:8097/version` returned `release_commit_sha=660ecbc63f1530a9bd20888ca86216ff7571ed32` with deployment id `local-20260707T022327Z-660ecbc63f15`.
+  - Authenticated origin probe on `http://127.0.0.1:8097/app/research/26abb3749ce943c0?run_id=5aa064d3f2cd480782d0006e8314dd0d` with `Host: propertyquarry.com`, `x-ea-api-token`, and `x-ea-principal-id` rendered `Nearby distances`, `data-research-selected-distances`, and the copy `Distances for the nearby filters saved on this workspace.`
+  - The same live page rendered the selected-distance rows `Nearest supermarket: Billa is 189 m away; selected limit 500 m.`, `Nearest playground is 688 m away; selected limit 1000 m.`, `Nearest library: Wissenschaftliches Kabinett - Simon Weber-Unger is 260 m away; selected limit 1000 m.`, `Nearest pharmacy: Graben-Apotheke "Zum schwarzen Bären" is 133 m away; selected limit 500 m.`, `Nearest market: Gemma – Vienna City Market is 472 m away; selected limit 5000 m.`, `Nearest underground: Graben is 133 m away; selected limit 500 m.`, and `Nearest school distance is not listed yet; selected limit 2000 m.`
+  - The same probe returned no `Other homes` copy and no `data-research-ranking-list` marker.
+  - Database truth still shows that saved run `5aa064d3f2cd480782d0006e8314dd0d` itself carries no nearby filters in `property_search_runs`, while the authenticated workspace still carries matching saved Vienna search-agent briefs with nearby filter preferences; this current live panel therefore reflects workspace-scoped saved filters and supersedes the older sparse-route note below.
+
+- Commit `8598c091` was the deployed runtime candidate for removing the generic nearby-distance fallback rail from research detail pages when a run saved no nearby filters, while preserving the selected-distance rail for runs that did.
 - Focused regressions passed:
   - `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_property_research_detail_replaces_other_homes_with_selected_distance_checks tests/test_propertyquarry_workspace_redesign.py::test_property_research_detail_hides_nearby_distance_panel_when_no_filters_selected` returned `2 passed`.
   - `pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'selected_distance_rows_follow_selected_nearby_filters or backfill_source_research_for_selected_distance_checks or retry_missing_nearby_rows_after_location_hint_attempt or stale_run_distance_detail'` returned `4 passed`.
@@ -69,7 +84,7 @@ The live no-fallback nearby-distance rail deploy on 2026-07-06 verified:
 
 The live run-scoped distance-filter correction on 2026-07-06 verified:
 
-- Commit `7fd2aa34` is the current deployed runtime candidate for preserving run-selected nearby distance filters on research detail pages even when the run snapshot is marked stale relative to the user’s current onboarding brief.
+- Commit `7fd2aa34` was the deployed runtime candidate for preserving run-selected nearby distance filters on research detail pages even when the run snapshot is marked stale relative to the user’s current onboarding brief.
 - `python3 -m py_compile ea/app/api/routes/landing.py ea/app/api/routes/landing_property_research.py` passed.
 - Focused regressions passed:
   - `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_selected_distance_rows_follow_selected_nearby_filters tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_selected_distance_rows_support_legacy_nearby_preference_flags tests/test_propertyquarry_workspace_redesign.py::test_property_enriched_candidate_facts_backfill_source_research_for_selected_distance_checks tests/test_propertyquarry_workspace_redesign.py::test_property_research_detail_replaces_other_homes_with_selected_distance_checks tests/test_propertyquarry_workspace_redesign.py::test_property_research_detail_uses_run_distance_filters_even_when_run_snapshot_is_stale tests/test_propertyquarry_workspace_redesign.py::test_property_research_detail_right_rail_stays_compact tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces --tb=short` returned `7 passed`.
@@ -80,7 +95,7 @@ The live run-scoped distance-filter correction on 2026-07-06 verified:
 
 The live research-detail/sidebar correction on 2026-07-06 verified:
 
-- Commit `43d14aa3` is the current deployed runtime candidate for replacing the research-detail sibling-home rail with nearby-distance checks and for forcing `Open property` back onto first-party `/app/research/...` packet URLs.
+- Commit `43d14aa3` was the deployed runtime candidate for replacing the research-detail sibling-home rail with nearby-distance checks and for forcing `Open property` back onto first-party `/app/research/...` packet URLs.
 - `python3 -m py_compile ea/app/api/routes/landing.py ea/app/api/routes/landing_property_research.py` passed.
 - Focused regressions passed:
   - `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_selected_distance_rows_follow_selected_nearby_filters tests/test_propertyquarry_workspace_redesign.py::test_property_research_detail_replaces_other_homes_with_selected_distance_checks tests/test_propertyquarry_workspace_redesign.py::test_property_research_detail_right_rail_stays_compact --tb=short` returned `4 passed`.
